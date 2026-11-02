@@ -2,6 +2,8 @@ canvas-react-vendor-src/**
 esbuild.canvasReactVendor.mts
 markdown-rich-src/**
 esbuild.markdownRich.mts
+test/**
+test.*.mts
 tsconfig.json
 node_modules/**
 **/*.map

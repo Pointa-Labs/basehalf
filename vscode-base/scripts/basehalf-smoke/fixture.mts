@@ -60,7 +60,9 @@ export function createFixtureWorkspace(workspace) {
 		'> **Smoke editable quote.** It keeps a [guide link](docs/guide.md) as a rich quote block.',
 		'',
 		'- **Smoke nested item** starts here',
-		'  nested-menu-anchor continuation',
+		// A block nested in the item: Rich reads an indented line without a
+		// marker as the item's own text going on, as the card shows it.
+		'  - nested-menu-anchor continuation',
 		'',
 		'needle-basehalf-routing',
 		'',

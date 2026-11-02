@@ -11,10 +11,11 @@ import {
 import {
 	buildBaseHalfMarkdownLoadProjection,
 	collectBaseHalfMarkdownSaveContributions,
+	planBaseHalfMarkdownMerge,
 	segmentBaseHalfMarkdownBody,
-	spliceBaseHalfMarkdownSave,
-	IBaseHalfMarkdownEditorApi
+	spliceBaseHalfMarkdownSave
 } from '../../common/basehalfMarkdownProjection.js';
+import { BaseHalfNoteTestEditor } from './basehalfNoteTestEditor.js';
 
 suite('BaseHalfMarkdownMerge', () => {
 	suite('diffBaseHalfMarkdownSegments', () => {
@@ -91,14 +92,18 @@ suite('BaseHalfMarkdownMerge', () => {
 	});
 
 	suite('merge alignment invariants', () => {
-		test('save contributions reproduce the on-disk body byte for byte while untouched', async () => {
-			const editor = new SimpleMarkdownEditor();
-			const body = '# Title\n\npara one\n\n- item a\n- item b\n\npara two\n';
-			const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editor, body);
+		const idOf = (block: unknown) => (block as { id: string }).id;
+		const textOf = (block: unknown) => ((block as { content: { text: string }[] }).content).map(run => run.text).join('');
+		const withText = (block: unknown, text: string) => ({ ...(block as object), content: [{ type: 'text', text, styles: {} }] });
 
-			const contributions = await collectBaseHalfMarkdownSaveContributions(editor, blocks, byId);
+		test('save contributions reproduce the on-disk body byte for byte while untouched', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const body = '# Title\n\npara one\n\n- item a\n- item b\n\npara two\n';
+			const { blocks, byId, note } = await buildBaseHalfMarkdownLoadProjection(editor, body);
+
+			const contributions = await collectBaseHalfMarkdownSaveContributions(editor, blocks, byId, note);
 			assert.strictEqual(contributions.map(contribution => contribution.text).join(''), body);
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, blocks, '', byId), body);
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, blocks, '', byId, note), body);
 
 			const groups = groupBaseHalfMarkdownContributions(
 				contributions.map(contribution => contribution.text),
@@ -107,59 +112,106 @@ suite('BaseHalfMarkdownMerge', () => {
 			assert.deepStrictEqual(groups, [[0], [1], [2], [3], [4]]);
 		});
 
-		test('locates an agent edit to one segment with everything else aligned', async () => {
-			const editor = new SimpleMarkdownEditor();
+		test('an outside change reads its segment anew and keeps every other block', async () => {
+			const editor = new BaseHalfNoteTestEditor();
 			const oldBody = '# Title\n\npara one\n\npara two\n';
 			const newBody = '# Title\n\npara one CHANGED\n\npara two\n';
-			const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editor, oldBody);
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, oldBody);
 
-			const contributions = await collectBaseHalfMarkdownSaveContributions(editor, blocks, byId);
-			const oldRaws = segmentBaseHalfMarkdownBody(oldBody).map(segment => segment.raw);
-			const newRaws = segmentBaseHalfMarkdownBody(newBody).map(segment => segment.raw);
-			const groups = groupBaseHalfMarkdownContributions(contributions.map(contribution => contribution.text), oldRaws);
-			assert.ok(groups);
+			const plan = await planBaseHalfMarkdownMerge(editor, projection.blocks, projection.byId, projection.note, oldBody, newBody);
+			assert.ok(plan);
+			assert.deepStrictEqual(plan.removeIds, [idOf(projection.blocks[1])]);
+			assert.deepStrictEqual(plan.blocks.map(textOf), ['para one CHANGED']);
 
-			const region = diffBaseHalfMarkdownSegments(oldRaws, newRaws);
-			assert.deepStrictEqual(region, { oldStart: 1, oldEnd: 2, newStart: 1, newEnd: 2 });
+			const document = [projection.blocks[0], ...plan.blocks, projection.blocks[2]];
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, document, '', plan.byId, plan.note), newBody);
+		});
 
-			const removedIds = groups[1].map(index => contributions[index].id);
-			assert.deepStrictEqual(removedIds, [(blocks[1] as { id?: string }).id]);
+		test('blocks the user moved and saved keep standing for what was saved after an outside change', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'A\n\nB\n\nC');
+			const [a, b, c] = projection.blocks;
+			const moved = [a, c, b];
+			const saved = await spliceBaseHalfMarkdownSave(editor, moved, '', projection.byId, projection.note);
+			assert.strictEqual(saved, 'A\n\nC\n\nB\n');
+
+			const outside = `${saved}\nD\n`;
+			const plan = await planBaseHalfMarkdownMerge(editor, moved, projection.byId, projection.note, saved, outside);
+			assert.ok(plan);
+			assert.deepStrictEqual(plan.removeIds, [idOf(b)]);
+			const document = [a, c, ...plan.blocks];
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, document, '', plan.byId, plan.note), outside);
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [a, withText(c, 'C!'), ...plan.blocks], '', plan.byId, plan.note), 'A\n\nC!\n\nB\n\nD\n');
+		});
+
+		test('an outside insertion goes beside the block before it', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const oldBody = 'A\n\nC\n';
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, oldBody);
+
+			const plan = await planBaseHalfMarkdownMerge(editor, projection.blocks, projection.byId, projection.note, oldBody, 'A\n\nB\n\nC\n');
+			assert.ok(plan);
+			assert.deepStrictEqual(plan.removeIds, []);
+			assert.deepStrictEqual(plan.anchor, { id: idOf(projection.blocks[0]), placement: 'after' });
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [projection.blocks[0], ...plan.blocks, projection.blocks[1]], '', plan.byId, plan.note), 'A\n\nB\n\nC\n');
+		});
+
+		test('a document that does not stand for the old body, and a change that leaves no block, are loaded anew', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'A\n\nB\n');
+
+			assert.strictEqual(await planBaseHalfMarkdownMerge(editor, projection.blocks, projection.byId, projection.note, 'A\n\nX\n', 'A\n\nY\n'), undefined);
+			assert.strictEqual(await planBaseHalfMarkdownMerge(editor, projection.blocks, projection.byId, projection.note, 'A\n\nB\n', 'A\n\nB\n'), undefined);
+		});
+
+		test('a toggle that an outside change leaves keeps its blocks, and an edit in it after changes that block alone', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const oldBody = 'Intro\n\n<details>\n<summary>T</summary>\n\none\n\ntwo\n\n</details>\n\nEnd\n';
+			const newBody = 'Intro changed\n\nAnd more\n\n<details>\n<summary>T</summary>\n\none\n\ntwo\n\n</details>\n\nEnd\n';
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, oldBody);
+			const [intro, toggle, end] = projection.blocks as { id: string; children: unknown[] }[];
+
+			const plan = await planBaseHalfMarkdownMerge(editor, projection.blocks, projection.byId, projection.note, oldBody, newBody);
+			assert.ok(plan);
+			assert.deepStrictEqual(plan.removeIds, [intro.id]);
+			const document = [...plan.blocks, toggle, end];
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, document, '', plan.byId, plan.note), newBody);
+
+			const edited = { ...toggle, children: [toggle.children[0], withText(toggle.children[1], 'two!')] };
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [...plan.blocks, edited, end], '', plan.byId, plan.note), newBody.replace('two', 'two!'));
+		});
+
+		test('an outside change inside a toggle reads the toggle anew', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const oldBody = '<details>\n<summary>T</summary>\n\none\n\n</details>\n\nEnd\n';
+			const newBody = '<details>\n<summary>T</summary>\n\none\n\nadded\n\n</details>\n\nEnd\n';
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, oldBody);
+
+			const plan = await planBaseHalfMarkdownMerge(editor, projection.blocks, projection.byId, projection.note, oldBody, newBody);
+			assert.ok(plan);
+			assert.deepStrictEqual(plan.removeIds, [idOf(projection.blocks[0])]);
+			assert.strictEqual((plan.blocks[0] as { children: unknown[] }).children.length, 2);
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [...plan.blocks, projection.blocks[1]], '', plan.byId, plan.note), newBody);
+		});
+
+		test('an outside change of the reference definitions loads the note anew', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const oldBody = 'See [it].\n\nEnd\n';
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, oldBody);
+
+			assert.strictEqual(await planBaseHalfMarkdownMerge(editor, projection.blocks, projection.byId, projection.note, oldBody, 'See [it].\n\nEnd\n\n[it]: https://example.com\n'), undefined);
 		});
 
 		test('contribution view matches splice save after a user edit too', async () => {
-			const editor = new SimpleMarkdownEditor();
-			const body = 'para one\n\npara two\n';
-			const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editor, body);
+			const editor = new BaseHalfNoteTestEditor();
+			const { blocks, byId, note } = await buildBaseHalfMarkdownLoadProjection(editor, 'para one\n\npara two\n');
+			const edited = [withText(blocks[0], 'para one edited'), blocks[1]];
 
-			const edited = blocks.map(block => {
-				const typed = block as { markdown?: string };
-				return typed.markdown === 'para one'
-					? { ...typed, markdown: 'para one edited', content: [{ type: 'text', text: 'para one edited' }] }
-					: block;
-			});
-
-			const contributions = await collectBaseHalfMarkdownSaveContributions(editor, edited, byId);
+			const contributions = await collectBaseHalfMarkdownSaveContributions(editor, edited, byId, note);
 			assert.strictEqual(
 				contributions.map(contribution => contribution.text).join(''),
-				await spliceBaseHalfMarkdownSave(editor, edited, '', byId)
+				await spliceBaseHalfMarkdownSave(editor, edited, '', byId, note)
 			);
 		});
 	});
 });
-
-class SimpleMarkdownEditor implements IBaseHalfMarkdownEditorApi {
-	private nextId = 1;
-
-	tryParseMarkdownToBlocks(markdown: string): unknown[] {
-		return [{
-			id: `b${this.nextId++}`,
-			type: /^\s*(?:[-*+]|\d+\.)\s/.test(markdown) ? 'bulletListItem' : 'paragraph',
-			content: [{ type: 'text', text: markdown.trimEnd() }],
-			markdown: markdown.trimEnd()
-		}];
-	}
-
-	blocksToMarkdownLossy(blocks: unknown[]): string {
-		return blocks.map(block => (block as { markdown?: string }).markdown ?? '').join('\n');
-	}
-}

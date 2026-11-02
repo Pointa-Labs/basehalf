@@ -17,9 +17,11 @@ import {
 } from '../../common/basehalfMarkdownBlockLines.js';
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
+	buildBaseHalfMarkdownLoadProjection,
 	IBaseHalfMarkdownReuseEntry,
 	segmentBaseHalfMarkdownBody
 } from '../../common/basehalfMarkdownProjection.js';
+import { BaseHalfNoteTestEditor } from './basehalfNoteTestEditor.js';
 
 suite('BaseHalfMarkdownBlockLines', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -106,6 +108,17 @@ suite('BaseHalfMarkdownBlockLines', () => {
 
 			assert.strictEqual(baseHalfMarkdownBlockFileLine(blocks, 'parent', byId, 0), 3);
 			assert.strictEqual(baseHalfMarkdownBlockFileLine(blocks, 'child', byId, 0), 3);
+		});
+
+		test('maps a block in a toggle whose parts are blocks of their own to its own line', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Intro\n\n<details>\n<summary>T</summary>\n\none\n\ntwo\n\n</details>\n');
+			const blocks = projection.blocks as unknown as IBaseHalfMarkdownBlockNode[];
+			const [, second] = blocks[1].children!;
+
+			assert.strictEqual(baseHalfMarkdownBlockFileLine(blocks, blocks[1].id, projection.byId, 0), 3);
+			assert.strictEqual(baseHalfMarkdownBlockFileLine(blocks, second.id, projection.byId, 0), 8);
+			assert.deepStrictEqual(baseHalfMarkdownBlockSourceSpan(blocks, second.id, projection.byId, 0), { start: 8, end: 8 });
 		});
 
 		test('returns null when the id is absent', () => {

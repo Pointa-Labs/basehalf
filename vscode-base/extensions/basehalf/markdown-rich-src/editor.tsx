@@ -7,7 +7,6 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import './editor.css';
 
-import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from '@blocknote/core';
 import { insertOrUpdateBlockForSlashMenu, SideMenuExtension } from '@blocknote/core/extensions';
 import { en, zh, zhTW, type Dictionary } from '@blocknote/core/locales';
 import { BlockNoteView, type Theme } from '@blocknote/mantine';
@@ -15,10 +14,6 @@ import {
 	FormattingToolbar,
 	FormattingToolbarController,
 	GenericPopover,
-	ReactAudioBlock,
-	ReactFileBlock,
-	ReactImageBlock,
-	ReactVideoBlock,
 	SideMenu,
 	SuggestionMenuController,
 	getFormattingToolbarItems,
@@ -28,8 +23,8 @@ import {
 	type FloatingUIOptions,
 	type GenericPopoverReference,
 } from '@blocknote/react';
-import { applyUpdate, Doc as YDoc, UndoManager, type XmlFragment } from 'yjs';
-import { defaultDeleteFilter, defaultProtectedNodes, ySyncPluginKey, yUndoPluginKey } from 'y-prosemirror';
+import { applyUpdate, Doc as YDoc, type XmlFragment } from 'yjs';
+import { ySyncPluginKey } from 'y-prosemirror';
 import { TextSelection, type EditorState } from '@tiptap/pm/state';
 import { createRoot } from 'react-dom/client';
 import {
@@ -42,9 +37,9 @@ import {
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
+	baseHalfMarkdownBlockPath,
 	baseHalfMarkdownBlockReadSpan,
 	baseHalfMarkdownLinesToBlockIds,
-	baseHalfMarkdownTopLevelBlockOf,
 	countBaseHalfMarkdownNewlines,
 	type IBaseHalfMarkdownBlockNode,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownBlockLines.js';
@@ -54,27 +49,21 @@ import {
 	type IBaseHalfAdhdFile,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfAdhd.js';
 import {
+	adoptBaseHalfMarkdownLoadProjection,
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
-	baseHalfBlocksToMarkdown,
 	buildBaseHalfMarkdownLoadProjection,
 	collectBaseHalfMarkdownSaveContributions,
-	projectBaseHalfMarkdownSegment,
-	segmentBaseHalfMarkdownBody,
+	createBaseHalfMarkdownNote,
+	planBaseHalfMarkdownMerge,
 	spliceBaseHalfMarkdownSave,
 	splitBaseHalfMarkdownFrontmatter,
 	type IBaseHalfMarkdownEditorApi,
+	type IBaseHalfMarkdownNote,
 	type IBaseHalfMarkdownReuseEntry,
+	type IBaseHalfMarkdownSaveContribution,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
-import {
-	diffBaseHalfMarkdownSegments,
-	groupBaseHalfMarkdownContributions,
-} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownMerge.js';
-import {
-	BASEHALF_NOTE_HTML_ATTRIBUTES,
-	BASEHALF_NOTE_HTML_TAGS,
-	baseHalfNoteMarkdownToHtml,
-} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownHtml.js';
-import dompurify from '../../../src/vs/base/browser/dompurify/dompurify.js';
+import { createBaseHalfNoteEditorApi } from './noteConversions.js';
+import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from './noteToggleState.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
 import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteZoom } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoom.js';
@@ -95,6 +84,8 @@ import {
 	makeBaseHalfSelectionRevealExtension,
 	setBaseHalfSelectionReveal,
 } from './selectionRevealDecorations.js';
+import { baseHalfEditorLabel, baseHalfNoteSchema, renderedNote } from './noteSchema.js';
+import { createBaseHalfNoteUndo } from './noteUndo.js';
 import {
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	isBaseHalfMarkdownRichHostMessage,
@@ -131,13 +122,6 @@ function baseHalfBlockNoteDictionary(): Dictionary {
 		: locale.startsWith('zh') ? zh : en;
 }
 
-function baseHalfEditorLabel(english: string, simplifiedChinese: string, traditionalChinese = simplifiedChinese): string {
-	const locale = document.documentElement.lang.toLowerCase();
-	return locale.startsWith('zh-tw') || locale.startsWith('zh-hk')
-		? traditionalChinese
-		: locale.startsWith('zh') ? simplifiedChinese : english;
-}
-
 const baseHalfBlockNoteTheme: Theme = {
 	colors: {
 		editor: { text: 'var(--vscode-editor-foreground)', background: 'transparent' },
@@ -160,105 +144,6 @@ function workbenchColorScheme(): 'light' | 'dark' {
 		: 'dark';
 }
 
-interface PassthroughProps {
-	raw?: string;
-	source?: string;
-	hidden?: boolean;
-}
-
-/** The folder of the open note, as an address this document can load. Relative addresses of a rendered block are read from it. */
-const renderedNote = { baseUri: '' };
-
-/**
- * The rendered form of Markdown that the editor cannot edit (note rendering):
- * the elements and the text that the card shows for the same Markdown.
- */
-function renderNoteMarkdown(source: string): DocumentFragment {
-	const rendered = dompurify.sanitize(baseHalfNoteMarkdownToHtml(source), {
-		ALLOWED_TAGS: [...BASEHALF_NOTE_HTML_TAGS],
-		ALLOWED_ATTR: [...BASEHALF_NOTE_HTML_ATTRIBUTES],
-		RETURN_DOM_FRAGMENT: true,
-	});
-	// An input is shown only as a check box that cannot be changed.
-	for (const input of Array.from(rendered.querySelectorAll('input'))) {
-		if (input.getAttribute('type') === 'checkbox') {
-			input.disabled = true;
-		} else {
-			input.replaceWith(document.createTextNode(input.outerHTML));
-		}
-	}
-	for (const media of Array.from(rendered.querySelectorAll('img, video, source'))) {
-		const address = media.getAttribute('src');
-		if (address && renderedNote.baseUri && !/^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(address)) {
-			try {
-				media.setAttribute('src', new URL(address, renderedNote.baseUri).toString());
-			} catch {
-				// An address that cannot be read stays as the author wrote it.
-			}
-		}
-	}
-	return rendered;
-}
-
-const rawPassthroughSpec = createBlockSpec(
-	{
-		type: BASEHALF_RAW_PASSTHROUGH_BLOCK,
-		propSchema: {
-			raw: { default: '' },
-			source: { default: '' },
-			hidden: { default: false },
-		},
-		content: 'none',
-	},
-	{
-		render: block => {
-			const props = block.props as PassthroughProps;
-			if (props.hidden) {
-				const hidden = document.createElement('span');
-				hidden.setAttribute('data-basehalf-raw-passthrough', 'hidden');
-				hidden.style.display = 'none';
-				return { dom: hidden };
-			}
-
-			const dom = document.createElement('div');
-			dom.className = 'basehalf-raw-passthrough';
-			dom.setAttribute('data-basehalf-raw-passthrough', '');
-
-			// The block is read here as it is read on the card: rendered.
-			const rendered = document.createElement('div');
-			rendered.className = 'basehalf-raw-passthrough-rendered';
-			rendered.appendChild(renderNoteMarkdown((props.source ?? props.raw ?? '').replace(/^\n+|\n+$/g, '')));
-			dom.appendChild(rendered);
-
-			// This block holds Markdown the rich projection cannot edit; the
-			// escape hatch jumps to the source projection at its lines.
-			const edit = document.createElement('button');
-			edit.type = 'button';
-			edit.className = 'basehalf-raw-passthrough-edit';
-			edit.textContent = baseHalfEditorLabel('Edit in source', '在源码中编辑', '在原始碼中編輯');
-			dom.appendChild(edit);
-			return { dom };
-		},
-		toExternalHTML: block => {
-			const props = block.props as PassthroughProps;
-			const pre = document.createElement('pre');
-			pre.textContent = props.source ?? props.raw ?? '';
-			return { dom: pre };
-		},
-	},
-)();
-
-const schema = BlockNoteSchema.create({
-	blockSpecs: {
-		...defaultBlockSpecs,
-		audio: ReactAudioBlock(),
-		file: ReactFileBlock(),
-		image: ReactImageBlock(),
-		video: ReactVideoBlock(),
-		[BASEHALF_RAW_PASSTHROUGH_BLOCK]: rawPassthroughSpec,
-	},
-});
-
 interface SessionState {
 	key: string;
 	surface: BaseHalfMarkdownRichSurface;
@@ -266,6 +151,8 @@ interface SessionState {
 	baseUri: string;
 	frontmatter: string;
 	byId: Map<string, IBaseHalfMarkdownReuseEntry>;
+	/** What the projection keeps of the note from its load to its saves. */
+	note: IBaseHalfMarkdownNote;
 	adhd: IBaseHalfAdhdFile | null;
 	adhdError: string | undefined;
 	readingModeEnabled: boolean;
@@ -352,6 +239,7 @@ function createSessionState(key = ''): SessionState {
 		baseUri: '',
 		frontmatter: '',
 		byId: new Map(),
+		note: createBaseHalfMarkdownNote(''),
 		adhd: null,
 		adhdError: undefined,
 		readingModeEnabled: false,
@@ -503,43 +391,6 @@ function baseHalfBlockMatchesEditableType(
 }
 
 type BaseHalfEditableBlockType = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'bulletList' | 'orderedList';
-
-async function baseHalfAdoptLoadProjection(
-	editorApi: IBaseHalfMarkdownEditorApi,
-	currentBlocks: readonly unknown[],
-	projectedBlocks: readonly unknown[],
-	projectedById: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
-): Promise<Map<string, IBaseHalfMarkdownReuseEntry> | undefined> {
-	if (currentBlocks.length !== projectedBlocks.length) {
-		return undefined;
-	}
-
-	const [currentMarkdown, projectedMarkdown] = await Promise.all([
-		editorApi.blocksToMarkdownLossy([...currentBlocks]),
-		editorApi.blocksToMarkdownLossy([...projectedBlocks]),
-	]);
-	if (currentMarkdown !== projectedMarkdown) {
-		return undefined;
-	}
-
-	const byId = new Map<string, IBaseHalfMarkdownReuseEntry>();
-	for (let index = 0; index < projectedBlocks.length; index++) {
-		const projectedId = (projectedBlocks[index] as { readonly id?: unknown }).id;
-		const currentId = (currentBlocks[index] as { readonly id?: unknown }).id;
-		if (typeof projectedId !== 'string') {
-			continue;
-		}
-		const entry = projectedById.get(projectedId);
-		if (!entry) {
-			continue;
-		}
-		if (typeof currentId !== 'string') {
-			return undefined;
-		}
-		byId.set(currentId, entry);
-	}
-	return byId.size === projectedById.size ? byId : undefined;
-}
 
 // Wires the `[[` gesture to workspace file search: picking a file inserts a
 // plain Markdown link (relative href). It is navigation for people and Agents;
@@ -721,7 +572,6 @@ function MarkdownRichEditor(): JSX.Element {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const readingAids = useRef<IReadingAids | undefined>(undefined);
 	const saveTimer = useRef<number | undefined>(undefined);
-	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const composing = useRef(false);
 	const pendingEditorCommands = useRef<BaseHalfMarkdownRichEditorCommand[]>([]);
 	const lastPostedFormatState = useRef<string | undefined>(undefined);
@@ -792,7 +642,7 @@ function MarkdownRichEditor(): JSX.Element {
 	}, []);
 
 	const editor = useCreateBlockNote({
-		schema,
+		schema: baseHalfNoteSchema,
 		dictionary: baseHalfBlockNoteDictionary(),
 		uploadFile,
 		resolveFileUrl,
@@ -821,85 +671,18 @@ function MarkdownRichEditor(): JSX.Element {
 		comments: portalElement,
 	} : undefined, [portalElement]);
 
-	// y-prosemirror creates the collaboration undo manager in plugin state but
-	// destroys it from plugin-view teardown, and plugin state survives that
-	// teardown. This webview goes through plugin-view destroy/create cycles at
-	// startup (an editor unmount/remount plus a plugin reconfiguration), after
-	// which the plugin state still holds the destroyed manager and no local
-	// edit is ever captured again — undo stays permanently empty. Own the
-	// manager lifecycle instead: swap in a manager whose destroy survives
-	// plugin-view churn (document teardown clears its doc listener) and mirror
-	// the plugin's selection-restore listeners.
-	const ensureLiveUndoManager = useCallback((): UndoManager | undefined => {
-		const view = editor.prosemirrorView;
-		if (!view) {
-			return undefined;
-		}
-		const syncState = ySyncPluginKey.getState(view.state) as { type?: XmlFragment } | undefined;
-		const undoState = yUndoPluginKey.getState(view.state) as { undoManager: UndoManager; prevSel?: unknown } | undefined;
-		if (!syncState?.type || !undoState?.undoManager) {
-			return undefined;
-		}
-		if (undoState.undoManager === liveUndoManager.current) {
-			return undoState.undoManager;
-		}
+	// Rich owns its collaboration undo manager, so that undo outlives the
+	// plugin-view teardowns of this webview's startup (noteUndo.ts).
+	const noteUndo = useMemo(() => createBaseHalfNoteUndo(editor), [editor]);
+	const ensureLiveUndoManager = noteUndo.ensure;
 
-		// Truly dispose whatever is being replaced — instance destroy may be
-		// our own no-op override, so go through the prototype.
-		const replaced = undoState.undoManager;
-		UndoManager.prototype.destroy.call(replaced);
-		if (liveUndoManager.current && liveUndoManager.current !== replaced) {
-			UndoManager.prototype.destroy.call(liveUndoManager.current);
-		}
-		const manager = new UndoManager(syncState.type, {
-			trackedOrigins: new Set([ySyncPluginKey]),
-			deleteFilter: item => defaultDeleteFilter(item, defaultProtectedNodes),
-			captureTransaction: transaction => transaction.meta.get('addToHistory') !== false,
-		});
-		manager.destroy = () => { /* must outlive plugin-view teardown */ };
-		manager.on('stack-item-added', ({ stackItem }) => {
-			const state = editor.prosemirrorView?.state;
-			const binding = state ? (ySyncPluginKey.getState(state) as { binding?: object } | undefined)?.binding : undefined;
-			if (binding && state) {
-				stackItem.meta.set(binding, (yUndoPluginKey.getState(state) as { prevSel?: unknown } | undefined)?.prevSel ?? null);
-			}
-		});
-		manager.on('stack-item-popped', ({ stackItem }) => {
-			const state = editor.prosemirrorView?.state;
-			const binding = state
-				? (ySyncPluginKey.getState(state) as { binding?: { beforeTransactionSelection: unknown } } | undefined)?.binding
-				: undefined;
-			if (binding) {
-				binding.beforeTransactionSelection = stackItem.meta.get(binding) || binding.beforeTransactionSelection;
-			}
-		});
-		// Preserve any history the replaced manager still held (e.g. a stack
-		// restored by a fork merge) so the swap is lossless.
-		manager.undoStack = replaced.undoStack;
-		manager.redoStack = replaced.redoStack;
-		undoState.undoManager = manager;
-		liveUndoManager.current = manager;
-		return manager;
-	}, [editor]);
-
-	const editorApi = useMemo<IBaseHalfMarkdownEditorApi>(() => ({
-		tryParseMarkdownToBlocks: markdown => editor.tryParseMarkdownToBlocks(markdown),
-		blocksToMarkdownLossy: blocks => baseHalfBlocksToMarkdown({
-			blocksToMarkdownLossy: written => editor.blocksToMarkdownLossy(written as Parameters<typeof editor.blocksToMarkdownLossy>[0])
-		}, blocks),
+	// Rich reads a note as its card does and writes it with BaseHalf's writer
+	// (note formats, rule 25 and design A5).
+	const editorApi = useMemo<IBaseHalfMarkdownEditorApi>(() => createBaseHalfNoteEditorApi(editor, {
+		onWriteWarning: warning => console.error('[basehalf] A block of the note could not be written in its formats; its words were written.', warning),
 	}), [editor]);
 
-	const discardSelectionForNextSharedTransaction = useCallback(() => {
-		const viewState = editor.prosemirrorView?.state;
-		const binding = viewState
-			? (ySyncPluginKey.getState(viewState) as {
-				binding?: { beforeTransactionSelection: unknown };
-			} | undefined)?.binding
-			: undefined;
-		if (binding) {
-			binding.beforeTransactionSelection = { type: 'text', anchor: null, head: null };
-		}
-	}, [editor]);
+	const discardSelectionForNextSharedTransaction = noteUndo.discardSelectionForNextSharedTransaction;
 
 	const notifyDirty = useCallback((dirty: boolean) => {
 		const state = session.current;
@@ -964,11 +747,21 @@ function MarkdownRichEditor(): JSX.Element {
 		setVersion(value => value + 1);
 
 		const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
-		const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editorApi, body);
-		const adoptedById = !wasReady
-			? await baseHalfAdoptLoadProjection(editorApi, editor.document, blocks, byId).catch(() => undefined)
-			: undefined;
-		if (!adoptedById) {
+		const projection = await buildBaseHalfMarkdownLoadProjection(editorApi, body, content);
+		const { blocks } = projection;
+		let adopted: ReturnType<typeof adoptBaseHalfMarkdownLoadProjection>;
+		if (!wasReady) {
+			try {
+				adopted = adoptBaseHalfMarkdownLoadProjection(editorApi, editor.document, projection);
+			} catch {
+				adopted = undefined;
+			}
+		}
+		// The editor asks how a toggle shows when it draws it, so the state
+		// comes before the blocks (note formats, rule 40).
+		baseHalfNoteToggleState.initiallyOpen = adopted?.note.open ?? projection.note.open;
+		baseHalfNoteToggleState.folds.clear();
+		if (!adopted) {
 			const view = editor.prosemirrorView;
 			if (view) {
 				view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)));
@@ -979,10 +772,11 @@ function MarkdownRichEditor(): JSX.Element {
 		// Loading or adopting a projection must not become an undoable edit.
 		// Otherwise undo could walk past the load and blank the document. The
 		// fallback covers loads that land while the editor view is unmounted.
-		(ensureLiveUndoManager() ?? liveUndoManager.current)?.clear();
+		(ensureLiveUndoManager() ?? noteUndo.current)?.clear();
 
 		state.frontmatter = frontmatter;
-		state.byId = adoptedById ?? byId;
+		state.byId = adopted?.byId ?? projection.byId;
+		state.note = adopted?.note ?? projection.note;
 		state.lastDisk = content;
 		state.editRevision = 0;
 		state.lastAcknowledgedRevision = 0;
@@ -991,7 +785,7 @@ function MarkdownRichEditor(): JSX.Element {
 		state.loading = false;
 		notifyDirty(false);
 		setVersion(value => value + 1);
-	}, [discardSelectionForNextSharedTransaction, editor, editorApi, ensureLiveUndoManager, notifyDirty, projectAdhdReadBlocks]);
+	}, [discardSelectionForNextSharedTransaction, editor, editorApi, ensureLiveUndoManager, noteUndo, notifyDirty, projectAdhdReadBlocks]);
 
 	// First meaningful frame: tell the host once the applied document has been
 	// committed to the DOM, then separately acknowledge the window load
@@ -1105,14 +899,20 @@ function MarkdownRichEditor(): JSX.Element {
 			const text = view.state.doc.textBetween(selection.from, selection.to, '\n', '\n');
 			const blocks = selectedBlocks();
 			const document = editor.document as unknown as readonly IBaseHalfMarkdownBlockNode[];
-			const topLevelId = (id: string | undefined) => id ? baseHalfMarkdownTopLevelBlockOf(document, id)?.block.id : undefined;
-			const firstId = topLevelId(blocks[0]?.id);
-			const lastId = topLevelId(blocks[blocks.length - 1]?.id);
-			if (text.trim().length > 0 && firstId && lastId) {
-				const contributions = await collectBaseHalfMarkdownSaveContributions(editorApi, editor.document, state.byId);
+			if (text.trim().length > 0 && blocks.length > 0) {
+				// A block in a toggle whose parts are blocks of their own has
+				// lines of its own (note formats, rule 84): its own part of the
+				// toggle's contribution.
+				const contributions: IBaseHalfMarkdownSaveContribution[] = [];
+				const addParts = (list: readonly IBaseHalfMarkdownSaveContribution[]) => list.forEach(contribution => contribution.parts ? addParts(contribution.parts) : contributions.push(contribution));
+				addParts(await collectBaseHalfMarkdownSaveContributions(editorApi, editor.document, state.byId, state.note));
 				if (session.current.key !== key) {
 					return;
 				}
+				const ownIds = new Set(contributions.map(contribution => contribution.id));
+				const ownId = (id: string | undefined) => id ? baseHalfMarkdownBlockPath(document, id)?.findLast(one => ownIds.has(one)) : undefined;
+				const firstId = ownId(blocks[0]?.id);
+				const lastId = ownId(blocks[blocks.length - 1]?.id);
 				const frontmatterLines = countBaseHalfMarkdownNewlines(state.frontmatter);
 				const lines: string[] = contributions.map(contribution => contribution.text).join('').split(/\r?\n/);
 				// Each block's lines: from its first line that is not blank to
@@ -1132,8 +932,8 @@ function MarkdownRichEditor(): JSX.Element {
 						ranges[index].end = Math.max(ranges[index].end, ranges[index + 1].end);
 					}
 				}
-				const first = ranges[contributions.findIndex(contribution => contribution.id === firstId)];
-				const last = ranges[contributions.findIndex(contribution => contribution.id === lastId)];
+				const first = firstId ? ranges[contributions.findIndex(contribution => contribution.id === firstId)] : undefined;
+				const last = lastId ? ranges[contributions.findIndex(contribution => contribution.id === lastId)] : undefined;
 				if (first && last) {
 					const narrowed = baseHalfSelectionLines(line => lines[line - frontmatterLines - 1] ?? '', first, last, text);
 					// The record keeps at most the limit; one more character says it was cut.
@@ -1313,16 +1113,10 @@ function MarkdownRichEditor(): JSX.Element {
 		const undoManager = ensureLiveUndoManager();
 		editor.focus();
 		if (command === 'undo') {
-			undoManager?.stopCapturing();
-			const handled = editor.undo();
-			undoManager?.stopCapturing();
-			return handled;
+			return noteUndo.undo();
 		}
 		if (command === 'redo') {
-			undoManager?.stopCapturing();
-			const handled = editor.redo();
-			undoManager?.stopCapturing();
-			return handled;
+			return noteUndo.redo();
 		}
 
 		// A toolbar action is one semantic edit. Fence it from adjacent typing and
@@ -1356,7 +1150,7 @@ function MarkdownRichEditor(): JSX.Element {
 		} finally {
 			undoManager?.stopCapturing();
 		}
-	}, [editor, ensureLiveUndoManager, insertDivider, postFormatState, setSelectedBlockType, toggleSelectedList]);
+	}, [editor, ensureLiveUndoManager, insertDivider, noteUndo, postFormatState, setSelectedBlockType, toggleSelectedList]);
 
 	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
 		const state = session.current;
@@ -1443,10 +1237,10 @@ function MarkdownRichEditor(): JSX.Element {
 					isComposing: () => composing.current || !!editor.prosemirrorView?.composing,
 					isFrozen: () => state.structuralFrozen && state.key === key && state.resource === resource,
 					revision: () => state.editRevision,
-					serialize: () => spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId),
+					serialize: () => spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId, state.note),
 				})
 				: {
-					value: await spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId),
+					value: await spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId, state.note),
 					revision: state.editRevision,
 				};
 			if (!snapshot) {
@@ -1641,62 +1435,13 @@ function MarkdownRichEditor(): JSX.Element {
 			return false;
 		}
 
-		const oldSegments = segmentBaseHalfMarkdownBody(oldBody);
-		const newSegments = segmentBaseHalfMarkdownBody(body);
-		const contributions = await collectBaseHalfMarkdownSaveContributions(editorApi, editor.document, state.byId);
-		const groups = groupBaseHalfMarkdownContributions(
-			contributions.map(contribution => contribution.text),
-			oldSegments.map(segment => segment.raw)
-		);
-		if (!groups) {
+		const plan = await planBaseHalfMarkdownMerge(editorApi, editor.document, state.byId, state.note, oldBody, body, content);
+		if (!plan) {
 			return false;
 		}
-
-		const region = diffBaseHalfMarkdownSegments(
-			oldSegments.map(segment => segment.raw),
-			newSegments.map(segment => segment.raw)
-		);
-		if (!region) {
-			return false;
-		}
-
-		const removeIds: string[] = [];
-		for (let index = region.oldStart; index < region.oldEnd; index++) {
-			for (const contributionIndex of groups[index]) {
-				const id = contributions[contributionIndex].id;
-				if (!id) {
-					return false;
-				}
-				removeIds.push(id);
-			}
-		}
-		if (removeIds.length === contributions.length && region.newStart === region.newEnd) {
-			// Would leave the document without blocks; rebuild handles that shape.
-			return false;
-		}
-
-		const newBlocks: unknown[] = [];
-		const newEntries: Array<readonly [string, IBaseHalfMarkdownReuseEntry]> = [];
-		for (let index = region.newStart; index < region.newEnd; index++) {
-			const projection = await projectBaseHalfMarkdownSegment(editorApi, newSegments[index]);
-			newBlocks.push(...projection.blocks);
-			newEntries.push(...projection.entries);
-		}
-
-		let anchorBlockId: string | undefined;
-		let anchorPlacement: 'before' | 'after' = 'after';
-		if (removeIds.length === 0 && newBlocks.length > 0) {
-			if (region.oldStart > 0) {
-				const group = groups[region.oldStart - 1];
-				anchorBlockId = contributions[group[group.length - 1]].id;
-			} else if (groups.length > 0) {
-				anchorBlockId = contributions[groups[0][0]].id;
-				anchorPlacement = 'before';
-			}
-			if (!anchorBlockId) {
-				return false;
-			}
-		}
+		const removeIds = [...plan.removeIds];
+		const { anchor } = plan;
+		const newBlocks = plan.blocks;
 
 		// The awaits above are a concurrency window; re-validate before mutating.
 		if (state.dirty || state.loading || state.lastDisk !== baseline) {
@@ -1717,13 +1462,15 @@ function MarkdownRichEditor(): JSX.Element {
 		manager?.stopCapturing();
 		manager?.trackedOrigins.delete(ySyncPluginKey);
 		state.loading = true;
+		// Toggles the change leaves keep how they show; new ones show as their file says.
+		baseHalfNoteToggleState.initiallyOpen = plan.note.open;
 		try {
 			if (removeIds.length > 0 && newBlocks.length > 0) {
 				editor.replaceBlocks(removeIds, newBlocks as Parameters<typeof editor.replaceBlocks>[1]);
 			} else if (removeIds.length > 0) {
 				editor.removeBlocks(removeIds);
-			} else if (newBlocks.length > 0 && anchorBlockId) {
-				editor.insertBlocks(newBlocks as Parameters<typeof editor.insertBlocks>[0], anchorBlockId, anchorPlacement);
+			} else if (newBlocks.length > 0 && anchor) {
+				editor.insertBlocks(newBlocks as Parameters<typeof editor.insertBlocks>[0], anchor.id, anchor.placement);
 			}
 
 			// Match the load projection's shape guarantee: a document must
@@ -1741,12 +1488,8 @@ function MarkdownRichEditor(): JSX.Element {
 			manager?.trackedOrigins.add(ySyncPluginKey);
 		}
 
-		for (const id of removeIds) {
-			state.byId.delete(id);
-		}
-		for (const [id, entry] of newEntries) {
-			state.byId.set(id, entry);
-		}
+		state.byId = plan.byId;
+		state.note = plan.note;
 		state.frontmatter = frontmatter;
 		state.lastDisk = content;
 		state.lastAcknowledgedRevision = state.editRevision;
@@ -2796,6 +2539,8 @@ if (!root) {
 	throw new Error('BaseHalf Markdown rich webview root is missing');
 }
 
+// Before the first note is drawn: toggles show open as their note's file says (note formats, rule 40).
+installBaseHalfNoteToggleState();
 createRoot(root).render(<MarkdownRichEditor />);
 
 function decodeHtmlKey(value: string): string {

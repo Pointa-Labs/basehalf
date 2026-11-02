@@ -6,21 +6,20 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
+	adoptBaseHalfMarkdownLoadProjection,
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
-	baseHalfBlocksToMarkdown,
-	baseHalfMarkdownContentTokens,
-	baseHalfMarkdownLosesContent,
 	buildBaseHalfMarkdownLoadProjection,
-	IBaseHalfMarkdownEditorApi,
+	collectBaseHalfMarkdownSaveContributions,
+	IBaseHalfMarkdownLoadProjection,
 	IBaseHalfMarkdownSegment,
 	joinBaseHalfMarkdownFrontmatter,
-	normalizeBaseHalfMarkdownSoftBreaks,
-	projectBaseHalfStandaloneFileLink,
 	segmentBaseHalfMarkdownBody,
 	segmentBaseHalfMarkdownTopLevelBody,
 	spliceBaseHalfMarkdownSave,
 	splitBaseHalfMarkdownFrontmatter
 } from '../../common/basehalfMarkdownProjection.js';
+import { BaseHalfNoteTestEditor } from './basehalfNoteTestEditor.js';
+
 
 suite('BaseHalfMarkdownProjection', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -265,391 +264,283 @@ suite('BaseHalfMarkdownProjection', () => {
 		});
 	});
 
-	test('projects standalone local file links as rich file blocks without changing Markdown', async () => {
-		const editor = new FakeMarkdownEditor();
-		const source = '[Lecture slides](attachments/lecture%201.pdf)';
-		const parsed = editor.tryParseMarkdownToBlocks(source);
-		const projected = projectBaseHalfStandaloneFileLink(source, parsed) as Array<{ readonly type: string; readonly props: { readonly name: string; readonly url: string } }>;
-
-		assert.deepStrictEqual(projected.map(block => ({ type: block.type, name: block.props.name, url: block.props.url })), [{
-			type: 'file',
-			name: 'Lecture slides',
-			url: 'attachments/lecture%201.pdf'
-		}]);
-		assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projected, '', new Map()), `${source}\n`);
-		assert.strictEqual(projectBaseHalfStandaloneFileLink('[Guide](guide.md)', parsed), parsed);
-		assert.strictEqual(projectBaseHalfStandaloneFileLink('[Site](https://example.com/file.pdf)', parsed), parsed);
-		const withParagraphProps = projectBaseHalfStandaloneFileLink(source, [{
-			id: 'file-link',
-			type: 'paragraph',
-			props: { backgroundColor: 'red', textAlignment: 'center', textColor: 'blue' }
-		}]) as Array<{ readonly props: Record<string, string> }>;
-		assert.deepStrictEqual(withParagraphProps[0].props, {
-			backgroundColor: 'red',
-			name: 'Lecture slides',
-			url: 'attachments/lecture%201.pdf',
-			caption: ''
-		});
-	});
-
-	test('rebuilds persisted attachment links as file blocks after the live editor closes', async () => {
-		const editor = new FakeMarkdownEditor();
-		// BlockNote writes adjacent paragraph/file blocks with one newline. In
-		// CommonMark that is one paragraph unless the projection restores the
-		// rich block boundary explicitly.
-		const source = 'Source note\n[handout.pdf](attachments/handout.pdf)\n';
-		const projection = await buildBaseHalfMarkdownLoadProjection(editor, source);
-		const file = projection.blocks[1] as { readonly type: string; readonly props: { readonly name: string; readonly url: string } };
-
-		assert.strictEqual((projection.blocks[0] as { readonly type: string }).type, 'paragraph');
-		assert.strictEqual(file.type, 'file');
-		assert.deepStrictEqual({ name: file.props.name, url: file.props.url }, {
-			name: 'handout.pdf',
-			url: 'attachments/handout.pdf'
-		});
-		assert.strictEqual(projection.byId.size, 2);
-		assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projection.blocks, '', projection.byId), source);
-	});
-
-	test('does not reinterpret file-looking lines inside fenced code', async () => {
-		const editor = new FakeMarkdownEditor();
-		const source = '```md\n[handout.pdf](attachments/handout.pdf)\n```\n';
-		const projection = await buildBaseHalfMarkdownLoadProjection(editor, source);
-
-		assert.strictEqual(projection.blocks.length, 1);
-		assert.notStrictEqual((projection.blocks[0] as { readonly type: string }).type, 'file');
-		assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projection.blocks, '', projection.byId), source);
-	});
-
-	test('does not reinterpret indented or hard-break file links inside a paragraph', async () => {
-		const editor = new FakeMarkdownEditor();
-		for (const source of [
-			'Context\n    [handout.pdf](attachments/handout.pdf)\n',
-			'Context  \n[handout.pdf](attachments/handout.pdf)  \n'
-		]) {
-			const projection = await buildBaseHalfMarkdownLoadProjection(editor, source);
-
-			assert.strictEqual(projection.blocks.length, 1);
-			assert.notStrictEqual((projection.blocks[0] as { readonly type: string }).type, 'file');
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projection.blocks, '', projection.byId), source);
-		}
-	});
-
-	test('removes BlockNote soft-break formatter spaces without changing code whitespace', () => {
-		const code = {
-			id: 'code',
-			type: 'codeBlock',
-			content: [{ type: 'text', text: 'alpha\n beta' }],
-			children: []
-		};
-		const blocks = [{
-			id: 'paragraph',
-			type: 'paragraph',
-			content: [
-				{ type: 'text', text: 'alpha\n beta\n', styles: {} },
-				{ type: 'text', text: ' gamma', styles: { bold: true } }
-			],
-			children: [{
-				id: 'nested',
-				type: 'paragraph',
-				content: [{ type: 'text', text: 'nested\n line' }],
-				children: []
-			}]
-		}, code];
-
-		const normalized = normalizeBaseHalfMarkdownSoftBreaks(blocks) as typeof blocks;
-
-		assert.deepStrictEqual(normalized[0].content.map(item => item.text), ['alpha\nbeta\n', 'gamma']);
-		assert.strictEqual(normalized[0].children[0].content[0].text, 'nested\nline');
-		assert.strictEqual(normalized[1], code);
-		assert.strictEqual(normalized[1].content[0].text, 'alpha\n beta');
-	});
-
-	suite('content loss detection', () => {
-		test('extracts letter and digit runs as content tokens', () => {
-			assert.strictEqual(baseHalfMarkdownContentTokens('Keep <!-- x --> this'), 'Keep x this');
-			assert.strictEqual(baseHalfMarkdownContentTokens('**bold** and _em_'), 'bold and em');
-			assert.strictEqual(baseHalfMarkdownContentTokens('中文 ok 123'), '中文 ok 123');
-		});
-
-		test('flags dropped inline HTML comments, including symbol-only comments', () => {
-			assert.strictEqual(baseHalfMarkdownLosesContent('Keep <!-- secret --> this', 'Keep  this'), true);
-			assert.strictEqual(baseHalfMarkdownLosesContent('Keep <!-- !!! --> this', 'Keep  this'), true);
-			assert.strictEqual(baseHalfMarkdownLosesContent('a <!-- --> b', 'a  b'), true);
-		});
-
-		test('flags dropped raw HTML but not standard Markdown normalization', () => {
-			assert.strictEqual(baseHalfMarkdownLosesContent('Keep <span data-x="1">this</span>', 'Keep this'), true);
-			assert.strictEqual(baseHalfMarkdownLosesContent('See [docs](docs/guide.md)', 'See docs'), false);
-			assert.strictEqual(baseHalfMarkdownLosesContent('> [docs/decisions.md D19](docs/decisions.md)', '> docs/decisions.md D19'), false);
-		});
-
-		test('a line break is kept whichever way it is written, and lost when it is gone', () => {
-			assert.deepStrictEqual({
-				// What the editor writes back for each block, as measured in the editor.
-				tableCell: baseHalfMarkdownLosesContent('| a |\n|---|\n| one<br>two |', '| a       |\n| ------- |\n| one<br>two |'),
-				selfClosing: baseHalfMarkdownLosesContent('| a |\n|---|\n| one<br/>two |', '| a       |\n| ------- |\n| one<br>two |'),
-				paragraph: baseHalfMarkdownLosesContent('one<br>two', 'one\\\ntwo'),
-				listItem: baseHalfMarkdownLosesContent('- one<br>two\n- three', '* one\\\ntwo\n* three'),
-				quote: baseHalfMarkdownLosesContent('> one<br>two', '> one\\\n> two'),
-				// A heading is one line: the backslash cuts it in two.
-				heading: baseHalfMarkdownLosesContent('# one<br>two', '# one\\\ntwo'),
-				oneOfTwoGone: baseHalfMarkdownLosesContent('one<br>two<br>three', 'one\\\ntwo three'),
-				withOtherHtml: baseHalfMarkdownLosesContent('H<sub>2</sub>O<br>next', 'H2O\\\nnext')
-			}, {
-				tableCell: false,
-				selfClosing: false,
-				paragraph: false,
-				listItem: false,
-				quote: false,
-				heading: true,
-				oneOfTwoGone: true,
-				withOtherHtml: true
-			});
-		});
-
-		test('a line break in a table cell is written as <br>, and nowhere else', async () => {
-			const cell = (...content: unknown[]) => ({ type: 'tableCell', content, props: { colspan: 1 } });
-			const blocks = [
-				{ id: 'p', type: 'paragraph', content: [{ type: 'text', text: 'one\ntwo \uE000', styles: {} }], children: [] },
-				{
-					id: 't', type: 'table', content: {
-						type: 'tableContent', rows: [{
-							cells: [
-								cell({ type: 'text', text: 'one\ntwo', styles: {} }, { type: 'link', href: 'a.md', content: [{ type: 'text', text: 'three\nfour', styles: { bold: true } }] }),
-								cell({ type: 'text', text: 'plain', styles: {} })
-							]
-						}]
-					},
-					children: [{ id: 'c', type: 'paragraph', content: [{ type: 'text', text: 'child\nline', styles: {} }], children: [] }]
-				}
-			];
-			const before = JSON.stringify(blocks);
-			/** Writes every text of the blocks it is given, with a line break as `/`. */
-			const texts = (value: unknown): string[] => Array.isArray(value)
-				? value.flatMap(texts)
-				: value && typeof value === 'object'
-					? (typeof (value as { text?: unknown }).text === 'string' ? [(value as { text: string }).text.replace(/\n/g, '/')] : Object.values(value).flatMap(texts))
-					: [];
-			let written: unknown[] = [];
-			const markdown = await baseHalfBlocksToMarkdown({ blocksToMarkdownLossy: given => { written = given; return texts(given).join(' | '); } }, blocks);
-
-			assert.deepStrictEqual({
-				markdown,
-				blocksUntouched: JSON.stringify(blocks) === before,
-				// A block without a table cell is handed to the writer as it is.
-				paragraphHandedOn: written[0] === blocks[0],
-				withoutTable: await baseHalfBlocksToMarkdown({ blocksToMarkdownLossy: given => given === blocks.slice(0, 1) ? 'same' : texts(given).join('') }, blocks.slice(0, 1))
-			}, {
-				markdown: 'one/two \uE000 | one<br>two | three<br>four | plain | child/line',
-				blocksUntouched: true,
-				paragraphHandedOn: true,
-				withoutTable: 'one/two \uE000'
-			});
-		});
-
-		test('does not flag formatting-only churn', () => {
-			assert.strictEqual(baseHalfMarkdownLosesContent('* a\n* b', '- a\n- b'), false);
-			assert.strictEqual(baseHalfMarkdownLosesContent('soft\nwrap', 'soft wrap'), false);
-			assert.strictEqual(baseHalfMarkdownLosesContent('Plain **bold** here', 'Plain **bold** here'), false);
-		});
-	});
-
 	suite('load projection and splice save', () => {
-		test('creates passthrough blocks for dropped segments and seeds an editable paragraph', async () => {
-			const projection = await buildBaseHalfMarkdownLoadProjection(new FakeMarkdownEditor(), '<!-- bh:workspace-hint -->\n');
+		const typeOf = (block: unknown) => (block as { type?: string }).type;
+		const idOf = (block: unknown) => (block as { id: string }).id;
+		const withText = (block: unknown, text: string) => ({ ...(block as object), content: [{ type: 'text', text, styles: {} }] });
+		const save = (editor: BaseHalfNoteTestEditor, projection: IBaseHalfMarkdownLoadProjection, document: readonly unknown[] = projection.blocks) =>
+			spliceBaseHalfMarkdownSave(editor, document, '', projection.byId, projection.note);
 
-			assert.strictEqual(projection.blocks.length, 2);
-			assert.strictEqual((projection.blocks[0] as { type?: string }).type, BASEHALF_RAW_PASSTHROUGH_BLOCK);
-			assert.deepStrictEqual((projection.blocks[0] as { props?: unknown }).props, {
-				raw: '<!-- bh:workspace-hint -->\n',
-				source: '<!-- bh:workspace-hint -->',
-				hidden: true
+		test('a note saved without an edit keeps every byte', async () => {
+			for (const body of [
+				'# Title\nFirst line.\n',
+				'Steps:\n- one\n- two\n',
+				'- a\n- [ ] b\n',
+				'text\n```sh\nls\n```\n',
+				'\n\nLeading lines\n\n\n\nand gaps  \n',
+				'*a*\n\n_b_\n\n1) one\n2) two\n',
+				'* star\n+ plus\n\n3. three\n4. four\n',
+				'CRLF\r\n\r\n- item\r\n',
+				'no final line break'
+			]) {
+				const editor = new BaseHalfNoteTestEditor();
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, body);
+				assert.strictEqual(await save(editor, projection), body, body);
+				const contributions = await collectBaseHalfMarkdownSaveContributions(editor, projection.blocks, projection.byId, projection.note);
+				assert.strictEqual(contributions.map(contribution => contribution.text).join(''), body, body);
+			}
+		});
+
+		test('a block Rich cannot write so that it shows the same is a fixed block, with an id and its bytes', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, '[a](u "T")\n\nplain\n');
+
+			const fixed = projection.blocks[0] as { id: string; type: string; props: unknown };
+			assert.strictEqual(fixed.type, BASEHALF_RAW_PASSTHROUGH_BLOCK);
+			assert.deepStrictEqual(fixed.props, { raw: '[a](u "T")\n\n', source: '[a](u "T")', hidden: false });
+			assert.strictEqual(projection.byId.get(fixed.id)?.fixed, true);
+			assert.strictEqual(typeOf(projection.blocks[1]), 'paragraph');
+			assert.strictEqual(await save(editor, projection), '[a](u "T")\n\nplain\n');
+		});
+
+		test('a comment of BaseHalf alone is a hidden fixed block, with a paragraph to type into', async () => {
+			const projection = await buildBaseHalfMarkdownLoadProjection(new BaseHalfNoteTestEditor(), '<!-- bh:workspace-hint -->\n');
+
+			assert.deepStrictEqual(projection.blocks.map(typeOf), [BASEHALF_RAW_PASSTHROUGH_BLOCK, 'paragraph']);
+			assert.strictEqual((projection.blocks[0] as { props: { hidden: boolean } }).props.hidden, true);
+		});
+
+		test('a part that cannot be read or written is a fixed block, and the rest of the note loads', async () => {
+			const unreadable = new BaseHalfNoteTestEditor({ failRead: markdown => markdown.startsWith('bad') });
+			const read = await buildBaseHalfMarkdownLoadProjection(unreadable, 'good\n\nbad\n\ngood too\n');
+			assert.deepStrictEqual(read.blocks.map(typeOf), ['paragraph', BASEHALF_RAW_PASSTHROUGH_BLOCK, 'paragraph']);
+			assert.strictEqual(await save(unreadable, read), 'good\n\nbad\n\ngood too\n');
+
+			const unwritable = new BaseHalfNoteTestEditor({ failWrite: block => JSON.stringify(block).includes('"bad"') });
+			const written = await buildBaseHalfMarkdownLoadProjection(unwritable, 'good\n\nbad\n\ngood too\n');
+			assert.deepStrictEqual(written.blocks.map(typeOf), ['paragraph', BASEHALF_RAW_PASSTHROUGH_BLOCK, 'paragraph']);
+		});
+
+		test('a block the writer cannot write at a save keeps the bytes it stood for', async () => {
+			let fail = false;
+			const editor = new BaseHalfNoteTestEditor({ failWrite: block => fail && JSON.stringify(block).includes('"Beta"') });
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Alpha\n\nBeta\n');
+			fail = true;
+			const document = [withText(projection.blocks[0], 'Alpha!'), projection.blocks[1]];
+
+			assert.strictEqual(await save(editor, projection, document), 'Alpha!\n\nBeta\n');
+		});
+
+		test('an edit changes the bytes of its block alone', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Alpha  \n\nBeta\n');
+
+			assert.strictEqual(await save(editor, projection, [projection.blocks[0], withText(projection.blocks[1], 'Beta changed')]), 'Alpha  \n\nBeta changed\n');
+		});
+
+		test('a change of format alone is saved', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'word\n');
+			const underlined = { ...(projection.blocks[0] as object), content: [{ type: 'text', text: 'word', styles: { underline: true } }] };
+
+			assert.strictEqual(await save(editor, projection, [underlined]), '<u>word</u>\n');
+		});
+
+		test('a block that changes its kind is set apart from its neighbours (rule 67)', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const list = await buildBaseHalfMarkdownLoadProjection(editor, '- a\n- b\n- c\n');
+			const paragraph = { ...(list.blocks[1] as object), type: 'paragraph', props: {} };
+			assert.strictEqual(await save(editor, list, [list.blocks[0], paragraph, list.blocks[2]]), '- a\n\nb\n\n- c\n');
+
+			const heading = await buildBaseHalfMarkdownLoadProjection(editor, '# Title\nFirst line.');
+			const title = { ...(heading.blocks[0] as object), type: 'paragraph', props: {} };
+			assert.strictEqual(await save(editor, heading, [title, heading.blocks[1]]), 'Title\n\nFirst line.');
+		});
+
+		test('neighbours that stay keep the line breaks the file has between them', async () => {
+			for (const head of ['Steps:\n- one\n', '# Title\nFirst\n', '- a\n- [ ] b\n', 'text\n```sh\nls\n```\n']) {
+				const editor = new BaseHalfNoteTestEditor();
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, `${head}\nend\n`);
+				const document = [...projection.blocks];
+				document[document.length - 1] = withText(document[document.length - 1], 'end!');
+
+				assert.strictEqual(await save(editor, projection, document), `${head}\nend!\n`, head);
+			}
+		});
+
+		test('a new block gets the line breaks Markdown needs around it', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Para one\n\nPara two\n');
+			const bullet = { id: 'new', type: 'bulletListItem', props: {}, content: [{ type: 'text', text: 'x', styles: {} }], children: [] };
+
+			assert.strictEqual(await save(editor, projection, [projection.blocks[0], bullet, projection.blocks[1]]), 'Para one\n\n- x\n\nPara two\n');
+			assert.strictEqual(await save(editor, projection, [...projection.blocks, bullet]), 'Para one\n\nPara two\n\n- x\n');
+		});
+
+		test('a new list item takes the marker of the item before it', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, '* a\n');
+			const item = { id: 'new', type: 'bulletListItem', props: {}, content: [{ type: 'text', text: 'b', styles: {} }], children: [] };
+
+			assert.strictEqual(await save(editor, projection, [...projection.blocks, item]), '* a\n* b\n');
+		});
+
+		test('a block moved to the end keeps its own line, and the note ends with one line break', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'A\n\nB\n\nC');
+			const [a, b, c] = projection.blocks;
+
+			assert.strictEqual(await save(editor, projection, [b, c, a]), 'B\n\nC\n\nA\n');
+			assert.strictEqual(await save(editor, projection, [a, b, c]), 'A\n\nB\n\nC');
+		});
+
+		test('a list keeps its items one line apart when one of them goes', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, '- a\n- b\n- c\n');
+
+			assert.strictEqual(await save(editor, projection, [projection.blocks[0], projection.blocks[2]]), '- a\n- c\n');
+		});
+
+		test('a fixed block pasted or copied within the note stands for its source', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, '[a](u "T")\n\nplain\n');
+			const copy = { ...(projection.blocks[0] as object), id: 'copy' };
+
+			assert.strictEqual(await save(editor, projection, [...projection.blocks, copy]), '[a](u "T")\n\nplain\n\n[a](u "T")\n');
+		});
+
+		test('new blocks of a CRLF note get CRLF line breaks', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'A\r\n\r\nB\r\n');
+			const paragraph = { id: 'new', type: 'paragraph', props: {}, content: [{ type: 'text', text: 'C', styles: {} }], children: [] };
+
+			assert.strictEqual(await save(editor, projection, [...projection.blocks, paragraph]), 'A\r\n\r\nB\r\n\r\nC\r\n');
+		});
+
+		test('an empty paragraph stores nothing', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'A\n\nB\n');
+			const empty = { id: 'empty', type: 'paragraph', props: {}, content: [], children: [] };
+
+			assert.strictEqual(await save(editor, projection, [projection.blocks[0], empty, projection.blocks[1]]), 'A\n\nB\n');
+		});
+
+		test('keeps frontmatter fences separated from newly written body content', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const paragraph = { id: 'a', type: 'paragraph', props: {}, content: [{ type: 'text', text: 'hello', styles: {} }], children: [] };
+
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [paragraph], '---\nk: v\n---', new Map()), '---\nk: v\n---\nhello\n');
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [paragraph], '---\r\nk: v\r\n---', new Map()), '---\r\nk: v\r\n---\r\nhello\n');
+		});
+
+		test('the note keeps what the file wrote of its list items, and the blocks carry none of it', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, '3. three\n4. four\n');
+
+			assert.deepStrictEqual([...projection.note.listHints.values()].map(hint => hint.marker), ['3.', '4.']);
+			assert.ok(projection.blocks.every(block => (block as { basehalfHints?: unknown }).basehalfHints === undefined));
+			const renumbered = { ...(projection.blocks[1] as object), content: [{ type: 'text', text: 'four!', styles: {} }] };
+			assert.strictEqual(await save(editor, projection, [projection.blocks[0], renumbered]), '3. three\n4. four!\n');
+		});
+
+		suite('a toggle whose parts are blocks of their own (rules 41 to 43)', () => {
+			const loose = '<details>\n<summary>Title</summary>\n\nchild one\n\nchild two\n\n</details>\n\nafter\n';
+			const childrenOf = (block: unknown) => (block as { children: unknown[] }).children;
+
+			test('is one toggle holding its blocks, and is saved byte for byte', async () => {
+				const editor = new BaseHalfNoteTestEditor();
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, loose);
+
+				assert.deepStrictEqual(projection.blocks.map(typeOf), ['toggleListItem', 'paragraph']);
+				assert.strictEqual(childrenOf(projection.blocks[0]).length, 2);
+				assert.ok(projection.byId.get(idOf(projection.blocks[0]))?.toggle);
+				assert.strictEqual(await save(editor, projection), loose);
 			});
-			assert.strictEqual((projection.blocks[1] as { type?: string }).type, 'paragraph');
-		});
 
-		test('creates passthrough blocks when normalization would drop inline content', async () => {
-			const projection = await buildBaseHalfMarkdownLoadProjection(new FakeMarkdownEditor(), 'Keep <!-- secret --> this\n');
+			test('an edit of one child changes that child alone', async () => {
+				const editor = new BaseHalfNoteTestEditor();
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, loose);
+				const toggle = projection.blocks[0] as { children: unknown[] };
+				const edited = { ...toggle, children: [toggle.children[0], withText(toggle.children[1], 'child two!')] };
 
-			assert.strictEqual(projection.blocks.length, 2);
-			assert.strictEqual((projection.blocks[0] as { type?: string }).type, BASEHALF_RAW_PASSTHROUGH_BLOCK);
-			assert.deepStrictEqual((projection.blocks[0] as { props?: unknown }).props, {
-				raw: 'Keep <!-- secret --> this\n',
-				source: 'Keep <!-- secret --> this',
-				hidden: false
+				assert.strictEqual(await save(editor, projection, [edited, projection.blocks[1]]), loose.replace('child two', 'child two!'));
 			});
-			assert.strictEqual((projection.blocks[1] as { type?: string }).type, 'paragraph');
+
+			test('a new last child and a new title keep the toggle together', async () => {
+				const editor = new BaseHalfNoteTestEditor();
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, loose);
+				const toggle = projection.blocks[0] as { children: unknown[]; content: unknown };
+				const third = { id: 'third', type: 'paragraph', props: {}, content: [{ type: 'text', text: 'child three', styles: {} }], children: [] };
+
+				assert.strictEqual(
+					await save(editor, projection, [{ ...toggle, children: [...toggle.children, third] }, projection.blocks[1]]),
+					'<details>\n<summary>Title</summary>\n\nchild one\n\nchild two\n\nchild three\n\n</details>\n\nafter\n'
+				);
+				assert.strictEqual(
+					await save(editor, projection, [{ ...toggle, content: [{ type: 'text', text: 'New', styles: {} }] }, projection.blocks[1]]),
+					loose.replace('Title', 'New')
+				);
+			});
+
+			test('a toggle stored open keeps open, and is saved byte for byte', async () => {
+				const editor = new BaseHalfNoteTestEditor();
+				const body = '<details open>\n<summary>Open</summary>\n\ninside\n\n</details>\n';
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, body);
+				const toggle = projection.blocks[0] as { children: unknown[] };
+
+				assert.ok(projection.note.open.has(idOf(toggle)));
+				assert.strictEqual(await save(editor, projection), body);
+				assert.strictEqual(await save(editor, projection, [{ ...toggle, children: [withText(toggle.children[0], 'inside!')] }]), body.replace('inside', 'inside!'));
+			});
+
+			test('two toggles on lines one after the other are two toggles', async () => {
+				const editor = new BaseHalfNoteTestEditor();
+				const body = '<details>\n<summary>Q1</summary>\n\nA1\n\n</details>\n<details>\n<summary>Q2</summary>\n\nA2\n\n</details>\n';
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, body);
+
+				assert.deepStrictEqual(projection.blocks.map(typeOf), ['toggleListItem', 'toggleListItem']);
+				assert.strictEqual(await save(editor, projection), body);
+			});
+
+			test('a toggle Rich cannot read as one is read as its parts, as before', async () => {
+				for (const body of [
+					'<details class="x">\n<summary>Title</summary>\n\nchild\n\n</details>\n',
+					'<details>\n<summary>Title</summary>\n\nchild\n',
+					'<details>\n<summary>Title</summary>\n\nchild\n\n</details> trailing\n'
+				]) {
+					const editor = new BaseHalfNoteTestEditor();
+					const projection = await buildBaseHalfMarkdownLoadProjection(editor, body);
+
+					assert.ok(projection.blocks.every(block => typeOf(block) !== 'toggleListItem'), body);
+					assert.ok(projection.blocks.some(block => typeOf(block) === 'paragraph'), body);
+					assert.strictEqual(await save(editor, projection), body, body);
+				}
+			});
+
+			test('the parts of a toggle\'s contribution give each child its own lines', async () => {
+				const editor = new BaseHalfNoteTestEditor();
+				const projection = await buildBaseHalfMarkdownLoadProjection(editor, loose);
+				const [toggle] = await collectBaseHalfMarkdownSaveContributions(editor, projection.blocks, projection.byId, projection.note);
+				const children = childrenOf(projection.blocks[0]);
+
+				assert.deepStrictEqual(toggle.parts?.map(part => part.id), [idOf(projection.blocks[0]), idOf(children[0]), idOf(children[1]), undefined]);
+				assert.strictEqual(toggle.parts?.map(part => part.text).join(''), toggle.text);
+				assert.strictEqual(toggle.parts?.[3].text, '</details>\n\n');
+			});
 		});
 
-		test('keeps standard blockquotes editable even when Markdown syntax normalizes', async () => {
-			const projection = await buildBaseHalfMarkdownLoadProjection(
-				new FakeMarkdownEditor(),
-				'> [docs/decisions.md D19](docs/decisions.md)\n'
-			);
+		test('a document that holds the projection under other ids is adopted', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, '1) one\n2) two\n\ntext\n');
+			const held = projection.blocks.map((block, index) => ({ ...(block as object), id: `held-${index}` }));
 
-			assert.strictEqual(projection.blocks.length, 1);
-			assert.strictEqual((projection.blocks[0] as { type?: string }).type, 'quote');
-			assert.strictEqual(projection.byId.size, 1);
-		});
-
-		test('marks multi-block parsed segments as line-accounting-only reuse entries', async () => {
-			const projection = await buildBaseHalfMarkdownLoadProjection(new FakeMarkdownEditor(), '> one\n>\n> two\n');
-
-			assert.strictEqual(projection.blocks.length, 2);
-			assert.strictEqual(projection.byId.get('multi-1')?.multi, true);
-			assert.strictEqual(projection.byId.get('multi-2')?.multi, true);
-			assert.strictEqual(projection.byId.get('multi-1')?.raw, '');
-			assert.strictEqual(projection.byId.get('multi-2')?.raw, '> one\n>\n> two\n');
-		});
-
-		test('reuses unchanged raw tiles and confines normalization to edited blocks', async () => {
-			const editor = new FakeMarkdownEditor();
-			const byId = new Map([
-				['a', { key: 'Alpha', raw: 'Alpha  \n\n', prefix: '', sep: '\n\n' }],
-				['b', { key: 'Beta', raw: 'Beta\n', prefix: '', sep: '\n' }]
-			]);
-
-			const out = await spliceBaseHalfMarkdownSave(editor, [
-				{ id: 'a', type: 'paragraph', markdown: 'Alpha' },
-				{ id: 'b', type: 'paragraph', markdown: 'Beta changed' }
-			], '', byId);
-
-			assert.strictEqual(out, 'Alpha  \n\nBeta changed\n');
-		});
-
-		test('uses list-tight separators for new list item blocks', async () => {
-			const editor = new FakeMarkdownEditor();
-
-			const out = await spliceBaseHalfMarkdownSave(editor, [
-				{ id: 'a', type: 'bulletListItem', markdown: '- Alpha' },
-				{ id: 'b', type: 'bulletListItem', markdown: '- Beta' }
-			], '', new Map());
-
-			assert.strictEqual(out, '- Alpha\n- Beta\n');
-		});
-
-		test('separates synthesized blocks inserted after an unchanged final block', async () => {
-			const editor = new FakeMarkdownEditor();
-			const paragraphById = new Map([
-				['a', { key: 'Tail', raw: 'Tail', prefix: '', sep: '' }]
-			]);
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [
-				{ id: 'a', type: 'paragraph', markdown: 'Tail' },
-				{ id: 'divider', type: 'divider', markdown: '***' }
-			], '', paragraphById), 'Tail\n\n***\n');
-
-			const listById = new Map([
-				['first', { key: '- Alpha', raw: '- Alpha', prefix: '', sep: '' }]
-			]);
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [
-				{ id: 'first', type: 'bulletListItem', markdown: '- Alpha' },
-				{ id: 'second', type: 'bulletListItem', markdown: '- Beta' }
-			], '', listById), '- Alpha\n- Beta\n');
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [
-				{ id: 'first', type: 'bulletListItem', markdown: '- Alpha' },
-				{ id: 'body', type: 'paragraph', markdown: 'Body' }
-			], '', listById), '- Alpha\n\nBody\n');
-		});
-
-		test('keeps frontmatter fences separated from newly serialized body content', async () => {
-			const editor = new FakeMarkdownEditor();
-
-			assert.strictEqual(
-				await spliceBaseHalfMarkdownSave(editor, [{ id: 'a', type: 'paragraph', markdown: 'hello' }], '---\nk: v\n---', new Map()),
-				'---\nk: v\n---\nhello\n'
-			);
-			assert.strictEqual(
-				await spliceBaseHalfMarkdownSave(editor, [{ id: 'a', type: 'paragraph', markdown: 'hello' }], '---\r\nk: v\r\n---', new Map()),
-				'---\r\nk: v\r\n---\r\nhello\n'
-			);
-		});
-
-		test('splices intact multi-block groups verbatim', async () => {
-			const editor = new FakeMarkdownEditor();
-			const body = '> one\n>\n> two\n';
-			const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editor, body);
-
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, blocks, '', byId), body);
-		});
-
-		test('reserializes a multi-block group when a member changed or went missing', async () => {
-			const editor = new FakeMarkdownEditor();
-			const body = '> one\n>\n> two\n';
-			const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editor, body);
-
-			const edited = blocks.map(block => (block as { id?: string }).id === 'multi-2'
-				? { ...(block as object), markdown: 'two changed' }
-				: block);
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, edited, '', byId), 'one\n\ntwo changed\n');
-
-			const truncated = blocks.filter(block => (block as { id?: string }).id !== 'multi-2');
-			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, truncated, '', byId), 'one\n');
-		});
-
-		test('ignores multi reuse entries during save', async () => {
-			const editor = new FakeMarkdownEditor();
-			const blocks = [
-				{ id: 'multi-1', type: 'paragraph', markdown: 'one' },
-				{ id: 'multi-2', type: 'paragraph', markdown: 'two' }
-			];
-			const multiMap = new Map([
-				['multi-1', { key: 'x', raw: '> one\n>\n> two\n', prefix: '', sep: '\n', multi: true }],
-				['multi-2', { key: 'x', raw: '', prefix: '', sep: '', multi: true }]
-			]);
-
-			assert.strictEqual(
-				await spliceBaseHalfMarkdownSave(editor, blocks, '', multiMap),
-				await spliceBaseHalfMarkdownSave(editor, blocks, '', new Map())
-			);
+			const adopted = adoptBaseHalfMarkdownLoadProjection(editor, held, projection);
+			assert.ok(adopted);
+			assert.deepStrictEqual([...adopted.byId.keys()], ['held-0', 'held-1', 'held-2']);
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, held, '', adopted.byId, adopted.note), '1) one\n2) two\n\ntext\n');
+			assert.strictEqual(adoptBaseHalfMarkdownLoadProjection(editor, [held[0], withText(held[1], 'other'), held[2]], projection), undefined);
+			assert.strictEqual(adoptBaseHalfMarkdownLoadProjection(editor, held.slice(1), projection), undefined);
+			assert.deepStrictEqual(projection.blocks.map(idOf), [...projection.byId.keys()]);
 		});
 	});
 });
-
-class FakeMarkdownEditor implements IBaseHalfMarkdownEditorApi {
-	private nextId = 1;
-
-	tryParseMarkdownToBlocks(markdown: string): unknown[] {
-		if (/^<!--/.test(markdown)) {
-			return [];
-		}
-
-		if (markdown.startsWith('> one')) {
-			return [
-				{ id: 'multi-1', type: 'paragraph', content: [{ type: 'text', text: 'one' }], markdown: 'one' },
-				{ id: 'multi-2', type: 'paragraph', content: [{ type: 'text', text: 'two' }], markdown: 'two' }
-			];
-		}
-
-		if (markdown.includes('<!-- secret -->')) {
-			return [block(`b${this.nextId++}`, 'paragraph', markdown.replace('<!-- secret -->', ''))];
-		}
-
-		if (markdown.startsWith('> [docs/decisions.md D19]')) {
-			return [block(`b${this.nextId++}`, 'quote', '> docs/decisions.md D19')];
-		}
-
-		return [block(`b${this.nextId++}`, blockTypeFor(markdown), markdown.trimEnd())];
-	}
-
-	blocksToMarkdownLossy(blocks: unknown[]): string {
-		return blocks.map(block => (block as { markdown?: string }).markdown ?? '').join('\n');
-	}
-}
-
-function block(id: string, type: string, markdown: string): unknown {
-	return {
-		id,
-		type,
-		content: [{ type: 'text', text: markdown }],
-		markdown
-	};
-}
-
-function blockTypeFor(markdown: string): string {
-	if (/^\s*(?:[-*+]|\d+\.)\s/.test(markdown)) {
-		return 'bulletListItem';
-	}
-
-	return 'paragraph';
-}

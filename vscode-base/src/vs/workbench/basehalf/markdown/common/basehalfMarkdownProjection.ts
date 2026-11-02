@@ -5,24 +5,130 @@
 
 import { lexer, type Token, type Tokens } from '../../../../base/common/marked/marked.js';
 import { parse as parseYaml, type YamlParseError } from '../../../../base/common/yaml.js';
+import { diffBaseHalfMarkdownSegments, groupBaseHalfMarkdownContributions } from './basehalfMarkdownMerge.js';
+import {
+	baseHalfNoteBlockChildren,
+	baseHalfNoteBlockId,
+	baseHalfNoteBlockProps,
+	baseHalfNoteBlockType,
+	baseHalfNoteKindOf,
+	baseHalfNoteStringProp,
+	IBaseHalfNoteBlock,
+	IBaseHalfNoteBlockKind,
+	IBaseHalfNoteListHint,
+	isBaseHalfNoteListItemType,
+	isBaseHalfNoteRecord,
+	isBaseHalfNoteToggle,
+	sameBaseHalfNoteBlockKind
+} from './basehalfNoteBlocks.js';
+import { baseHalfCardLexer, IBaseHalfNoteLinkDefinition } from './basehalfNoteInline.js';
+import { baseHalfMarkdownShowsSame } from './basehalfNoteShown.js';
+import { stripBaseHalfNoteReadHints } from './basehalfNoteStructure.js';
+import {
+	baseHalfNoteBlockKind,
+	baseHalfNoteFollowingListItem,
+	baseHalfNoteRequiredLineBreaks,
+	IBaseHalfNotePreviousListItem,
+	IBaseHalfNoteWriteHints,
+	writeBaseHalfToggleHeader
+} from './basehalfNoteWriter.js';
 
 export const BASEHALF_RAW_PASSTHROUGH_BLOCK = 'rawPassthrough';
 
 let nextGroupSequence = 1;
+let nextFixedBlockSequence = 1;
 
 export interface IBaseHalfMarkdownSegment {
 	readonly source: string;
 	readonly raw: string;
 	readonly prefix: string;
 	readonly sep: string;
+	/**
+	 * The place of the segment's first block of the file among the note's
+	 * blocks of the file, in order (default 0), and how many it spans
+	 * (default 1): a toggle spans its first lines, its blocks, and its last
+	 * line.
+	 */
+	readonly unit?: number;
+	readonly units?: number;
+	/**
+	 * A `<details>` whose parts are blocks of their own (note formats, rule
+	 * 41): its first lines, its blocks, and its last line, which tile `raw`.
+	 */
+	readonly toggle?: {
+		readonly header: IBaseHalfMarkdownSegment;
+		readonly children: readonly IBaseHalfMarkdownSegment[];
+		readonly footer: IBaseHalfMarkdownSegment;
+	};
 }
 
+/** What Rich's reader needs to read a part of a note as the whole note reads it. */
+export interface IBaseHalfNoteReadContext {
+	/** The note's reference definitions, by label as `marked` keys them. */
+	readonly definitions: Readonly<Record<string, IBaseHalfNoteLinkDefinition>>;
+}
+
+/**
+ * Rich's reader and writer, which the projection reaches through the editor
+ * (note formats, design 4.2). The webview reads with the page, and caches the
+ * writer and backs it up; tests pass the pure modules.
+ */
 export interface IBaseHalfMarkdownEditorApi {
-	tryParseMarkdownToBlocks(markdown: string): Promise<unknown[]> | unknown[];
-	blocksToMarkdownLossy(blocks: unknown[]): Promise<string> | string;
+	/**
+	 * The blocks of a part of a note as Rich reads it (note formats, rule 25),
+	 * each with an id: toggles with `basehalfOpen` and list items with
+	 * `basehalfHints`, from the reader's block pass.
+	 */
+	tryParseMarkdownToBlocks(markdown: string, context: IBaseHalfNoteReadContext): Promise<unknown[]> | unknown[];
+	/**
+	 * A block as the note stores it: `writeBaseHalfNoteBlock`. With `strict`,
+	 * a block the writer cannot write throws, which makes its part of the note
+	 * a fixed block at a load; without, the editor writes what it can of it
+	 * instead, as a save does (design A5).
+	 */
+	writeBlock(block: unknown, hints: IBaseHalfNoteWriteHints, strict?: boolean): string;
+	/** Decodes character references once, as a page does. */
+	decodeCharacterReferences(text: string): string;
+	/** A new id for a fixed block. Default: one of the projection's own. */
+	newBlockId?(): string;
+}
+
+/**
+ * What the projection keeps of a note from its load to the saves after it:
+ * what each part of the note needs of the whole note.
+ */
+export interface IBaseHalfMarkdownNote {
+	/** The note's line ending: CRLF when the file's first line break is CRLF (note formats, rule 24). */
+	readonly eol: '\n' | '\r\n';
+	/** The note's reference definitions, by label as `marked` keys them. */
+	readonly definitions: Readonly<Record<string, IBaseHalfNoteLinkDefinition>>;
+	readonly referenceLabels: ReadonlySet<string>;
+	/** The ids of the toggles the file stores open (rule 40). */
+	readonly open: Set<string>;
+	/** What the file wrote of each list item, by id (rule 19). */
+	readonly listHints: Map<string, IBaseHalfNoteListHint>;
+}
+
+/**
+ * Where a block stood when the note was read (design C12): its container, the
+ * blocks of the file it stood for, and its kind then. The blocks of one
+ * segment share its slot.
+ */
+export interface IBaseHalfMarkdownSlot {
+	/** `''` for the note itself, else the id of the toggle that holds it. */
+	readonly container: string;
+	/** The place of its first block of the file among the note's, and of its last. */
+	readonly first: number;
+	readonly last: number;
+	/** The kind of the slot's first block, and of its last. */
+	readonly kind: IBaseHalfNoteBlockKind;
+	readonly endKind: IBaseHalfNoteBlockKind;
+	/** Whether the note ended with it. */
+	readonly end: boolean;
 }
 
 export interface IBaseHalfMarkdownReuseEntry {
+	/** What the writer wrote of the block when the note was read; for a toggle in parts, of its first lines. */
 	readonly key: string;
 	readonly raw: string;
 	readonly prefix: string;
@@ -32,18 +138,32 @@ export interface IBaseHalfMarkdownReuseEntry {
 	readonly group?: string;
 	/** Number of blocks the segment projected into. */
 	readonly groupSize?: number;
-	/** This block's own normalized form, for per-block change detection. */
+	/** What the writer wrote of this block alone, for per-block change detection. */
 	readonly blockKey?: string;
+	/** A fixed block, which stands for `raw` while it keeps its slot. */
+	readonly fixed?: boolean;
+	readonly slot?: IBaseHalfMarkdownSlot;
+	/**
+	 * A toggle whose parts are blocks of their own (rule 41): its first lines,
+	 * and its last line. Its blocks have entries of their own.
+	 */
+	readonly toggle?: {
+		readonly header: { readonly key: string; readonly raw: string; readonly prefix: string; readonly sep: string; readonly unit: number };
+		readonly footer: { readonly source: string; readonly unit: number };
+	};
 }
 
 export interface IBaseHalfMarkdownLoadProjection {
 	readonly blocks: unknown[];
 	readonly byId: Map<string, IBaseHalfMarkdownReuseEntry>;
+	readonly note: IBaseHalfMarkdownNote;
 }
 
 interface IBaseHalfMarkdownUnit {
 	readonly start: number;
 	readonly end: number;
+	/** What `marked` read as a block of HTML. */
+	readonly html?: boolean;
 }
 
 export function splitBaseHalfMarkdownFrontmatter(content: string): { frontmatter: string; body: string } {
@@ -144,8 +264,13 @@ export function joinBaseHalfMarkdownFrontmatter(frontmatter: string, body: strin
 	return frontmatter + body;
 }
 
+/**
+ * Tiles a Markdown body at block boundaries while preserving every source
+ * byte, as Rich projects it: each item of a top-level list on its own, and a
+ * `<details>` whose parts are blocks of their own as one segment of them.
+ */
 export function segmentBaseHalfMarkdownBody(body: string): IBaseHalfMarkdownSegment[] {
-	return segmentBaseHalfMarkdownBodyWithListMode(body, true);
+	return segmentBaseHalfMarkdownBodyWithListMode(body, true, true);
 }
 
 /**
@@ -154,10 +279,10 @@ export function segmentBaseHalfMarkdownBody(body: string): IBaseHalfMarkdownSegm
  * kept as one segment instead of being split into one segment per list item.
  */
 export function segmentBaseHalfMarkdownTopLevelBody(body: string): IBaseHalfMarkdownSegment[] {
-	return segmentBaseHalfMarkdownBodyWithListMode(body, false);
+	return segmentBaseHalfMarkdownBodyWithListMode(body, false, false);
 }
 
-function segmentBaseHalfMarkdownBodyWithListMode(body: string, splitListItems: boolean): IBaseHalfMarkdownSegment[] {
+function segmentBaseHalfMarkdownBodyWithListMode(body: string, splitListItems: boolean, groupToggles: boolean): IBaseHalfMarkdownSegment[] {
 	if (body === '') {
 		return [];
 	}
@@ -167,357 +292,534 @@ function segmentBaseHalfMarkdownBodyWithListMode(body: string, splitListItems: b
 		return [{ source: body, raw: body, prefix: '', sep: '' }];
 	}
 
-	return units.map((unit, index) => {
-		const next = units[index + 1];
-		const tileStart = index === 0 ? 0 : unit.start;
-		const tileEnd = next ? next.start : body.length;
-		return {
-			source: body.slice(unit.start, unit.end),
+	const items = groupToggles ? groupBaseHalfMarkdownUnits(body, units) : units.map(unit => ({ kind: 'unit', unit } as const));
+	return segmentsOfItems(body, items, 0, body.length, 0);
+}
+
+/**
+ * The segments of `items`, whose tiles run from `from`, the first item's
+ * tile, to `to`, the last item's end; `unit` is the place of the first item's
+ * first unit among the note's.
+ */
+function segmentsOfItems(body: string, items: readonly BaseHalfMarkdownUnitItem[], from: number, to: number, unit: number): IBaseHalfMarkdownSegment[] {
+	const startOf = (item: BaseHalfMarkdownUnitItem) => item.kind === 'unit' ? item.unit.start : item.group.header.start;
+	let next = unit;
+	return items.map((item, index) => {
+		const first = next;
+		const start = startOf(item);
+		const end = item.kind === 'unit' ? item.unit.end : item.group.footer.end;
+		const tileStart = index === 0 ? from : start;
+		const tileEnd = index + 1 < items.length ? startOf(items[index + 1]) : to;
+		const segment = {
+			source: body.slice(start, end),
 			raw: body.slice(tileStart, tileEnd),
-			prefix: body.slice(tileStart, unit.start),
-			sep: body.slice(unit.end, tileEnd)
+			prefix: body.slice(tileStart, start),
+			sep: body.slice(end, tileEnd),
+			unit: first
+		};
+		if (item.kind === 'unit') {
+			next = first + 1;
+			return { ...segment, units: 1 };
+		}
+		const { header, children, footer } = item.group;
+		const childrenStart = children.length > 0 ? startOf(children[0]) : footer.start;
+		const childSegments = segmentsOfItems(body, children, childrenStart, footer.start, first + 1);
+		const footerUnit = first + 1 + childSegments.reduce((count, child) => count + (child.units ?? 1), 0);
+		next = footerUnit + 1;
+		return {
+			...segment,
+			units: next - first,
+			toggle: {
+				header: { source: body.slice(header.start, header.end), raw: body.slice(tileStart, childrenStart), prefix: body.slice(tileStart, header.start), sep: body.slice(header.end, childrenStart), unit: first, units: 1 },
+				children: childSegments,
+				footer: { source: body.slice(footer.start, footer.end), raw: body.slice(footer.start, tileEnd), prefix: '', sep: body.slice(footer.end, tileEnd), unit: footerUnit, units: 1 }
+			}
 		};
 	});
 }
 
-export function baseHalfMarkdownContentTokens(markdown: string): string {
-	return (markdown.match(/[\p{L}\p{N}]+/gu) ?? []).join(' ');
+/** How many of the note's blocks of the file `segments` span. */
+function unitsOf(segments: readonly IBaseHalfMarkdownSegment[]): number {
+	return segments.reduce((count, segment) => count + (segment.units ?? 1), 0);
 }
 
-export function baseHalfMarkdownLosesContent(source: string, normalized: string): boolean {
-	// Standard Markdown can normalize substantially across BlockNote's parser and
-	// serializer (wrapped blockquotes, link syntax, list markers) while still being
-	// an editable block. Reserve passthrough for constructs BlockNote cannot model:
-	// comments and raw HTML whose content would be dropped on edit.
-	if (htmlComments(source) !== htmlComments(normalized)) {
-		return true;
-	}
-
-	if (!containsRawHtml(source)) {
-		return false;
-	}
-
-	return (
-		baseHalfMarkdownContentTokens(withLineBreakWords(source)) !== baseHalfMarkdownContentTokens(withLineBreakWords(normalized))
-	);
-}
+// --- Rich's projection of a note (note formats, rules 25 to 37, 67, and 68)
 
 /**
- * A line break is kept whichever way it is written: as `<br>`, or as a
- * backslash at the end of a line. Each becomes the same word, so that a block
- * loses content when a line break of it is gone and not when it is written
- * the other way.
+ * A note's own context at its load: its line ending, from `content`, the
+ * whole file, and its reference definitions, from `body`.
  */
-function withLineBreakWords(markdown: string): string {
-	return markdown
-		// A heading is one line. A backslash at its end is no line break of it:
-		// it cuts the heading in two.
-		.replace(/^(?<heading> {0,3}#{1,6}[ \t][^\n]*)\\(?<end>\r?\n)/gm, '$<heading>$<end>')
-		.replace(/<br\s*\/?>|\\\r?\n/gi, ' basehalflinebreak ');
+export function createBaseHalfMarkdownNote(body: string, content: string = body): IBaseHalfMarkdownNote {
+	const lineFeed = content.indexOf('\n');
+	const definitions = baseHalfMarkdownDefinitions(body);
+	return {
+		eol: lineFeed > 0 && content.charCodeAt(lineFeed - 1) === 13 ? '\r\n' : '\n',
+		definitions,
+		referenceLabels: new Set(Object.keys(definitions)),
+		open: new Set(),
+		listHints: new Map()
+	};
 }
 
-/**
- * Writes blocks as Markdown with the editor's writer, and a line break inside
- * a table cell as `<br>`. A row of a table is one line: the editor's writer
- * ends the line at the break, which cuts the row in two and the table with it.
- */
-export async function baseHalfBlocksToMarkdown(writer: Pick<IBaseHalfMarkdownEditorApi, 'blocksToMarkdownLossy'>, blocks: unknown[]): Promise<string> {
-	// The breaks travel through the writer as a mark that no text of the blocks holds.
-	const text = JSON.stringify(blocks) ?? '';
-	let mark = '\uE000';
-	while (text.includes(mark)) {
-		mark += '\uE000';
-	}
-	const marked = withTableCellLineBreaksMarked(blocks, mark, false);
-	const markdown = await writer.blocksToMarkdownLossy(marked as unknown[]);
-	return marked === blocks ? markdown : markdown.split(mark).join('<br>');
-}
-
-/** Returns `value` itself when it holds no line break in a table cell. */
-function withTableCellLineBreaksMarked(value: unknown, mark: string, inCell: boolean): unknown {
-	if (Array.isArray(value)) {
-		const items = value.map(item => withTableCellLineBreaksMarked(item, mark, inCell));
-		return items.some((item, index) => item !== value[index]) ? items : value;
-	}
-	if (!isRecord(value)) {
-		return inCell && typeof value === 'string' && value.includes('\n') ? value.replace(/\n/g, mark) : value;
-	}
-	const cell = inCell || value.type === 'tableCell';
-	if (cell && value.type === 'text') {
-		return typeof value.text === 'string' && value.text.includes('\n') ? { ...value, text: value.text.replace(/\n/g, mark) } : value;
-	}
-	let copy: Record<string, unknown> | undefined;
-	for (const key of ['content', 'rows', 'cells', 'children']) {
-		// The children of a block are blocks of their own, outside the cell.
-		const marked = withTableCellLineBreaksMarked(value[key], mark, key === 'children' ? false : cell);
-		if (marked !== value[key]) {
-			copy ??= { ...value };
-			copy[key] = marked;
+/** The reference definitions of a note's body, by label as `marked` keys them. */
+export function baseHalfMarkdownDefinitions(body: string): Record<string, IBaseHalfNoteLinkDefinition> {
+	const definitions: Record<string, IBaseHalfNoteLinkDefinition> = {};
+	try {
+		const cardLexer = baseHalfCardLexer();
+		cardLexer.lex(body);
+		for (const [label, definition] of Object.entries(cardLexer.tokens.links)) {
+			definitions[label] = { href: definition.href, title: definition.title };
 		}
+	} catch {
+		// A body the card's reader cannot read has no definitions to read a part of it by.
 	}
-	return copy ?? value;
+	return definitions;
+}
+
+/** Where a segment stands in the note. */
+export interface IBaseHalfMarkdownSegmentPlace {
+	/** `''` for the note itself, else the id of the toggle that holds it. */
+	readonly container: string;
+	/** The place of its first block of the file among the note's, and of its last. */
+	readonly first: number;
+	readonly last: number;
+	/** Whether the note ends with it. */
+	readonly end: boolean;
+}
+
+function placeOf(segment: IBaseHalfMarkdownSegment, container: string, units: number): IBaseHalfMarkdownSegmentPlace {
+	const first = segment.unit ?? 0;
+	const last = first + (segment.units ?? 1) - 1;
+	return { container, first, last, end: last === units - 1 };
 }
 
 export interface IBaseHalfMarkdownSegmentProjection {
+	/** The blocks for the editor, without what the reader learned of the file, which the note keeps. */
 	readonly blocks: unknown[];
 	readonly entries: ReadonlyArray<readonly [string, IBaseHalfMarkdownReuseEntry]>;
 }
 
+/**
+ * Rich's blocks of one segment (note formats, rules 34 to 36), as if it were
+ * alone in the note: what Rich reads of it when, written back, it shows the
+ * same on the card, else one fixed block of its bytes. What the reader
+ * learned of the file's toggles and list items goes into `note`.
+ */
 export async function projectBaseHalfMarkdownSegment(
 	editor: IBaseHalfMarkdownEditorApi,
-	segment: IBaseHalfMarkdownSegment
+	segment: IBaseHalfMarkdownSegment,
+	note: IBaseHalfMarkdownNote
 ): Promise<IBaseHalfMarkdownSegmentProjection> {
-	const parsed: unknown[] = [];
-	const paragraphParts = splitBaseHalfParagraphFileLinkLines(segment.source) ?? [segment.source];
-	for (const part of paragraphParts) {
-		let partBlocks: unknown[] = [];
-		try {
-			partBlocks = normalizeBaseHalfMarkdownSoftBreaks(await editor.tryParseMarkdownToBlocks(part));
-		} catch {
-			partBlocks = [];
-		}
-		parsed.push(...projectBaseHalfStandaloneFileLink(part, partBlocks));
-	}
-
-	if (isDropped(parsed)) {
-		return { blocks: [passthroughBlock(segment)], entries: [] };
-	}
-
-	const key = await normalize(editor, parsed);
-	if (baseHalfMarkdownLosesContent(segment.source, key)) {
-		return { blocks: [passthroughBlock(segment)], entries: [] };
-	}
-
-	const entries: Array<readonly [string, IBaseHalfMarkdownReuseEntry]> = [];
-	if (parsed.length === 1) {
-		const id = idOf(parsed[0]);
-		if (id) {
-			entries.push([id, { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep }]);
-		}
-	} else {
-		const group = `g${nextGroupSequence++}`;
-		for (let index = 0; index < parsed.length; index++) {
-			const id = idOf(parsed[index]);
-			if (!id) {
-				continue;
-			}
-
-			const shared = { multi: true, group, groupSize: parsed.length, blockKey: await normalize(editor, [parsed[index]]) };
-			entries.push([
-				id,
-				index === parsed.length - 1
-					? { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep, ...shared }
-					: { key, raw: '', prefix: '', sep: '', ...shared }
-			]);
-		}
-	}
-
-	return { blocks: parsed, entries };
-}
-
-/**
- * Projects a standalone local Markdown file link as a BlockNote file block.
- * The source stays ordinary `[name](relative/path.ext)` Markdown; this is a
- * rich-only view over the same bytes, not a BaseHalf-specific file format.
- */
-export function projectBaseHalfStandaloneFileLink(source: string, parsed: unknown[]): unknown[] {
-	if (parsed.length !== 1) {
-		return parsed;
-	}
-	const link = baseHalfStandaloneFileLink(source);
-	if (!link) {
-		return parsed;
-	}
-
-	const original = isRecord(parsed[0]) ? parsed[0] : {};
-	const originalProps = isRecord(original.props) ? original.props : {};
-	return [{
-		...original,
-		type: 'file',
-		props: {
-			backgroundColor: typeof originalProps.backgroundColor === 'string' ? originalProps.backgroundColor : 'default',
-			name: link.text || attachmentNameFromHref(link.href),
-			url: link.href,
-			caption: ''
-		},
-		content: undefined,
-		children: []
-	}];
-}
-
-/**
- * BlockNote serializes adjacent rich blocks with one newline. CommonMark reads
- * `paragraph\n[file](...)` back as one soft-wrapped paragraph, so a close/open
- * cycle would erase the file-block projection. Split only a plain paragraph's
- * lines that are independently complete local file links; fenced code, quotes,
- * lists, and mixed inline content keep their original parsing.
- */
-function splitBaseHalfParagraphFileLinkLines(source: string): string[] | undefined {
-	const tokens = lexer(source).filter(token => token.type !== 'space');
-	if (tokens.length !== 1 || tokens[0].type !== 'paragraph') {
-		return undefined;
-	}
-
-	const lines = source.split(/\r?\n/);
-	if (lines.length < 2 || !lines.some(isBaseHalfStandaloneFileLinkLine)) {
-		return undefined;
-	}
-
-	const parts: string[] = [];
-	let paragraph: string[] = [];
-	const flushParagraph = () => {
-		if (paragraph.length > 0) {
-			parts.push(paragraph.join('\n'));
-			paragraph = [];
-		}
-	};
-	for (const line of lines) {
-		if (isBaseHalfStandaloneFileLinkLine(line)) {
-			flushParagraph();
-			parts.push(line);
-		} else {
-			paragraph.push(line);
-		}
-	}
-	flushParagraph();
-	return parts;
-}
-
-function isBaseHalfStandaloneFileLinkLine(line: string): boolean {
-	return line === line.trim() && !!baseHalfStandaloneFileLink(line);
-}
-
-function baseHalfStandaloneFileLink(source: string): Tokens.Link | undefined {
-	const tokens = lexer(source).filter(token => token.type !== 'space');
-	if (tokens.length !== 1 || tokens[0].type !== 'paragraph') {
-		return undefined;
-	}
-	const paragraph = tokens[0] as Tokens.Paragraph;
-	const inline = paragraph.tokens.filter(token => token.type !== 'space');
-	if (inline.length !== 1 || inline[0].type !== 'link') {
-		return undefined;
-	}
-	const link = inline[0] as Tokens.Link;
-	return paragraph.text.trim() === link.raw.trim() && isBaseHalfLocalFileHref(link.href) ? link : undefined;
-}
-
-function isBaseHalfLocalFileHref(href: string): boolean {
-	if (!href || href.startsWith('/') || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) {
-		return false;
-	}
-	const path = href.split(/[?#]/, 1)[0];
-	const name = path.slice(path.lastIndexOf('/') + 1);
-	const dot = name.lastIndexOf('.');
-	const extension = dot > 0 ? name.slice(dot).toLowerCase() : '';
-	return !!extension && extension !== '.md' && extension !== '.markdown';
-}
-
-function attachmentNameFromHref(href: string): string {
-	const path = href.split(/[?#]/, 1)[0];
-	const name = path.slice(path.lastIndexOf('/') + 1);
-	try {
-		return decodeURIComponent(name);
-	} catch {
-		return name;
-	}
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
-}
-
-/**
- * Removes the single formatting space BlockNote 0.51 inserts after every soft
- * line break while converting its intermediate `<br>\n` HTML back into block
- * content. Leaving that parser artifact in the document makes BlockNote's
- * required `white-space: pre-wrap` indent every continued line by one space.
- *
- * Code blocks keep their whitespace byte-for-byte. In inline-capable blocks we
- * remove exactly one parser-owned space, including when a style boundary puts
- * the line feed and following text in separate inline nodes.
- */
-export function normalizeBaseHalfMarkdownSoftBreaks(blocks: unknown[]): unknown[] {
-	return blocks.map(normalizeBaseHalfMarkdownSoftBreakBlock);
-}
-
-function normalizeBaseHalfMarkdownSoftBreakBlock(value: unknown): unknown {
-	if (!isRecord(value) || value.type === 'codeBlock' || value.type === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
-		return value;
-	}
-
-	let changed = false;
-	const normalized: Record<string, unknown> = { ...value };
-	if (Array.isArray(value.content)) {
-		const content = normalizeBaseHalfMarkdownInlineSoftBreaks(value.content);
-		if (content !== value.content) {
-			normalized.content = content;
-			changed = true;
-		}
-	}
-	const originalChildren = value.children;
-	if (Array.isArray(originalChildren)) {
-		const children = originalChildren.map(normalizeBaseHalfMarkdownSoftBreakBlock);
-		if (children.some((child, index) => child !== originalChildren[index])) {
-			normalized.children = children;
-			changed = true;
-		}
-	}
-
-	return changed ? normalized : value;
-}
-
-function normalizeBaseHalfMarkdownInlineSoftBreaks(content: unknown[]): unknown[] {
-	let afterLineFeed = false;
-	let changed = false;
-	const normalized = content.map(value => {
-		if (!isRecord(value) || value.type !== 'text' || typeof value.text !== 'string') {
-			afterLineFeed = false;
-			return value;
-		}
-
-		let text = value.text;
-		if (afterLineFeed && text.startsWith(' ')) {
-			text = text.slice(1);
-		}
-		text = text.replace(/\n /g, '\n');
-		afterLineFeed = text.endsWith('\n');
-		if (text === value.text) {
-			return value;
-		}
-
-		changed = true;
-		return { ...value, text };
-	});
-	return changed ? normalized : content;
+	const units = (segment.unit ?? 0) + (segment.units ?? 1);
+	const projected = await projectSegments(editor, [{ segment, place: placeOf(segment, '', units) }], note, units);
+	const { blocks, written } = writeProjected(editor, projected, note);
+	return { blocks, entries: entriesOf(editor, projected, written, note) };
 }
 
 export async function buildBaseHalfMarkdownLoadProjection(
 	editor: IBaseHalfMarkdownEditorApi,
-	body: string
+	body: string,
+	content: string = body
 ): Promise<IBaseHalfMarkdownLoadProjection> {
+	const note = createBaseHalfMarkdownNote(body, content);
 	const segments = segmentBaseHalfMarkdownBody(body);
-	const blocks: unknown[] = [];
-	const byId = new Map<string, IBaseHalfMarkdownReuseEntry>();
+	const units = unitsOf(segments);
+	const projected = await projectSegments(editor, segments.map(segment => ({ segment, place: placeOf(segment, '', units) })), note, units);
+	// Each key is what the writer writes of its block where it stands, as a
+	// save writes it: a list item without a hint takes its marker from the
+	// item before it.
+	const { blocks, written } = writeProjected(editor, projected, note);
+	const byId = new Map(entriesOf(editor, projected, written, note));
 
-	for (const segment of segments) {
-		const projection = await projectBaseHalfMarkdownSegment(editor, segment);
-		blocks.push(...projection.blocks);
-		for (const [id, entry] of projection.entries) {
-			byId.set(id, entry);
-		}
-	}
-
-	const hasEditable = blocks.some(block => (block as { type?: string }).type !== BASEHALF_RAW_PASSTHROUGH_BLOCK);
-	if (!hasEditable) {
+	if (!blocks.some(block => baseHalfNoteBlockType(block) !== BASEHALF_RAW_PASSTHROUGH_BLOCK)) {
 		blocks.push({ type: 'paragraph' });
 	}
 
-	return { blocks, byId };
+	return { blocks, byId, note };
 }
+
+interface IProjectedSegment {
+	readonly segment: IBaseHalfMarkdownSegment;
+	readonly place: IBaseHalfMarkdownSegmentPlace;
+	readonly blocks: readonly unknown[];
+	readonly fixed: boolean;
+	/** A toggle whose parts are blocks of their own: what the writer writes of its first lines, and its blocks, projected in it. */
+	readonly toggle?: { readonly headerKey: string; readonly children: IProjectedSegment[] };
+}
+
+async function projectSegments(
+	editor: IBaseHalfMarkdownEditorApi,
+	segments: readonly { readonly segment: IBaseHalfMarkdownSegment; readonly place: IBaseHalfMarkdownSegmentPlace }[],
+	note: IBaseHalfMarkdownNote,
+	units: number
+): Promise<IProjectedSegment[]> {
+	const projected: IProjectedSegment[] = [];
+	for (const { segment, place } of segments) {
+		if (segment.toggle) {
+			const toggle = await projectToggle(editor, segment, place, note, units);
+			if (toggle) {
+				projected.push(toggle);
+				continue;
+			}
+			// Read as its parts, as before (rule 42): its first lines, its
+			// blocks, and its last line, each at this level.
+			const { header, children, footer } = segment.toggle;
+			projected.push(...await projectSegments(editor, [header, ...children, footer].map(part => ({ segment: part, place: placeOf(part, place.container, units) })), note, units));
+			continue;
+		}
+		const read = await readSegment(editor, segment, note);
+		projected.push(read
+			? { segment, place, blocks: takeReadHints(read, note), fixed: false }
+			: { segment, place, blocks: [fixedBlock(editor, segment)], fixed: true });
+	}
+	return projected;
+}
+
+// One `<details>` or `<details open>` and one `<summary>`, and nothing else (rule 41).
+const toggleHeaderForm = /^ {0,3}<details(?:[ \t\r\n]+open)?[ \t\r\n]*>[ \t\r\n]*<summary>(?:(?!<\/?(?:summary|details)\b)[\s\S])*<\/summary>\s*$/i;
+const toggleFooterForm = /^\s*<\/details\s*>\s*$/i;
+
+/**
+ * A `<details>` whose parts are blocks of their own as one toggle (rule 41):
+ * when its first lines alone read as one toggle without children that Rich
+ * writes back showing the same, and its last line is `</details>`. Each of
+ * its blocks is projected in it as in the note. Else nothing.
+ */
+async function projectToggle(
+	editor: IBaseHalfMarkdownEditorApi,
+	segment: IBaseHalfMarkdownSegment,
+	place: IBaseHalfMarkdownSegmentPlace,
+	note: IBaseHalfMarkdownNote,
+	units: number
+): Promise<IProjectedSegment | undefined> {
+	const { header, children, footer } = segment.toggle!;
+	if (!toggleHeaderForm.test(header.source) || !toggleFooterForm.test(footer.source)) {
+		return undefined;
+	}
+	let title: IBaseHalfNoteBlock;
+	let headerKey: string;
+	try {
+		const read = (await editor.tryParseMarkdownToBlocks(header.source, note)).filter(isBaseHalfNoteRecord) as unknown as IBaseHalfNoteBlock[];
+		if (read.length !== 1 || !isBaseHalfNoteToggle(read[0]) || baseHalfNoteBlockChildren(read[0]).length > 0) {
+			return undefined;
+		}
+		title = read[0];
+		headerKey = writeBaseHalfToggleHeader(title, noteWriteHints(note));
+		if (!baseHalfMarkdownShowsSame(header.source, headerKey, { definitions: note.definitions, decodeCharacterReferences: text => editor.decodeCharacterReferences(text) })) {
+			return undefined;
+		}
+	} catch {
+		return undefined;
+	}
+	const id = baseHalfNoteBlockId(title);
+	if (id === undefined) {
+		return undefined;
+	}
+	const projectedChildren = await projectSegments(editor, children.map(child => ({ segment: child, place: placeOf(child, id, units) })), note, units);
+	const [toggleBlock] = takeReadHints([title], note);
+	return {
+		segment,
+		place,
+		blocks: [{ ...(toggleBlock as object), children: projectedChildren.flatMap(one => one.blocks) }],
+		fixed: false,
+		toggle: { headerKey, children: projectedChildren }
+	};
+}
+
+/**
+ * What Rich reads of a segment when, written back, it shows the same on the
+ * card and keeps every element, attribute, comment, and title the file has
+ * (rule 34); else nothing. A read, a write, or a comparison that throws
+ * gives nothing too (design A5).
+ */
+async function readSegment(editor: IBaseHalfMarkdownEditorApi, segment: IBaseHalfMarkdownSegment, note: IBaseHalfMarkdownNote): Promise<IBaseHalfNoteBlock[] | undefined> {
+	let blocks: IBaseHalfNoteBlock[];
+	try {
+		blocks = (await editor.tryParseMarkdownToBlocks(segment.source, note)).filter(isBaseHalfNoteRecord) as unknown as IBaseHalfNoteBlock[];
+	} catch {
+		return undefined;
+	}
+	if (isDropped(blocks)) {
+		return undefined;
+	}
+	try {
+		// The guard reads what a save would write: the same writer, in the same order.
+		const written = writtenTogether(writeContainerBlocks(editor, blocks, note, true), note);
+		return written !== undefined && written !== '' && baseHalfMarkdownShowsSame(segment.source, written, {
+			definitions: note.definitions,
+			decodeCharacterReferences: text => editor.decodeCharacterReferences(text)
+		}) ? blocks : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Moves what the reader learned of the file's toggles and list items from the
+ * blocks into the note, and returns the blocks without it: the editor's
+ * schema holds none of it.
+ */
+function takeReadHints(blocks: readonly IBaseHalfNoteBlock[], note: IBaseHalfMarkdownNote): unknown[] {
+	const visit = (list: readonly unknown[]) => {
+		for (const block of list) {
+			if (!isBaseHalfNoteRecord(block)) {
+				continue;
+			}
+			const id = baseHalfNoteBlockId(block);
+			if (id !== undefined) {
+				if (block.basehalfOpen === true) {
+					note.open.add(id);
+				}
+				const hint = block.basehalfHints;
+				if (isBaseHalfNoteRecord(hint) && typeof hint.marker === 'string') {
+					note.listHints.set(id, hint as unknown as IBaseHalfNoteListHint);
+				}
+			}
+			visit(baseHalfNoteBlockChildren(block));
+		}
+	};
+	visit(blocks);
+	return stripBaseHalfNoteReadHints(blocks);
+}
+
+function fixedBlock(editor: IBaseHalfMarkdownEditorApi, segment: IBaseHalfMarkdownSegment): unknown {
+	return {
+		id: editor.newBlockId?.() ?? `basehalf-fixed-${nextFixedBlockSequence++}`,
+		type: BASEHALF_RAW_PASSTHROUGH_BLOCK,
+		props: { raw: segment.raw, source: segment.source, hidden: isOwnMarker(segment.source) }
+	};
+}
+
+/** The ids of the toggles of projected segments that hold their parts. */
+function groupedIdsOf(projected: readonly IProjectedSegment[]): Set<string> {
+	const ids = new Set<string>();
+	for (const one of projected) {
+		const id = one.toggle ? baseHalfNoteBlockId(one.blocks[0]) : undefined;
+		if (id !== undefined) {
+			ids.add(id);
+		}
+	}
+	return ids;
+}
+
+/**
+ * The blocks of projected segments and what the writer writes of each where
+ * it stands, `before` and `after` around them. A segment with a block the
+ * writer cannot write becomes a fixed block of its bytes (design A5);
+ * `projected` changes with it, the toggles' children first.
+ */
+function writeProjected(
+	editor: IBaseHalfMarkdownEditorApi,
+	projected: IProjectedSegment[],
+	note: IBaseHalfMarkdownNote,
+	before: readonly unknown[] = [],
+	after: readonly unknown[] = [],
+	grouped: (block: unknown) => boolean = () => false
+): { blocks: unknown[]; written: IWrittenBlock[] } {
+	projected.forEach((one, index) => {
+		if (one.toggle) {
+			const inner = writeProjected(editor, one.toggle.children, note);
+			projected[index] = { ...one, blocks: [{ ...(one.blocks[0] as object), children: inner.blocks }] };
+		}
+	});
+	for (let attempt = 0; ; attempt++) {
+		const ids = groupedIdsOf(projected);
+		const isGrouped = (block: unknown) => {
+			const id = baseHalfNoteBlockId(block);
+			return (id !== undefined && ids.has(id)) || grouped(block);
+		};
+		const blocks = projected.flatMap(one => one.blocks);
+		const written = writeContainerBlocks(editor, [...before, ...blocks, ...after], note, true, isGrouped);
+		let at = before.length;
+		let failed = false;
+		projected.forEach((one, index) => {
+			if (written.slice(at, at + one.blocks.length).some(block => block.failed)) {
+				projected[index] = { segment: one.segment, place: one.place, blocks: [fixedBlock(editor, one.segment)], fixed: true };
+				failed = true;
+			}
+			at += one.blocks.length;
+		});
+		if (!failed) {
+			return { blocks, written: written.slice(before.length, before.length + blocks.length) };
+		}
+		if (attempt > 0) {
+			const settled = projected.flatMap(one => one.blocks);
+			return { blocks: settled, written: writeContainerBlocks(editor, [...before, ...settled, ...after], note, true, isGrouped).slice(before.length, before.length + settled.length) };
+		}
+	}
+}
+
+/** The entries of projected segments, `written` holding what the writer writes of each of their blocks, in order. */
+function entriesOf(
+	editor: IBaseHalfMarkdownEditorApi,
+	projected: readonly IProjectedSegment[],
+	written: readonly IWrittenBlock[],
+	note: IBaseHalfMarkdownNote
+): Array<readonly [string, IBaseHalfMarkdownReuseEntry]> {
+	const entries: Array<readonly [string, IBaseHalfMarkdownReuseEntry]> = [];
+	let at = 0;
+	for (const { segment, place, blocks, fixed, toggle } of projected) {
+		const own = written.slice(at, at + blocks.length);
+		at += blocks.length;
+		if (own.length === 0) {
+			continue;
+		}
+		const slot: IBaseHalfMarkdownSlot = { container: place.container, first: place.first, last: place.last, kind: own[0].kind, endKind: own[own.length - 1].kind, end: place.end };
+		if (toggle && segment.toggle && own[0].id !== undefined) {
+			const { header, footer } = segment.toggle;
+			entries.push([own[0].id, {
+				key: toggle.headerKey,
+				raw: segment.raw,
+				prefix: segment.prefix,
+				sep: segment.sep,
+				slot,
+				toggle: {
+					header: { key: toggle.headerKey, raw: header.raw, prefix: header.prefix, sep: header.sep, unit: header.unit ?? 0 },
+					footer: { source: footer.source, unit: footer.unit ?? 0 }
+				}
+			}]);
+			const childBlocks = toggle.children.flatMap(one => one.blocks);
+			const ids = groupedIdsOf(toggle.children);
+			entries.push(...entriesOf(editor, toggle.children, writeContainerBlocks(editor, childBlocks, note, true, block => ids.has(baseHalfNoteBlockId(block) ?? '')), note));
+			continue;
+		}
+		if (own.length === 1) {
+			const id = own[0].id;
+			if (id !== undefined) {
+				entries.push([id, { key: own[0].text, raw: segment.raw, prefix: segment.prefix, sep: segment.sep, ...(fixed ? { fixed: true } : {}), slot }]);
+			}
+			continue;
+		}
+		const group = `g${nextGroupSequence++}`;
+		own.forEach((member, index) => {
+			if (member.id === undefined) {
+				return;
+			}
+			const shared = { multi: true, group, groupSize: own.length, blockKey: member.text, slot };
+			entries.push([member.id, index === own.length - 1
+				? { key: member.text, raw: segment.raw, prefix: segment.prefix, sep: segment.sep, ...shared }
+				: { key: member.text, raw: '', prefix: '', sep: '', ...shared }]);
+		});
+	}
+	return entries;
+}
+
+// --- Writing a container's blocks
+
+/** The hints of the note for its writer: its line ending, its labels, and what the file wrote of toggles and list items. */
+function noteWriteHints(note: IBaseHalfMarkdownNote): IBaseHalfNoteWriteHints {
+	return {
+		eol: note.eol,
+		referenceLabels: note.referenceLabels,
+		isOpen: block => block.basehalfOpen ?? (block.id !== undefined && note.open.has(block.id)),
+		listHint: id => note.listHints.get(id)
+	};
+}
+
+interface IWrittenBlock {
+	readonly block: unknown;
+	readonly id: string | undefined;
+	readonly fixed: boolean;
+	/**
+	 * What the writer writes of the block, `''` for a fixed block, which
+	 * stands for its own bytes; for a toggle in parts, its first lines.
+	 */
+	readonly text: string;
+	readonly kind: IBaseHalfNoteBlockKind;
+	/** The writer threw on the block. */
+	readonly failed?: boolean;
+	/** A toggle whose parts are blocks of their own, whose blocks are written in it. */
+	readonly grouped?: boolean;
+}
+
+const fixedKind: IBaseHalfNoteBlockKind = Object.freeze({ type: BASEHALF_RAW_PASSTHROUGH_BLOCK });
+const toggleEndKind: IBaseHalfNoteBlockKind = Object.freeze({ type: 'toggleEnd' });
+
+/**
+ * What the writer writes of each block of a container, in order: a list item
+ * takes its marker and number from the item before it and the item after it
+ * (rule 19). A toggle in parts stands here for its first lines.
+ */
+function writeContainerBlocks(
+	editor: IBaseHalfMarkdownEditorApi,
+	blocks: readonly unknown[],
+	note: IBaseHalfMarkdownNote,
+	strict = false,
+	grouped: (block: unknown) => boolean = () => false
+): IWrittenBlock[] {
+	const base = noteWriteHints(note);
+	let previousListItem: IBaseHalfNotePreviousListItem | undefined;
+	return blocks.map((block, index) => {
+		const id = baseHalfNoteBlockId(block);
+		if (baseHalfNoteBlockType(block) === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
+			previousListItem = undefined;
+			return { block, id, fixed: true, text: '', kind: fixedKind };
+		}
+		if (isBaseHalfNoteToggle(block) && grouped(block)) {
+			previousListItem = undefined;
+			try {
+				return { block, id, fixed: false, text: writeBaseHalfToggleHeader(block, base), kind: baseHalfNoteKindOf(block, undefined), grouped: true };
+			} catch {
+				return { block, id, fixed: false, text: '', kind: baseHalfNoteKindOf(block, undefined), failed: true, grouped: true };
+			}
+		}
+		const nextMarker = writtenListMarker(blocks[index + 1], note);
+		const hints: IBaseHalfNoteWriteHints = { ...base, previousListItem, nextListItem: nextMarker === undefined ? undefined : { marker: nextMarker } };
+		try {
+			const text = editor.writeBlock(block, hints, strict);
+			const kind = baseHalfNoteBlockKind(block, hints);
+			if (text !== '') {
+				previousListItem = baseHalfNoteFollowingListItem(block, hints);
+			}
+			return { block, id, fixed: false, text, kind };
+		} catch {
+			previousListItem = undefined;
+			return { block, id, fixed: false, text: '', kind: { type: baseHalfNoteBlockType(block) }, failed: true };
+		}
+	});
+}
+
+/** Written blocks one after another, with the line breaks Markdown needs between them; none when one could not be written. */
+function writtenTogether(written: readonly IWrittenBlock[], note: IBaseHalfMarkdownNote): string | undefined {
+	let text = '';
+	let before: IWrittenBlock | undefined;
+	for (const one of written) {
+		if (one.failed) {
+			return undefined;
+		}
+		if (one.text === '') {
+			continue;
+		}
+		if (before) {
+			text += note.eol.repeat(baseHalfNoteRequiredLineBreaks(before, one));
+		}
+		text += one.text;
+		before = one;
+	}
+	return text;
+}
+
+/** The marker the file wrote of `block`, when it is a list item the file wrote. */
+function writtenListMarker(block: unknown, note: IBaseHalfMarkdownNote): string | undefined {
+	if (!isBaseHalfNoteListItemType(baseHalfNoteBlockType(block))) {
+		return undefined;
+	}
+	const id = baseHalfNoteBlockId(block);
+	const hint: unknown = (id !== undefined ? note.listHints.get(id) : undefined) ?? (isBaseHalfNoteRecord(block) ? block.basehalfHints : undefined);
+	return isBaseHalfNoteRecord(hint) && typeof hint.marker === 'string' ? hint.marker : undefined;
+}
+
+// --- Saving (design 4.3 and C12)
 
 export interface IBaseHalfMarkdownSaveContribution {
 	readonly id: string | undefined;
 	readonly text: string;
+	/**
+	 * For a toggle whose parts are blocks of their own: what its first lines,
+	 * each of its blocks, and its last line contribute, which tile `text`. The
+	 * first lines carry the toggle's id, the last line none.
+	 */
+	readonly parts?: readonly IBaseHalfMarkdownSaveContribution[];
 }
 
 /**
@@ -525,36 +827,25 @@ export interface IBaseHalfMarkdownSaveContribution {
  * concatenation is what {@link spliceBaseHalfMarkdownSave} writes as the body,
  * which makes this the alignment basis for incremental external merges: while
  * the editor is not dirty, these contributions reproduce the on-disk body
- * byte for byte. Sole exception: when the final block is synthesized, the
- * save-time trailing-newline collapse can reach across block boundaries; the
- * per-block view then differs and merge alignment falls back to a rebuild.
+ * byte for byte.
  */
 export async function collectBaseHalfMarkdownSaveContributions(
 	editor: IBaseHalfMarkdownEditorApi,
 	document: readonly unknown[],
-	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	note: IBaseHalfMarkdownNote = createBaseHalfMarkdownNote('')
 ): Promise<IBaseHalfMarkdownSaveContribution[]> {
-	const contributions = await collectContributions(editor, document, byId);
-	const last = contributions[contributions.length - 1];
-	if (last?.synthesized) {
-		last.text = last.text.replace(/\n+$/, '\n');
-	}
-
-	return contributions.map(({ id, text }) => ({ id, text }));
+	return collectContributions(editor, document, byId, note).map(savedContribution);
 }
 
 export async function spliceBaseHalfMarkdownSave(
 	editor: IBaseHalfMarkdownEditorApi,
 	document: readonly unknown[],
 	frontmatter: string,
-	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	note: IBaseHalfMarkdownNote = createBaseHalfMarkdownNote('')
 ): Promise<string> {
-	const contributions = await collectContributions(editor, document, byId);
-	let out = contributions.map(contribution => contribution.text).join('');
-	if (contributions[contributions.length - 1]?.synthesized) {
-		out = out.replace(/\n+$/, '\n');
-	}
-
+	const out = collectContributions(editor, document, byId, note).map(contributionText).join('');
 	if (frontmatter !== '' && out !== '' && !/\n$/.test(frontmatter)) {
 		const eol = frontmatter.includes('\r\n') ? '\r\n' : '\n';
 		return frontmatter + eol + out;
@@ -563,101 +854,464 @@ export async function spliceBaseHalfMarkdownSave(
 	return frontmatter + out;
 }
 
-async function collectContributions(
+interface IContribution {
+	readonly id: string | undefined;
+	readonly prefix: string;
+	/** The block's own text, without line breaks around it; `''` for a block that stores nothing. */
+	readonly body: string;
+	/** The line breaks after it. */
+	sep: string;
+	/** The kind of its first block, and of its last. */
+	readonly kind: IBaseHalfNoteBlockKind;
+	readonly endKind: IBaseHalfNoteBlockKind;
+	readonly slot: IBaseHalfMarkdownSlot | undefined;
+	readonly fixed: boolean;
+	/** What the writer writes of the block now, the first lines of a toggle in parts; `''` for a fixed block. */
+	readonly written: string;
+	/** The group of a multi-block segment kept whole. */
+	readonly group?: string;
+	/** A toggle in parts: its first lines, its blocks, and its last line, in it. */
+	readonly members?: readonly IContribution[];
+}
+
+function contributionText(contribution: IContribution): string {
+	return contribution.prefix + contribution.body + contribution.sep;
+}
+
+function savedContribution(contribution: IContribution): IBaseHalfMarkdownSaveContribution {
+	const text = contributionText(contribution);
+	const members = contribution.members;
+	if (!members) {
+		return { id: contribution.id, text };
+	}
+	// The toggle's own line breaks after it go with its last line.
+	const parts = members.map(savedContribution);
+	const inner = parts.map(part => part.text).join('');
+	parts[parts.length - 1] = { ...parts[parts.length - 1], text: parts[parts.length - 1].text + text.slice(inner.length) };
+	return { id: contribution.id, text, parts };
+}
+
+/**
+ * What each block of the note stands for in its file (design C12): a block
+ * the user did not change, and a fixed block in its place, its bytes; a block
+ * the user changed, what the writer writes of it between the line breaks the
+ * file had around it; a new block, what the writer writes of it; a fixed
+ * block pasted or copied within the note, its source; and a toggle in parts,
+ * its first lines, its blocks, and its last line, each so.
+ */
+function collectContributions(
 	editor: IBaseHalfMarkdownEditorApi,
 	document: readonly unknown[],
-	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
-): Promise<Array<{ id: string | undefined; text: string; synthesized: boolean }>> {
-	const contributions: Array<{ id: string | undefined; text: string; synthesized: boolean }> = [];
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	note: IBaseHalfMarkdownNote
+): IContribution[] {
+	const contributions = contributionsOf(editor, document, byId, note);
+	keepBlocksApart(contributions, note, '');
+	return contributions;
+}
+
+/** A toggle in parts, as the entry of its first lines says, that is still a toggle. */
+function isGroupedToggle(block: unknown, byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>): boolean {
+	const id = baseHalfNoteBlockId(block);
+	return id !== undefined && byId.get(id)?.toggle !== undefined && isBaseHalfNoteToggle(block);
+}
+
+function contributionsOf(
+	editor: IBaseHalfMarkdownEditorApi,
+	blocks: readonly unknown[],
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	note: IBaseHalfMarkdownNote
+): IContribution[] {
+	const written = writeContainerBlocks(editor, blocks, note, false, block => isGroupedToggle(block, byId));
+	const contributions: IContribution[] = [];
 	let index = 0;
-	while (index < document.length) {
-		const block = document[index];
-		const id = idOf(block);
-		const typedBlock = block as { type?: string; props?: { raw?: string } };
-		if (typedBlock.type === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
-			contributions.push({ id, text: typedBlock.props?.raw ?? '', synthesized: false });
+	while (index < written.length) {
+		const current = written[index];
+		const entry = current.id !== undefined ? byId.get(current.id) : undefined;
+		if (current.fixed) {
+			contributions.push(fixedContribution(current, entry));
 			index++;
 			continue;
 		}
 
-		const found = id ? byId.get(id) : undefined;
-		if (found?.group) {
-			const consumed = await spliceIntactGroup(editor, document, byId, index, found, contributions);
-			if (consumed > 0) {
-				index += consumed;
+		if (current.grouped && entry?.toggle) {
+			contributions.push(toggleContribution(editor, current, entry, byId, note));
+			index++;
+			continue;
+		}
+
+		if (entry?.group !== undefined) {
+			const run = intactGroupLength(written, byId, index, entry);
+			if (run > 0) {
+				for (let member = index; member < index + run; member++) {
+					const memberEntry = byId.get(written[member].id!)!;
+					const shared = { id: written[member].id, kind: written[index].kind, endKind: written[index + run - 1].kind, slot: memberEntry.slot, fixed: false, written: written[member].text, group: entry.group };
+					contributions.push(member === index + run - 1
+						? { ...shared, ...entryParts(memberEntry) }
+						: { ...shared, prefix: '', body: '', sep: '' });
+				}
+				index += run;
 				continue;
 			}
 		}
 
-		const entry = found && !found.multi ? found : undefined;
-		if (entry && (await normalize(editor, [block])) === entry.key) {
-			contributions.push({ id, text: entry.raw, synthesized: false });
-			index++;
-			continue;
-		}
-
-		const fresh = (await editor.blocksToMarkdownLossy([block])).trimEnd();
-		const synthesized = ensureSynthesizedBlockBoundary(
-			contributions[contributions.length - 1]?.text,
-			document[index - 1],
-			block,
-			fresh
-		);
-		contributions.push(entry
-			? { id, text: entry.prefix + fresh + entry.sep, synthesized: false }
-			: { id, text: synthesized + defaultSep(block), synthesized: true });
+		const text = current.text;
+		const kept = (text !== '' || current.failed) && entry !== undefined && !entry.multi && !entry.fixed;
+		// A block the writer cannot write keeps the bytes it stood for (design A5).
+		const parts = !kept ? { prefix: '', body: text, sep: '' } : text === entry.key || current.failed ? entryParts(entry) : { prefix: entry.prefix, body: text, sep: entry.sep };
+		const slot = kept ? entry.slot : undefined;
+		const kind = current.failed && slot ? slot.kind : current.kind;
+		contributions.push({ id: current.id, ...parts, kind, endKind: current.failed && slot ? slot.endKind : kind, slot, fixed: false, written: text });
 		index++;
 	}
-
 	return contributions;
+}
+
+/**
+ * A toggle in parts (rule 41): its first lines, its own bytes while the
+ * writer writes them as it did; its blocks, each as in the note; and its last
+ * line. Its first lines and its last line are the first and the last members
+ * of its container (design C12).
+ */
+function toggleContribution(
+	editor: IBaseHalfMarkdownEditorApi,
+	current: IWrittenBlock,
+	entry: IBaseHalfMarkdownReuseEntry,
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	note: IBaseHalfMarkdownNote
+): IContribution {
+	const id = current.id!;
+	const { header, footer } = entry.toggle!;
+	const kindThen = entry.slot?.kind ?? current.kind;
+	const headerBody = current.text === header.key || current.failed
+		? header.raw.slice(header.prefix.length, header.raw.length - header.sep.length)
+		: current.text;
+	const first: IContribution = {
+		id, prefix: header.prefix, body: headerBody, sep: header.sep, kind: current.kind, endKind: current.kind, fixed: false, written: current.text,
+		slot: { container: id, first: header.unit, last: header.unit, kind: kindThen, endKind: kindThen, end: false }
+	};
+	const children = contributionsOf(editor, baseHalfNoteBlockChildren(current.block), byId, note);
+	const last: IContribution = {
+		id: undefined, prefix: '', body: footer.source, sep: '', kind: toggleEndKind, endKind: toggleEndKind, fixed: true, written: '',
+		slot: { container: id, first: footer.unit, last: footer.unit, kind: toggleEndKind, endKind: toggleEndKind, end: false }
+	};
+	const members = [first, ...children, last];
+	keepBlocksApart(members, note, id);
+	return {
+		id,
+		prefix: first.prefix,
+		body: first.body + first.sep + children.map(contributionText).join('') + last.body,
+		sep: entry.sep,
+		kind: current.kind,
+		endKind: current.kind,
+		slot: entry.slot,
+		fixed: false,
+		written: current.text,
+		members
+	};
+}
+
+function fixedContribution(current: IWrittenBlock, entry: IBaseHalfMarkdownReuseEntry | undefined): IContribution {
+	if (entry?.fixed && entry.slot) {
+		return { id: current.id, ...entryParts(entry), kind: fixedKind, endKind: fixedKind, slot: entry.slot, fixed: true, written: '' };
+	}
+	// A fixed block pasted or copied within the note stands for its source,
+	// without the line breaks around the place it came from.
+	const props = baseHalfNoteBlockProps(current.block);
+	const source = baseHalfNoteStringProp(props, 'source') || baseHalfNoteStringProp(props, 'raw');
+	return { id: current.id, prefix: '', body: source, sep: '', kind: fixedKind, endKind: fixedKind, slot: undefined, fixed: true, written: '' };
+}
+
+/** An entry's bytes as the line breaks before the block, its own text, and the line breaks after it. */
+function entryParts(entry: IBaseHalfMarkdownReuseEntry): { readonly prefix: string; readonly body: string; readonly sep: string } {
+	const { raw, prefix, sep } = entry;
+	if (raw.length >= prefix.length + sep.length && raw.startsWith(prefix) && raw.endsWith(sep)) {
+		return { prefix, body: raw.slice(prefix.length, raw.length - sep.length), sep };
+	}
+	return { prefix: '', body: raw, sep: '' };
 }
 
 /**
  * A segment that projects into several blocks can only be spliced back
  * verbatim as a whole: when the full group is still present, in order, and
- * every member is unchanged, emit the members' stored raw texts (the final
- * member carries the segment bytes). Returns the number of blocks consumed,
- * or 0 when the group is broken and the caller must serialize block by block.
+ * every member is unchanged. Returns the number of blocks it holds, or 0 when
+ * the group is broken and its blocks are written one by one.
  */
-async function spliceIntactGroup(
+function intactGroupLength(
+	written: readonly IWrittenBlock[],
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	start: number,
+	first: IBaseHalfMarkdownReuseEntry
+): number {
+	let length = 0;
+	for (let index = start; index < written.length; index++) {
+		const id = written[index].id;
+		const entry = id !== undefined ? byId.get(id) : undefined;
+		if (!entry || entry.group !== first.group) {
+			break;
+		}
+		if (entry.blockKey === undefined || written[index].text !== entry.blockKey) {
+			return 0;
+		}
+		length++;
+	}
+	return length === first.groupSize ? length : 0;
+}
+
+/**
+ * The line breaks between the blocks of a container (rule 67): two blocks
+ * that were neighbours when the note was read, and still are with the kinds
+ * they had, keep the line breaks the file has between them; any other two
+ * get at least the line breaks Markdown needs between them, and Rich never
+ * removes one. A note whose last block is not the one it ended with ends
+ * with one line break (rule 68).
+ */
+function keepBlocksApart(contributions: readonly IContribution[], note: IBaseHalfMarkdownNote, container: string): void {
+	let before: IContribution | undefined;
+	for (const contribution of contributions) {
+		if (contribution.body === '') {
+			continue;
+		}
+		if (before && !originalNeighbours(before, contribution, container)) {
+			const needed = baseHalfNoteRequiredLineBreaks({ kind: before.endKind, text: before.body }, { kind: contribution.kind, text: contribution.body });
+			const present = countLineBreaks(before.sep) + countLineBreaks(contribution.prefix);
+			if (present < needed) {
+				before.sep += note.eol.repeat(needed - present);
+			}
+		}
+		before = contribution;
+	}
+	if (container === '' && before && !(before.slot?.container === '' && before.slot.end)) {
+		before.sep = note.eol;
+	}
+}
+
+function originalNeighbours(before: IContribution, after: IContribution, container: string): boolean {
+	const first = before.slot;
+	const second = after.slot;
+	return !!first && !!second
+		&& first.container === container && second.container === container
+		&& second.first === first.last + 1
+		&& sameBaseHalfNoteBlockKind(first.endKind, before.endKind)
+		&& sameBaseHalfNoteBlockKind(second.kind, after.kind);
+}
+
+function countLineBreaks(text: string): number {
+	let count = 0;
+	for (let index = 0; index < text.length; index++) {
+		const code = text.charCodeAt(index);
+		if (code === 10 || (code === 13 && text.charCodeAt(index + 1) !== 10)) {
+			count++;
+		}
+	}
+	return count;
+}
+
+// --- A change of the note made outside Rich (design 4.3)
+
+export interface IBaseHalfMarkdownMergePlan {
+	/** The blocks to take out, in order. */
+	readonly removeIds: readonly string[];
+	/** The blocks read anew, for the editor. */
+	readonly blocks: readonly unknown[];
+	/** Where the blocks read anew go when no block is taken out. */
+	readonly anchor: { readonly id: string; readonly placement: 'before' | 'after' } | undefined;
+	/** The entries of the document after the change. */
+	readonly byId: Map<string, IBaseHalfMarkdownReuseEntry>;
+	readonly note: IBaseHalfMarkdownNote;
+}
+
+/**
+ * How Rich's document takes a change of the note made outside Rich: the one
+ * run of segments that changed is read anew, and every other block stays,
+ * standing for the bytes it stands for in the new body. Returns nothing when
+ * the document does not stand for `oldBody` exactly, when nothing changed,
+ * when the change would leave no block, or when it changes the note's line
+ * ending or its reference definitions, which every block is read with; the
+ * caller then loads the note anew.
+ */
+export async function planBaseHalfMarkdownMerge(
 	editor: IBaseHalfMarkdownEditorApi,
 	document: readonly unknown[],
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
-	start: number,
-	first: IBaseHalfMarkdownReuseEntry,
-	contributions: Array<{ id: string | undefined; text: string; synthesized: boolean }>
-): Promise<number> {
-	const run: Array<{ readonly id: string; readonly block: unknown; readonly entry: IBaseHalfMarkdownReuseEntry }> = [];
-	for (let index = start; index < document.length; index++) {
-		const id = idOf(document[index]);
-		const entry = id ? byId.get(id) : undefined;
-		if (!id || !entry || entry.group !== first.group) {
-			break;
+	note: IBaseHalfMarkdownNote,
+	oldBody: string,
+	newBody: string,
+	content: string = newBody
+): Promise<IBaseHalfMarkdownMergePlan | undefined> {
+	const read = createBaseHalfMarkdownNote(newBody, content);
+	if (read.eol !== note.eol || JSON.stringify(read.definitions) !== JSON.stringify(note.definitions)) {
+		return undefined;
+	}
+	const oldSegments = segmentBaseHalfMarkdownBody(oldBody);
+	const newSegments = segmentBaseHalfMarkdownBody(newBody);
+	const contributions = collectContributions(editor, document, byId, note);
+	const groups = groupBaseHalfMarkdownContributions(contributions.map(contributionText), oldSegments.map(segment => segment.raw));
+	if (!groups) {
+		return undefined;
+	}
+	const region = diffBaseHalfMarkdownSegments(oldSegments.map(segment => segment.raw), newSegments.map(segment => segment.raw));
+	if (!region) {
+		return undefined;
+	}
+
+	const removeIds: string[] = [];
+	for (let segment = region.oldStart; segment < region.oldEnd; segment++) {
+		for (const at of groups[segment]) {
+			const id = contributions[at].id;
+			if (id === undefined) {
+				return undefined;
+			}
+			removeIds.push(id);
 		}
-		run.push({ id, block: document[index], entry });
+	}
+	if (removeIds.length === contributions.length && region.newStart === region.newEnd) {
+		return undefined;
 	}
 
-	if (run.length !== first.groupSize) {
-		return 0;
-	}
+	const nextNote: IBaseHalfMarkdownNote = { ...note, open: new Set(note.open), listHints: new Map(note.listHints) };
+	const newUnits = unitsOf(newSegments);
+	const projected = await projectSegments(editor, newSegments.slice(region.newStart, region.newEnd).map(segment => ({ segment, place: placeOf(segment, '', newUnits) })), nextNote, newUnits);
+	const keptAt = (from: number, to: number) => groups.slice(from, to).flat();
+	const before = keptAt(0, region.oldStart);
+	const after = keptAt(region.oldEnd, groups.length);
+	const { blocks, written } = writeProjected(editor, projected, nextNote, before.map(at => document[at]), after.map(at => document[at]), block => isGroupedToggle(block, byId));
 
-	for (const member of run) {
-		if (member.entry.blockKey === undefined || (await normalize(editor, [member.block])) !== member.entry.blockKey) {
-			return 0;
+	let anchor: IBaseHalfMarkdownMergePlan['anchor'];
+	if (removeIds.length === 0 && blocks.length > 0) {
+		const neighbour = region.oldStart > 0 ? groups[region.oldStart - 1].at(-1) : groups[0]?.[0];
+		const id = neighbour !== undefined ? contributions[neighbour].id : undefined;
+		if (id === undefined) {
+			return undefined;
 		}
+		anchor = { id, placement: region.oldStart > 0 ? 'after' : 'before' };
 	}
 
-	for (const member of run) {
-		contributions.push({ id: member.id, text: member.entry.raw, synthesized: false });
+	// Every block that stays now stands for what it contributed to the body
+	// that changed, which the new body holds, at its segment's place there;
+	// the blocks in a toggle that stays move with it.
+	const nextById = new Map<string, IBaseHalfMarkdownReuseEntry>();
+	groups.forEach((members, segmentIndex) => {
+		if (segmentIndex >= region.oldStart && segmentIndex < region.oldEnd) {
+			return;
+		}
+		const segment = newSegments[segmentIndex < region.oldStart ? segmentIndex : segmentIndex - region.oldEnd + region.newEnd];
+		const place = placeOf(segment, '', newUnits);
+		for (const at of members) {
+			const contribution = contributions[at];
+			const entry = contribution.id !== undefined ? byId.get(contribution.id) : undefined;
+			if (contribution.id === undefined || !entry || (contribution.body === '' && contribution.group === undefined)) {
+				continue;
+			}
+			const slot: IBaseHalfMarkdownSlot = { container: '', first: place.first, last: place.last, kind: contribution.kind, endKind: contribution.endKind, end: place.end };
+			if (contribution.group !== undefined) {
+				nextById.set(contribution.id, { ...entry, slot });
+				continue;
+			}
+			const toggle = entry.toggle;
+			if (toggle && contribution.members) {
+				const shift = place.first - (entry.slot?.first ?? toggle.header.unit);
+				moveToggleBlocks(document[at], byId, nextById, shift);
+				nextById.set(contribution.id, {
+					...entry,
+					raw: contributionText(contribution),
+					prefix: contribution.prefix,
+					sep: contribution.sep,
+					slot,
+					toggle: { header: { ...toggle.header, unit: toggle.header.unit + shift }, footer: { ...toggle.footer, unit: toggle.footer.unit + shift } }
+				});
+				continue;
+			}
+			nextById.set(contribution.id, {
+				key: contribution.written,
+				raw: contributionText(contribution),
+				prefix: contribution.prefix,
+				sep: contribution.sep,
+				...(contribution.fixed ? { fixed: true } : {}),
+				slot
+			});
+		}
+	});
+	for (const [id, entry] of entriesOf(editor, projected, written, nextNote)) {
+		nextById.set(id, entry);
 	}
-	return run.length;
+
+	return { removeIds, blocks, anchor, byId: nextById, note: nextNote };
+}
+
+/** The entries of the blocks in a toggle that stays, moved by `shift` places with it. */
+function moveToggleBlocks(toggle: unknown, byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>, nextById: Map<string, IBaseHalfMarkdownReuseEntry>, shift: number): void {
+	for (const child of baseHalfNoteBlockChildren(toggle)) {
+		const id = baseHalfNoteBlockId(child);
+		const entry = id !== undefined ? byId.get(id) : undefined;
+		if (id !== undefined && entry) {
+			const slot = entry.slot && { ...entry.slot, first: entry.slot.first + shift, last: entry.slot.last + shift };
+			const inner = entry.toggle && { header: { ...entry.toggle.header, unit: entry.toggle.header.unit + shift }, footer: { ...entry.toggle.footer, unit: entry.toggle.footer.unit + shift } };
+			nextById.set(id, { ...entry, ...(slot ? { slot } : {}), ...(inner ? { toggle: inner } : {}) });
+		}
+		moveToggleBlocks(child, byId, nextById, shift);
+	}
+}
+
+// --- A document that already holds the note (design 4.4)
+
+/**
+ * The entries of a load projection for a document that already holds its
+ * blocks under other ids: the same blocks in the same tree, written the
+ * same. Returns nothing when the document holds other blocks.
+ */
+export function adoptBaseHalfMarkdownLoadProjection(
+	editor: IBaseHalfMarkdownEditorApi,
+	current: readonly unknown[],
+	projection: IBaseHalfMarkdownLoadProjection
+): { readonly byId: Map<string, IBaseHalfMarkdownReuseEntry>; readonly note: IBaseHalfMarkdownNote } | undefined {
+	const ids = new Map<string, string>();
+	const pair = (projected: readonly unknown[], held: readonly unknown[]): boolean => {
+		if (projected.length !== held.length) {
+			return false;
+		}
+		return projected.every((block, index) => {
+			const other = held[index];
+			const projectedId = baseHalfNoteBlockId(block);
+			const heldId = baseHalfNoteBlockId(other);
+			if (baseHalfNoteBlockType(block) !== baseHalfNoteBlockType(other) || (projectedId !== undefined && heldId === undefined)) {
+				return false;
+			}
+			if (baseHalfNoteBlockType(block) === BASEHALF_RAW_PASSTHROUGH_BLOCK && JSON.stringify(baseHalfNoteBlockProps(block)) !== JSON.stringify(baseHalfNoteBlockProps(other))) {
+				return false;
+			}
+			if (projectedId !== undefined && heldId !== undefined) {
+				ids.set(projectedId, heldId);
+			}
+			return pair(baseHalfNoteBlockChildren(block), baseHalfNoteBlockChildren(other));
+		});
+	};
+	if (!pair(projection.blocks, current)) {
+		return undefined;
+	}
+
+	const moved = (id: string) => ids.get(id) ?? id;
+	const note: IBaseHalfMarkdownNote = {
+		...projection.note,
+		open: new Set([...projection.note.open].map(moved)),
+		listHints: new Map([...projection.note.listHints].map(([id, hint]) => [moved(id), hint.children ? { ...hint, children: hint.children.map(moved) } : hint]))
+	};
+	const byId = new Map<string, IBaseHalfMarkdownReuseEntry>();
+	for (const [id, entry] of projection.byId) {
+		byId.set(moved(id), entry.slot ? { ...entry, slot: { ...entry.slot, container: entry.slot.container === '' ? '' : moved(entry.slot.container) } } : entry);
+	}
+	// The document and the projection write the same bytes.
+	const projectedText = collectContributions(editor, projection.blocks, projection.byId, projection.note).map(contributionText).join('');
+	const heldText = collectContributions(editor, current, byId, note).map(contributionText).join('');
+	return projectedText === heldText ? { byId, note } : undefined;
 }
 
 function collectUnits(body: string, splitListItems: boolean): IBaseHalfMarkdownUnit[] {
-	// The lexer normalizes CR/CRLF to LF before tokenizing, so token raws can
-	// only be located in an equally normalized view; the map converts matched
-	// offsets back into positions in the original bytes.
-	const { normalized, toOriginal } = normalizeLineEndings(body);
+	// The lexer reads the body with its line endings LF and the tabs that
+	// start its lines as spaces, so token raws can only be located in an
+	// equally normalized view; the map converts matched offsets back into
+	// positions in the original bytes.
+	const { normalized, toOriginal } = normalizeForLexing(body);
 
 	let tokens: Token[];
 	try {
@@ -668,6 +1322,16 @@ function collectUnits(body: string, splitListItems: boolean): IBaseHalfMarkdownU
 
 	const units: IBaseHalfMarkdownUnit[] = [];
 	let offset = 0;
+	// Where a token begins that cannot be found: it is one unit up to the next
+	// token that can, rather than the whole body one unit.
+	let lost: number | undefined;
+	const pushLost = (to: number) => {
+		if (lost !== undefined) {
+			const start = toOriginal(lost);
+			units.push({ start, end: trimTrailingLineBreaks(body, start, to) });
+			lost = undefined;
+		}
+	};
 	for (const token of tokens) {
 		const raw = typeof token.raw === 'string' ? token.raw : '';
 		if (raw === '') {
@@ -676,8 +1340,10 @@ function collectUnits(body: string, splitListItems: boolean): IBaseHalfMarkdownU
 
 		const start = normalized.indexOf(raw, offset);
 		if (start < 0) {
-			return [{ start: 0, end: body.length }];
+			lost ??= offset;
+			continue;
 		}
+		pushLost(toOriginal(start));
 
 		const end = start + raw.length;
 		offset = end;
@@ -693,33 +1359,149 @@ function collectUnits(body: string, splitListItems: boolean): IBaseHalfMarkdownU
 			}
 		}
 
-		units.push({ start: toOriginal(start), end: trimTrailingLineBreaks(body, toOriginal(start), toOriginal(end)) });
+		units.push({ start: toOriginal(start), end: trimTrailingLineBreaks(body, toOriginal(start), toOriginal(end)), html: token.type === 'html' });
 	}
+	pushLost(body.length);
 
 	return units.filter(unit => unit.start < unit.end);
 }
 
-function normalizeLineEndings(body: string): { normalized: string; toOriginal: (index: number) => number } {
-	if (!body.includes('\r')) {
+/**
+ * The body as `marked` lexes it: its line endings LF, and the tabs that start
+ * a line after its spaces four spaces each (`Lexer.lex` in marked.js).
+ */
+function normalizeForLexing(body: string): { normalized: string; toOriginal: (index: number) => number } {
+	if (!body.includes('\r') && !/^ *\t/m.test(body)) {
 		return { normalized: body, toOriginal: index => index };
 	}
 
 	const map: number[] = [];
 	let normalized = '';
 	let index = 0;
+	// Where the line is: in its leading spaces, in the tabs after them, or past both.
+	let place: 'spaces' | 'tabs' | 'text' = 'spaces';
 	while (index < body.length) {
-		map.push(index);
-		if (body.charCodeAt(index) === 13) {
+		const code = body.charCodeAt(index);
+		if (code === 13 || code === 10) {
+			map.push(index);
 			normalized += '\n';
-			index += body.charCodeAt(index + 1) === 10 ? 2 : 1;
-		} else {
-			normalized += body[index];
-			index += 1;
+			index += code === 13 && body.charCodeAt(index + 1) === 10 ? 2 : 1;
+			place = 'spaces';
+			continue;
 		}
+		if (code === 9 && place !== 'text') {
+			map.push(index, index, index, index);
+			normalized += '    ';
+			index++;
+			place = 'tabs';
+			continue;
+		}
+		if (code !== 32 || place === 'tabs') {
+			place = 'text';
+		}
+		map.push(index);
+		normalized += body[index];
+		index++;
 	}
 	map.push(body.length);
 
 	return { normalized, toOriginal: position => map[Math.min(position, map.length - 1)] };
+}
+
+// --- Toggles whose parts are blocks of their own (note formats, rules 41 to 43)
+
+/** A `<details>` whose first lines, blocks, and last line `marked` read as blocks of their own. */
+interface IBaseHalfMarkdownUnitGroup {
+	readonly header: IBaseHalfMarkdownUnit;
+	readonly children: readonly BaseHalfMarkdownUnitItem[];
+	readonly footer: IBaseHalfMarkdownUnit;
+}
+
+type BaseHalfMarkdownUnitItem =
+	| { readonly kind: 'unit'; readonly unit: IBaseHalfMarkdownUnit }
+	| { readonly kind: 'group'; readonly group: IBaseHalfMarkdownUnitGroup };
+
+const detailsTags = /<details(?=[\s>])|<\/details\s*>/gi;
+// Beyond these a `<details>` is read as parts, as a note is planned in parts on the canvas.
+const maxToggleLength = 50_000;
+const maxToggleUnits = 2_000;
+
+/**
+ * The units of a body with each `<details>` whose parts are blocks of their
+ * own grouped: from a block of HTML that starts with `<details`, counting the
+ * start and end tags of `details` line by line in the blocks of HTML that
+ * follow, to the end of the line where they balance. A unit that goes on
+ * past that line is cut there, and its rest may open the next toggle. A
+ * toggle that never closes, closes more than it opens, closes inside a line
+ * that goes on, or runs past the limits stays as its units.
+ */
+function groupBaseHalfMarkdownUnits(body: string, input: readonly IBaseHalfMarkdownUnit[]): BaseHalfMarkdownUnitItem[] {
+	const units = [...input];
+	const items: BaseHalfMarkdownUnitItem[] = [];
+	let index = 0;
+	while (index < units.length) {
+		const unit = units[index];
+		const closing = unit.html && /^ {0,3}<details(?=[\s>])/i.test(body.slice(unit.start, unit.end)) ? closeDetails(body, units, index) : undefined;
+		if (!closing) {
+			items.push({ kind: 'unit', unit });
+			index++;
+			continue;
+		}
+		items.push(closing.at === index
+			? { kind: 'unit', unit: closing.footer }
+			: { kind: 'group', group: { header: unit, children: groupBaseHalfMarkdownUnits(body, units.slice(index + 1, closing.at)), footer: closing.footer } });
+		if (closing.rest) {
+			units[closing.at] = closing.rest;
+			index = closing.at;
+		} else {
+			index = closing.at + 1;
+		}
+	}
+	return items;
+}
+
+/**
+ * Where the `<details>` that opens `units[start]` closes: the unit `at` that
+ * holds its last line, cut after that line, and the rest of that unit.
+ */
+function closeDetails(body: string, units: readonly IBaseHalfMarkdownUnit[], start: number): { at: number; footer: IBaseHalfMarkdownUnit; rest?: IBaseHalfMarkdownUnit } | undefined {
+	let count = 0;
+	for (let at = start; at < units.length && at - start < maxToggleUnits; at++) {
+		const unit = units[at];
+		if (!unit.html) {
+			continue;
+		}
+		// A comment counts for nothing; it keeps its length so that offsets hold.
+		const text = body.slice(unit.start, unit.end).replace(/<!--[\s\S]*?-->/g, comment => comment.replace(/[^\r\n]/g, ' '));
+		let lineStart = 0;
+		for (; ;) {
+			const lineBreak = text.indexOf('\n', lineStart);
+			const line = text.slice(lineStart, lineBreak < 0 ? text.length : lineBreak);
+			for (const match of line.matchAll(detailsTags)) {
+				count += match[0][1] === '/' ? -1 : 1;
+				if (count < 0) {
+					return undefined;
+				}
+				if (count === 0) {
+					if (line.slice(match.index + match[0].length).trim() !== '') {
+						return undefined;
+					}
+					const end = unit.start + lineStart + line.replace(/\s+$/, '').length;
+					if (end - units[start].start > maxToggleLength) {
+						return undefined;
+					}
+					const footer: IBaseHalfMarkdownUnit = { start: unit.start, end, html: true };
+					const rest = lineBreak < 0 ? undefined : unit.start + lineBreak + 1;
+					return rest === undefined || rest >= unit.end ? { at, footer } : { at, footer, rest: { start: rest, end: unit.end, html: true } };
+				}
+			}
+			if (lineBreak < 0) {
+				break;
+			}
+			lineStart = lineBreak + 1;
+		}
+	}
+	return undefined;
 }
 
 function isListToken(token: Token): token is Tokens.List {
@@ -781,95 +1563,23 @@ function trimTrailingLineBreaks(source: string, start: number, end: number): num
 	return index;
 }
 
-function htmlComments(markdown: string): string {
-	return (markdown.match(/<!--[\s\S]*?-->/g) ?? []).join('\u0000');
-}
-
-function containsRawHtml(markdown: string): boolean {
-	return /<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?>/.test(markdown);
-}
-
-function isEmptyParagraph(block: { type?: string; content?: unknown }): boolean {
-	if (!block || block.type !== 'paragraph') {
+function isEmptyParagraph(block: unknown): boolean {
+	if (baseHalfNoteBlockType(block) !== 'paragraph') {
 		return false;
 	}
 
-	const content = block.content;
+	const content = isBaseHalfNoteRecord(block) ? block.content : undefined;
 	if (!Array.isArray(content) || content.length === 0) {
 		return true;
 	}
 
-	return content.every(node =>
-		(node as { type?: string; text?: string })?.type === 'text'
-		&& ((node as { text?: string }).text ?? '') === ''
-	);
+	return content.every(node => isBaseHalfNoteRecord(node) && node.type === 'text' && (typeof node.text !== 'string' || node.text === ''));
 }
 
 function isDropped(blocks: readonly unknown[]): boolean {
-	return blocks.length === 0 || blocks.every(block => isEmptyParagraph(block as { type?: string; content?: unknown }));
-}
-
-async function normalize(editor: IBaseHalfMarkdownEditorApi, blocks: unknown[]): Promise<string> {
-	return (await editor.blocksToMarkdownLossy(blocks)).trimEnd();
-}
-
-function idOf(block: unknown): string | undefined {
-	const id = (block as { id?: unknown }).id;
-	return typeof id === 'string' ? id : undefined;
+	return blocks.length === 0 || blocks.every(isEmptyParagraph);
 }
 
 function isOwnMarker(source: string): boolean {
 	return /^\s*<!--\s*bh:/.test(source);
-}
-
-function passthroughBlock(segment: IBaseHalfMarkdownSegment): unknown {
-	return {
-		type: BASEHALF_RAW_PASSTHROUGH_BLOCK,
-		props: { raw: segment.raw, source: segment.source, hidden: isOwnMarker(segment.source) }
-	};
-}
-
-const LIST_ITEM_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem']);
-
-function ensureSynthesizedBlockBoundary(previousText: string | undefined, previousBlock: unknown, block: unknown, fresh: string): string {
-	if (!previousText || fresh === '') {
-		return fresh;
-	}
-
-	const previousType = (previousBlock as { type?: string } | undefined)?.type;
-	const type = (block as { type?: string })?.type;
-	const requiredBreaks = previousType === type && LIST_ITEM_TYPES.has(type ?? '') ? 1 : 2;
-	const existingBreaks = countTrailingLineBreaks(previousText);
-	if (existingBreaks >= requiredBreaks) {
-		return fresh;
-	}
-
-	const eol = previousText.includes('\r\n') ? '\r\n' : '\n';
-	return eol.repeat(requiredBreaks - existingBreaks) + fresh;
-}
-
-function countTrailingLineBreaks(value: string): number {
-	let count = 0;
-	let index = value.length;
-	while (index > 0) {
-		if (value.charCodeAt(index - 1) === 10) {
-			index--;
-			if (index > 0 && value.charCodeAt(index - 1) === 13) {
-				index--;
-			}
-			count++;
-			continue;
-		}
-		if (value.charCodeAt(index - 1) === 13) {
-			index--;
-			count++;
-			continue;
-		}
-		break;
-	}
-	return count;
-}
-
-function defaultSep(block: unknown): string {
-	return LIST_ITEM_TYPES.has((block as { type?: string }).type ?? '') ? '\n' : '\n\n';
 }

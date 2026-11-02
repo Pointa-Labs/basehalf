@@ -15,7 +15,8 @@
 		"Other"
 	],
 	"scripts": {
-		"test:canvas-markdown-inline": "node test.canvasMarkdownInlineCommands.mts"
+		"test:canvas-markdown-inline": "node test.canvasMarkdownInlineCommands.mts",
+		"test:markdown-rich-formats": "node test.markdownRichFormats.mts"
 	},
 	"devDependencies": {
 		"@types/vscode-webview": "1.57.5",

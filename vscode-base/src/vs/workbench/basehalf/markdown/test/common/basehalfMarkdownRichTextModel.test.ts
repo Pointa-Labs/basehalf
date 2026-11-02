@@ -464,7 +464,11 @@ class FakeMarkdownEditor {
 		}];
 	}
 
-	blocksToMarkdownLossy(blocks: unknown[]): string {
-		return blocks.map(block => (block as { markdown?: string }).markdown ?? '').join('\n');
+	writeBlock(block: unknown): string {
+		return (block as { markdown?: string }).markdown ?? '';
+	}
+
+	decodeCharacterReferences(text: string): string {
+		return text;
 	}
 }

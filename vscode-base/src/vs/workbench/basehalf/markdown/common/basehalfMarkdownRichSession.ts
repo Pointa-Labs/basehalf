@@ -5,8 +5,10 @@
 
 import {
 	IBaseHalfMarkdownEditorApi,
+	IBaseHalfMarkdownNote,
 	IBaseHalfMarkdownReuseEntry,
 	buildBaseHalfMarkdownLoadProjection,
+	createBaseHalfMarkdownNote,
 	spliceBaseHalfMarkdownSave,
 	splitBaseHalfMarkdownFrontmatter
 } from './basehalfMarkdownProjection.js';
@@ -186,6 +188,7 @@ export class BaseHalfMarkdownRichSession {
 	private writeFailedError: unknown;
 	private frontmatter = '';
 	private byId = new Map<string, IBaseHalfMarkdownReuseEntry>();
+	private note: IBaseHalfMarkdownNote = createBaseHalfMarkdownNote('');
 	private lastDisk = '';
 	private readonly readyWaiters = new Set<() => void>();
 	private destroyTimer: TimeoutHandle | undefined;
@@ -271,10 +274,11 @@ export class BaseHalfMarkdownRichSession {
 
 	async seedFromContent(content: string): Promise<void> {
 		const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
-		const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(this.editor, body);
+		const { blocks, byId, note } = await buildBaseHalfMarkdownLoadProjection(this.editor, body, content);
 		this.seeded = true;
 		this.frontmatter = frontmatter;
 		this.byId = byId;
+		this.note = note;
 		this.lastDisk = content;
 		this.pendingEdits = false;
 		this.conflictDisk = undefined;
@@ -306,7 +310,7 @@ export class BaseHalfMarkdownRichSession {
 
 		// The block model never holds frontmatter. Serialize the body alone and
 		// let the write rebase it onto the frontmatter the document holds now.
-		const body = await spliceBaseHalfMarkdownSave(this.editor, this.document.blocks, '', this.byId);
+		const body = await spliceBaseHalfMarkdownSave(this.editor, this.document.blocks, '', this.byId, this.note);
 		if (body === baseHalfMarkdownRichBody(this.lastDisk) && options.forceWrite !== true) {
 			this.pendingEdits = false;
 			this.writeFailedError = undefined;

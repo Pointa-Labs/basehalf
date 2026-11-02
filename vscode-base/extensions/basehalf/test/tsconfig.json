@@ -1,0 +1,8 @@
+{
+	"extends": "../markdown-rich-src/tsconfig.json",
+	"include": [
+		"../../../src/typings/vscode-globals-nls.d.ts",
+		"../markdown-rich-src/declarations.d.ts",
+		"./*.ts"
+	]
+}

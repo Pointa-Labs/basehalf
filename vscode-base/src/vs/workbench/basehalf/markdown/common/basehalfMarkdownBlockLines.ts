@@ -40,6 +40,13 @@ export function baseHalfMarkdownBlockFileLine(
 		if (baseHalfMarkdownSubtreeHasId(block, targetId)) {
 			const entry = block.type === BASEHALF_RAW_PASSTHROUGH_BLOCK ? undefined : byId.get(block.id);
 			const prefixNewlines = entry ? countBaseHalfMarkdownNewlines(entry.prefix) : 0;
+			// A block in a toggle whose parts are blocks of their own stands on its own lines (note formats, rule 84).
+			if (block.id !== targetId && entry?.toggle && block.children) {
+				const inner = baseHalfMarkdownBlockFileLine(block.children, targetId, byId, 0);
+				if (inner !== null) {
+					return frontmatterLines + before + countBaseHalfMarkdownNewlines(entry.toggle.header.raw) + inner;
+				}
+			}
 			return frontmatterLines + before + prefixNewlines + 1;
 		}
 		before += baseHalfMarkdownTileNewlines(block, byId);
@@ -57,6 +64,20 @@ export function baseHalfMarkdownTopLevelBlockOf(
 		}
 		if (block.children && baseHalfMarkdownSubtreeHasId(block, targetId)) {
 			return { block, direct: false };
+		}
+	}
+	return null;
+}
+
+/** The ids of the blocks from the top level down to the block `targetId`, or null when it is absent. */
+export function baseHalfMarkdownBlockPath(blocks: readonly IBaseHalfMarkdownBlockNode[], targetId: string): string[] | null {
+	for (const block of blocks) {
+		if (block.id === targetId) {
+			return [block.id];
+		}
+		const inner = block.children ? baseHalfMarkdownBlockPath(block.children, targetId) : null;
+		if (inner) {
+			return [block.id, ...inner];
 		}
 	}
 	return null;
@@ -82,7 +103,10 @@ export function baseHalfMarkdownBlockSourceSpan(
 	}
 
 	const topLevel = baseHalfMarkdownTopLevelBlockOf(blocks, targetId);
-	const entry = topLevel && topLevel.block.type !== BASEHALF_RAW_PASSTHROUGH_BLOCK ? byId.get(topLevel.block.id) : undefined;
+	const topEntry = topLevel && topLevel.block.type !== BASEHALF_RAW_PASSTHROUGH_BLOCK ? byId.get(topLevel.block.id) : undefined;
+	// A block in a toggle whose parts are blocks of their own spans its own lines.
+	const own = topEntry?.toggle && topLevel?.block.id !== targetId ? byId.get(targetId) : undefined;
+	const entry = own ?? topEntry;
 	return { start, end: entry ? start + baseHalfMarkdownTileSourceNewlines(entry) : start };
 }
 

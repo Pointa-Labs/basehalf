@@ -1,0 +1,598 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+// The page of Rich's bundle test (test.markdownRichFormats.mts). It builds the
+// editor of a note as Card Detail builds it: the note's schema, collaboration
+// over Yjs, Rich's undo, and the load and the save through the projection.
+// The parts of the test are plain functions at the end of this file; the
+// runner calls each by name, on an editor of its own.
+
+import '@blocknote/core/fonts/inter.css';
+import '@blocknote/mantine/style.css';
+import '../markdown-rich-src/editor.css';
+
+import { BlockNoteEditor, type ExtensionFactoryInstance } from '@blocknote/core';
+import { en } from '@blocknote/core/locales';
+import { BlockNoteView } from '@blocknote/mantine';
+import { TextSelection } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { ySyncPluginKey, yUndoPluginKey } from 'y-prosemirror';
+import { Doc as YDoc, type UndoManager, type XmlFragment } from 'yjs';
+import {
+	BASEHALF_RAW_PASSTHROUGH_BLOCK,
+	buildBaseHalfMarkdownLoadProjection,
+	createBaseHalfMarkdownNote,
+	spliceBaseHalfMarkdownSave,
+	splitBaseHalfMarkdownFrontmatter,
+	type IBaseHalfMarkdownEditorApi,
+	type IBaseHalfMarkdownNote,
+	type IBaseHalfMarkdownReuseEntry,
+} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
+import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
+import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDecorations.js';
+import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
+import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
+import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
+import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from '../markdown-rich-src/noteUndo.js';
+import { makeBaseHalfSelectionRevealExtension } from '../markdown-rich-src/selectionRevealDecorations.js';
+
+/**
+ * How the test runs Rich: `basehalf`, as BaseHalf builds Rich, or `baseline`
+ * (BASEHALF_FORMATS_BASELINE=1), with BlockNote's own reader and writer and
+ * none of D110's extensions, as Rich ran before D110, so that a part shows
+ * what it catches in the editor before D110.
+ */
+export type NoteFormatsMode = 'basehalf' | 'baseline';
+
+/** The folder of the note the test opens. Nothing is served there, so a picture of a note loads nothing. */
+const NOTE_FOLDER = `${location.origin}/notes/`;
+
+/** The editor of a note, as Card Detail creates it (useCreateBlockNote in editor.tsx). */
+function createNoteEditor(fragment: XmlFragment, extensions: readonly ExtensionFactoryInstance[], uploadFile: (file: File) => Promise<string>) {
+	return BlockNoteEditor.create({
+		schema: baseHalfNoteSchema,
+		dictionary: en,
+		uploadFile,
+		resolveFileUrl: async url => !url || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url) ? url : new URL(url, NOTE_FOLDER).toString(),
+		extensions: [makeBaseHalfAdhdDecorationExtension(), makeBaseHalfSelectionRevealExtension(), ...extensions],
+		collaboration: {
+			fragment,
+			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
+		},
+	});
+}
+
+type NoteEditor = ReturnType<typeof createNoteEditor>;
+
+/** BlockNote's view of a note's blocks: createElement cannot infer the schema of the generic view itself. */
+const NoteView = BlockNoteView<typeof baseHalfNoteSchema.blockSchema, typeof baseHalfNoteSchema.inlineContentSchema, typeof baseHalfNoteSchema.styleSchema>;
+
+/** BlockNote's own reader and writer, as Rich read and wrote a note before D110, under the projection of D110. */
+function blockNoteEditorApi(editor: NoteEditor): IBaseHalfMarkdownEditorApi {
+	const decoder = document.createElement('textarea');
+	return {
+		tryParseMarkdownToBlocks: markdown => editor.tryParseMarkdownToBlocks(markdown),
+		writeBlock: block => editor.blocksToMarkdownLossy([block] as Parameters<typeof editor.blocksToMarkdownLossy>[0]).trimEnd(),
+		decodeCharacterReferences: text => {
+			decoder.innerHTML = text.replace(/</g, '&lt;');
+			return decoder.value;
+		},
+	};
+}
+
+interface INoteFormatsModeSetup {
+	/** The reader and the writer of a note's blocks. */
+	readonly editorApi: (editor: NoteEditor) => IBaseHalfMarkdownEditorApi;
+	/** Extensions of the editor besides those Rich has always had, made for each editor. */
+	readonly extensions: () => readonly ExtensionFactoryInstance[];
+}
+
+/**
+ * What each mode runs. BaseHalf's mode takes D110's reader and writer
+ * (noteConversions.ts) and, when they land, its extensions (noteShape.ts,
+ * noteToggleState.ts); the baseline keeps BlockNote's and none.
+ */
+const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
+	basehalf: { editorApi: editor => createBaseHalfNoteEditorApi(editor), extensions: () => [] },
+	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
+};
+
+/** A block in short, for a check: its type, its text, and its children. */
+export interface IShortBlock {
+	readonly type: string;
+	readonly text?: string;
+	readonly children?: readonly IShortBlock[];
+}
+
+/** One step of real input, which the runner gives the page with the browser's own events (page.exposeFunction). */
+interface IInputStep {
+	readonly device: 'keyboard' | 'mouse';
+	readonly method: string;
+	readonly args: readonly unknown[];
+}
+
+function input(step: IInputStep): Promise<void> {
+	return (globalThis as unknown as { baseHalfFormatsInput(step: IInputStep): Promise<void> }).baseHalfFormatsInput(step);
+}
+
+/** What a part works with: a note open in a fresh editor, and the means to load, save, type, and check. */
+export interface INoteFormatsTest {
+	readonly mode: NoteFormatsMode;
+	readonly editor: NoteEditor;
+	/** The shared document of the note, as the host's replica holds it. */
+	readonly fragment: XmlFragment;
+	/** Rich's undo (noteUndo.ts). */
+	readonly history: IBaseHalfNoteUndo;
+	/** The reader and the writer of this mode. */
+	readonly api: IBaseHalfMarkdownEditorApi;
+	/** Whether the editor's view was made anew when it became editable, as Card Detail's is after the first load. */
+	readonly mountedAgain: boolean;
+	/** Loads a note as Card Detail loads it into an open editor: the projection, the blocks replaced, and no step of undo. */
+	load(content: string): Promise<void>;
+	/** The note as Rich would write it now. */
+	save(): Promise<string>;
+	/** Runs Undo or Redo as Card Detail's command (and Mod+Z) runs it. */
+	command(command: 'undo' | 'redo'): boolean;
+	/** The document in short. */
+	blocks(): IShortBlock[];
+	/**
+	 * Puts the caret at the start or the end of the first text that matches,
+	 * or of the block at that index of the note, and gives the editor the
+	 * keyboard.
+	 */
+	caret(target: string | number, edge?: 'start' | 'end'): void;
+	readonly keyboard: {
+		type(text: string): Promise<void>;
+		press(key: string): Promise<void>;
+		down(key: string): Promise<void>;
+		up(key: string): Promise<void>;
+	};
+	readonly mouse: {
+		click(x: number, y: number): Promise<void>;
+		move(x: number, y: number, steps?: number): Promise<void>;
+		down(): Promise<void>;
+		up(): Promise<void>;
+	};
+	/** Waits for frames of the page: what a key or a click changes is drawn by then. */
+	frames(count?: number): Promise<void>;
+	/** Records a check: the runner asserts that `actual` deep-equals `expected`. */
+	check(name: string, actual: unknown, expected: unknown): void;
+	/** Records a value to print, such as a time. */
+	log(name: string, value: unknown): void;
+}
+
+export interface INoteFormatsPartResult {
+	readonly checks: { readonly name: string; readonly actual: unknown; readonly expected: unknown }[];
+	readonly logs: { readonly name: string; readonly value: unknown }[];
+	error?: string;
+	milliseconds: number;
+}
+
+function nextFrame(): Promise<void> {
+	return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
+
+async function until(what: string, condition: () => boolean, timeout = 5000): Promise<void> {
+	const end = performance.now() + timeout;
+	while (!condition()) {
+		if (performance.now() > end) {
+			throw new Error(`Timed out waiting until ${what}.`);
+		}
+		await nextFrame();
+	}
+}
+
+/** The editor's view once it is in the page and Yjs is bound to it; before its mount the editor has only a stand-in. */
+function mountedView(editor: NoteEditor): EditorView | undefined {
+	try {
+		const view = editor.prosemirrorView;
+		const sync = ySyncPluginKey.getState(view.state) as { binding?: { prosemirrorView?: unknown } } | undefined;
+		return view.dom.isConnected && sync?.binding?.prosemirrorView === view ? view : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function inlineText(content: readonly unknown[]): string {
+	return content.map(item => {
+		const { text, content: inner } = item as { readonly text?: unknown; readonly content?: unknown };
+		return typeof text === 'string' ? text : Array.isArray(inner) ? inlineText(inner) : '';
+	}).join('');
+}
+
+function shortBlocks(blocks: readonly unknown[]): IShortBlock[] {
+	return blocks.map(block => {
+		const { type, content, children } = block as { readonly type: string; readonly content?: unknown; readonly children?: readonly unknown[] };
+		return {
+			type,
+			...(Array.isArray(content) ? { text: inlineText(content) } : {}),
+			...(children && children.length > 0 ? { children: shortBlocks(children) } : {}),
+		};
+	});
+}
+
+interface IOpenNote {
+	readonly test: INoteFormatsTest;
+	dispose(): void;
+}
+
+/**
+ * Opens a note as Card Detail does: the editor is mounted read-only, the host's
+ * first payload is loaded, and the editor is mounted again, editable. That
+ * second mount tears the plugin views down and builds them again, which is
+ * what Rich's undo has to outlive.
+ */
+async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): Promise<IOpenNote> {
+	const setup = MODES[mode];
+	const ydoc = new YDoc();
+	// The fragment name of editor.tsx (BLOCKNOTE_FRAGMENT_NAME).
+	const fragment = ydoc.getXmlFragment('bn');
+	const editor = createNoteEditor(fragment, setup.extensions(), async file => `attachments/${file.name}`);
+	const api = setup.editorApi(editor);
+	const history = createBaseHalfNoteUndo(editor);
+	// As editor.tsx's change listener, which keeps the undo manager live first.
+	const offChange = editor.onChange(() => {
+		history.ensure();
+	});
+	const note: { frontmatter: string; byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>; note: IBaseHalfMarkdownNote } = { frontmatter: '', byId: new Map(), note: createBaseHalfMarkdownNote('') };
+	renderedNote.baseUri = NOTE_FOLDER;
+
+	// The page of Card Detail's webview, as editor.tsx lays it out.
+	const shell = document.createElement('div');
+	shell.className = 'basehalf-markdown-rich surface-detail';
+	const portal = document.createElement('div');
+	portal.className = 'basehalf-markdown-rich-portal bn-root bn-mantine';
+	const scroll = document.createElement('div');
+	scroll.className = 'basehalf-markdown-rich-scroll';
+	const page = document.createElement('div');
+	page.className = 'basehalf-markdown-rich-page';
+	scroll.append(page);
+	shell.append(portal, scroll);
+	document.getElementById('root')?.append(shell);
+	const root = createRoot(page);
+	const portalElements = {
+		formattingToolbar: portal,
+		linkToolbar: portal,
+		slashMenu: portal,
+		emojiPicker: portal,
+		sideMenu: portal,
+		filePanel: portal,
+		tableHandles: portal,
+		comments: portal,
+	};
+	// The toolbar of a selection, the side menu, and the menu of `[[` are
+	// BaseHalf's own controllers in editor.tsx; they join the page when
+	// noteToolbars.tsx holds them.
+	const render = (editable: boolean) => root.render(createElement(NoteView, {
+		editor,
+		editable,
+		sideMenu: false,
+		formattingToolbar: false,
+		linkToolbar: true,
+		slashMenu: true,
+		filePanel: true,
+		tableHandles: true,
+		emojiPicker: true,
+		comments: true,
+		portalElements,
+	}));
+
+	let mountedAgain = false;
+	const test: INoteFormatsTest = {
+		mode,
+		editor,
+		fragment,
+		history,
+		api,
+		get mountedAgain() {
+			return mountedAgain;
+		},
+		load: async content => {
+			// As applyContent in editor.tsx loads a note into an editor that is ready.
+			const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
+			const { blocks, byId, note: projected } = await buildBaseHalfMarkdownLoadProjection(api, body, content);
+			const view = editor.prosemirrorView;
+			view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)));
+			history.discardSelectionForNextSharedTransaction();
+			baseHalfNoteToggleState.initiallyOpen = projected.open;
+			baseHalfNoteToggleState.folds.clear();
+			editor.replaceBlocks(editor.document, blocks as Parameters<typeof editor.replaceBlocks>[1]);
+			(history.ensure() ?? history.current)?.clear();
+			note.frontmatter = frontmatter;
+			note.byId = byId;
+			note.note = projected;
+		},
+		// As serializeAndRequestSave in editor.tsx: the body from the blocks, under the note's front matter.
+		save: async () => joinBaseHalfMarkdownRichFrontmatter(note.frontmatter, await spliceBaseHalfMarkdownSave(api, editor.document, '', note.byId, note.note)),
+		command: command => {
+			// As executeEditorCommand in editor.tsx.
+			history.ensure();
+			editor.focus();
+			return command === 'undo' ? history.undo() : history.redo();
+		},
+		blocks: () => shortBlocks(editor.document),
+		caret: (target, edge = 'end') => {
+			if (typeof target === 'number') {
+				editor.setTextCursorPosition(editor.document[target], edge);
+			} else {
+				const view = editor.prosemirrorView;
+				let at: number | undefined;
+				view.state.doc.descendants((node, position) => {
+					const offset = at === undefined && node.isText ? (node.text ?? '').indexOf(target) : -1;
+					if (offset >= 0) {
+						at = position + offset + (edge === 'end' ? target.length : 0);
+					}
+					return at === undefined;
+				});
+				if (at === undefined) {
+					throw new Error(`The note has no text "${target}".`);
+				}
+				view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at)));
+			}
+			editor.focus();
+		},
+		keyboard: {
+			type: text => input({ device: 'keyboard', method: 'type', args: [text] }),
+			press: key => input({ device: 'keyboard', method: 'press', args: [key] }),
+			down: key => input({ device: 'keyboard', method: 'down', args: [key] }),
+			up: key => input({ device: 'keyboard', method: 'up', args: [key] }),
+		},
+		mouse: {
+			click: (x, y) => input({ device: 'mouse', method: 'click', args: [x, y] }),
+			move: (x, y, steps = 1) => input({ device: 'mouse', method: 'move', args: [x, y, { steps }] }),
+			down: () => input({ device: 'mouse', method: 'down', args: [] }),
+			up: () => input({ device: 'mouse', method: 'up', args: [] }),
+		},
+		frames: async (count = 2) => {
+			for (let frame = 0; frame < count; frame++) {
+				await nextFrame();
+			}
+		},
+		check: (name, actual, expected) => {
+			result.checks.push({ name, actual, expected });
+		},
+		log: (name, value) => {
+			result.logs.push({ name, value });
+		},
+	};
+	const dispose = () => {
+		offChange();
+		root.unmount();
+		ydoc.destroy();
+		shell.remove();
+	};
+
+	try {
+		render(false);
+		await until('the editor is in the page', () => mountedView(editor) !== undefined);
+		const first = mountedView(editor);
+		await test.load('');
+		shell.classList.add('ready');
+		render(true);
+		await until('the editor is in the page again, editable', () => {
+			const view = mountedView(editor);
+			return view !== undefined && view !== first && editor.isEditable;
+		});
+		mountedAgain = true;
+		return { test, dispose };
+	} catch (error) {
+		dispose();
+		throw error;
+	}
+}
+
+/**
+ * Part 0, the test bed itself: the editor is mounted as Card Detail mounts it,
+ * with collaboration and Rich's undo; text typed with real keys is one step
+ * of undo; a load is no step of undo (exact undo, rule 80 of note formats);
+ * and the editor's blocks are those of the note's own schema.
+ */
+async function testBed(t: INoteFormatsTest): Promise<void> {
+	const view = t.editor.prosemirrorView;
+	const sync = ySyncPluginKey.getState(view.state) as { type?: unknown; binding?: { prosemirrorView?: unknown } } | undefined;
+	const undoPlugin = yUndoPluginKey.getState(view.state) as { undoManager?: UndoManager } | undefined;
+	const steps = () => ({ undo: t.history.current?.undoStack.length, redo: t.history.current?.redoStack.length });
+	const shared = (text: string) => t.fragment.toString().includes(text);
+	t.check('the editor is mounted again, editable, after the first load, with collaboration and Rich\'s undo', {
+		mountedAgain: t.mountedAgain,
+		editable: t.editor.isEditable,
+		syncsTheSharedDocument: sync?.type === t.fragment,
+		bindsThisView: sync?.binding?.prosemirrorView === view,
+		undoPluginHoldsRichsManager: undoPlugin?.undoManager !== undefined && undoPlugin.undoManager === t.history.current,
+		undoTracksTheSharedDocument: t.history.current?.scope.includes(t.fragment),
+		steps: steps(),
+		blocks: t.blocks(),
+	}, {
+		mountedAgain: true,
+		editable: true,
+		syncsTheSharedDocument: true,
+		bindsThisView: true,
+		undoPluginHoldsRichsManager: true,
+		undoTracksTheSharedDocument: true,
+		steps: { undo: 0, redo: 0 },
+		blocks: [{ type: 'paragraph', text: '' }],
+	});
+
+	const empty = await t.save();
+	t.caret(0);
+	const focused = document.activeElement === t.editor.domElement;
+	await t.keyboard.type('abc');
+	await t.frames();
+	t.check('abc typed with real keys is in the editor and the shared document, as one step of undo', {
+		focused,
+		blocks: t.blocks(),
+		shared: shared('abc'),
+		steps: steps(),
+		saved: await t.save() !== empty,
+	}, {
+		focused: true,
+		blocks: [{ type: 'paragraph', text: 'abc' }],
+		shared: true,
+		steps: { undo: 1, redo: 0 },
+		saved: true,
+	});
+
+	const undone = t.command('undo');
+	await t.frames();
+	t.check('one undo leaves the note empty', {
+		undone,
+		blocks: t.blocks(),
+		shared: shared('abc'),
+		steps: steps(),
+		saved: await t.save() === empty,
+	}, {
+		undone: true,
+		blocks: [{ type: 'paragraph', text: '' }],
+		shared: false,
+		steps: { undo: 0, redo: 1 },
+		saved: true,
+	});
+
+	const redone = t.command('redo');
+	await t.frames();
+	t.check('redo brings abc back', { redone, blocks: t.blocks(), steps: steps() }, {
+		redone: true,
+		blocks: [{ type: 'paragraph', text: 'abc' }],
+		steps: { undo: 1, redo: 0 },
+	});
+
+	const note = '# Title\n\nFirst paragraph.\n';
+	await t.load(note);
+	await t.frames();
+	const loaded = t.blocks();
+	t.check('a load replaces the blocks, is no step of undo, and saves the file as it was', {
+		blocks: loaded,
+		steps: steps(),
+		saved: await t.save(),
+	}, {
+		blocks: [{ type: 'heading', text: 'Title' }, { type: 'paragraph', text: 'First paragraph.' }],
+		steps: { undo: 0, redo: 0 },
+		saved: note,
+	});
+
+	t.caret('First paragraph.');
+	await t.keyboard.type('xyz');
+	await t.frames();
+	const edited = await t.save();
+	const undoneEdit = t.command('undo');
+	await t.frames();
+	const afterEditUndone = { blocks: t.blocks(), saved: await t.save() };
+	const undoneLoad = t.command('undo');
+	await t.frames();
+	t.check('undo takes back a typed edit and stops at the load', {
+		edited,
+		undoneEdit,
+		afterEditUndone,
+		undoneLoad,
+		afterLoadUndo: { blocks: t.blocks(), saved: await t.save() },
+	}, {
+		edited: '# Title\n\nFirst paragraph.xyz\n',
+		undoneEdit: true,
+		afterEditUndone: { blocks: loaded, saved: note },
+		undoneLoad: false,
+		afterLoadUndo: { blocks: loaded, saved: note },
+	});
+
+	// The editor is built from the note's own schema (noteSchema.ts): Markdown
+	// that Rich cannot edit is a fixed block, drawn as the card draws it, with
+	// a relative picture read from the note's folder (renderedNote).
+	const fixedNote = '# Fixed\n\n<div><img src="pic.png" alt="pic"> Kept as written</div>\n\nAfter.\n';
+	await t.load(fixedNote);
+	await t.frames();
+	const fixed = t.editor.domElement?.querySelector('[data-basehalf-raw-passthrough=""]');
+	t.check('Markdown Rich cannot edit is a fixed block of the note\'s schema, drawn as on the card, and saved as it was', {
+		blocks: t.blocks(),
+		drawn: fixed?.querySelector('.basehalf-raw-passthrough-rendered')?.textContent?.trim(),
+		picture: fixed?.querySelector('.basehalf-raw-passthrough-rendered img')?.getAttribute('src'),
+		editInSource: fixed?.querySelector('button.basehalf-raw-passthrough-edit')?.textContent,
+		saved: await t.save(),
+	}, {
+		blocks: [{ type: 'heading', text: 'Fixed' }, { type: BASEHALF_RAW_PASSTHROUGH_BLOCK }, { type: 'paragraph', text: 'After.' }],
+		drawn: 'Kept as written',
+		picture: new URL('pic.png', NOTE_FOLDER).toString(),
+		editInSource: 'Edit in source',
+		saved: fixedNote,
+	});
+}
+
+/**
+ * Part g, toggles (note formats, rules 39 to 41): a `<details>` whose parts
+ * are blocks of their own is one toggle, open or closed as its file stores
+ * it; folding it writes nothing and is no step of undo; a letter typed into
+ * one of its blocks changes that block alone.
+ */
+async function toggles(t: INoteFormatsTest): Promise<void> {
+	const note = '<details open>\n<summary>Open one</summary>\n\nfirst child\n\n</details>\n\n<details>\n<summary>Closed one</summary>\n\nsecond child\n\nthird child\n\n</details>\n';
+	await t.load(note);
+	await t.frames();
+	const shown = () => [...(t.editor.domElement?.querySelectorAll('.bn-toggle-wrapper') ?? [])].map(wrapper => wrapper.getAttribute('data-show-children'));
+	t.check('two toggles hold their blocks, open and closed as the file stores them, and save as they were', {
+		blocks: t.blocks(),
+		shown: shown(),
+		saved: await t.save(),
+	}, {
+		blocks: [
+			{ type: 'toggleListItem', text: 'Open one', children: [{ type: 'paragraph', text: 'first child' }] },
+			{ type: 'toggleListItem', text: 'Closed one', children: [{ type: 'paragraph', text: 'second child' }, { type: 'paragraph', text: 'third child' }] },
+		],
+		shown: ['true', 'false'],
+		saved: note,
+	});
+
+	t.editor.domElement?.querySelectorAll<HTMLButtonElement>('.bn-toggle-button')[1]?.click();
+	await t.frames();
+	t.check('opening a closed toggle shows its blocks, writes nothing, and is no step of undo', {
+		shown: shown(),
+		saved: await t.save(),
+		steps: t.history.current?.undoStack.length,
+		stored: Object.keys(localStorage).filter(key => key.startsWith('toggle-')),
+	}, { shown: ['true', 'true'], saved: note, steps: 0, stored: [] });
+
+	t.caret('third child');
+	await t.keyboard.type('!');
+	await t.frames();
+	t.check('a letter typed into one block of a toggle changes that block alone', await t.save(), note.replace('third child', 'third child!'));
+}
+
+/**
+ * The parts of the test, by name. Each runs on a note of its own and records
+ * its checks with `t.check`. Parts a to i of D110 join here.
+ */
+const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
+	'0': testBed,
+	g: toggles,
+};
+
+// As editor.tsx does before the first note is drawn.
+installBaseHalfNoteToggleState();
+
+async function run(name: string, mode: NoteFormatsMode): Promise<INoteFormatsPartResult> {
+	const result: INoteFormatsPartResult = { checks: [], logs: [], milliseconds: 0 };
+	const part = PARTS[name];
+	if (!part) {
+		result.error = `There is no part "${name}". The parts are ${Object.keys(PARTS).join(', ')}.`;
+		return result;
+	}
+	// BlockNote keeps the fold of a toggle in localStorage; each part starts without one.
+	localStorage.clear();
+	const started = performance.now();
+	let open: IOpenNote | undefined;
+	try {
+		open = await openNote(mode, result);
+		await part(open.test);
+	} catch (error) {
+		result.error = error instanceof Error ? error.stack ?? error.message : String(error);
+	} finally {
+		open?.dispose();
+	}
+	result.milliseconds = Math.round(performance.now() - started);
+	return result;
+}
+
+Object.assign(globalThis, {
+	baseHalfFormats: { parts: Object.keys(PARTS), run },
+});

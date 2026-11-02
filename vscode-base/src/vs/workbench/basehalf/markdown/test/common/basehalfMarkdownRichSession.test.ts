@@ -345,9 +345,13 @@ class FakeMarkdownEditor {
 		return [this.block(`b${this.nextId++}`, blockTypeFor(markdown), markdown.trimEnd())];
 	}
 
-	blocksToMarkdownLossy(blocks: unknown[]): string {
+	writeBlock(block: unknown): string {
 		this.serializeCalls++;
-		return blocks.map(block => (block as { markdown?: string }).markdown ?? '').join('\n');
+		return (block as { markdown?: string }).markdown ?? '';
+	}
+
+	decodeCharacterReferences(text: string): string {
+		return text;
 	}
 
 	private block(id: string, type: string, markdown: string): unknown {
