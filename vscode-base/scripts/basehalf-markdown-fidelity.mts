@@ -10,6 +10,11 @@
  * product's core promise — the Markdown file is the single content truth and
  * merely opening it in the rich projection never rewrites it.
  *
+ * Then, for each file that `edits.json` gives places to, it types the letter
+ * x right after each place and asserts the file holds exactly the bytes of
+ * `edited/<file>`: that letter, and the stored form of the blocks typed into
+ * alone (note formats, criterion 2).
+ *
  * Run from `vscode-base/` after a compile (same prerequisites as
  * `npm run basehalf:smoke-no-compile`):
  *
@@ -67,7 +72,12 @@ const needles: Record<string, string> = {
 	'real-notes.md': 'Reading notes',
 	'setext-and-escapes.md': 'Setext Title',
 	'structures.md': 'Heading one',
+	'boundaries.md': 'Title close above',
+	'note-formats.md': 'Note formats',
+	'wrapped-lists.md': 'Wrapped lists',
+	'tabs.md': 'a list item with code under it',
 };
+const edits: Record<string, readonly string[]> = JSON.parse(fs.readFileSync(path.join(corpusDir, 'edits.json'), 'utf8'));
 for (const name of corpusFiles) {
 	if (!needles[name]) {
 		throw new Error(`Missing DOM needle for corpus file ${name}`);
@@ -128,6 +138,27 @@ try {
 			failures.push(name);
 			console.error(`[fidelity] FAIL ${name}: ${before.length} -> ${after.length} bytes`);
 			console.error(firstDivergence(before, after));
+			continue;
+		}
+
+		const places = edits[name];
+		if (!places) {
+			continue;
+		}
+		for (const place of places) {
+			await caretAfter(frame, place);
+			await page.keyboard.type('x');
+			await page.waitForTimeout(150);
+		}
+		await waitForStableFile(path.join(workspacePath, name));
+		const edited = fs.readFileSync(path.join(workspacePath, name));
+		const expected = fs.readFileSync(path.join(corpusDir, 'edited', name));
+		if (edited.equals(expected)) {
+			console.log(`[fidelity] pass ${name} with x typed after ${places.length} place(s)`);
+		} else {
+			failures.push(`${name} (typed)`);
+			console.error(`[fidelity] FAIL ${name} with x typed: ${expected.length} expected -> ${edited.length} bytes`);
+			console.error(firstDivergence(expected, edited));
 		}
 	}
 } finally {
@@ -136,10 +167,10 @@ try {
 }
 
 if (failures.length > 0) {
-	console.error(`[fidelity] ${failures.length}/${corpusFiles.length} files were rewritten: ${failures.join(', ')}`);
+	console.error(`[fidelity] ${failures.length} check(s) failed: ${failures.join(', ')}`);
 	process.exit(1);
 }
-console.log(`[fidelity] all ${corpusFiles.length} corpus files stayed byte-identical`);
+console.log(`[fidelity] all ${corpusFiles.length} corpus files stayed byte-identical, and the ${Object.keys(edits).length} with places to type kept every byte but the letters and the stored forms of their blocks`);
 process.exit(0);
 
 async function quickOpen(page: Awaited<ReturnType<typeof app.firstWindow>>, value: string) {
@@ -151,6 +182,36 @@ async function quickOpen(page: Awaited<ReturnType<typeof app.firstWindow>>, valu
 		.waitFor({ state: 'visible', timeout: 15_000 });
 	await page.keyboard.press('Enter');
 	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+/** Puts the caret of the rich editor right after the first text that holds `text`. */
+async function caretAfter(frame: Awaited<ReturnType<typeof richFrameContaining>>, text: string): Promise<void> {
+	const placed = await frame.evaluate((needle: string) => {
+		const editor = document.querySelector<HTMLElement>('.ProseMirror');
+		if (!editor) {
+			return false;
+		}
+		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			const at = node.textContent?.indexOf(needle) ?? -1;
+			if (at >= 0) {
+				editor.focus();
+				const range = document.createRange();
+				range.setStart(node, at + needle.length);
+				range.collapse(true);
+				const selection = window.getSelection();
+				selection?.removeAllRanges();
+				selection?.addRange(range);
+				return true;
+			}
+		}
+		return false;
+	}, text);
+	if (!placed) {
+		throw new Error(`The rich editor shows no text "${text}"`);
+	}
+	// The editor reads the caret from the page when the selection changes.
+	await new Promise(resolve => setTimeout(resolve, 150));
 }
 
 async function richFrameContaining(page: Awaited<ReturnType<typeof app.firstWindow>>, needle: string) {

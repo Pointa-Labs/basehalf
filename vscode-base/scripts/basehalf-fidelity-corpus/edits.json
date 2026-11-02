@@ -1,0 +1,17 @@
+{
+	"boundaries.md": ["edit-a", "edit-b", "edit-c", "edit-d", "edit-e", "edit-f", "edit-g"],
+	"crlf.md": ["line endings."],
+	"deep-nesting.md": ["level 2 again"],
+	"edge-whitespace.md": ["between code blocks."],
+	"frontmatter.md": ["Body paragraph one."],
+	"html-and-comments.md": ["between HTML islands."],
+	"line-breaks.md": ["plain"],
+	"links-and-refs.md": ["every kind"],
+	"no-trailing-newline.md": ["final newline"],
+	"note-formats.md": ["edit-k"],
+	"real-notes.md": ["The paper states:"],
+	"setext-and-escapes.md": ["not a list."],
+	"structures.md": ["after a thematic break."],
+	"tabs.md": ["edit-j"],
+	"wrapped-lists.md": ["edit-h", "edit-i"]
+}
