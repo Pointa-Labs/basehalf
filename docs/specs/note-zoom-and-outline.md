@@ -1,9 +1,11 @@
 # Zoom and outline of a note in Card Detail
 
-Status: Draft (2026-10-27, revised 2026-10-28, 2026-10-31, and 2026-11-01)
+Status: Draft (2026-10-27, revised 2026-10-28, 2026-10-31, 2026-11-01, and
+2026-11-02)
 Decision: [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27),
 revised by [D105](../decisions.md#d105--a-pinch-zooms-a-note-as-a-picture-under-the-fingers-and-the-note-is-laid-out-once-they-rest-new-2026-10-31)
-and [D109](../decisions.md#d109--a-pinch-magnifies-a-note-in-card-detail-as-a-browser-magnifies-its-page-and-nothing-of-it-is-laid-out-anew-new-2026-11-01)
+and [D109](../decisions.md#d109--a-pinch-magnifies-a-note-in-card-detail-as-a-browser-magnifies-its-page-and-nothing-of-it-is-laid-out-anew-new-2026-11-01);
+headings in a toggle, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
 Related: [note rendering](note-rendering.md) (what a note shows),
 [PDFs and books](documents-and-books.md#the-pdf-reader) (the zoom of a PDF
 and the text size of a book), [editing media](media-editing.md#zooming-the-picture-and-the-time)
@@ -163,7 +165,11 @@ Not in scope, and unchanged:
    ([note rendering](note-rendering.md#a-block-the-rich-projection-cannot-edit)),
    and a heading written in HTML, which the page shows as a heading too. A
    line of the front matter or of a code block is no heading, since the page
-   shows it as text. A heading without text is left out.
+   shows it as text. A heading without text is left out. A heading inside a
+   closed toggle, in Rich or in a closed `<details>` in Preview, is not
+   shown, and is not listed until the toggle opens. A toggle heading is a
+   heading; a click on its name scrolls to it and does not fold it
+   ([formats of a note](note-formats.md#toggles)).
 10. At rest the outline shows nothing.
 11. While the pointer is in the left margin, the ticks fade in, in 200 ms,
     and they fade out in 200 ms when it leaves the margin. A note without
@@ -207,7 +213,8 @@ Not in scope, and unchanged:
     and closes nothing. A wheel over the panel scrolls the panel while it has
     names out of view, and the note otherwise.
 18. The outline follows the note: a heading that is typed, renamed, or
-    deleted is in the outline in the frame after the page shows it, and the
+    deleted, or that a toggle shows or hides as it opens or closes, is in
+    the outline in the frame after the page shows it, and the
     current heading follows scrolling, zooming, a change of the width of
     Card Detail, and pictures that finish loading.
 19. The outline and its ticks are drawn by BaseHalf's projection, outside the
@@ -326,6 +333,9 @@ place. Nothing of the zoom is stored, in the profile or in the workspace.
    the selection stay where they were, and the keyboard is still in the
    editor.
 9. Typing `## New part` at the end of a note adds a tick and a name.
+9a. A heading inside a closed toggle has no tick and no name, in Rich and in
+   Preview. Opening the toggle adds them within one frame, and closing it
+   takes them away.
 10. The front matter and a code block of a note that hold lines that start
     with `#` add no tick, and a heading that the Rich projection shows in its
     rendered form adds one.
@@ -359,7 +369,8 @@ place. Nothing of the zoom is stored, in the profile or in the workspace.
 ## Verification
 
 - Unit tests: which wheel events zoom and the factor of an event
-  (`basehalfCardDetailZoom.test.ts`); the headings of a page, the lengths
+  (`basehalfCardDetailZoom.test.ts`); the headings of a page, without those
+  a closed toggle or a closed `<details>` hides, the lengths
   and the distance of the ticks, the current heading, and where the panel
   stands (`basehalfNoteOutline.test.ts`); the zoom of a page frame by frame:
   the point under the pointer, the range, the edges, nothing laid out, and

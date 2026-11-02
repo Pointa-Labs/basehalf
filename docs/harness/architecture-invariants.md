@@ -106,9 +106,13 @@ See [code organization](code-organization.md) and public decision D60.
   videos `.m4v`, `.mkv`, `.mov`, `.mp4`, and `.webm`; without regard to
   case. The window loads each image, sound, and video of the list itself,
   from any folder, through its file protocol, as the worker that draws a
-  PDF's cover loads the PDF, and a sound and a video play
+  PDF's cover loads the PDF, and a sound and a video of a card play
   in BaseHalf's player, never in the system's controls
-  ([generation cards](../specs/generation-cards.md#the-player)). A PDF and a
+  ([generation cards](../specs/generation-cards.md#the-player)); a sound or a
+  video inside a note plays in its own controls until files in notes
+  (D111). A Markdown picture in a note whose address has a sound or a video
+  extension of the list is that sound or video
+  ([formats of a note](../specs/note-formats.md#reading-a-note)). A PDF and a
   book show their cover on their card and are read in a page of their own
   ([PDFs and books](../specs/documents-and-books.md)). A file that the
   system cannot decode says so where it would show.
@@ -139,7 +143,10 @@ D85 in [decisions.md](../decisions.md).
   separate files or default editor tabs.
 - The rich projection keeps BlockNote-style editing, a per-file in-memory YJS
   live document, and byte-preserving splice-save so unchanged Markdown stays
-  verbatim on disk.
+  verbatim on disk. It reads a note as the card reads it, offers only formats
+  the Markdown file keeps, and writes each in one spelling, so what it shows
+  comes back as it was shown ([formats of a note](../specs/note-formats.md),
+  D110).
 - An explicit reference `A → B` means A's context flows into B. The graph is
   directed, many-to-many, cyclic when useful, and never self-referential.
   Markdown links navigate but do not create reference edges. Edges carry no

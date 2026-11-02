@@ -167,6 +167,9 @@ text document and working-copy infrastructure.
 Done means:
 
 - Rich editor keeps the BlockNote-style editing experience.
+- What the rich editor offers is what a note's file keeps: each format it
+  shows is written into the Markdown file and shows the same after the note
+  opens again ([formats of a note](specs/note-formats.md), D110).
 - Source projection uses VS Code editor infrastructure.
 - Preview projection follows VS Code's Markdown preview/custom-editor pattern.
 - All projections share one source of truth and one dirty/conflict/save model.

@@ -11,7 +11,8 @@ version 9, 2026-10-25, D78: a generation card is an image, a video, or a
 sound, and a sound an agent makes itself goes where an image does;
 version 10, 2026-10-25, D81: selected text in a PDF names its pages and in
 a book its chapter; installed as a link to BaseHalf's own copy, which
-follows every release, and offered until the user answers, 2026-10-26, D83)
+follows every release, and offered until the user answers, 2026-10-26, D83;
+version 11, 2026-11-02, D110: the formats a note keeps)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
@@ -141,6 +142,20 @@ its own, which the agents' folders link to
    folder of the selected cards or note. Without a record, the agent asks the
    user which folder. This section is not in the launch instruction, which
    goes only to Claude Code sessions, and it names no tool.
+6. **The formats a note keeps.** A note is Markdown. Where Markdown has no
+   syntax for a format, the note holds a small HTML tag, and BaseHalf's
+   editor edits a block when its tags are spelled as BaseHalf writes them:
+   `<u>…</u>` for underline; `<span style="color:#e8706b;">…</span>`,
+   `background-color:` after `color:`, for the nine colors of its palette,
+   with their values ([formats of a note](note-formats.md#text-colors));
+   `<details>` (or `<details open>` for one that shows open), then
+   `<summary>title</summary>`, a blank line, the content, a blank line, and
+   `</details>` for a toggle; `<img alt="…" src="…" width="320">` for the
+   width of a picture; `<figure>…<figcaption>…</figcaption></figure>` for a
+   caption; `<video src="…" controls></video>` and
+   `<audio src="…" controls></audio>` for a video and a sound. A link to a
+   file whose name has a space writes it `%20`. Another spelling is kept as
+   written and shown, and is not edited in BaseHalf's editor.
 
 The body describes where things are and what they mean. Following D36, it
 does not tell an agent what to read or in what order. It stays under 500
@@ -353,8 +368,9 @@ the user's home folder.
    moved with ordinary tools, says where an image or a sound the agent made
    itself goes,
    contains every line of the launch instruction's shared sections, and has
-   fewer than 500 lines. It names no `.bhnode` and no `--run-node`. Its
-   version is `10`. Unit test.
+   fewer than 500 lines. It names no `.bhnode` and no `--run-node`. It gives
+   the forms of section 6, each spelled as the writer of formats of a note
+   writes it. Its version is `11`. Unit test.
 2. Installing writes BaseHalf's own copy with exactly the bundled bytes and
    links both entries to its folder, creating missing folders. The states
    are missing before and linked after. An earlier copy of BaseHalf's text

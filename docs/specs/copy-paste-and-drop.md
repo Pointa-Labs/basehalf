@@ -1,13 +1,16 @@
 # Copy, paste, and drop
 
-Status: Active (2026-10-29)
-Decision: [D104](../decisions.md#d104--copy-paste-and-a-drop-hand-over-one-transfer-and-the-place-that-has-the-keyboard-takes-it-new-2026-10-29)
+Status: Active (2026-10-29; a note's Rich editor, 2026-11-02)
+Decision: [D104](../decisions.md#d104--copy-paste-and-a-drop-hand-over-one-transfer-and-the-place-that-has-the-keyboard-takes-it-new-2026-10-29);
+a note's Rich editor, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
 Related: [canvas Create menu](canvas-create-menu.md) (Paste in the menu),
 [canvas card placement](canvas-card-placement.md#pointing) (where pasted
 cards go), [exact undo](exact-undo.md#what-the-canvas-made) (the undo of a
 paste), [dropping into a folder](canvas-drop-into-folder.md) (a drop on a
 folder's card), [generation cards](generation-cards.md#the-panel) (the input
-row and the prompt of a draft), [file mentions](generation-cards.md#mentions)
+row and the prompt of a draft), [file mentions](generation-cards.md#mentions),
+[formats of a note](note-formats.md#paste-and-drop) (a copy and a paste in a
+note's Rich editor)
 
 ## Problem
 
@@ -102,8 +105,11 @@ place that should take something needed code of its own, and most had none.
   - in Card Detail of a video, a sound, or an image BaseHalf can edit, its
     file; a PDF, a book, and a picture BaseHalf shows in a page of its own
     copy the text selected in them, as before;
-  - in a text field, a note's editor, and the prompt, the selected text, as
-    before.
+  - in a text field, a note's editor on its card, and the prompt, the
+    selected text, as before;
+  - in a note's Rich editor, the Markdown that the note would store for the
+    selection, as text, and its HTML with the palette's colors
+    ([formats of a note](note-formats.md#copy)).
 - With nothing selected, a copy changes nothing on the clipboard.
 - A copy of items writes the system clipboard once, in three forms at once:
   1. **the files and folders themselves**, as a file manager writes files it copies,
@@ -136,7 +142,9 @@ place that should take something needed code of its own, and most had none.
 - The place that has the keyboard takes the transfer, as the table of
   [The places](#the-places) says. Command-V in a text field, a note's
   editor, or the terminal pastes as it did, apart from what that table
-  says.
+  says. A note's Rich editor keeps of a paste what the note can store, and
+  its menu's Paste takes what Command-V takes
+  ([formats of a note](note-formats.md#paste-and-drop)).
 
 ### Drop
 
@@ -258,7 +266,9 @@ place that should take something needed code of its own, and most had none.
 - Command-C in Card Detail of a video, a sound, or an image BaseHalf can
   edit copies its file, as Copy of its card does. A PDF, a book, and a
   picture shown in a page of its own copy the text selected in them.
-- Card Detail takes no paste and no cut.
+- Card Detail of a video, a sound, an image, a PDF, or a book takes no
+  paste and no cut. A note's Rich editor in Card Detail pastes and cuts as
+  [formats of a note](note-formats.md#paste-and-drop) says.
 
 ## Acceptance criteria
 

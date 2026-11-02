@@ -1659,6 +1659,14 @@ that cost for those who do need the mode.
 
 ## D54 — A note is shown rendered wherever it is read (NEW, 2026-10-13)
 
+> **Revised by D110 (2026-11-02).** Rich reads a note as the card reads it,
+> and edits a block when the block, written back, shows the same on the card
+> and keeps every HTML element, attribute, comment, and title it has. So a
+> block with underline, a palette color, a toggle, a width, a caption, a
+> video, or a sound is edited in place, and a block with other HTML is not.
+> The card, Preview, and the fixed blocks of Rich render with the same
+> options, which add the sound element. The rest of D54 stands.
+
 **Decision.** A Markdown Note card shows the rendered form of its note: a
 table as a grid, an image as a picture, a task as a box, and the HTML that
 Markdown allows as elements. The characters of the file are for Card
@@ -2187,6 +2195,12 @@ the user's Codex out. No reference product reads the login.
   image generation, onto the canvas.
 
 ## D65 — No system tooltips, sound that fades, and Card Detail that fades in place (NEW, 2026-10-23; the growing out of its card replaced the same day)
+
+> **Revised by D110 (2026-11-02).** A video or a sound inside a note plays in
+> the element's own controls, in Rich, on the note's card, and in Preview,
+> until files in notes bring BaseHalf's player there (D111); on the canvas
+> one that starts still pauses the others. Links in a note show no system
+> tooltip. The rest of D65 stands.
 
 **Decision.** Three things about how BaseHalf feels under the pointer and in
 the speakers.
@@ -5251,3 +5265,105 @@ which the window's zoom does for everything with Command and `=`.
   browser finds nothing; the handles of a block then went. In Card Detail a
   point past the view is looked up inside it, on the same line, clear of the
   scroll bars.
+
+## D110 — What Rich shows of a note is what its file keeps, and Rich offers nothing the file cannot keep (NEW, 2026-11-02)
+
+**Decision.** Every format that Card Detail's Rich editor offers is written
+into the note's Markdown file and shows the same after the note opens again,
+in Rich, on its card, and in Preview. The note stays Markdown. A format that
+Markdown has a syntax for keeps it. A format it has none for is a small HTML
+tag inside the Markdown, in one spelling that the card's renderer keeps:
+underline as `<u>`, a text or background color of a palette of nine as
+`<span style="color:#e8706b;">`, a toggle as `<details>` and `<summary>`, the
+width of a picture or a video as `width`, a caption as `<figure>`, a video as
+`<video controls>`, a sound as `<audio controls>`. The file keeps only how a
+toggle first shows (`open`); folding is the view's. A format the file cannot
+keep is gone from Rich, from every menu, key, and path into it: the color of
+a block, the alignment of a paragraph, a picture, or a cell, indenting a
+block that cannot hold children, Toggle preview, a file's caption, header
+rows and columns other than the first row, merged cells, cell colors, and
+widths of columns. Rich reads a note as the card reads it, with the card's
+own Markdown reader, and edits a block in place when the block, written
+back, shows the same on the card and keeps every HTML element, attribute,
+comment, and title it has; any other block stays a fixed block and is saved
+byte for byte. A block the user does not change keeps its bytes, and so do
+the line breaks between blocks that stay neighbours. A Markdown picture of a
+video or a sound file is that video or sound everywhere, by the one list of
+media files. A link opens its target from the card, Preview, the card's
+editor, and Rich, its address read once: a note or a file in Card Detail, a
+web address in the browser, a heading in its note. See
+[formats of a note](specs/note-formats.md).
+
+**Why.** On 2026-11-02 the user asked whether the Markdown file should stay
+the only source of truth ("所以你觉得我们要不要以 MD文件为唯一真相来源呢？")
+and what the note's Card Detail, the note made large, should do
+("我们现在主要是要解决笔记节点这个 card detail 的问题。（放大版的笔记）"). Measured
+that day in a development window of main `af2881912`, with every format
+applied through Rich's own menus and the note opened again: underline, both
+colors, a block's color, every alignment, Tab on a paragraph, a resized
+picture, and a column's width wrote nothing at all; Rich showed them until
+the note closed. A toggle came back as a bullet or a plain heading, an
+uploaded video as a broken picture, a sound as a line of text on the card, a
+`[[` link as plain text, and a file block with a caption as two lines of
+text. A link to `my%20file.md` raised a Create File dialog in Preview and did
+nothing on the card, and an edit of a paragraph wrote a link with a space in
+its address so that it read back as a link to `my`. Rich drew colors in the
+editor's light palette, a yellow background at 1.7:1 under the text. Read in
+the editor's writer and run in its shipped code, underlining one word of a
+bold sentence wrote stray asterisks into the file. All of it has one cause:
+Rich offered what its writer could not put into Markdown, and read back with
+a reader of its own what the card reads with another. The user approved the
+answer that keeps Markdown and adds a tag only where Markdown has no syntax
+("可以，那我们开始吧").
+
+**What was set aside.**
+- Keeping formats in a store under `.bh/` beside the note (D12, D41): other
+  tools and agents would not see them, and the file would no longer be the
+  only truth.
+- A syntax of BaseHalf's own for underline, colors, or toggles: no other tool
+  reads it.
+- HTML for the alignment of paragraphs and cells, for the colors of blocks,
+  and for merged cells: a note would become HTML that the card's editor
+  cannot edit, and a Markdown table cannot merge cells.
+- Writing the fold of a toggle into the file whenever it is folded: folding
+  to read would change the file.
+- Passes around the editor's own writer: its skeleton splits lists and links,
+  and its reader would still read back another note than the card shows.
+- The editor's own Markdown reader with repairs of its HTML: it reads a
+  hand-wrapped list item as two paragraphs, which no repair of its HTML can
+  undo, and decoding its text again breaks addresses such as `?id=1&param=2`.
+- A toggle written whole on every edit: an edit of one child would rewrite
+  every child.
+- The editor's dark palette: its backgrounds left the card's text at 1.3:1.
+- `![](clip.mp4)` as the form of a video: other renderers draw it as a
+  broken picture.
+- Mapping a color outside the palette to its nearest palette color: it
+  changes what the author chose.
+
+**Consequences.**
+- Revises D54 and D65. [Note rendering](specs/note-rendering.md): Status,
+  Decision, Scope, rules 1, 6, 15, and 19 to 23, new rules 4a, 6a, 6b, and
+  15a, the measured table, the limit on `<details>`, criterion 13, new
+  criteria 13a to 13d, and Verification. [Zoom and outline of a note](specs/note-zoom-and-outline.md):
+  rules 9 and 18, criterion 9a, and Verification. [Copy, paste, and drop](specs/copy-paste-and-drop.md):
+  Copy, Paste, and Card Detail. [The selection agents can see](specs/selection-for-agents.md):
+  the text in Rich and criterion 1. [Generation cards](specs/generation-cards.md):
+  text inputs, a spoken note, and the player. [Agent skill](specs/agent-skill.md):
+  a sixth section of the body and criterion 1, version 11.
+  [Architecture invariants](harness/architecture-invariants.md): media in a
+  note and the rich projection.
+- `BASEHALF_NOTE_HTML_TAGS` is the base renderer's list and `audio`; the card,
+  Preview, and Rich's fixed blocks render a note with the same options.
+  Preview therefore also shows HTML outside the list as written instead of
+  removing it, and a single line break as a line break, as the card does.
+- Rich reads with the card's Markdown reader and writes with BaseHalf's own
+  writer, which also gives the keys of untouched blocks, the comparison of a
+  document to adopt, the text of a copy, and the lines of a selection.
+- Videos and sounds inside a note play in the system's controls until files
+  in notes (D111).
+- Deleted: the alignment, Nest, Unnest, Toggle preview, and comment buttons
+  of Rich; Colors and the header items of a block's menu; resizing of table
+  columns; renaming a video or a sound; the caption of a file; the empty
+  placeholders of media from the slash menu; the editor's Markdown writer and
+  reader in Rich; the mark that carried line breaks of table cells through
+  that writer.

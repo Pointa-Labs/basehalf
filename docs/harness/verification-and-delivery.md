@@ -72,7 +72,21 @@ npm run basehalf:fidelity
 
 It opens each note of `scripts/basehalf-fidelity-corpus/` in the real editor,
 makes the editor write it back, and fails when a byte of a file changes. A
-new corpus file needs an entry in the script's list of texts to wait for.
+second pass types one letter at the place each note marks, and fails unless
+the file changed by that letter and by the canonical form of the block it is
+in ([formats of a note](../specs/note-formats.md)). A new corpus file needs
+an entry in the script's list of texts to wait for, and its place to type.
+
+For changes to what Rich reads, writes, offers, pastes, or copies:
+
+```bash
+cd vscode-base
+npm run basehalf:test-markdown-rich-formats
+```
+
+It runs Rich's real editor in a headless browser over the formats of a
+note, with paste, copy, undo, and the state of toggles. The smoke runs it
+first, as it runs the test of the card's editor.
 The rich editor's bundle is rebuilt by the watch when a file under
 `extensions/basehalf/markdown-rich-src/` changes; after a change to a file it
 imports from `src/`, run `node extensions/basehalf/esbuild.markdownRich.mts`.
@@ -89,6 +103,9 @@ cannot be read recovering on the next save, cards that follow files renamed
 from outside the window (one file, the folder whose canvas is open, and many
 files at once), a long note at rest that a scroll moves while a scroll that
 started on the canvas keeps moving the canvas, the rich reveal highlight,
+the formats of a note in Rich (each written, read back after Card Detail
+opens the note again, and shown on the card and in Preview), links that
+open from Rich, the card, and Preview,
 card resizing with its rounded corner targets and indicator, renaming a card
 from its name with an editor that stays as it is while files of the folder
 change, selecting cards

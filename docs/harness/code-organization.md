@@ -18,11 +18,11 @@ per feature:
 | `shell/` | The product profile with the extension allowlist and install policy, About, release notes, settings, layout controls, and the item glyphs and sideways scrollbar that several surfaces draw | [Layout controls](../specs/layout-controls.md), [workbench appearance](../specs/workbench-appearance.md) |
 | `navigation/` | Folders opening as canvases and files as Card Detail, back and forward, and the flush before Card Detail is left | [Roadmap](../roadmap.md) tracks 2 and 4 |
 | `workspace/` | What BaseHalf keeps in `.bh/`: reading, writing, and recovering mirror files, the mirror cascade, following moved items, legacy cleanup, workspace mutations, project file transitions, and the kept versions that undo moves back | [Mirror file resilience](../specs/mirror-file-resilience.md), [following moved items](../specs/following-moved-items.md), [workspace state](../specs/workspace-state-and-legacy-cleanup.md), [exact undo](../specs/exact-undo.md) |
-| `markdown/` | The Markdown document under the rich, source, and preview projections, and the reading aids of `adhd.yaml` | [Note rendering](../specs/note-rendering.md), roadmap track 5 |
+| `markdown/` | The Markdown document under the rich, source, and preview projections, how each format of a note is written and read back, the links of a note, and the reading aids of `adhd.yaml` | [Note rendering](../specs/note-rendering.md), [formats of a note](../specs/note-formats.md), roadmap track 5 |
 | `references/` | The reference graph: its stores and index, reference edits, the rename refactor, migration, and the badge editor | [Reference graph](../specs/reference-graph.md) |
 | `canvas/` | The canvas: its model and layout file, its view, scene, gestures, placement, and arrangement | The canvas specifications in the [harness routes](README.md#task-routes) |
 | `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/`, `snap/`, and `tidy/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
-| `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5 |
+| `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5, [formats of a note](../specs/note-formats.md) |
 | `documents/` | PDFs and books: which files they are, their covers and the cache that keeps them, the readers of covers, and the book reader's page | [PDFs and books](../specs/documents-and-books.md) |
 | `agentArea/` | The Agent Area, its terminal, the agent skill, the selection agents can see, and the registry of the capabilities agents read | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | Generation cards of images, videos, and sounds: their drafts and generation information, the task records, the model catalog as the window receives it, the providers' settings, and the Providers page | [Generation cards](../specs/generation-cards.md), [providers and the model catalog](../specs/providers.md) |
@@ -90,10 +90,12 @@ history still finds its file.
   (`canvas/browser/scene/README.md`). Lint allows it there and nowhere else.
 - There are no import cycles. `npm run check-cyclic-dependencies` checks the
   transpiled output in about two seconds.
-- A `common/` module that a webview bundle under `extensions/basehalf/*-src/`
-  imports may import only its siblings and the vendored leaf modules
-  (`marked`, `yaml`), nothing from `vs/base`: the bundle's type check follows
-  every import without VS Code's global types. Check it with
+- A `common/` or `browser/` module that a webview bundle under
+  `extensions/basehalf/*-src/` imports may import only its siblings, the
+  vendored leaf modules (`marked`, `yaml`), and modules that import nothing,
+  such as `platform/protocol/common/basehalfMediaFiles.ts`; nothing else
+  from `vs/base` or `vs/platform`: the bundle's type check follows every
+  import without VS Code's global types. Check it with
   `npx tsgo --project extensions/basehalf/<bundle>-src/tsconfig.json --noEmit`.
 
 ## The canvas: a core and its features

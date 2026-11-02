@@ -1,9 +1,12 @@
 # Note rendering
 
-Status: Active (2026-10-13)
-Decision: [D54](../decisions.md#d54--a-note-is-shown-rendered-wherever-it-is-read-new-2026-10-13)
-Related: [canvas wheel gestures](canvas-wheel-gestures.md) (scrolling a Note
-at rest), [canvas card resize](canvas-card-resize.md),
+Status: Active (2026-10-13; the sound element, colors, toggles, links, and
+which blocks Rich edits, 2026-11-02)
+Decision: [D54](../decisions.md#d54--a-note-is-shown-rendered-wherever-it-is-read-new-2026-10-13);
+what Rich writes and reads back, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
+Related: [formats of a note](note-formats.md) (what Rich writes and reads
+back, and which blocks it edits), [canvas wheel gestures](canvas-wheel-gestures.md)
+(scrolling a Note at rest), [canvas card resize](canvas-card-resize.md),
 [architecture invariants](../harness/architecture-invariants.md)
 
 ## Problem
@@ -57,6 +60,7 @@ In scope:
   projection shows that a table is wider than the text column.
 - What Card Detail's rich projection shows for a block it cannot edit, and
   which blocks with a line break written as `<br>` it edits.
+- How a click on a link opens its target from the card and from Preview.
 - How long a note can be and still be shown on its card, and edited there;
   how the card builds a long note in parts; and how much of a text file, a
   code file, or a text result a card reads for its excerpt.
@@ -64,8 +68,9 @@ In scope:
 Not in scope, and unchanged:
 
 - Which blocks can be edited on the card. A table, an image, a task list, a
-  heading of level 4 to 6, and a block with HTML still open in Card Detail
-  for editing.
+  heading of level 4 to 6, a toggle, and a block with HTML other than
+  underline and palette colors still open in Card Detail for editing
+  ([formats of a note](note-formats.md#the-card-preview-and-the-cards-editor)).
 - Everything else in Card Detail's projections, and how a block that is not
   edited is saved: byte for byte, as before.
 - What the excerpt of a text file, a code file, or a folder shows: the first
@@ -100,9 +105,10 @@ Not in scope, and unchanged:
    - tables, with the alignment of their columns and the formatting inside
      their cells;
    - the HTML elements that Card Detail's Preview projection renders
-     (`BASEHALF_NOTE_HTML_TAGS`, which a test keeps the same as the base
-     renderer's `allowedMarkdownHtmlTags`), for example `<br>`, `<sub>`,
-     `<kbd>`, `<details>`, and a table written as HTML.
+     (`BASEHALF_NOTE_HTML_TAGS`, which a test keeps the base renderer's
+     `allowedMarkdownHtmlTags` and `audio`), for example `<br>`, `<sub>`,
+     `<kbd>`, `<u>`, `<details>`, `<figure>`, `<video>`, `<audio>`, and a
+     table written as HTML.
 2. No markup of a construct in rule 1 is shown as text.
 3. A fixed block of a card being edited shows the same rendered form as the
    resting projection. Both come from one function
@@ -113,10 +119,27 @@ Not in scope, and unchanged:
    `<String>` of `List<String>`), an HTML block that contains such an
    element, an HTML comment, and Markdown that is not closed (`**bold`).
    Such an element never becomes a live element.
+4a. An element of rule 1 keeps what the formats of a note need and nothing
+   that runs. A `<span>` keeps a text and a background color written as
+   `color:#rrggbb;background-color:#rrggbb;`, and any other `style` is not
+   drawn. A `<details>` with `open` shows open. A `<video>` and an `<audio>`
+   keep `src`, `width`, and `controls`, and play in their own controls
+   ([formats of a note](note-formats.md#pictures-videos-and-sounds)). A link
+   and a picture show no system tooltip: their `title` is dropped when they
+   are drawn.
 5. Rendering does not run code and does not follow a command link. The note
    is untrusted content. An `<input>` is shown only as a check box, and the
    box is disabled.
-6. An image address that is relative is read from the folder of the note.
+6. An address that is relative, of an image, a video, a sound, or a link, is
+   read from the folder of the note.
+6a. A Markdown image whose address ends in a sound or a video extension of
+   the one list of media files is that sound or that video:
+   `![clip](clip.mp4)` is a video and `![s](s.ogg)` a sound
+   ([formats of a note](note-formats.md#reading-a-note)).
+6b. A click on a link opens its target, its address read once: a note or a
+   file of the workspace in Card Detail, a web address in the browser, a
+   heading in its note ([formats of a note](note-formats.md#links)). A link
+   that leads nowhere does nothing, and nothing asks.
 
 ### How the rendered form is laid out on the card
 
@@ -169,9 +192,10 @@ Not in scope, and unchanged:
 ### A block the rich projection cannot edit
 
 15. Card Detail's rich projection shows a block it cannot edit in its
-    rendered form, by the rules 1, 2, 4, and 5 of the card. The elements and
-    the text are the same as on the card
+    rendered form, by the rules 1, 2, 4, 4a, 5, 6, and 6a of the card. The
+    elements, their attributes, and the text are the same as on the card
     (`baseHalfNoteMarkdownToHtml`, `BASEHALF_NOTE_HTML_TAGS`).
+15a. A click on a link in such a block opens it by rule 6b.
 16. The block is not edited in place. Edit in Source is offered on it as
     before and opens the Source projection at its lines.
 17. A table in such a block keeps the widths its columns need and scrolls
@@ -184,36 +208,39 @@ Not in scope, and unchanged:
 ### Which blocks the rich projection edits
 
 The rich projection edits blocks in its own form and writes an edited block
-back as Markdown. Its writer cannot write everything it can read. Measured
-in the editor, by reading a block and writing it back:
+back as Markdown, in the forms that
+[formats of a note](note-formats.md#how-each-format-is-stored) owns. Some
+HTML has no form in it. Read and written back, it would lose:
 
 | The note has | Written back as | What the reader loses |
 | --- | --- | --- |
-| a table with `a<br>b` in a cell | a row cut in two lines | the table |
 | `H<sub>2</sub>O`, `<kbd>`, `<mark>` | `H2O` | the formatting |
-| `<img width="40">` | `![](…)` | the size |
-| `<details>` with a summary | a list item | the folding |
 | a table written as HTML | a pipe table | nothing in a plain table; merged cells in others |
 | `<!-- a comment -->` | nothing | the comment |
 
-19. The rich projection edits a block in place unless writing it back would
-    lose letters, digits, or line breaks of it. A block that would lose them
-    is shown as rules 15 to 18 say, and is not edited there.
-20. A line break is kept whichever way it is written. In a table cell the
-    rich projection writes it as `<br>`, because a row of a table is one
-    line. Everywhere else it writes it as a Markdown line break.
-21. So these are edited in place: a table with `<br>` in its cells, and a
-    paragraph, a list item, or a quote with `<br>`. A line break that the
-    user types into a table cell is saved as `<br>`.
-22. These are not edited in place, because the table above shows what they
-    would lose: a block with `<sub>`, `<sup>`, `<kbd>`, `<mark>`, or another
-    HTML element; an `<img>` element; `<details>`; a table written as HTML; a
-    comment; and a heading with `<br>`, whose line break cannot be written
-    back.
-23. A block that the user does not edit is saved byte for byte, whether it
-    is edited in place or not. A block that the user edits is written by the
-    editor: `<br/>` becomes `<br>`, and `<br>` outside a table becomes a
+19. The rich projection edits a block in place when the block, read and
+    written back by it, shows the same on the card and keeps every HTML
+    element, attribute, and comment and every title of a link or a picture
+    that it has ([formats of a note](note-formats.md#which-blocks-rich-edits),
+    rule 34). Any other block is shown as rules 15 to 18 say, and is not
+    edited there.
+20. A line break is kept whichever way it is written. The rich projection
+    writes it as `<br>` where a block is one line: in a table cell, a
+    heading, a toggle's title, and a caption. Elsewhere it writes it as a
     Markdown line break.
+21. So these are edited in place: a table with `<br>` in its cells; a
+    paragraph, a list item, or a quote with `<br>`; and a heading with
+    `<br>`. A line break that the user types into a table cell or a heading
+    is saved as `<br>`.
+22. Which HTML the rich projection writes, and so which blocks with HTML it
+    edits, is owned by [formats of a note](note-formats.md#which-blocks-rich-edits),
+    rule 37. A block with `<sub>`, `<sup>`, `<kbd>`, `<mark>`, a comment, or a
+    table written as HTML is still not edited in place.
+23. A block that the user does not edit is saved byte for byte, whether it
+    is edited in place or not. A block that the user edits is written in its
+    canonical form ([formats of a note](note-formats.md#how-each-format-is-stored)):
+    `<br/>` becomes `<br>`, and `<br>` in a paragraph becomes a Markdown line
+    break.
 
 ### Note size and parts
 
@@ -267,10 +294,14 @@ in the editor, by reading a block and writing it back:
   sideways wheel scrolls the box with Shift and the wheel.
 - A table whose text has no place to wrap, such as a long address, is as
   wide as that text.
-- An HTML block that spans a blank line, such as `<details>` around
-  paragraphs, is one element at rest and several blocks while the card is
-  edited and in Card Detail's rich projection. Its parts are then rendered
-  one by one, and the folded text is shown unfolded.
+- An HTML block other than a toggle that spans a blank line, such as
+  `<div>` around paragraphs, is one element at rest and several blocks while
+  the card is edited and in Card Detail's rich projection. Its parts are
+  then rendered one by one. A `<details>` around paragraphs that reads as a
+  toggle is one toggle in the rich projection and one fixed block, drawn as
+  at rest, in the card's editor; one that does not is shown in parts as
+  other HTML blocks are ([formats of a note](note-formats.md#toggles), rules
+  41 and 42).
 - A block that the rich projection cannot edit has no sign of that until
   the pointer is on it, where Edit in Source appears.
 - A code block has no syntax colors on the card.
@@ -383,8 +414,17 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     table that can be edited. After a letter is typed into another cell and
     the note is saved, the file holds every row of the table on one line,
     with `a<br>b` in that cell.
-13. A paragraph `one<br>two` can be edited there. `H<sub>2</sub>O` and
-    `# a<br>b` cannot.
+13. A paragraph `one<br>two` and a heading `# a<br>b` can be edited there.
+    `H<sub>2</sub>O` cannot.
+13a. On the card at rest and in Preview, `<audio src="sound.mp3" controls></audio>`
+    is an `audio` element whose address is in the note's folder, and
+    `![clip](clip.mp4)` is a `video` element.
+13b. `<span style="color:#e8706b;">red</span>` is drawn rgb(232, 112, 107) on
+    the card, in Preview, and in a block the rich projection cannot edit;
+    `<span style="color: red">red</span>` is plain text in all three.
+13c. A click on `[x](my%20file.md)` on the card and in Preview opens Card
+    Detail of `my file.md`, and no link there has a `title`.
+13d. `<details open>` shows open on the card and in Preview.
 14. A note with such a table that is opened and not edited keeps every byte.
 
 15. A note of 131,072 bytes opens in the card's editor on a double click. A
@@ -427,6 +467,11 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
   writing of a line break in a table cell. Criterion 12 is measured in the
   real window. The fidelity corpus (`npm run basehalf:fidelity`) covers
   criterion 14.
+- Unit: `basehalfCanvasMarkdownInlineEditor.test.ts` and
+  `basehalfMarkdownPreviewCardDetail.test.ts` cover criteria 13a to 13d;
+  `basehalfNoteShown.test.ts` covers rules 19 and 22. Smoke:
+  `canvas-note-formats` and `preview-note-formats` cover criteria 13a to 13d
+  in the real window.
 - Smoke: `readme-rich-passthrough-edit-in-source` covers criterion 11 and,
   for the HTML block of its note, that the block is shown rendered.
   Criterion 10 is measured in the real window.

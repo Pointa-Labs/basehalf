@@ -2,11 +2,12 @@
 
 Status: Active (2026-10-14; a selected draft, 2026-10-22 for D63; text in a
 PDF or a book, 2026-10-25 for D81; the entry while the skill is not
-installed, 2026-10-26 for D83)
+installed, 2026-10-26 for D83; a toggle's child, 2026-11-02 for D110)
 Decisions: [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
 [D81](../decisions.md),
-[D83](../decisions.md#d83--the-agent-skill-is-a-link-to-basehalfs-own-copy-which-follows-each-release-and-its-offer-stays-until-it-is-answered-new-2026-10-26)
+[D83](../decisions.md#d83--the-agent-skill-is-a-link-to-basehalfs-own-copy-which-follows-each-release-and-its-offer-stays-until-it-is-answered-new-2026-10-26),
+[D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
 Related: [agent skill](agent-skill.md),
 [PDFs and books](documents-and-books.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -258,7 +259,10 @@ record: without the skill there is no record.
 - *Text in Card Detail's rich projection.* The webview works out the lines
   from what a save would write now, so edits made since the note was opened
   count, narrows them, and posts `basehalf.markdownRich.selectionChanged`
-  30 ms after the selection settles. It sends at most one character more
+  30 ms after the selection settles. A block inside a toggle has lines of
+  its own, from what a save would write for it, so a selection in a
+  toggle's child starts from that child's lines. It sends at most one
+  character more
   than the record keeps. A press on the page around the document collapses
   the editor's selection at its head: the browser drops the highlight there,
   and the editor would otherwise keep a selection that is no longer shown.
@@ -353,7 +357,8 @@ entry of the offer are each added anew when the one replaces the other.
      item to inside the next, a selection from a heading into a list, text
      found on several lines, a link read as its text, and a selection that
      starts inside a link's text whose words a later line repeats, which must
-     not narrow to that later line.
+     not narrow to that later line, and a selection inside one child of a
+     toggle, which narrows within that child's lines.
 2. The writer, on an in-memory file system. Unit tests:
    - no record while the skill is missing or only an earlier copy; a
      record, and BaseHalf's ignore file before it, while one agent's entry
