@@ -969,15 +969,18 @@ function MarkdownRichEditor(): JSX.Element {
 		lastPostedSelection.current = signature;
 		vscode.postMessage({ type: 'basehalf.markdownRich.selectionChanged', key, ...selected });
 	}, [editor, editorApi, selectedBlocks, vscode]);
-	// A press on the page around the document, where no caret can go, ends
-	// the selection, as a press inside the document does. The browser drops
-	// its highlight; the editor keeps a selection until told.
+	// A press on the page around the document puts the caret where the press
+	// is nearest to, as a press in the margin of a line does in an editor of
+	// text: at the start of a line for a press left of it, at its end for one
+	// right of it. The keyboard stays in the note; the browser would put the
+	// caret on the page instead, where the letters typed next go nowhere
+	// (note formats, rule 71).
 	useEffect(() => {
 		const scroll = scrollRef.current;
 		if (!scroll) {
 			return;
 		}
-		const onPointerDown = (event: PointerEvent): void => {
+		const onMouseDown = (event: MouseEvent): void => {
 			const target = event.target;
 			const page = scroll.querySelector(':scope > .basehalf-markdown-rich-page');
 			const container = page?.querySelector(':scope > .bn-container');
@@ -985,14 +988,23 @@ function MarkdownRichEditor(): JSX.Element {
 				return;
 			}
 			const view = editor.prosemirrorView;
-			const selection = view?.state.selection;
-			if (!view || !selection || selection.empty) {
+			if (!view) {
 				return;
 			}
-			view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selection.head))));
+			const box = view.dom.getBoundingClientRect();
+			const found = view.posAtCoords({
+				left: Math.min(Math.max(event.clientX, box.left + 1), box.right - 1),
+				top: Math.min(Math.max(event.clientY, box.top + 1), box.bottom - 1),
+			});
+			if (!found) {
+				return;
+			}
+			event.preventDefault();
+			view.focus();
+			view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(found.pos))));
 		};
-		scroll.addEventListener('pointerdown', onPointerDown, true);
-		return () => scroll.removeEventListener('pointerdown', onPointerDown, true);
+		scroll.addEventListener('mousedown', onMouseDown, true);
+		return () => scroll.removeEventListener('mousedown', onMouseDown, true);
 	}, [editor]);
 
 	const scheduleSelection = useCallback((): void => {

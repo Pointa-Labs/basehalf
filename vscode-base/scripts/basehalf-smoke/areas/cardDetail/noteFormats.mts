@@ -168,3 +168,95 @@ export async function assertNoteFormatsKeysStayInRich(page) {
 		throw new Error('A key of Rich changed the window\'s layout');
 	}
 }
+
+/** Writes the note the steps work on and waits until Rich shows `needle`. */
+async function showNote(page, lines, needle) {
+	fs.writeFileSync(path.join(workspacePath, FORMATS_NOTE), lines.join('\n'), 'utf8');
+	const frame = await activeMarkdownRichFrame(page);
+	await frame.locator('.bn-editor .bn-block-content', { hasText: needle }).first().waitFor({ state: 'visible', timeout: 20_000 });
+	return frame;
+}
+
+/** Clicks into the line that holds `text`: at its end, or `left` pixels left of its first letter. */
+async function clickLine(frame, text, where) {
+	const content = frame.locator('.bn-editor .bn-block-content', { hasText: text }).first();
+	const point = await content.evaluate((element, [needle, place]) => {
+		const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			const at = node.textContent?.indexOf(needle) ?? -1;
+			if (at >= 0) {
+				const range = document.createRange();
+				// Left of a line: of the first letter of its block, wherever the text is.
+				const first = place === 'end' ? node : document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode() ?? node;
+				node = first;
+				const offset = place === 'end' ? at + needle.length : 0;
+				range.setStart(node, place === 'end' ? offset - 1 : offset);
+				range.setEnd(node, place === 'end' ? offset : offset + 1);
+				const letter = range.getBoundingClientRect();
+				const box = element.getBoundingClientRect();
+				return { x: (place === 'end' ? letter.right - 1 : letter.left - place) - box.left, y: letter.top + letter.height / 2 - box.top };
+			}
+		}
+		return undefined;
+	}, [text, where]);
+	if (!point) {
+		throw new Error(`The note shows no text "${text}"`);
+	}
+	// In the page's coordinates: a click left of a line falls outside the block's box.
+	const box = await content.boundingBox();
+	if (!box) {
+		throw new Error(`The line "${text}" is not shown`);
+	}
+	await frame.page().mouse.click(box.x + point.x, box.y + point.y);
+	await frame.page().waitForTimeout(80);
+}
+
+/**
+ * Note formats, criterion 20: letters typed after Command-→ at the end of a
+ * line before a fixed block, after Command-← at the start of a line after
+ * one, after → before one, and after a click 3 pixels left of a line's first
+ * letter are saved, in each of 10 tries of each.
+ */
+export async function assertNoteFormatsKeepTypedLetters(page) {
+	if (process.platform !== 'darwin') {
+		return;
+	}
+	const frame = await showNote(page, ['Line before the island.', '', '<div>raw island here</div>', '', 'Line after the island.', ''], 'Line after the island.');
+	const tries = 10;
+	for (let index = 0; index < tries; index++) {
+		await clickLine(frame, 'Line before the island', 'end');
+		await page.keyboard.press('Meta+ArrowRight');
+		await page.keyboard.type('a');
+	}
+	for (let index = 0; index < tries; index++) {
+		await clickLine(frame, 'Line after the island', 'end');
+		await page.keyboard.press('Meta+ArrowLeft');
+		await page.keyboard.type('b');
+	}
+	await waitUntil(() => readFormatsNote().includes(`Line before the island.${'a'.repeat(tries)}`) && readFormatsNote().includes(`${'b'.repeat(tries)}Line after the island.`),
+		'letters typed after Command-→ and Command-← beside a fixed block to be saved', 10_000).catch(() => {
+		throw new Error(`Letters typed after Command-→ or Command-← were lost: ${JSON.stringify(readFormatsNote())}`);
+	});
+
+	// The first letter of this line starts its block: the click lands in the margin before it.
+	for (let index = 0; index < tries; index++) {
+		await clickLine(frame, 'Line before the island', 3);
+		await page.keyboard.type('d');
+	}
+	await waitUntil(() => readFormatsNote().startsWith(`${'d'.repeat(tries)}Line before the island.`),
+		'letters typed after a click left of a line to be saved', 10_000).catch(() => {
+		throw new Error(`Letters typed after a click 3 pixels left of a line were lost: ${JSON.stringify(readFormatsNote())}`);
+	});
+
+	// The line ends with the letters typed after Command-→: → there selects the fixed block.
+	for (let index = 0; index < tries; index++) {
+		await clickLine(frame, 'a'.repeat(tries), 'end');
+		await page.keyboard.press('Meta+ArrowRight');
+		await page.keyboard.press('ArrowRight');
+		await page.keyboard.type('c');
+	}
+	await waitUntil(() => (readFormatsNote().match(/^c$/gm) ?? []).length === tries,
+		'a letter typed with the fixed block selected to start a paragraph after it', 10_000).catch(() => {
+		throw new Error(`Letters typed with a fixed block selected were lost: ${JSON.stringify(readFormatsNote())}`);
+	});
+}

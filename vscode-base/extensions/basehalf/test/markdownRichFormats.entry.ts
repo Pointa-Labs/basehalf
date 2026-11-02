@@ -35,6 +35,7 @@ import {
 import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
 import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDecorations.js';
 import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
+import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from '../markdown-rich-src/noteUndo.js';
@@ -97,7 +98,7 @@ interface INoteFormatsModeSetup {
  * noteToggleState.ts); the baseline keeps BlockNote's and none.
  */
 const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
-	basehalf: { editorApi: editor => createBaseHalfNoteEditorApi(editor), extensions: () => [] },
+	basehalf: { editorApi: editor => createBaseHalfNoteEditorApi(editor), extensions: () => [makeBaseHalfNoteShapeExtension()] },
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
 };
 
@@ -520,6 +521,111 @@ async function testBed(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
+ * Part e, keys (note formats, rules 45, 61, 63, 70, and 71), with real key
+ * presses: Tab and Shift-Tab nest only where a block may hold another and
+ * keep the keyboard in the note; Tab moves through a table and adds a row at
+ * its end; Enter in a toggle's title keeps its blocks; Mod-Enter folds a
+ * toggle and checks a check item; and letters typed after Command-→ at a line
+ * before a fixed block go into that line.
+ */
+async function keys(t: INoteFormatsTest): Promise<void> {
+	const focused = () => document.activeElement === t.editor.domElement;
+	await t.load('First paragraph.\n\nSecond paragraph.\n\n- one\n- two\n');
+	await t.frames();
+	t.caret('Second paragraph.');
+	await t.keyboard.press('Tab');
+	await t.frames();
+	const paragraphTab = { saved: await t.save(), focused: focused() };
+	t.caret('two');
+	await t.keyboard.press('Tab');
+	await t.frames();
+	const bulletTab = await t.save();
+	await t.keyboard.press('Shift+Tab');
+	await t.frames();
+	t.caret('First paragraph.');
+	await t.keyboard.press('Shift+Tab');
+	await t.frames();
+	t.check('Tab nests a block only under one that may hold it, Shift-Tab takes it out, and the keyboard stays in the note', {
+		paragraphTab,
+		bulletTab,
+		afterShiftTab: await t.save(),
+		focusedAtTheTop: focused(),
+	}, {
+		paragraphTab: { saved: 'First paragraph.\n\nSecond paragraph.\n\n- one\n- two\n', focused: true },
+		bulletTab: 'First paragraph.\n\nSecond paragraph.\n\n- one\n  - two\n',
+		afterShiftTab: 'First paragraph.\n\nSecond paragraph.\n\n- one\n- two\n',
+		focusedAtTheTop: true,
+	});
+
+	await t.load('| A   | B   |\n| --- | --- |\n| a   | b   |\n');
+	await t.frames();
+	t.caret('b');
+	await t.keyboard.press('Tab');
+	await t.keyboard.type('c');
+	await t.frames();
+	t.check('Tab in the last cell of a table adds a row and moves into it', { blocks: t.blocks().map(block => block.type), saved: await t.save() }, {
+		blocks: ['table'],
+		saved: '| A   | B   |\n| --- | --- |\n| a   | b   |\n| c   |     |\n',
+	});
+
+	const toggles = '<details open>\n<summary>Open</summary>\n\ninside\n\n</details>\n\n<details>\n<summary>Closed</summary>\n\nhidden\n\n</details>\n';
+	await t.load(toggles);
+	await t.frames();
+	t.caret('Open');
+	await t.keyboard.press('Enter');
+	await t.keyboard.type('first');
+	t.caret('Closed');
+	await t.keyboard.press('Enter');
+	await t.keyboard.type('after');
+	await t.frames();
+	t.check('Enter at the end of a toggle\'s title adds its first block when it is open, and a block after it when it is closed', t.blocks(), [
+		{ type: 'toggleListItem', text: 'Open', children: [{ type: 'paragraph', text: 'first' }, { type: 'paragraph', text: 'inside' }] },
+		{ type: 'toggleListItem', text: 'Closed', children: [{ type: 'paragraph', text: 'hidden' }] },
+		{ type: 'toggleListItem', text: 'after' },
+	]);
+
+	await t.load(toggles);
+	await t.frames();
+	t.caret('Op');
+	await t.keyboard.press('Enter');
+	await t.frames();
+	t.check('Enter inside a toggle\'s title cuts it in two, and its blocks stay with the first part', t.blocks().slice(0, 2), [
+		{ type: 'toggleListItem', text: 'Op', children: [{ type: 'paragraph', text: 'inside' }] },
+		{ type: 'toggleListItem', text: 'en' },
+	]);
+
+	await t.load('<details>\n<summary>Fold me</summary>\n\ninside\n\n</details>\n\n- [ ] a task\n');
+	await t.frames();
+	const shown = () => t.editor.domElement?.querySelector('.bn-toggle-wrapper')?.getAttribute('data-show-children');
+	t.caret('Fold me');
+	await t.keyboard.press('Meta+Enter');
+	await t.frames();
+	const opened = shown();
+	await t.keyboard.press('Meta+Enter');
+	await t.frames();
+	const closed = shown();
+	t.caret('a task');
+	await t.keyboard.press('Meta+Enter');
+	await t.frames();
+	t.check('Mod-Enter opens and closes a toggle, writing nothing, and checks a check item', { opened, closed, saved: await t.save() }, {
+		opened: 'true',
+		closed: 'false',
+		saved: '<details>\n<summary>Fold me</summary>\n\ninside\n\n</details>\n\n- [x] a task\n',
+	});
+
+	await t.load('Line before.\n\n<div>fixed</div>\n\nLine after.\n');
+	await t.frames();
+	t.caret('Line before.');
+	await t.keyboard.press('Meta+ArrowRight');
+	await t.keyboard.type('xy');
+	t.caret('Line after.', 'start');
+	await t.keyboard.press('Meta+ArrowLeft');
+	await t.keyboard.type('z');
+	await t.frames();
+	t.check('letters typed after Command-→ at a line before a fixed block, and after Command-← at one after it, go into that line', await t.save(), 'Line before.xy\n\n<div>fixed</div>\n\nzLine after.\n');
+}
+
+/**
  * Part g, toggles (note formats, rules 39 to 41): a `<details>` whose parts
  * are blocks of their own is one toggle, open or closed as its file stores
  * it; folding it writes nothing and is no step of undo; a letter typed into
@@ -604,6 +710,7 @@ async function schema(t: INoteFormatsTest): Promise<void> {
 const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	'0': testBed,
 	c: schema,
+	e: keys,
 	g: toggles,
 };
 
