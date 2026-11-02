@@ -238,9 +238,57 @@ suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 				elements: [...elsewhere.querySelectorAll('body *')].map(element => element.tagName.toLowerCase()),
 				text: elsewhere.textContent?.replace(/\s+/g, ' ').trim()
 			}, {
-				tags: [...new Set(allowedMarkdownHtmlTags)].sort(),
+				// The base renderer's list, and the sound a note stores as `<audio>` (note formats, rule 11).
+				tags: [...new Set([...allowedMarkdownHtmlTags, 'audio'])].sort(),
 				elements: [...note.root.querySelectorAll('*')].map(element => element.tagName.toLowerCase()),
 				text: note.text.replace(/\s+/g, ' ').trim()
+			});
+		} finally {
+			note.dispose();
+		}
+	});
+
+	test('the card shows each stored form of a note as Rich shows it (note formats, rule 81)', () => {
+		const note = renderedNote([
+			'A <span style="color:#e8706b;">red</span> word, <span style="color: red">a named one</span>, and <u>underlined</u>.',
+			'',
+			'<audio src="sound.mp3" controls></audio>',
+			'',
+			'![clip](clip.mp4)',
+			'',
+			'![sound](voice.ogg)',
+			'',
+			'<details open>',
+			'<summary>Open toggle</summary>',
+			'',
+			'Inside.',
+			'',
+			'</details>',
+			'',
+			'[a link](other.md "A title")',
+			''
+		].join('\n'));
+		try {
+			const span = note.root.querySelector<HTMLElement>('span[style]');
+			// Addresses are read from the note's folder; the page loads them through its own scheme.
+			const folderPath = (address: string | null | undefined) => address ? new URL(address).pathname : undefined;
+			const audios = [...note.root.querySelectorAll('audio')].map(audio => folderPath(audio.getAttribute('src')));
+			assert.deepStrictEqual({
+				palette: span?.style.color,
+				namedColorKept: [...note.root.querySelectorAll('span')].some(element => element.textContent === 'a named one' && element.hasAttribute('style')),
+				underline: note.root.querySelector('u')?.textContent,
+				audios,
+				video: folderPath(note.root.querySelector('video')?.getAttribute('src')),
+				open: note.root.querySelector('details')?.hasAttribute('open'),
+				titles: note.root.querySelectorAll('[title]').length
+			}, {
+				palette: 'rgb(232, 112, 107)',
+				namedColorKept: false,
+				underline: 'underlined',
+				audios: ['/notes/sound.mp3', '/notes/voice.ogg'],
+				video: '/notes/clip.mp4',
+				open: true,
+				titles: 0
 			});
 		} finally {
 			note.dispose();

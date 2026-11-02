@@ -565,6 +565,34 @@ body,
 	height: auto;
 }
 
+/* A picture, a video, or a sound with its caption, a toggle's title, the
+ * blocks a toggle holds, and a sound, as a note stores them (note formats,
+ * rules 11 and 81). */
+.basehalf-raw-passthrough-rendered figure {
+	margin-inline: 0;
+	margin-block: 0 1em;
+}
+
+.basehalf-raw-passthrough-rendered figcaption {
+	margin-top: 4px;
+	font-size: 0.9em;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-raw-passthrough-rendered summary > :is(h1, h2, h3, h4, h5, h6, p) {
+	display: inline;
+}
+
+.basehalf-raw-passthrough-rendered details > :not(summary) {
+	margin-inline-start: 24px;
+}
+
+.basehalf-raw-passthrough-rendered audio {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+}
+
 /* A table keeps the widths its columns need. When it is wider than the text
  * column it scrolls sideways in its own box. */
 .basehalf-markdown-rich .bn-editor .basehalf-raw-passthrough-rendered table {

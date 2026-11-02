@@ -13,6 +13,7 @@ import { BASEHALF_RAW_PASSTHROUGH_BLOCK } from '../../../src/vs/workbench/baseha
 import {
 	BASEHALF_NOTE_HTML_ATTRIBUTES,
 	BASEHALF_NOTE_HTML_TAGS,
+	BASEHALF_NOTE_SPAN_STYLE,
 	baseHalfNoteMarkdownToHtml,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownHtml.js';
 import dompurify from '../../../src/vs/base/browser/dompurify/dompurify.js';
@@ -30,6 +31,14 @@ interface PassthroughProps {
 	hidden?: boolean;
 }
 
+const decoder = document.createElement('textarea');
+
+/** Decodes character references once, as the page does. A textarea reads its text as text: no element is made, nothing loads. */
+function decodeAsThePageDoes(text: string): string {
+	decoder.innerHTML = text.replace(/</g, '&lt;');
+	return decoder.value;
+}
+
 /** The folder of the open note, as an address this document can load. Relative addresses of a rendered block are read from it. */
 export const renderedNote = { baseUri: '' };
 
@@ -38,11 +47,26 @@ export const renderedNote = { baseUri: '' };
  * the elements and the text that the card shows for the same Markdown.
  */
 function renderNoteMarkdown(source: string): DocumentFragment {
-	const rendered = dompurify.sanitize(baseHalfNoteMarkdownToHtml(source), {
-		ALLOWED_TAGS: [...BASEHALF_NOTE_HTML_TAGS],
-		ALLOWED_ATTR: [...BASEHALF_NOTE_HTML_ATTRIBUTES],
-		RETURN_DOM_FRAGMENT: true,
+	// A span keeps its style in the one spelling the card keeps (note formats, rule 48), and no other element has one.
+	dompurify.addHook('uponSanitizeAttribute', (node, data) => {
+		if (data.attrName === 'style') {
+			data.keepAttr = node.nodeName === 'SPAN' && BASEHALF_NOTE_SPAN_STYLE.test(data.attrValue);
+		}
 	});
+	let rendered: DocumentFragment;
+	try {
+		rendered = dompurify.sanitize(baseHalfNoteMarkdownToHtml(source, { decodeCharacterReferences: decodeAsThePageDoes }), {
+			ALLOWED_TAGS: [...BASEHALF_NOTE_HTML_TAGS],
+			ALLOWED_ATTR: [...BASEHALF_NOTE_HTML_ATTRIBUTES, 'style'],
+			RETURN_DOM_FRAGMENT: true,
+		});
+	} finally {
+		dompurify.removeHook('uponSanitizeAttribute');
+	}
+	// No link and no picture shows a system tooltip (rule 57).
+	for (const titled of Array.from(rendered.querySelectorAll('a[title], img[title]'))) {
+		titled.removeAttribute('title');
+	}
 	// An input is shown only as a check box that cannot be changed.
 	for (const input of Array.from(rendered.querySelectorAll('input'))) {
 		if (input.getAttribute('type') === 'checkbox') {
@@ -51,7 +75,7 @@ function renderNoteMarkdown(source: string): DocumentFragment {
 			input.replaceWith(document.createTextNode(input.outerHTML));
 		}
 	}
-	for (const media of Array.from(rendered.querySelectorAll('img, video, source'))) {
+	for (const media of Array.from(rendered.querySelectorAll('img, video, audio, source'))) {
 		const address = media.getAttribute('src');
 		if (address && renderedNote.baseUri && !/^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(address)) {
 			try {

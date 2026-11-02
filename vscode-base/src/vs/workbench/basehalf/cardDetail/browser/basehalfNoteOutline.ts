@@ -50,7 +50,8 @@ export function baseHalfNoteOutlineHeadings(root: ParentNode | null | undefined)
 	// eslint-disable-next-line no-restricted-syntax
 	for (const element of root?.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6') ?? []) {
 		const name = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
-		if (name) {
+		// A heading in a closed toggle is not shown, and not in the outline (zoom and outline of a note, rule 9).
+		if (name && element.checkVisibility()) {
 			headings.push({ element, level: Number(element.tagName.slice(1)), name });
 		}
 	}
@@ -284,7 +285,8 @@ export class BaseHalfNoteOutline {
 			this.observedText = text;
 			this.resizeObserver.observe(text);
 			this.mutationObserver.disconnect();
-			this.mutationObserver.observe(text, { childList: true, subtree: true, characterData: true });
+			// A toggle that opens or closes shows or hides the headings in it.
+			this.mutationObserver.observe(text, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open', 'data-show-children'] });
 			this.headingsChanged = true;
 		}
 		if (this.headingsChanged) {

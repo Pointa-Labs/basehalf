@@ -18,21 +18,29 @@ import { baseHalfNoteMediaKind } from './basehalfNoteMediaKind.js';
  * The HTML elements a note may show as elements (note rendering). Markdown
  * renders to some of them, and the author may write the others. It is the
  * list of the base Markdown renderer (`allowedMarkdownHtmlTags`), which this
- * layer cannot import; a test keeps the two the same.
+ * layer cannot import, and the sound a note stores as `<audio>` (note
+ * formats, rule 11); a test keeps the list so.
  */
 export const BASEHALF_NOTE_HTML_TAGS: readonly string[] = Object.freeze([
 	'a', 'abbr', 'b', 'bdo', 'blockquote', 'br', 'caption', 'cite', 'code', 'col', 'colgroup', 'dd', 'del', 'details',
 	'dfn', 'div', 'dl', 'dt', 'em', 'figcaption', 'figure', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'input',
 	'ins', 'kbd', 'label', 'li', 'mark', 'ol', 'p', 'pre', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'source', 'span',
 	'strike', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'time', 'tr', 'tt', 'u',
-	'ul', 'var', 'video', 'wbr'
+	'ul', 'var', 'video', 'wbr', 'audio'
 ]);
 
 /** The attributes those elements keep where a note is rendered without the base Markdown renderer. */
 export const BASEHALF_NOTE_HTML_ATTRIBUTES: readonly string[] = Object.freeze([
-	'align', 'alt', 'checked', 'colspan', 'controls', 'disabled', 'height', 'href', 'loop', 'muted', 'playsinline',
+	'align', 'alt', 'checked', 'colspan', 'controls', 'disabled', 'height', 'href', 'loop', 'muted', 'open', 'playsinline',
 	'poster', 'rowspan', 'src', 'start', 'title', 'type', 'width'
 ]);
+
+/**
+ * The one spelling of a span's style a note shows (note formats, rule 48),
+ * as the base Markdown renderer keeps it: a color, a background color, or
+ * both, each a hex color followed by `;`.
+ */
+export const BASEHALF_NOTE_SPAN_STYLE = /^(color:(#[0-9a-fA-F]+|var\(--vscode(-[a-zA-Z0-9]+)+\));)?(background-color:(#[0-9a-fA-F]+|var\(--vscode(-[a-zA-Z0-9]+)+\));)?(border-radius:[0-9]+px;)?$/;
 
 const noteHtmlTags: ReadonlySet<string> = new Set(BASEHALF_NOTE_HTML_TAGS);
 
@@ -40,7 +48,6 @@ const noteHtmlTags: ReadonlySet<string> = new Set(BASEHALF_NOTE_HTML_TAGS);
 // that render a note take `audio` into their lists with the note's marked
 // extension; until then the element is in the extension's list alone, so
 // that Rich reads a sound as the note will show it.
-const noteHtmlTagsWithSound: ReadonlySet<string> = new Set([...BASEHALF_NOTE_HTML_TAGS, 'audio']);
 
 /**
  * HTML that a note may show as elements stays HTML. Any other HTML becomes
@@ -108,7 +115,7 @@ function showsMediaOfItsKind(token: Token): boolean {
 
 function walkNoteTokens(token: Token): void {
 	if (!showsMediaOfItsKind(token)) {
-		showOtherHtmlAsWritten(token, noteHtmlTagsWithSound);
+		showOtherHtmlAsWritten(token, noteHtmlTags);
 	}
 }
 
@@ -195,19 +202,22 @@ export interface IBaseHalfNoteMarkdownToHtmlOptions {
 	 * them, without titles.
 	 */
 	readonly forReading?: boolean;
+	/** For showing: decodes character references once, as a page does. Default: every numeric reference and a few named ones. */
+	readonly decodeCharacterReferences?: (text: string) => string;
 }
 
 /**
  * The HTML of a note's Markdown where the base Markdown renderer is not at
  * hand: with tables, strikethrough, and bare addresses, and a single line
- * break as a line break, as the card reads a note. It is not sanitized: the
+ * break as a line break, as the card reads a note, and the note's extension
+ * as the card has it. It is not sanitized: the
  * caller keeps only {@link BASEHALF_NOTE_HTML_TAGS} and
  * {@link BASEHALF_NOTE_HTML_ATTRIBUTES} of it before it reaches a document,
  * or reads it in a document that runs nothing.
  */
 export function baseHalfNoteMarkdownToHtml(source: string, options: IBaseHalfNoteMarkdownToHtmlOptions = {}): string {
 	if (!options.forReading && !options.definitions) {
-		return new Marked({ walkTokens: baseHalfNoteShowsOtherHtmlAsWritten }).parse(source, { gfm: true, breaks: true, async: false });
+		return new Marked(baseHalfNoteMarkedExtension({ decodeCharacterReferences: options.decodeCharacterReferences })).parse(source, { gfm: true, breaks: true, async: false });
 	}
 	// A lexer keeps its options object and adds its tokenizer to it, so each
 	// lexer gets an object of its own.
@@ -217,6 +227,10 @@ export function baseHalfNoteMarkdownToHtml(source: string, options: IBaseHalfNot
 	}
 	const tokens = lexer.lex(source);
 	const marked = options.forReading ? readingMarked : shownMarked;
-	marked.walkTokens(tokens, options.forReading ? walkNoteTokens : baseHalfNoteShowsOtherHtmlAsWritten);
+	const decode = options.decodeCharacterReferences ?? decodeBaseHalfSmallCharacterReferences;
+	marked.walkTokens(tokens, options.forReading ? walkNoteTokens : token => {
+		walkNoteTokens(token);
+		linkToAddressAsRead(token, decode);
+	});
 	return marked.parser(tokens);
 }

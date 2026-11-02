@@ -28,7 +28,7 @@ import { segmentBaseHalfMarkdownTopLevelBody, splitBaseHalfMarkdownFrontmatter }
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelectionLines.js';
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
-import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteShowsOtherHtmlAsWritten } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
+import { baseHalfNoteRenderOptions, removeBaseHalfNoteLinkTitles } from '../../markdown/browser/basehalfNoteRenderOptions.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { restoreBaseHalfSidewaysScroll } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 
@@ -208,16 +208,8 @@ export function renderBaseHalfCanvasStoredMarkdown(
 ): IDisposable {
 	const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: true });
 	markdown.baseUri = resource;
-	const rendered = renderMarkdown(markdown, {
-		...(onOpenLink ? { actionHandler: onOpenLink } : {}),
-		fillInIncompleteTokens: false,
-		markedOptions: { gfm: true, breaks: true },
-		markedExtensions: [{ walkTokens: baseHalfNoteShowsOtherHtmlAsWritten }],
-		sanitizerConfig: {
-			replaceWithPlaintext: true,
-			allowedTags: { override: BASEHALF_NOTE_HTML_TAGS }
-		}
-	}, container);
+	const rendered = renderMarkdown(markdown, baseHalfNoteRenderOptions(onOpenLink), container);
+	removeBaseHalfNoteLinkTitles(rendered.element);
 	// A task item shows its box in place of the list bullet. The class is set
 	// here because a `:has()` rule on the canvas slows every card render.
 	// eslint-disable-next-line no-restricted-syntax

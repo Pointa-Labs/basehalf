@@ -333,6 +333,34 @@
 	height: auto;
 }
 
+/* A picture, a video, or a sound with its caption, a toggle's title, the
+ * blocks a toggle holds, and a sound, as a note stores them (note formats,
+ * rules 11 and 81). */
+.monaco-workbench .bh-md-preview figure {
+	margin-inline: 0;
+	margin-block: 0 1em;
+}
+
+.monaco-workbench .bh-md-preview figcaption {
+	margin-top: 4px;
+	font-size: 0.9em;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .bh-md-preview summary > :is(h1, h2, h3, h4, h5, h6, p) {
+	display: inline;
+}
+
+.monaco-workbench .bh-md-preview details > :not(summary) {
+	margin-inline-start: 24px;
+}
+
+.monaco-workbench .bh-md-preview audio {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+}
+
 /* The box of a task item stands where the bullet of a list item stands. A
  * disabled box would swallow the press that drags the card. */
 .monaco-workbench .bh-md-preview li.bh-md-task {
