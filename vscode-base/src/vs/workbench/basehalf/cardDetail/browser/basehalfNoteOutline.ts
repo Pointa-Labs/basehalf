@@ -22,6 +22,7 @@ import {
 	baseHalfNoteOutlinePanelTop,
 	baseHalfNoteOutlineTickLength,
 } from '../common/basehalfNoteOutlineLayout.js';
+import { baseHalfHeadingSlug } from '../../markdown/common/basehalfNoteMarkdownText.js';
 
 /**
  * The classes of the outline. Its look is a style rule of the place it is
@@ -359,16 +360,58 @@ export class BaseHalfNoteOutline {
 		}
 	}
 
+	/**
+	 * Scrolls the view until the heading that a link names by `slug` stands 24
+	 * pixels below its top, as a click in the outline does, opening the closed
+	 * toggles around it (note formats, rule 56). The slugs are counted over
+	 * every heading of the page, in order, as over the note's file. Returns
+	 * whether the page has the heading.
+	 */
+	revealHeading(slug: string): boolean {
+		const wanted = slug.toLowerCase();
+		const seen = new Map<string, number>();
+		// The headings are drawn by the note's renderer, not built here.
+		// eslint-disable-next-line no-restricted-syntax
+		for (const element of this.options.text()?.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6') ?? []) {
+			if (baseHalfHeadingSlug((element.textContent ?? '').replace(/\s+/g, ' ').trim(), seen) !== wanted) {
+				continue;
+			}
+			openBaseHalfNoteTogglesAround(element);
+			this.scrollToElement(element);
+			return true;
+		}
+		return false;
+	}
+
 	/** Scrolls the view until the heading stands 24 pixels below its top (rule 17). */
 	private reveal(index: number): void {
 		const heading = this.headings[index];
-		const view = this.options.view;
-		if (!heading?.element.isConnected) {
-			return;
+		if (heading?.element.isConnected) {
+			this.scrollToElement(heading.element);
 		}
+	}
+
+	private scrollToElement(element: HTMLElement): void {
+		const view = this.options.view;
 		const viewTop = view.getBoundingClientRect().top + view.clientTop;
-		const top = view.scrollTop + heading.element.getBoundingClientRect().top - viewTop - BASEHALF_NOTE_OUTLINE_SCROLL_GAP;
+		const top = view.scrollTop + element.getBoundingClientRect().top - viewTop - BASEHALF_NOTE_OUTLINE_SCROLL_GAP;
 		view.scrollTo({ top: Math.max(0, top), behavior: this.options.reducedMotion() ? 'auto' : 'smooth' });
+	}
+}
+
+/**
+ * Opens the closed toggles around `element`, so that it shows (note formats,
+ * rule 56): a `<details>` of a drawn page, and a toggle of Rich as a click on
+ * its arrow opens it. Folding is the view's: nothing is written.
+ */
+export function openBaseHalfNoteTogglesAround(element: Element): void {
+	for (let details = element.closest('details'); details; details = details.parentElement?.closest('details') ?? null) {
+		details.open = true;
+	}
+	for (let group = element.closest('.bn-block-group'); group; group = group.parentElement?.closest('.bn-block-group') ?? null) {
+		// The toggle that holds the group is drawn by Rich's editor, not built here.
+		// eslint-disable-next-line no-restricted-syntax
+		group.parentElement?.querySelector<HTMLButtonElement>(':scope > .bn-block-content .bn-toggle-wrapper[data-show-children="false"] > .bn-toggle-button')?.click();
 	}
 }
 

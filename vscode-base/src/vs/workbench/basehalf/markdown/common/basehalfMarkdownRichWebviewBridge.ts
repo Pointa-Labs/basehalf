@@ -98,6 +98,14 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
+	sendRevealHeading(heading: string): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.revealHeading',
+			key: this.key,
+			heading
+		});
+	}
+
 	sendFocusAtPoint(point: IBaseHalfMarkdownRichFocusPoint): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.focusAtPoint',

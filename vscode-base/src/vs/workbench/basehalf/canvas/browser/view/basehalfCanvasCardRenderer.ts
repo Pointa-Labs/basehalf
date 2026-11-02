@@ -39,6 +39,7 @@ import {
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { appendCanvasNoteFullEditorLabel, badgeType, cardDisplayName, isVideoMediaPreview } from './basehalfCanvasViewShared.js';
+import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../../markdown/browser/basehalfNoteLinkRouter.js';
 
 type BaseHalfCanvasGlyphType = BaseHalfItemGlyph;
 
@@ -887,7 +888,7 @@ export class BaseHalfCanvasCardRenderer {
 			container,
 			resource,
 			text,
-			href => this.openStaticMarkdownPreviewLink(href)
+			href => this.openStaticMarkdownPreviewLink(resource, href)
 		);
 		if (rendering) {
 			listeners.add(rendering);
@@ -902,22 +903,9 @@ export class BaseHalfCanvasCardRenderer {
 		return preview?.kind === 'markdown' ? preview.text : undefined;
 	}
 
-	openStaticMarkdownPreviewLink(href: string): void {
-		const folder = this.view.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		let resource: URI;
-		try {
-			resource = URI.parse(href).with({ query: null, fragment: null });
-		} catch {
-			return;
-		}
-		if (!this.view.uriIdentityService.extUri.isEqualOrParent(resource, folder.workspaceFolder)) {
-			return;
-		}
-		void this.view.canvasNavigationService.openResource(resource, { source: 'api', pinned: true })
-			.catch(error => this.view.logService.error(error));
+	/** A click on a link of the note `note` on its card: what the link goes to (note formats, rule 53). */
+	openStaticMarkdownPreviewLink(note: URI, href: string): void {
+		void this.view.instantiationService.invokeFunction(accessor => openBaseHalfNoteLink(baseHalfNoteLinkServices(accessor), note, href));
 	}
 
 	/** Open a workspace-relative path in BaseHalf navigation — via the rendered

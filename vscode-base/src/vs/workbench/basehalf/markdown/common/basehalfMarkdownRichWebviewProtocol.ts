@@ -130,6 +130,12 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly selection: IBaseHalfMarkdownRichTextSelection;
 	}
 	| {
+		/** A link names a heading of this note by its slug (note formats, rule 56). */
+		readonly type: 'basehalf.markdownRich.revealHeading';
+		readonly key: string;
+		readonly heading: string;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.focusAtPoint';
 		readonly key: string;
 		readonly point: IBaseHalfMarkdownRichFocusPoint;
@@ -328,6 +334,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& typeof candidate.frozen === 'boolean';
 		case 'basehalf.markdownRich.revealSelection':
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
+		case 'basehalf.markdownRich.revealHeading':
+			return typeof candidate.heading === 'string' && candidate.heading.length > 0;
 		case 'basehalf.markdownRich.focusAtPoint':
 			return isBaseHalfMarkdownRichFocusPoint(candidate.point);
 		case 'basehalf.markdownRich.focus':

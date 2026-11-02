@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfNoteOutlineHeadings } from '../../browser/basehalfNoteOutline.js';
+import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from '../../browser/basehalfNoteOutline.js';
 
 suite('BaseHalfNoteOutline', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -31,6 +31,34 @@ suite('BaseHalfNoteOutline', () => {
 			assert.deepStrictEqual(baseHalfNoteOutlineHeadings(root).map(heading => heading.name), ['Shown', 'In an open toggle']);
 		} finally {
 			root.remove();
+		}
+	});
+
+	test('a link to a heading opens the toggles around it and scrolls it 24 pixels below the top (note formats, rule 56)', () => {
+		const view = mainWindow.document.createElement('div');
+		view.style.cssText = 'height: 200px; overflow: auto;';
+		const text = mainWindow.document.createElement('div');
+		view.appendChild(text);
+		mainWindow.document.body.appendChild(view);
+		const outline = new BaseHalfNoteOutline({ view, text: () => text, headings: () => baseHalfNoteOutlineHeadings(text), label: 'Outline', reducedMotion: () => true });
+		try {
+			// A page of Preview with a closed toggle, and one of Rich's toggles, closed.
+			text.innerHTML = '<div style="height: 1000px"></div><h2>Setup</h2><details><summary>More</summary><div style="height: 600px"></div><h2>Setup</h2></details>'
+				+ '<div class="bn-block-group"><div class="bn-block"><div class="bn-block-content"><div class="bn-toggle-wrapper" data-show-children="false"><button class="bn-toggle-button"></button><h3>Toggle</h3></div></div>'
+				+ '<div class="bn-block-group"><div class="bn-block"><div class="bn-block-content"><h4>In <b>a</b> toggle</h4></div></div></div></div></div><div style="height: 1000px"></div>';
+			const wrapper = text.querySelector('.bn-toggle-wrapper')!;
+			text.querySelector('.bn-toggle-button')!.addEventListener('click', () => wrapper.setAttribute('data-show-children', 'true'));
+			const below = (element: Element) => Math.round(element.getBoundingClientRect().top - view.getBoundingClientRect().top);
+			const headings = text.querySelectorAll('h2, h4');
+
+			assert.strictEqual(outline.revealHeading('setup-1'), true);
+			assert.deepStrictEqual({ open: text.querySelector('details')?.open, below: below(headings[1]) }, { open: true, below: 24 });
+			assert.strictEqual(outline.revealHeading('in-a-toggle'), true);
+			assert.deepStrictEqual({ open: wrapper.getAttribute('data-show-children'), below: below(headings[2]) }, { open: 'true', below: 24 });
+			assert.strictEqual(outline.revealHeading('missing'), false);
+		} finally {
+			outline.dispose();
+			view.remove();
 		}
 	});
 });

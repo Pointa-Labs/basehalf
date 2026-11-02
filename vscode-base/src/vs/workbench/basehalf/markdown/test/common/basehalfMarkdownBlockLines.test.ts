@@ -11,6 +11,7 @@ import {
 	baseHalfMarkdownBlockReadSpan,
 	baseHalfMarkdownBlockSourceSpan,
 	baseHalfMarkdownLinesToBlockIds,
+	baseHalfMarkdownLinesToShownBlockIds,
 	baseHalfMarkdownTileSourceNewlines,
 	baseHalfMarkdownTopLevelBlockOf,
 	countBaseHalfMarkdownNewlines
@@ -114,11 +115,18 @@ suite('BaseHalfMarkdownBlockLines', () => {
 			const editor = new BaseHalfNoteTestEditor();
 			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Intro\n\n<details>\n<summary>T</summary>\n\none\n\ntwo\n\n</details>\n');
 			const blocks = projection.blocks as unknown as IBaseHalfMarkdownBlockNode[];
-			const [, second] = blocks[1].children!;
+			const [first, second] = blocks[1].children!;
 
 			assert.strictEqual(baseHalfMarkdownBlockFileLine(blocks, blocks[1].id, projection.byId, 0), 3);
 			assert.strictEqual(baseHalfMarkdownBlockFileLine(blocks, second.id, projection.byId, 0), 8);
 			assert.deepStrictEqual(baseHalfMarkdownBlockSourceSpan(blocks, second.id, projection.byId, 0), { start: 8, end: 8 });
+			// The lines a reveal shows: of the toggle's own lines, the toggle; of its blocks, those blocks.
+			const shown = (start: number, end: number) => baseHalfMarkdownLinesToShownBlockIds(blocks, projection.byId, 0, [[start, end]]);
+			assert.deepStrictEqual([shown(8, 8), shown(4, 4), shown(4, 6), shown(10, 10), shown(1, 1)], [
+				[second.id], [blocks[1].id], [blocks[1].id, first.id], [blocks[1].id], [blocks[0].id]
+			]);
+			// The read marks stay on the top-level blocks.
+			assert.deepStrictEqual(baseHalfMarkdownLinesToBlockIds(blocks, projection.byId, 0, [[8, 8]]), [blocks[1].id]);
 		});
 
 		test('returns null when the id is absent', () => {

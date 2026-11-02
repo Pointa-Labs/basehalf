@@ -76,5 +76,13 @@ suite('BaseHalfMarkdownAttachment', () => {
 			),
 			'attachments/lecture%20%231.pdf'
 		);
+		// Letters of any script stay as they are (note formats, rule 18).
+		assert.strictEqual(
+			baseHalfMarkdownAttachmentHref(
+				URI.file('/workspace/notes/week-1.md'),
+				URI.file('/workspace/notes/笔记/会议 记录(1).md')
+			),
+			'笔记/会议%20记录%281%29.md'
+		);
 	});
 });

@@ -139,6 +139,8 @@ function linkToAddressAsRead(token: Token, decode: (text: string) => string): vo
 export interface IBaseHalfNoteMarkedExtensionOptions {
 	/** Decodes character references once, as a page does: the page's own decoding where there is one. Default: every numeric reference and a few named ones. */
 	readonly decodeCharacterReferences?: (text: string) => string;
+	/** The address a link is drawn with, from its address as Rich reads it: the place that draws the note gives the absolute address of what a path names. */
+	readonly resolveLink?: (href: string) => string;
 }
 
 /**
@@ -152,12 +154,31 @@ export interface IBaseHalfNoteMarkedExtensionOptions {
  */
 export function baseHalfNoteMarkedExtension(options: IBaseHalfNoteMarkedExtensionOptions = {}): MarkedExtension {
 	const decode = options.decodeCharacterReferences ?? decodeBaseHalfSmallCharacterReferences;
+	const resolve = options.resolveLink;
 	return {
 		walkTokens: token => {
 			walkNoteTokens(token);
 			linkToAddressAsRead(token, decode);
+			if (resolve) {
+				resolveLinkAddresses(token, resolve, decode);
+			}
 		}
 	};
+}
+
+/**
+ * Each link of a token, Markdown or HTML, drawn with the address `resolve`
+ * gives it.
+ */
+function resolveLinkAddresses(token: Token, resolve: (href: string) => string, decode: (text: string) => string): void {
+	if (token.type === 'link') {
+		const link = token as Tokens.Link;
+		link.href = resolve(link.href);
+	} else if (token.type === 'html' && /<a\s/i.test(token.raw)) {
+		const html = token as Tokens.HTML;
+		html.text = html.text.replace(/(<a\s[^>]*?\bhref\s*=\s*)(["'])(.*?)\2/gi, (_, start: string, quote: string, href: string) =>
+			`${start}${quote}${quoteAttribute(resolve(baseHalfMarkdownDestination(decode(href))))}${quote}`);
+	}
 }
 
 /** Whether the base renderer writes an address as a link or a picture: `marked` writes the text alone for one that `encodeURI` cannot encode. */

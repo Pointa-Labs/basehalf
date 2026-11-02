@@ -13,11 +13,15 @@ import { BlockNoteView, type Theme } from '@blocknote/mantine';
 import {
 	AddButton,
 	DeleteButton,
+	DeleteLinkButton,
 	DragHandleMenu,
+	EditLinkButton,
 	FileRenameButton,
 	FormattingToolbar,
 	FormattingToolbarController,
 	GenericPopover,
+	LinkToolbar,
+	LinkToolbarController,
 	RemoveBlockItem,
 	SideMenu,
 	SuggestionMenuController,
@@ -26,15 +30,18 @@ import {
 	TableHandlesController,
 	getFormattingToolbarItems,
 	useBlockNoteEditor,
+	useComponentsContext,
 	useCreateBlockNote,
 	useDictionary,
 	useExtensionState,
 	useSelectedBlocks,
 	type FloatingUIOptions,
 	type GenericPopoverReference,
+	type LinkToolbarProps,
 	type TableCellButtonProps,
 	type TableHandleProps,
 } from '@blocknote/react';
+import { RiExternalLinkFill } from 'react-icons/ri';
 import { applyUpdate, Doc as YDoc, type XmlFragment } from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
 import { TextSelection, type EditorState } from '@tiptap/pm/state';
@@ -55,6 +62,7 @@ import {
 	baseHalfMarkdownBlockPath,
 	baseHalfMarkdownBlockReadSpan,
 	baseHalfMarkdownLinesToBlockIds,
+	baseHalfMarkdownLinesToShownBlockIds,
 	countBaseHalfMarkdownNewlines,
 	type IBaseHalfMarkdownBlockNode,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownBlockLines.js';
@@ -84,7 +92,7 @@ import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from './noteT
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
 import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteZoom } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoom.js';
-import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
+import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings, openBaseHalfNoteTogglesAround } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
 import { BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteOutlineLayout.js';
 import {
 	BASEHALF_BLOCK_HANDLES_GAP,
@@ -612,7 +620,17 @@ function MarkdownRichEditor(): JSX.Element {
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
-	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension(), []);
+	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension({ openLink: href => openLinkRef.current(href) }), []);
+	// The link toolbar opens a link with the note's link router, not in the page.
+	const linkToolbar = useMemo(() => function BaseHalfLinkToolbar(props: LinkToolbarProps): JSX.Element {
+		return (
+			<LinkToolbar {...props}>
+				<EditLinkButton url={props.url} text={props.text} range={props.range} setToolbarOpen={props.setToolbarOpen} setToolbarPositionFrozen={props.setToolbarPositionFrozen} />
+				<BaseHalfOpenLinkButton url={props.url} onOpen={href => openLinkRef.current(href)} />
+				<DeleteLinkButton range={props.range} setToolbarOpen={props.setToolbarOpen} />
+			</LinkToolbar>
+		);
+	}, []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
 	const contextMenuRef = useRef<HTMLDivElement>(null);
 	const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
@@ -661,11 +679,34 @@ function MarkdownRichEditor(): JSX.Element {
 		return baseUri ? new URL(url, baseUri).toString() : url;
 	}, []);
 
+	// A link of the note goes where the note's link router sends it (note formats, rule 53).
+	const openLink = useCallback((href: string): void => {
+		const key = session.current.key;
+		if (key && href) {
+			vscode.postMessage({ type: 'basehalf.markdownRich.openResource', key, href });
+		}
+	}, [vscode]);
+	const openLinkRef = useRef(openLink);
+	openLinkRef.current = openLink;
 	const editor = useCreateBlockNote({
 		schema: baseHalfNoteSchema,
 		dictionary: baseHalfBlockNoteDictionary(),
 		uploadFile,
 		resolveFileUrl,
+		links: {
+			// A click puts the caret in a link; Command-click (Ctrl-click) opens it, as editors of text do (rule 54).
+			onClick: event => {
+				if (!(event.metaKey || event.ctrlKey)) {
+					return false;
+				}
+				const href = event.target instanceof Element ? event.target.closest('a')?.getAttribute('href') : undefined;
+				if (!href) {
+					return false;
+				}
+				openLinkRef.current(href);
+				return true;
+			},
+		},
 		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension],
 		collaboration: {
 			fragment: fragment as XmlFragment,
@@ -969,6 +1010,27 @@ function MarkdownRichEditor(): JSX.Element {
 		lastPostedSelection.current = signature;
 		vscode.postMessage({ type: 'basehalf.markdownRich.selectionChanged', key, ...selected });
 	}, [editor, editorApi, selectedBlocks, vscode]);
+	// A click on a link of a fixed block opens it, as on the card (note
+	// formats, rule 54): the block is drawn, not edited.
+	useEffect(() => {
+		const scroll = scrollRef.current;
+		if (!scroll) {
+			return;
+		}
+		const onClick = (event: MouseEvent): void => {
+			const link = event.button === 0 && event.target instanceof Element ? event.target.closest('.basehalf-raw-passthrough-rendered a[href]') : null;
+			const href = link?.getAttribute('href');
+			if (!href) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			openLinkRef.current(href);
+		};
+		scroll.addEventListener('click', onClick, true);
+		return () => scroll.removeEventListener('click', onClick, true);
+	}, []);
+
 	// A press on the page around the document puts the caret where the press
 	// is nearest to, as a press in the margin of a line does in an editor of
 	// text: at the start of a line for a press left of it, at its end for one
@@ -1343,7 +1405,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 		const start = Math.min(selection.startLineNumber, selection.endLineNumber ?? selection.startLineNumber);
 		const end = Math.max(selection.startLineNumber, selection.endLineNumber ?? selection.startLineNumber);
-		const ids = baseHalfMarkdownLinesToBlockIds(
+		const ids = baseHalfMarkdownLinesToShownBlockIds(
 			editor.document as unknown as readonly IBaseHalfMarkdownBlockNode[],
 			state.byId,
 			countBaseHalfMarkdownNewlines(state.frontmatter),
@@ -1367,6 +1429,8 @@ function MarkdownRichEditor(): JSX.Element {
 				return;
 			}
 
+			// Lines in a closed toggle show once it opens, as for a link to a heading (note formats, rule 56).
+			openBaseHalfNoteTogglesAround(elements[0]);
 			elements[0].scrollIntoView({ block: 'center', inline: 'nearest' });
 			setBaseHalfSelectionReveal(editor, ids);
 
@@ -1796,6 +1860,9 @@ function MarkdownRichEditor(): JSX.Element {
 				}
 				case 'basehalf.markdownRich.revealSelection':
 					revealSelection(message.selection);
+					break;
+				case 'basehalf.markdownRich.revealHeading':
+					readingAids.current?.outline.revealHeading(message.heading);
 					break;
 				case 'basehalf.markdownRich.focusAtPoint':
 					focusAtPoint(message.point);
@@ -2544,7 +2611,7 @@ function MarkdownRichEditor(): JSX.Element {
 						theme={baseHalfBlockNoteTheme}
 						sideMenu={false}
 						formattingToolbar={false}
-						linkToolbar={usesEmbeddedControls}
+						linkToolbar={false}
 						slashMenu={usesEmbeddedControls}
 						filePanel={usesEmbeddedControls}
 						tableHandles={false}
@@ -2556,6 +2623,7 @@ function MarkdownRichEditor(): JSX.Element {
 							<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
 						)}
 						{usesEmbeddedControls && <BaseHalfSideMenuController portalElement={portalElement} />}
+						{usesEmbeddedControls && <LinkToolbarController linkToolbar={linkToolbar} portalElement={portalElement} />}
 						{usesEmbeddedControls && <TableHandlesController tableHandle={BaseHalfTableHandle} tableCellHandle={BaseHalfNoTableCellHandle} portalElement={portalElement} />}
 						{usesEmbeddedControls && <BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />}
 					</BlockNoteView>
@@ -2590,6 +2658,22 @@ function BaseHalfFormattingToolbar(): JSX.Element {
 		.filter(item => !baseHalfRemovedToolbarItems.has(String(item.key)))
 		.map(item => item.key === 'fileRenameButton' ? <BaseHalfFileRenameButton key={'fileRenameButton'} /> : item);
 	return <FormattingToolbar>{items}</FormattingToolbar>;
+}
+
+/** Open in the link toolbar: the link goes where the note's link router sends it (rule 54). */
+function BaseHalfOpenLinkButton({ url, onOpen }: { readonly url: string; readonly onOpen: (href: string) => void }): JSX.Element {
+	const Components = useComponentsContext()!;
+	const dictionary = useDictionary();
+	return (
+		<Components.LinkToolbar.Button
+			className={'bn-button'}
+			mainTooltip={dictionary.link_toolbar.open.tooltip}
+			label={dictionary.link_toolbar.open.tooltip}
+			isSelected={false}
+			onClick={() => onOpen(url)}
+			icon={<RiExternalLinkFill />}
+		/>
+	);
 }
 
 /** Rename for a picture and a file: the note stores no name of a video or a sound (rule 22). */

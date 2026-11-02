@@ -815,7 +815,8 @@ this specification. Outside changes are merged meanwhile, as always.
 - Unit tests in the window of the test runner: the repair of the HTML Rich
   reads (`basehalfNoteHtmlRepair.test.ts`), the card's and Preview's
   rendering of audio, spans, `open`, videos, links, and titles
-  (`basehalfCanvasMarkdownInlineEditor.test.ts`,
+  (`basehalfNoteRenderOptions.test.ts`,
+  `basehalfCanvasMarkdownInlineEditor.test.ts`,
   `basehalfMarkdownPreviewCardDetail.test.ts`, `basehalfCanvasNoteParts.test.ts`),
   the outline (`basehalfNoteOutline.test.ts`): rules 16, 23, 25, 26, 31, 47,
   53 to 57, 81, 83, and criteria 7, 12, 15, 24, and 25.
@@ -828,7 +829,9 @@ this specification. Outside changes are merged meanwhile, as always.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criteria 10, 21, 22,
-  the clicks on a summary, a video, and a sound on a resting card, a paste
-  from a browser page, a copy pasted into Source, and the keys of rule 69.
+  the clicks on a summary, a video, and a sound on a resting card, a web
+  link of criterion 13, which opens the system's browser that a smoke run
+  leaves alone, a paste from a browser page, a copy pasted into Source, and
+  the keys of rule 69.
 - The count of criterion 29 is a script run before each change of the
   reader or the guard.

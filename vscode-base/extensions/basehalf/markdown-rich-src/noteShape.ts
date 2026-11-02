@@ -21,7 +21,12 @@ type NoteEditor = BlockNoteEditor<any, any, any>;
 
 const macintosh = /Mac/.test(globalThis.navigator?.platform ?? '');
 
-export function makeBaseHalfNoteShapeExtension() {
+export interface IBaseHalfNoteShapeOptions {
+	/** Opens the address of a link, as Command-click on it does (rule 54). */
+	readonly openLink?: (href: string) => void;
+}
+
+export function makeBaseHalfNoteShapeExtension(options: IBaseHalfNoteShapeOptions = {}) {
 	return createExtension({
 		key: 'baseHalfNoteShape',
 		// Ahead of the editor's own keys for a selected block (rule 71).
@@ -30,7 +35,7 @@ export function makeBaseHalfNoteShapeExtension() {
 			'Tab': ({ editor }) => tab(editor, 1),
 			'Shift-Tab': ({ editor }) => tab(editor, -1),
 			'Enter': ({ editor }) => enterInToggleTitle(editor),
-			'Mod-Enter': ({ editor }) => actOnCaret(editor),
+			'Mod-Enter': ({ editor }) => actOnCaret(editor, options),
 		},
 		prosemirrorPlugins: [
 			new Plugin({
@@ -159,12 +164,12 @@ function splitTitle(view: EditorView, position: number): void {
 }
 
 /**
- * Mod-Enter acts on what is at the caret (rule 70): it opens or closes the
- * toggle whose title holds it, as a click on its arrow does, checks or
- * unchecks a check item, and opens Source at the lines of a selected fixed
- * block.
+ * Mod-Enter acts on what is at the caret (rule 70): it opens the link that
+ * holds it, opens or closes the toggle whose title holds it, as a click on
+ * its arrow does, checks or unchecks a check item, and opens Source at the
+ * lines of a selected fixed block.
  */
-function actOnCaret(editor: NoteEditor): boolean {
+function actOnCaret(editor: NoteEditor, options: IBaseHalfNoteShapeOptions): boolean {
 	const view = editor.prosemirrorView;
 	if (!view) {
 		return false;
@@ -173,6 +178,11 @@ function actOnCaret(editor: NoteEditor): boolean {
 	if (selection instanceof NodeSelection && selection.node.type.name === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
 		const element = view.nodeDOM(selection.from);
 		(element instanceof HTMLElement ? element.querySelector<HTMLButtonElement>('button.basehalf-raw-passthrough-edit') : null)?.click();
+		return true;
+	}
+	const href = options.openLink ? linkAtCaret(view.state) : undefined;
+	if (href) {
+		options.openLink?.(href);
 		return true;
 	}
 	const { block } = editor.getTextCursorPosition();
@@ -186,6 +196,22 @@ function actOnCaret(editor: NoteEditor): boolean {
 		return true;
 	}
 	return false;
+}
+
+/** The address of the link that holds the caret: the text after it, or, at a link's end, the text before it. */
+function linkAtCaret(state: EditorState): string | undefined {
+	const { selection } = state;
+	if (!(selection instanceof TextSelection)) {
+		return undefined;
+	}
+	const { $from } = selection;
+	for (const node of selection.empty ? [$from.nodeAfter, $from.nodeBefore] : [$from.nodeAfter]) {
+		const href = node?.marks.find(mark => mark.type.name === 'link')?.attrs.href;
+		if (typeof href === 'string' && href !== '') {
+			return href;
+		}
+	}
+	return undefined;
 }
 
 /**

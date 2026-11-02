@@ -5,6 +5,8 @@
 
 import { safeSetInnerHtml } from '../../../../base/browser/domSanitize.js';
 import { allowedMarkdownHtmlAttributes, type MarkdownActionHandler, type MarkdownRenderOptions } from '../../../../base/browser/markdownRenderer.js';
+import { URI } from '../../../../base/common/uri.js';
+import { baseHalfNoteLinkHref } from '../common/basehalfNoteLinks.js';
 import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteMarkedExtension } from '../common/basehalfNoteMarkdownHtml.js';
 
 // How a note is drawn where it is read (note formats, rules 81 and 57; note
@@ -27,19 +29,31 @@ function decodeAsThePageDoes(text: string): string {
 	return decoder.textContent ?? '';
 }
 
+export interface IBaseHalfNoteRenderOptions {
+	/** The note drawn: a link's path is the absolute address of what it names from the note's folder. */
+	readonly note?: URI;
+	/** What a click on a link does: the note's link router. */
+	readonly actionHandler?: MarkdownActionHandler;
+}
+
 /**
  * The options of the base renderer for a note: a single line break as a line
  * break; the note's extension, which shows a Markdown picture of a sound or a
- * video as that element, other HTML as written, and each link's address as
- * Rich reads it; the elements a note shows, a sound among them; and of the
- * attributes the base renderer keeps, also whether a toggle is open.
+ * video as that element, other HTML as written, and each link to the address
+ * of what it names, read once; the elements a note shows, a sound among
+ * them; and of the attributes the base renderer keeps, also whether a toggle
+ * is open.
  */
-export function baseHalfNoteRenderOptions(actionHandler?: MarkdownActionHandler): MarkdownRenderOptions {
+export function baseHalfNoteRenderOptions(options: IBaseHalfNoteRenderOptions = {}): MarkdownRenderOptions {
+	const { note, actionHandler } = options;
 	return {
 		...(actionHandler ? { actionHandler } : {}),
 		fillInIncompleteTokens: false,
 		markedOptions: { gfm: true, breaks: true },
-		markedExtensions: [baseHalfNoteMarkedExtension({ decodeCharacterReferences: decodeAsThePageDoes })],
+		markedExtensions: [baseHalfNoteMarkedExtension({
+			decodeCharacterReferences: decodeAsThePageDoes,
+			...(note ? { resolveLink: (href: string) => baseHalfNoteLinkHref(note, href) } : {}),
+		})],
 		sanitizerConfig: {
 			replaceWithPlaintext: true,
 			allowedTags: { override: BASEHALF_NOTE_HTML_TAGS },

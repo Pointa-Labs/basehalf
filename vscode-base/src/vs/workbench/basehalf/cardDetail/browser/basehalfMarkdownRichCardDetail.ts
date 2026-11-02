@@ -13,7 +13,7 @@ import { Disposable, DisposableStore, toDisposable } from '../../../../base/comm
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
 import { isMacintosh, language } from '../../../../base/common/platform.js';
-import { basename, dirname, isEqual, joinPath, relativePath } from '../../../../base/common/resources.js';
+import { basename, dirname, isEqual, relativePath } from '../../../../base/common/resources.js';
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -27,7 +27,6 @@ import { TooLargeFileOperationError } from '../../../../platform/files/common/fi
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IQuickInput, IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
-import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
@@ -74,6 +73,8 @@ import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgen
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
+import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
+import { baseHalfMarkdownPathHref } from '../../markdown/common/basehalfNoteMarkdownText.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
 
@@ -309,7 +310,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfMarkdownAttachmentService private readonly attachmentService: IBaseHalfMarkdownAttachmentService,
-		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@ILogService private readonly logService: ILogService,
 		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
@@ -962,7 +962,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				return [{
 					name: basename(match.resource),
 					path: workspaceRelative,
-					href: posix.relative(documentDir, posix.sep + workspaceRelative)
+					// The characters a path segment cannot hold in a link, encoded (note formats, rule 18).
+					href: baseHalfMarkdownPathHref(posix.relative(documentDir, posix.sep + workspaceRelative))
 				}];
 			});
 			await this.bridge?.sendFileSearchResult(requestId, files);
@@ -991,22 +992,14 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 	}
 
+	/**
+	 * A link of the note opened from Rich, or a file block's file: what it goes
+	 * to (note formats, rule 53). A heading of this note is shown in Rich.
+	 */
 	private async handleOpenResource(state: IBaseHalfCardDetailState, href: string): Promise<void> {
-		const path = href.split(/[?#]/, 1)[0];
-		if (!path || path.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(path)) {
-			return;
-		}
-		let decoded: string;
-		try {
-			decoded = decodeURIComponent(path);
-		} catch {
-			return;
-		}
-		const resource = joinPath(dirname(state.resource), decoded);
-		if (!this.uriIdentityService.extUri.isEqualOrParent(resource, state.workspaceFolder)) {
-			return;
-		}
-		await this.canvasNavigationService.openResource(resource, { source: 'api' });
+		await this.instantiationService.invokeFunction(accessor => openBaseHalfNoteLink(baseHalfNoteLinkServices(accessor), state.resource, href, heading => {
+			void this.bridge?.sendRevealHeading(heading);
+		}));
 	}
 
 	private async handleWorkbenchCommand(command: BaseHalfMarkdownRichWorkbenchCommand): Promise<void> {

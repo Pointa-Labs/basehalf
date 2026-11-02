@@ -20,6 +20,8 @@ import {
 	waitForCanvasNoteInlineEditor,
 	zoomCanvas
 } from '../../lib/canvas.mts';
+import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
+import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
 import { visibleQuickInput } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { readWorkspaceFile } from '../../lib/workspace.mts';
@@ -360,6 +362,75 @@ export async function assertCanvasNoteRendersMarkdown(page) {
 		throw new Error(`A table must keep its sideways position when editing ends: ${JSON.stringify({ scrolledInTheEditor, after })}`);
 	}
 
+	await openRootCanvas(page);
+	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
+	fs.rmSync(path.join(workspacePath, '.bh', 'mirror', folderName), { recursive: true, force: true });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+// A link on a note's card at rest opens what it names with a click, as a page
+// does (note formats, criterion 13 and rule 56): a note of the folder whose
+// name holds a space opens in Card Detail within 1 s, a link to a missing
+// file does nothing, a link to a heading in a closed toggle opens the note in
+// Card Detail with the heading in view, and no dialog shows.
+export async function assertCanvasNoteLinksOpenTheirTargets(page) {
+	const folderName = 'links-on-cards';
+	const notePath = `${folderName}/links.md`;
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${notePath}"]`);
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.writeFileSync(path.join(workspacePath, folderName, 'my file.md'), '# My file\n\nThe linked note.\n', 'utf8');
+	const filler = Array.from({ length: 40 }, (_, index) => `Filler paragraph ${index + 1}.\n`).join('\n');
+	fs.writeFileSync(path.join(workspacePath, notePath), `See [my file.md](my%20file.md), [Setup](#setup), and [gone](missing.md).\n\n${filler}\n<details>\n<summary>More</summary>\n\n## Setup\n\nThe end.\n\n</details>\n\n${filler}`, 'utf8');
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
+	await assertCanvasFolder(page, folderName);
+	await card.waitFor({ state: 'visible', timeout: 15_000 });
+	await zoomCanvas(page, 'reset');
+	await centerCanvasCards(page, [card]);
+	const link = name => card.locator('.bh-md-preview a', { hasText: name }).first();
+	await link('my file.md').waitFor({ state: 'visible', timeout: 10_000 });
+	const dialogs = () => page.locator('.monaco-dialog-box').count();
+
+	await link('gone').click();
+	await page.waitForTimeout(1_000);
+	if (await page.locator('.basehalf-card-detail.visible').count() || await dialogs()) {
+		throw new Error(`A click on a link to a missing file on a card did something: Card Detail ${await page.locator('.basehalf-card-detail.visible').count()}, dialogs ${await dialogs()}`);
+	}
+	await link('my file.md').click();
+	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title', { hasText: 'my file' }).waitFor({ state: 'visible', timeout: 1_000 }).catch(() => {
+		throw new Error('A click on [my file.md](my%20file.md) on a card at rest did not open Card Detail of my file.md within 1 s');
+	});
+	if (await dialogs()) {
+		throw new Error('A click on a link on a card showed a dialog');
+	}
+	await closeCardDetailIfOpen(page);
+
+	await link('Setup').click();
+	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title', { hasText: 'links' }).waitFor({ state: 'visible', timeout: 5_000 });
+	const frame = await activeMarkdownRichFrame(page);
+	const deadline = Date.now() + 2_000;
+	let place;
+	do {
+		place = await frame.evaluate(() => {
+			const view = document.querySelector('.basehalf-markdown-rich-scroll');
+			const heading = Array.from(view?.querySelectorAll('h2') ?? []).find(element => element.textContent?.trim() === 'Setup');
+			const box = heading?.getBoundingClientRect();
+			const room = view?.getBoundingClientRect();
+			return box && room ? { shown: box.height > 0, inView: box.top >= room.top && box.bottom <= room.bottom } : undefined;
+		});
+		if (place?.shown && place.inView) {
+			break;
+		}
+		await page.waitForTimeout(100);
+	} while (Date.now() < deadline);
+	if (!place?.shown || !place.inView) {
+		throw new Error(`A click on a link to a heading in a closed toggle on a card did not open the note at the heading: ${JSON.stringify(place)}`);
+	}
+	if (await dialogs()) {
+		throw new Error('A click on a link to a heading on a card showed a dialog');
+	}
+
+	await closeCardDetailIfOpen(page);
 	await openRootCanvas(page);
 	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
 	fs.rmSync(path.join(workspacePath, '.bh', 'mirror', folderName), { recursive: true, force: true });

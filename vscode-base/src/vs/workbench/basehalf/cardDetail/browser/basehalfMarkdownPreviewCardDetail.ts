@@ -29,6 +29,9 @@ import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehal
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from './basehalfNoteOutline.js';
 import { BaseHalfNoteZoom } from './basehalfNoteZoom.js';
+import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
+import { URI } from '../../../../base/common/uri.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 
 /** The rendered preview shares the rich projection's frontmatter boundary. */
 export function baseHalfMarkdownPreviewBody(source: string): string {
@@ -60,6 +63,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
 		@ILogService private readonly logService: ILogService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IAccessibilityService accessibilityService: IAccessibilityService
 	) {
 		super();
@@ -247,7 +251,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 		// Preview draws a note with the card's rules (note formats, rule 81).
 		const rendered = this.markdownRendererService.render(markdown, {
-			...baseHalfNoteRenderOptions(),
+			...baseHalfNoteRenderOptions({ note: state.resource, actionHandler: href => this.openLink(state.resource, href) }),
 			asyncRenderCallback: () => undefined
 		}, this.previewContent);
 		removeBaseHalfNoteLinkTitles(rendered.element);
@@ -256,6 +260,13 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		this.outline.refresh();
 		this.updateStatus();
 		this.revealSelection();
+	}
+
+	/** A click on a link: its target, and a heading of this note scrolled to in Preview (note formats, rules 53 and 56). */
+	private openLink(note: URI, href: string): void {
+		void this.instantiationService.invokeFunction(accessor => openBaseHalfNoteLink(baseHalfNoteLinkServices(accessor), note, href, heading => {
+			this.outline.revealHeading(heading);
+		}));
 	}
 
 	private updateStatus(): void {

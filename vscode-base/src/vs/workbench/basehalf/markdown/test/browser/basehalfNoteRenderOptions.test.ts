@@ -13,11 +13,11 @@ import { baseHalfNoteRenderOptions, removeBaseHalfNoteLinkTitles } from '../../b
 suite('BaseHalfNoteRenderOptions', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	function rendered(source: string): { readonly root: HTMLElement; readonly dispose: () => void } {
+	function rendered(source: string, note?: URI): { readonly root: HTMLElement; readonly dispose: () => void } {
 		const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: true });
 		markdown.baseUri = URI.file('/notes/note.md');
 		const root = document.createElement('div');
-		const rendering = renderMarkdown(markdown, baseHalfNoteRenderOptions(), root);
+		const rendering = renderMarkdown(markdown, baseHalfNoteRenderOptions({ note }), root);
 		removeBaseHalfNoteLinkTitles(rendering.element);
 		return { root, dispose: () => rendering.dispose() };
 	}
@@ -60,6 +60,36 @@ suite('BaseHalfNoteRenderOptions', () => {
 				otherHtmlAsWritten: true,
 				titles: 0,
 			});
+		} finally {
+			note.dispose();
+		}
+	});
+
+	test('a link holds the address of what it names, read once (note formats, rule 55)', () => {
+		const note = rendered([
+			'[spaced](my%20file.md) [angled](<my file.md>) [part](other.md#part-two) [here](#setup) [web](https://example.com/a?b=c)',
+			'',
+			'<a href="my%20file.md">html</a> [中文](%E7%AC%94%E8%AE%B0.md)',
+			''
+		].join('\n'), URI.file('/notes/note.md'));
+		try {
+			const hrefs = Array.from(note.root.querySelectorAll<HTMLElement>('a[data-href]'), link => {
+				const href = link.dataset.href ?? '';
+				if (!href.startsWith('file:')) {
+					return href;
+				}
+				const uri = URI.parse(href);
+				return uri.fragment ? `${uri.path}#${uri.fragment}` : uri.path;
+			});
+			assert.deepStrictEqual(hrefs, [
+				'/notes/my file.md',
+				'/notes/my file.md',
+				'/notes/other.md#part-two',
+				'/notes/note.md#setup',
+				'https://example.com/a?b=c',
+				'/notes/my file.md',
+				'/notes/笔记.md',
+			]);
 		} finally {
 			note.dispose();
 		}

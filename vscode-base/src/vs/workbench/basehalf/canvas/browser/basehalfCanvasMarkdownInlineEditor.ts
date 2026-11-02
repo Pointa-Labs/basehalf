@@ -9,7 +9,7 @@ import { mainWindow } from '../../../../base/browser/window.js';
 import { MarkdownString } from '../../../../base/common/htmlContent.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
-import { dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { Range } from '../../../../editor/common/core/range.js';
@@ -208,7 +208,7 @@ export function renderBaseHalfCanvasStoredMarkdown(
 ): IDisposable {
 	const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: true });
 	markdown.baseUri = resource;
-	const rendered = renderMarkdown(markdown, baseHalfNoteRenderOptions(onOpenLink), container);
+	const rendered = renderMarkdown(markdown, baseHalfNoteRenderOptions({ note: resource, actionHandler: onOpenLink }), container);
 	removeBaseHalfNoteLinkTitles(rendered.element);
 	// A task item shows its box in place of the list bullet. The class is set
 	// here because a `:has()` rule on the canvas slows every card render.
@@ -953,23 +953,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.options.onOpenLink?.(this.resolveEditableHref(href));
-	}
-
-	private resolveEditableHref(href: string): string {
-		const resource = this.resource;
-		if (!resource) {
-			return href;
-		}
-		try {
-			const parsed = URI.parse(href);
-			if (parsed.scheme) {
-				return parsed.toString(true);
-			}
-			return joinPath(dirname(resource), parsed.path).with({ query: parsed.query, fragment: parsed.fragment }).toString(true);
-		} catch {
-			return href;
-		}
+		// The note's link router reads the address from the note's folder (note formats, rule 55).
+		this.options.onOpenLink?.(href);
 	}
 
 	private handleKeyDown(event: KeyboardEvent): void {

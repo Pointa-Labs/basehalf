@@ -13,6 +13,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES } from './basehalfMarkdownRichWebviewProtocol.js';
+import { baseHalfMarkdownPathHref } from './basehalfNoteMarkdownText.js';
 
 export const BASEHALF_DEFAULT_ATTACHMENTS_DIRECTORY = 'attachments';
 export interface IBaseHalfStoredMarkdownAttachment {
@@ -122,7 +123,8 @@ export function baseHalfAttachmentNameWithSuffix(name: string, attempt: number):
 
 export function baseHalfMarkdownAttachmentHref(documentResource: URI, attachmentResource: URI): string {
 	const path = relativePath(dirname(documentResource), attachmentResource) ?? attachmentResource.path;
-	return path.split('/').map(segment => segment === '..' ? segment : encodeURIComponent(segment)).join('/');
+	// Letters of any script stay; what a path segment cannot hold in a link is encoded (note formats, rule 18).
+	return baseHalfMarkdownPathHref(path);
 }
 
 registerSingleton(IBaseHalfMarkdownAttachmentService, BaseHalfMarkdownAttachmentService, InstantiationType.Delayed);

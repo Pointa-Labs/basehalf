@@ -140,29 +140,65 @@ export function baseHalfMarkdownBlockReadSpan(
 	return { start: span.start, end: Math.max(span.end, nextStart - 1) };
 }
 
+/** The ids of the top-level blocks that hold any of the lines `ranges`. */
 export function baseHalfMarkdownLinesToBlockIds(
 	blocks: readonly IBaseHalfMarkdownBlockNode[],
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
 	frontmatterLines: number,
 	ranges: readonly (readonly [number, number])[]
 ): string[] {
-	if (ranges.length === 0) {
-		return [];
-	}
-
 	const ids: string[] = [];
+	collectBlockIdsOfLines(blocks, byId, frontmatterLines, ranges, false, ids);
+	return ids;
+}
+
+/**
+ * The ids of the blocks that show any of the lines `ranges`: in a toggle
+ * whose parts are blocks of their own, the block of the toggle's own lines
+ * and those of its blocks on the lines (note formats, rule 84), so that a
+ * line in a closed toggle can be shown.
+ */
+export function baseHalfMarkdownLinesToShownBlockIds(
+	blocks: readonly IBaseHalfMarkdownBlockNode[],
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	frontmatterLines: number,
+	ranges: readonly (readonly [number, number])[]
+): string[] {
+	const ids: string[] = [];
+	collectBlockIdsOfLines(blocks, byId, frontmatterLines, ranges, true, ids);
+	return ids;
+}
+
+function collectBlockIdsOfLines(
+	blocks: readonly IBaseHalfMarkdownBlockNode[],
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	offset: number,
+	ranges: readonly (readonly [number, number])[],
+	inToggles: boolean,
+	ids: string[]
+): void {
+	const covers = (start: number, end: number) => ranges.some(([rangeStart, rangeEnd]) => start <= rangeEnd && end >= rangeStart);
 	let before = 0;
 	for (const block of blocks) {
 		const entry = block.type === BASEHALF_RAW_PASSTHROUGH_BLOCK ? undefined : byId.get(block.id);
 		const prefixNewlines = entry ? countBaseHalfMarkdownNewlines(entry.prefix) : 0;
-		const start = frontmatterLines + before + prefixNewlines + 1;
+		const start = offset + before + prefixNewlines + 1;
 		const end = entry ? start + baseHalfMarkdownTileSourceNewlines(entry) : start;
-		if (ranges.some(([rangeStart, rangeEnd]) => start <= rangeEnd && end >= rangeStart)) {
-			ids.push(block.id);
+		if (covers(start, end)) {
+			const header = inToggles && entry?.toggle && block.children?.length ? offset + before + countBaseHalfMarkdownNewlines(entry.toggle.header.raw) : undefined;
+			if (header === undefined) {
+				ids.push(block.id);
+			} else {
+				const inner: string[] = [];
+				collectBlockIdsOfLines(block.children!, byId, header, ranges, inToggles, inner);
+				if (inner.length === 0 || covers(start, header)) {
+					ids.push(block.id);
+				}
+				ids.push(...inner);
+			}
 		}
 		before += baseHalfMarkdownTileNewlines(block, byId);
 	}
-	return ids;
 }
 
 function baseHalfMarkdownTileNewlines(

@@ -1222,7 +1222,7 @@ export class BaseHalfCanvasNoteEditing {
 						this.showCanvasNoteSaveWarning(path);
 					}
 				}),
-				onOpenLink: href => this.view.cardRenderer.openStaticMarkdownPreviewLink(href),
+				onOpenLink: href => this.view.cardRenderer.openStaticMarkdownPreviewLink(item.stat.resource, href),
 				onFormatStateChange: formatState => this.publishCanvasNoteFormatState(path, item.stat.resource, formatState),
 				onSelectionChange: () => this.agentSelectionCardTextReader.schedule()
 			}

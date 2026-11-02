@@ -97,8 +97,11 @@ interface INoteFormatsModeSetup {
  * (noteConversions.ts) and, when they land, its extensions (noteShape.ts,
  * noteToggleState.ts); the baseline keeps BlockNote's and none.
  */
+/** The addresses of the links that the note's keys opened, in order. */
+const openedLinks: string[] = [];
+
 const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
-	basehalf: { editorApi: editor => createBaseHalfNoteEditorApi(editor), extensions: () => [makeBaseHalfNoteShapeExtension()] },
+	basehalf: { editorApi: editor => createBaseHalfNoteEditorApi(editor), extensions: () => [makeBaseHalfNoteShapeExtension({ openLink: href => openedLinks.push(href) })] },
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
 };
 
@@ -525,7 +528,7 @@ async function testBed(t: INoteFormatsTest): Promise<void> {
  * presses: Tab and Shift-Tab nest only where a block may hold another and
  * keep the keyboard in the note; Tab moves through a table and adds a row at
  * its end; Enter in a toggle's title keeps its blocks; Mod-Enter folds a
- * toggle and checks a check item; and letters typed after Command-→ at a line
+ * toggle, checks a check item, and opens a link (rule 54); and letters typed after Command-→ at a line
  * before a fixed block go into that line.
  */
 async function keys(t: INoteFormatsTest): Promise<void> {
@@ -611,6 +614,22 @@ async function keys(t: INoteFormatsTest): Promise<void> {
 		opened: 'true',
 		closed: 'false',
 		saved: '<details>\n<summary>Fold me</summary>\n\ninside\n\n</details>\n\n- [x] a task\n',
+	});
+
+	const linked = 'See [a link](my%20file.md) and [another](#setup) here.\n';
+	await t.load(linked);
+	await t.frames();
+	openedLinks.length = 0;
+	t.caret('a li');
+	await t.keyboard.press('Meta+Enter');
+	t.caret('another');
+	await t.keyboard.press('Meta+Enter');
+	t.caret('here');
+	await t.keyboard.press('Meta+Enter');
+	await t.frames();
+	t.check('Mod-Enter opens the link that holds the caret, at its address as stored, and does nothing elsewhere', { opened: [...openedLinks], saved: await t.save() }, {
+		opened: ['my%20file.md', '#setup'],
+		saved: linked,
 	});
 
 	await t.load('Line before.\n\n<div>fixed</div>\n\nLine after.\n');

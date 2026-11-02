@@ -11,9 +11,9 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { workspacePath } from '../../context.mts';
-import { assertCardDetail } from '../../lib/cardDetail.mts';
+import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
-import { quickOpen } from '../../lib/quickInput.mts';
+import { quickOpen, shownFileName } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
 // The suite's last steps take over a note that Quick Open knows from the start.
@@ -259,4 +259,139 @@ export async function assertNoteFormatsKeepTypedLetters(page) {
 		'a letter typed with the fixed block selected to start a paragraph after it', 10_000).catch(() => {
 		throw new Error(`Letters typed with a fixed block selected were lost: ${JSON.stringify(readFormatsNote())}`);
 	});
+}
+
+const LINKED_NOTE = path.join('docs', 'my file.md');
+const COMMAND = process.platform === 'darwin' ? 'Meta' : 'Control';
+const RICH_SCROLL = '.basehalf-markdown-rich-scroll';
+const PREVIEW_SCROLL = '.basehalf-card-detail.visible .basehalf-card-detail-surface.active .basehalf-card-detail-markdown-preview-scroll';
+
+/** Card Detail shows `name` within 1 s of `gesture`, and no dialog shows (note formats, criterion 13). */
+async function assertOpensWithinASecond(page, name, gesture) {
+	const title = page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title', { hasText: shownFileName(name) });
+	await title.waitFor({ state: 'visible', timeout: 1_000 }).catch(async () => {
+		const shown = await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title').first().textContent().catch(() => undefined);
+		throw new Error(`${gesture} did not open ${name} within 1 s; Card Detail shows ${JSON.stringify(shown)}`);
+	});
+	if (await page.locator('.monaco-dialog-box').count()) {
+		throw new Error(`${gesture} showed a dialog`);
+	}
+}
+
+/** After `gesture` on a link to a missing file, Card Detail still shows `name` a second later, and no dialog shows. */
+async function assertNothingOpens(page, name, gesture) {
+	await page.waitForTimeout(1_000);
+	const shown = await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title').first().textContent();
+	if (!shown?.includes(shownFileName(name)) || await page.locator('.monaco-dialog-box').count()) {
+		throw new Error(`${gesture} did something: Card Detail shows ${JSON.stringify(shown)}, dialogs ${await page.locator('.monaco-dialog-box').count()}`);
+	}
+}
+
+/** Within 1 s of `gesture`, the heading `text` stands 24 pixels below the top of the view `scroll` (note formats, criterion 14). */
+async function assertHeadingRevealed(target, scroll, text, gesture) {
+	const deadline = Date.now() + 1_000;
+	let below;
+	do {
+		below = await target.evaluate(([selector, wanted]) => {
+			const view = document.querySelector(selector);
+			const heading = Array.from(view?.querySelectorAll('h1, h2, h3, h4, h5, h6') ?? []).find(element => element.textContent?.trim() === wanted);
+			const box = heading?.getBoundingClientRect();
+			// A heading in a closed toggle is not drawn.
+			return view && box && box.height > 0 ? box.top - view.getBoundingClientRect().top - view.clientTop : undefined;
+		}, [scroll, text]);
+		if (below !== undefined && Math.abs(below - 24) <= 1) {
+			return;
+		}
+		await new Promise(resolve => setTimeout(resolve, 50));
+	} while (Date.now() < deadline);
+	throw new Error(`${gesture} left the heading "${text}" ${below === undefined ? 'hidden' : `${Math.round(below)} px`} below the top of the view, not 24 px, after 1 s`);
+}
+
+async function showProjection(page, label) {
+	const button = page.locator(`.basehalf-card-detail.visible .basehalf-card-detail-projection[aria-label="${label}"]`);
+	if (await button.getAttribute('aria-pressed') !== 'true') {
+		await button.click();
+	}
+	await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true',
+		`.basehalf-card-detail.visible .basehalf-card-detail-projection[aria-label="${label}"]`, { timeout: 10_000 });
+}
+
+/**
+ * Note formats, criteria 13 to 15: `[[` on `my file.md` stores the link
+ * `[my file.md](my%20file.md)`, which is a link after the note opens again.
+ * Command-click on it in Rich and a click in Preview open its Card Detail
+ * within 1 s, with no dialog; a link to a missing file does nothing; a link
+ * to a heading in a closed toggle opens the toggle and scrolls the heading 24
+ * pixels below the top of the view; and no link in Preview has a title. The
+ * web link opens the system's browser, which a smoke run leaves alone: its
+ * address is the resolver's, tested in the unit tests.
+ */
+export async function assertNoteFormatsLinksOpenTheirTargets(page) {
+	fs.writeFileSync(path.join(workspacePath, LINKED_NOTE), '# My file\n\nThe linked note.\n', 'utf8');
+	const filler = Array.from({ length: 40 }, (_, index) => [`Filler paragraph ${index + 1}.`, '']).flat();
+	let frame = await showNote(page, [
+		'# Links',
+		'',
+		'Links: [Setup](#setup), [gone](missing.md), and',
+		'',
+		...filler,
+		'<details>',
+		'<summary>More</summary>',
+		'',
+		'## Setup',
+		'',
+		'The end.',
+		'',
+		'</details>',
+		'',
+		...filler,
+	], 'Filler paragraph 40.');
+
+	await clickLine(frame, 'and', 'end');
+	await page.keyboard.press('End');
+	await page.keyboard.type(' [[', { delay: 80 });
+	await frame.locator('.bn-suggestion-menu').waitFor({ state: 'visible', timeout: 8_000 });
+	await page.keyboard.type('my', { delay: 80 });
+	await frame.locator('.bn-suggestion-menu-item', { hasText: 'my file.md' }).first().waitFor({ state: 'visible', timeout: 8_000 });
+	await page.keyboard.press('Enter');
+	await waitUntil(() => readFormatsNote().includes('and [my file.md](my%20file.md)'), '[[ on my file.md to store [my file.md](my%20file.md)', 15_000).catch(() => {
+		throw new Error(`[[ did not store the link: ${JSON.stringify(readFormatsNote().split('\n')[2])}`);
+	});
+
+	// The link is a link after the note opens again.
+	await closeCardDetailIfOpen(page);
+	await quickOpen(page, 'guide.md');
+	await assertCardDetail(page, 'guide.md');
+	frame = await activeMarkdownRichFrame(page);
+	const richLink = name => frame.locator('.bn-editor a', { hasText: name }).first();
+	await richLink('my file.md').waitFor({ state: 'visible', timeout: 10_000 });
+
+	await richLink('my file.md').click({ modifiers: [COMMAND] });
+	await assertOpensWithinASecond(page, 'my file.md', 'Command-click on a link in Rich');
+	await quickOpen(page, 'guide.md');
+	await assertCardDetail(page, 'guide.md');
+	frame = await activeMarkdownRichFrame(page);
+	await richLink('gone').click({ modifiers: [COMMAND] });
+	await assertNothingOpens(page, 'guide.md', 'Command-click on a link to a missing file in Rich');
+	await richLink('Setup').click({ modifiers: [COMMAND] });
+	await assertHeadingRevealed(frame, RICH_SCROLL, 'Setup', 'Command-click on a link to a heading in a closed toggle in Rich');
+
+	// Preview: a click opens a link, as a page does.
+	await showProjection(page, 'Preview');
+	const preview = page.locator(`${PREVIEW_SCROLL} .basehalf-card-detail-markdown-preview-content`);
+	await preview.locator('a', { hasText: 'my file.md' }).first().waitFor({ state: 'visible', timeout: 10_000 });
+	const titled = await preview.locator('a[title], img[title]').count();
+	if (titled > 0) {
+		throw new Error(`${titled} links or pictures in Preview have a title (criterion 15)`);
+	}
+	await preview.locator('a', { hasText: 'my file.md' }).first().click();
+	await assertOpensWithinASecond(page, 'my file.md', 'A click on a link in Preview');
+	await quickOpen(page, 'guide.md');
+	await assertCardDetail(page, 'guide.md');
+	await showProjection(page, 'Preview');
+	await preview.locator('a', { hasText: 'gone' }).first().click();
+	await assertNothingOpens(page, 'guide.md', 'A click on a link to a missing file in Preview');
+	await preview.locator('a', { hasText: 'Setup' }).first().click();
+	await assertHeadingRevealed(page, PREVIEW_SCROLL, 'Setup', 'A click on a link to a heading in a closed toggle in Preview');
+	await showProjection(page, 'Rich');
 }

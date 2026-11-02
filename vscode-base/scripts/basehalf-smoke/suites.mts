@@ -24,7 +24,7 @@ import { assertCanvasInlineRename } from './areas/canvas/names.mts';
 import { assertCanvasNoteInlineWysiwygEditor } from './areas/canvas/noteEditor.mts';
 import { assertCanvasNoteResizeWhileEditing } from './areas/canvas/noteResize.mts';
 import { assertCanvasNoteUndoAsksNothing } from './areas/canvas/noteUndo.mts';
-import { assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
+import { assertCanvasNoteLinksOpenTheirTargets, assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
 import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
 import { assertCanvasSnapGuides, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
 import {
@@ -43,7 +43,7 @@ import {
 	assertSourceCardSaveActionHidden,
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
-import { assertNoteFormatsKeepTypedLetters, assertNoteFormatsKeysStayInRich, assertNoteFormatsOfferOnlyWhatTheFileKeeps, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
+import { assertNoteFormatsKeepTypedLetters, assertNoteFormatsKeysStayInRich, assertNoteFormatsLinksOpenTheirTargets, assertNoteFormatsOfferOnlyWhatTheFileKeeps, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import { assertCardDetailEditShowsOnItsCard } from './areas/cardDetail/editOnCard.mts';
 import { assertCardDetailImageCropBack } from './areas/cardDetail/imageCropBack.mts';
@@ -183,6 +183,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
 	await step('canvas-note-wheel-scroll', () => assertCanvasNoteWheelScroll(page));
 	await step('canvas-note-renders-markdown', () => assertCanvasNoteRendersMarkdown(page));
+	await step('canvas-note-links-open-their-targets', () => assertCanvasNoteLinksOpenTheirTargets(page));
 	await step('agent-creates-card', () => assertAgentCreatesCard(page));
 	await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 	await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -275,6 +276,7 @@ async function runCardDetailSuite(page) {
 	await step('note-formats-offer-only-what-the-file-keeps', () => assertNoteFormatsOfferOnlyWhatTheFileKeeps(page));
 	await step('note-formats-keys-stay-in-rich', () => assertNoteFormatsKeysStayInRich(page));
 	await step('note-formats-keep-typed-letters', () => assertNoteFormatsKeepTypedLetters(page));
+	await step('note-formats-links-open-their-targets', () => assertNoteFormatsLinksOpenTheirTargets(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */
