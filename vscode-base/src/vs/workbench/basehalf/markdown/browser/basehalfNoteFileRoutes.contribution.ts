@@ -16,7 +16,10 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWorkingCopyFileService } from '../../../services/workingCopy/common/workingCopyFileService.js';
+import { IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
+import { baseHalfNoteHome } from '../common/basehalfMarkdownAttachment.js';
+import { baseHalfCopyNoteFiles } from '../common/basehalfNoteFileCopies.js';
 import { baseHalfApplyNoteRouteEdits, baseHalfNoteFileRouteEdits } from '../common/basehalfNoteFileRoutes.js';
 
 /** How long the file events of a folder are quiet before the notes that appeared are read (files in notes, rule 30). */
@@ -29,7 +32,12 @@ const SKIPPED_FOLDERS: ReadonlySet<string> = new Set(['.bh', '.git', 'node_modul
  * A note moved to another depth, in BaseHalf or outside it, gets the route
  * of each of its links into the store that leads nowhere corrected, and
  * nothing else (files in notes, rules 29, 30, and 32). An open note takes the
- * correction as one edit of its text, which its editor's undo stops at.
+ * correction as one edit of its text, which its editor's undo stops at. A
+ * note moved in BaseHalf into another home gets its files cloned into a new
+ * folder of that home's store (rule 31). At each open, once the comparison of
+ * moved items is done, every note of the folder is read, so that a move made
+ * while BaseHalf was closed is corrected also when the comparison did not
+ * recognize it.
  */
 export class BaseHalfNoteFileRoutesContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.baseHalfNoteFileRoutes';
@@ -43,16 +51,23 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 		@IWorkingCopyFileService workingCopyFileService: IWorkingCopyFileService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@ILogService private readonly logService: ILogService,
-		@IBaseHalfMovedItemsService movedItemsService: IBaseHalfMovedItemsService
+		@IBaseHalfMovedItemsService movedItemsService: IBaseHalfMovedItemsService,
+		@IBaseHalfFileClonesService private readonly fileClonesService: IBaseHalfFileClonesService
 	) {
 		super();
-		// A move in BaseHalf: the moved notes, once the move is done (rule 29).
+		// A move in BaseHalf: the moved notes, once the move is done (rules 29 and 31).
 		this._register(workingCopyFileService.onDidRunWorkingCopyFileOperation(event => {
 			if (event.operation === FileOperation.MOVE) {
-				for (const { target } of event.files) {
-					this.add(target);
+				for (const { source, target } of event.files) {
+					void this.moved(source, target).catch(error => this.logService.warn('[BaseHalf] could not give a moved note its files', error));
 				}
 			}
+		}));
+		// A move made while BaseHalf was closed, recognized or not (rule 30).
+		void Promise.all(this.contextService.getWorkspace().folders.map(async folder => {
+			await movedItemsService.whenCompared(folder.uri);
+			this.pending.add(folder.uri);
+			this.scheduler.schedule();
 		}));
 		// A move outside BaseHalf: the notes that appeared (rule 30).
 		this._register(this.fileService.onDidFilesChange(event => {
@@ -68,10 +83,36 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 		}));
 	}
 
+	/**
+	 * A note or folder moved in BaseHalf into another home has its notes'
+	 * files cloned into a new folder of the new home's store, read from where
+	 * they were (rule 31); a home moved whole carries its store along (rule 32).
+	 * Within its home, its routes are corrected.
+	 */
+	private async moved(source: URI | undefined, target: URI): Promise<void> {
+		const workspaceFolder = this.contextService.getWorkspaceFolder(target)?.uri;
+		if (!source || !workspaceFolder) {
+			this.add(target);
+			return;
+		}
+		const [from, to] = await Promise.all([baseHalfNoteHome(this.fileService, source, workspaceFolder), baseHalfNoteHome(this.fileService, target, workspaceFolder)]);
+		if (from.toString() === to.toString()) {
+			this.add(target);
+			return;
+		}
+		await baseHalfCopyNoteFiles({
+			fileService: this.fileService,
+			fileClonesService: this.fileClonesService,
+			workspaceFolderOf: resource => this.contextService.getWorkspaceFolder(resource)?.uri
+		}, [{ source, target }]);
+		// What could not be cloned keeps linking the old home's files, by the route from here.
+		this.add(target);
+	}
+
 	private add(resource: URI): void {
 		const folder = this.contextService.getWorkspaceFolder(resource)?.uri;
 		const path = folder ? relativePath(folder, resource) : undefined;
-		if (!path || path.split('/').some(segment => SKIPPED_FOLDERS.has(segment))) {
+		if (path === undefined || path.split('/').some(segment => SKIPPED_FOLDERS.has(segment))) {
 			return;
 		}
 		this.pending.add(resource);
