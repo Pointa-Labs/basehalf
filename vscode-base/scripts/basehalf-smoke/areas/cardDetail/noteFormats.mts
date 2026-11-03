@@ -11,7 +11,8 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { workspacePath } from '../../context.mts';
-import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
+import { createSolidPng } from '../../fixture.mts';
+import { assertCardDetail, closeCardDetailIfOpen, pinch } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
 import { quickOpen, shownFileName } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
@@ -259,6 +260,101 @@ export async function assertNoteFormatsKeepTypedLetters(page) {
 		'a letter typed with the fixed block selected to start a paragraph after it', 10_000).catch(() => {
 		throw new Error(`Letters typed with a fixed block selected were lost: ${JSON.stringify(readFormatsNote())}`);
 	});
+}
+
+/** Picks `item` of the slash menu typed as `query` in a new line after `line`, and gives the chooser it opens at once `files`. */
+async function chooseFromTheMenu(page, frame, line, query, item, files) {
+	await clickLine(frame, line, 'end');
+	await page.keyboard.press('Enter');
+	await page.keyboard.type(query, { delay: 50 });
+	const entry = frame.locator('.bn-suggestion-menu-item', { hasText: item }).first();
+	await entry.waitFor({ state: 'visible', timeout: 8_000 });
+	const chooser = page.waitForEvent('filechooser', { timeout: 8_000 });
+	await entry.click();
+	await (await chooser).setFiles(files);
+}
+
+/**
+ * Note formats, rules 28 and 49, criteria 10 and 11: Video in the slash menu opens the system's file chooser at once,
+ * the chosen file is stored as a video, and one Undo takes it away again; a chooser closed without a file adds
+ * nothing. At a magnification of 200%, the dragged edge of a picture stays within 1 pixel of the pointer, and the
+ * picture's width is stored as a whole number of pixels.
+ */
+export async function assertNoteFormatsMediaFromTheMenu(page) {
+	let frame = await showNote(page, ['Media here.', ''], 'Media here.');
+	await chooseFromTheMenu(page, frame, 'Media here.', '/video', 'Video', { name: 'clip.mp4', mimeType: 'video/mp4', buffer: Buffer.from('a stand-in for a video') });
+	await waitUntil(() => /^Media here\.\n\n<video src="[^"]*clip\.mp4" controls><\/video>\n$/.test(readFormatsNote()), 'the chosen video to be stored as a video where the menu was', 15_000).catch(() => {
+		throw new Error(`The video chosen in the slash menu was not stored as a video: ${JSON.stringify(readFormatsNote())}`);
+	});
+	await page.keyboard.press(`${COMMAND}+z`);
+	await waitUntil(() => readFormatsNote() === 'Media here.\n', 'one Undo to take the added video away', 10_000).catch(() => {
+		throw new Error(`One Undo did not take the added video away: ${JSON.stringify(readFormatsNote())}`);
+	});
+	await chooseFromTheMenu(page, frame, 'Media here.', '/image', 'Image', []);
+	await page.waitForTimeout(1_000);
+	if (readFormatsNote() !== 'Media here.\n' || await frame.locator('.basehalf-note-media-placeholder').count() > 0) {
+		throw new Error(`A chooser closed without a file added something: ${JSON.stringify(readFormatsNote())}`);
+	}
+
+	fs.writeFileSync(path.join(workspacePath, 'docs', 'wide.png'), createSolidPng(200, 80, [70, 130, 180]));
+	frame = await showNote(page, ['Resize below.', '', '![](wide.png)', ''], 'Resize below.');
+	const picture = frame.locator('.bn-visual-media').first();
+	await picture.waitFor({ state: 'visible', timeout: 15_000 });
+	const text = await frame.locator('.bn-block-content', { hasText: 'Resize below.' }).first().boundingBox();
+	// At 100% first, then at 200%: the dragged edge stays under the pointer at both.
+	const atHundred = await dragPictureEdge(page, frame, picture);
+	await pinch(page, text.x + 4, text.y + 4, 2);
+	await page.waitForTimeout(400);
+	const atTwoHundred = await dragPictureEdge(page, frame, picture);
+	await pinch(page, text.x + 4, text.y + 4, 0.5);
+	if (atHundred.off.length > 0 || atTwoHundred.off.length > 0) {
+		throw new Error(`The dragged edge of a picture left the pointer: ${JSON.stringify({ atHundred, atTwoHundred })}`);
+	}
+	await waitUntil(() => /^Resize below\.\n\n<img src="wide\.png" width="\d+">\n$/.test(readFormatsNote()), 'the picture\'s new width to be stored as a whole number', 10_000).catch(() => {
+		throw new Error(`The resized picture was not stored with a whole width: ${JSON.stringify(readFormatsNote())}`);
+	});
+}
+
+/** Drags the right edge of `picture` 80 pixels right in 8 moves, and gives the moves after which the edge was more than 1 pixel from the pointer. */
+async function dragPictureEdge(page, frame, picture) {
+	const shown = await picture.boundingBox();
+	await page.mouse.move(shown.x + shown.width / 2, shown.y + shown.height / 2);
+	const handles = frame.locator('.bn-resize-handle');
+	await handles.first().waitFor({ state: 'visible', timeout: 5_000 });
+	// The right one of the picture's two handles, in the window's measure.
+	const handleBox = async () => {
+		const boxes = await Promise.all((await handles.all()).map(handle => handle.boundingBox()));
+		return boxes.filter(Boolean).sort((a, b) => b.x - a.x)[0];
+	};
+	const geometry = () => frame.evaluate(() => {
+		const wrapper = document.querySelector('.bn-visual-media-wrapper');
+		const image = document.querySelector('.bn-visual-media');
+		const notePage = document.querySelector('.basehalf-markdown-rich-page');
+		return {
+			wrapperClient: wrapper?.clientWidth,
+			wrapperShown: wrapper?.getBoundingClientRect().width,
+			imageShown: image?.getBoundingClientRect().width,
+			scale: notePage ? notePage.getBoundingClientRect().width / notePage.offsetWidth : undefined,
+		};
+	});
+	const start = await handleBox();
+	const pointer = { x: start.x + start.width / 2, y: start.y + start.height / 2 };
+	const before = await geometry();
+	await page.mouse.move(pointer.x, pointer.y);
+	await page.mouse.down();
+	const off = [];
+	for (let step = 1; step <= 8; step++) {
+		await page.mouse.move(pointer.x + step * 10, pointer.y);
+		await page.waitForTimeout(48);
+		const now = await handleBox();
+		const drift = now.x + now.width / 2 - (pointer.x + step * 10);
+		if (Math.abs(drift) > 1) {
+			off.push({ step, drift });
+		}
+	}
+	const after = await geometry();
+	await page.mouse.up();
+	return { off, before, after };
 }
 
 const LINKED_NOTE = path.join('docs', 'my file.md');

@@ -292,7 +292,7 @@ function createStoredZip(entries) {
 }
 
 /** A PNG of one color. */
-function createSolidPng(width, height, [red, green, blue]) {
+export function createSolidPng(width, height, [red, green, blue]) {
 	const chunk = (type, data) => {
 		const length = Buffer.alloc(4);
 		length.writeUInt32BE(data.length);

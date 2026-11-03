@@ -257,7 +257,8 @@ body,
 
 .basehalf-markdown-rich .bn-file-block-content-wrapper {
 	box-sizing: border-box;
-	border: 1px solid var(--vscode-widget-border);
+	/* A line that takes no room: the width the editor sets is the picture's, as the note stores it (note formats, rule 28). */
+	box-shadow: 0 0 0 1px var(--vscode-widget-border);
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--vscode-editorWidget-background) 72%, transparent);
 }
@@ -785,4 +786,21 @@ body,
 .basehalf-note-outline.reduced-motion .basehalf-note-outline-panel,
 .basehalf-note-outline.reduced-motion .basehalf-note-outline-panel.open {
 	transition: none;
+}
+
+/* A file being added to the note (note formats, rule 49): no part of the note. */
+.basehalf-note-media-placeholder {
+	color: var(--vscode-descriptionForeground);
+	user-select: none;
+}
+
+.basehalf-note-media-placeholder.failed {
+	color: var(--vscode-errorForeground);
+}
+
+/* A block a save wrote without its formats (note formats, design A5). */
+.basehalf-note-unwritten {
+	outline: 1px dashed var(--vscode-editorWarning-foreground);
+	outline-offset: 2px;
+	border-radius: 3px;
 }

@@ -432,14 +432,14 @@ start).
 49. Picture, Video, Sound, and File in the slash menu and the add button open
     the system's file chooser at once. The chosen file is copied where a file
     put into a note goes ([Non-goals](#non-goals)); once the copy is done, the
-    block is added where the menu was, with its address, in one step of
-    undo. Until then a placeholder that is not part of the note shows the
-    file's name and how much of it has been copied. Cancel in the chooser
-    adds nothing. A file that cannot be added shows "Could not add" and its
-    name, as "Could not add clip.mp4.", in the placeholder for 3 s, and
-    nothing is added. A note, or a file whose name has no extension, chosen
-    for File is added as a paragraph of its link: that is how the note
-    stores it and reads it back.
+    block is added where the menu was, with its address, in one step of undo,
+    and a caret still there goes on in the line below it. Until then a
+    placeholder that is not part of the note says, by the file's name, that
+    the file is being added. Cancel in the chooser adds nothing. A file that
+    cannot be added shows "Could not add" and its name, as "Could not add
+    clip.mp4.", in the placeholder for 3 s, and nothing is added. A note, or a
+    file whose name has no extension, chosen for File is added as a paragraph
+    of its link: that is how the note stores it and reads it back.
 50. Replace keeps the editor's own panel: a file from the disk, and for a
     picture, a video, and a sound a web address too. A file block offers no
     web address: the note stores it as a link and reads it back as one.

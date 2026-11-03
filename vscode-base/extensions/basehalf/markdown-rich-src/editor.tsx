@@ -7,7 +7,8 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import './editor.css';
 
-import { insertOrUpdateBlockForSlashMenu, SideMenuExtension } from '@blocknote/core/extensions';
+import type { BlockNoteEditor } from '@blocknote/core';
+import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, SideMenuExtension } from '@blocknote/core/extensions';
 import { en, zh, zhTW, type Dictionary } from '@blocknote/core/locales';
 import { BlockNoteView, type Theme } from '@blocknote/mantine';
 import {
@@ -16,7 +17,10 @@ import {
 	DeleteLinkButton,
 	DragHandleMenu,
 	EditLinkButton,
+	FilePanel,
+	FilePanelController,
 	FileRenameButton,
+	FileReplaceButton,
 	FormattingToolbar,
 	FormattingToolbarController,
 	GenericPopover,
@@ -28,6 +32,8 @@ import {
 	TableHandle,
 	TableHandleMenu,
 	TableHandlesController,
+	UploadTab,
+	getDefaultReactSlashMenuItems,
 	getFormattingToolbarItems,
 	useBlockNoteEditor,
 	useComponentsContext,
@@ -35,13 +41,15 @@ import {
 	useDictionary,
 	useExtensionState,
 	useSelectedBlocks,
+	type DefaultReactSuggestionItem,
+	type FilePanelProps,
 	type FloatingUIOptions,
 	type GenericPopoverReference,
 	type LinkToolbarProps,
 	type TableCellButtonProps,
 	type TableHandleProps,
 } from '@blocknote/react';
-import { RiExternalLinkFill } from 'react-icons/ri';
+import { RiExternalLinkFill, RiImageEditFill } from 'react-icons/ri';
 import { applyUpdate, Doc as YDoc, type XmlFragment } from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
 import { TextSelection, type EditorState } from '@tiptap/pm/state';
@@ -85,10 +93,11 @@ import {
 	type IBaseHalfMarkdownReuseEntry,
 	type IBaseHalfMarkdownSaveContribution,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
-import { createBaseHalfNoteEditorApi } from './noteConversions.js';
+import { createBaseHalfNoteEditorApi, type IBaseHalfNoteWriteWarning } from './noteConversions.js';
 import { installBaseHalfNoteCopy } from './noteCopy.js';
+import { chooseBaseHalfNoteMedia, installBaseHalfNoteResizeUnderZoom, type BaseHalfNoteMediaChoice } from './noteMedia.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from './notePaste.js';
-import { makeBaseHalfNoteShapeExtension } from './noteShape.js';
+import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
@@ -197,6 +206,8 @@ interface SessionState {
 	pendingSaveContent: Map<string, { readonly content: string; readonly revision: number }>;
 	conflictDisk: string | undefined;
 	writeError: string | undefined;
+	/** The blocks the last save wrote without their formats (note formats, design A5). */
+	unwrittenBlocks: ReadonlySet<string>;
 }
 
 interface IIncomingInit {
@@ -284,6 +295,7 @@ function createSessionState(key = ''): SessionState {
 		pendingSaveContent: new Map(),
 		conflictDisk: undefined,
 		writeError: undefined,
+		unwrittenBlocks: new Set(),
 	};
 }
 
@@ -745,16 +757,41 @@ function MarkdownRichEditor(): JSX.Element {
 	// plugin-view teardowns of this webview's startup (noteUndo.ts).
 	const noteUndo = useMemo(() => createBaseHalfNoteUndo(editor), [editor]);
 	noteUndoRef.current = noteUndo;
+	const slashMenuItems = useCallback(async (query: string) => filterSuggestionItems(baseHalfSlashMenuItems(editor), query), [editor]);
 	const ensureLiveUndoManager = noteUndo.ensure;
 
 	// Rich reads a note as its card does and writes it with BaseHalf's writer
 	// (note formats, rule 25 and design A5).
+	// The blocks a save wrote without their formats (note formats, design A5).
+	const writeWarnings = useRef<IBaseHalfNoteWriteWarning[]>([]);
 	const editorApi = useMemo<IBaseHalfMarkdownEditorApi>(() => createBaseHalfNoteEditorApi(editor, {
-		onWriteWarning: warning => console.error('[basehalf] A block of the note could not be written in its formats; its words were written.', warning),
-	}), [editor]);
+		onWriteWarning: warning => {
+			writeWarnings.current.push(warning);
+			const key = session.current.key;
+			if (key) {
+				vscode.postMessage({ type: 'basehalf.markdownRich.writeWarning', key, ...(warning.blockId ? { blockId: warning.blockId } : {}), message: warning.message, ...(warning.stack ? { stack: warning.stack } : {}), block: warning.block });
+			}
+		},
+	}), [editor, vscode]);
+	// A save that writes a block without its formats says so, and outlines the block, until a save writes every block in its formats.
+	const serializeNote = useCallback(async (): Promise<string> => {
+		const state = session.current;
+		writeWarnings.current = [];
+		const value = await spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId, state.note);
+		const unwritten = new Set(writeWarnings.current.flatMap(warning => warning.blockId ? [warning.blockId] : []));
+		if (unwritten.size !== state.unwrittenBlocks.size || [...unwritten].some(id => !state.unwrittenBlocks.has(id))) {
+			state.unwrittenBlocks = unwritten;
+			const view = editor.prosemirrorView;
+			view?.dispatch(view.state.tr.setMeta(baseHalfNoteUnwrittenKey, unwritten).setMeta('addToHistory', false));
+			setVersion(value => value + 1);
+		}
+		return value;
+	}, [editor, editorApi]);
 	useMemo(() => installBaseHalfNotePaste(editor, editorApi), [editor, editorApi]);
 	// What a copy, a cut, and a drag carry out of Rich (note formats, rules 75 to 77).
 	useEffect(() => installBaseHalfNoteCopy(editor, document.body), [editor]);
+	// A picture's edge follows the pointer on a magnified page (note formats, rule 28).
+	useEffect(() => installBaseHalfNoteResizeUnderZoom(window, () => readingAids.current?.zoom.level ?? 1), []);
 
 	const discardSelectionForNextSharedTransaction = noteUndo.discardSelectionForNextSharedTransaction;
 
@@ -812,6 +849,12 @@ function MarkdownRichEditor(): JSX.Element {
 		state.editable = editable;
 		state.conflictDisk = undefined;
 		state.writeError = undefined;
+		if (state.unwrittenBlocks.size > 0) {
+			// What another note's save could not write is no warning of this one.
+			state.unwrittenBlocks = new Set();
+			const view = editor.prosemirrorView;
+			view?.dispatch(view.state.tr.setMeta(baseHalfNoteUnwrittenKey, state.unwrittenBlocks).setMeta('addToHistory', false));
+		}
 		if (isNewResource) {
 			state.adhd = null;
 			state.adhdError = undefined;
@@ -1347,10 +1390,10 @@ function MarkdownRichEditor(): JSX.Element {
 					isComposing: () => composing.current || !!editor.prosemirrorView?.composing,
 					isFrozen: () => state.structuralFrozen && state.key === key && state.resource === resource,
 					revision: () => state.editRevision,
-					serialize: () => spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId, state.note),
+					serialize: serializeNote,
 				})
 				: {
-					value: await spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId, state.note),
+					value: await serializeNote(),
 					revision: state.editRevision,
 				};
 			if (!snapshot) {
@@ -1371,7 +1414,7 @@ function MarkdownRichEditor(): JSX.Element {
 		} catch (error) {
 			reportError(error);
 		}
-	}, [editor, editorApi, reportError, vscode, waitForCompositionSettled, waitForPendingSaveSettled]);
+	}, [editor, reportError, serializeNote, vscode, waitForCompositionSettled, waitForPendingSaveSettled]);
 
 	const scheduleSave = useCallback(() => {
 		if (saveTimer.current !== undefined) {
@@ -2543,6 +2586,11 @@ function MarkdownRichEditor(): JSX.Element {
 					<button type="button" className="secondary" onClick={discardLocal}>Discard local</button>
 				</div>
 			)}
+			{state.unwrittenBlocks.size > 0 && (
+				<div className="basehalf-markdown-rich-banner warning">
+					<span>{baseHalfEditorLabel('Some formatting in this note could not be saved. Its text is saved.', '这篇笔记有些格式没能保存，文字都已保存。', '這篇筆記有些格式沒能儲存，文字都已儲存。')}</span>
+				</div>
+			)}
 			{state.adhdError !== undefined && (
 				<div className="basehalf-markdown-rich-banner error">
 					<span>{state.adhdError}</span>
@@ -2582,8 +2630,8 @@ function MarkdownRichEditor(): JSX.Element {
 						sideMenu={false}
 						formattingToolbar={false}
 						linkToolbar={false}
-						slashMenu={usesEmbeddedControls}
-						filePanel={usesEmbeddedControls}
+						slashMenu={false}
+						filePanel={false}
 						tableHandles={false}
 						emojiPicker={usesEmbeddedControls}
 						comments={false}
@@ -2596,11 +2644,42 @@ function MarkdownRichEditor(): JSX.Element {
 						{usesEmbeddedControls && <LinkToolbarController linkToolbar={linkToolbar} portalElement={portalElement} />}
 						{usesEmbeddedControls && <TableHandlesController tableHandle={BaseHalfTableHandle} tableCellHandle={BaseHalfNoTableCellHandle} portalElement={portalElement} />}
 						{usesEmbeddedControls && <BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />}
+						{usesEmbeddedControls && <SuggestionMenuController triggerCharacter={'/'} getItems={slashMenuItems} portalElement={portalElement} />}
+						{usesEmbeddedControls && <FilePanelController filePanel={BaseHalfFilePanel} portalElement={portalElement} />}
 					</BlockNoteView>
 				</div>
 			</div>
 		</div>
 	);
+}
+
+const mediaChoices: ReadonlySet<string> = new Set<BaseHalfNoteMediaChoice>(['image', 'video', 'audio', 'file']);
+
+/**
+ * The items of the slash menu, and of the add button that opens it: Picture,
+ * Video, Sound, and File open the system's file chooser at once, and their
+ * block is added once its file is copied (note formats, rule 49).
+ */
+function baseHalfSlashMenuItems(editor: BlockNoteEditor<any, any, any>): DefaultReactSuggestionItem[] {
+	return getDefaultReactSlashMenuItems(editor).map(item => {
+		// Each item keeps the key of the editor's own list, which its type leaves out.
+		const key = (item as { readonly key?: string }).key;
+		return key && mediaChoices.has(key) ? { ...item, onItemClick: () => chooseBaseHalfNoteMedia(editor, key as BaseHalfNoteMediaChoice) } : item;
+	});
+}
+
+/**
+ * The panel of Replace (note formats, rule 50): a file from the disk, and for
+ * a picture, a video, and a sound a web address too. A file block is stored
+ * as a link and read back as one, so it offers no web address.
+ */
+function BaseHalfFilePanel(props: FilePanelProps): JSX.Element {
+	const editor = useBlockNoteEditor();
+	const dictionary = useDictionary();
+	const [, setLoading] = useState(false);
+	return editor.getBlock(props.blockId)?.type === 'file'
+		? <FilePanel {...props} tabs={[{ name: dictionary.file_panel.upload.title, tabPanel: <UploadTab blockId={props.blockId} setLoading={setLoading} /> }]} />
+		: <FilePanel {...props} />;
 }
 
 // What the note cannot store, or what BaseHalf does otherwise (note formats,
@@ -2626,7 +2705,9 @@ function stopUsedKeys(event: ReactKeyboardEvent): void {
 function BaseHalfFormattingToolbar(): JSX.Element {
 	const items = getFormattingToolbarItems()
 		.filter(item => !baseHalfRemovedToolbarItems.has(String(item.key)))
-		.map(item => item.key === 'fileRenameButton' ? <BaseHalfFileRenameButton key={'fileRenameButton'} /> : item);
+		.map(item => item.key === 'fileRenameButton' ? <BaseHalfFileRenameButton key={'fileRenameButton'} />
+			: item.key === 'replaceFileButton' ? <BaseHalfFileReplaceButton key={'replaceFileButton'} />
+				: item);
 	return <FormattingToolbar>{items}</FormattingToolbar>;
 }
 
@@ -2643,6 +2724,33 @@ function BaseHalfOpenLinkButton({ url, onOpen }: { readonly url: string; readonl
 			onClick={() => onOpen(url)}
 			icon={<RiExternalLinkFill />}
 		/>
+	);
+}
+
+/**
+ * Replace (note formats, rule 50): for a file block, a file from the disk
+ * only, as the note stores a file block as a link and reads it back as one;
+ * for a picture, a video, and a sound, the editor's own, a web address too.
+ */
+function BaseHalfFileReplaceButton(): JSX.Element | null {
+	const editor = useBlockNoteEditor();
+	const Components = useComponentsContext()!;
+	const dictionary = useDictionary();
+	const blocks = useSelectedBlocks(editor);
+	const block = blocks.length === 1 ? blocks[0] : undefined;
+	if (!block || block.type !== 'file' || !editor.isEditable) {
+		return <FileReplaceButton />;
+	}
+	const label = dictionary.formatting_toolbar.file_replace.tooltip.file;
+	return (
+		<Components.Generic.Popover.Root position={'bottom'}>
+			<Components.Generic.Popover.Trigger>
+				<Components.FormattingToolbar.Button className={'bn-button'} mainTooltip={label} label={label} icon={<RiImageEditFill />} />
+			</Components.Generic.Popover.Trigger>
+			<Components.Generic.Popover.Content className={'bn-popover-content bn-panel-popover'} variant={'panel-popover'}>
+				<BaseHalfFilePanel blockId={block.id} />
+			</Components.Generic.Popover.Content>
+		</Components.Generic.Popover.Root>
 	);
 }
 

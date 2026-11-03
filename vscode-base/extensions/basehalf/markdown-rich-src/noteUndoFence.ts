@@ -15,6 +15,9 @@ import { isBaseHalfNoteSharedChange } from './noteNormalizer.js';
 // after them. The letters typed into one caption, one change of the same
 // attribute of the same block after another, are one step.
 
+/** The meta of a transaction that is a step of undo of its own, as a block added once its file is copied. */
+export const BASEHALF_NOTE_OWN_STEP = 'basehalfNoteOwnStep';
+
 /** What a change is, for undo: text, a change that is a step of its own, or a change of one attribute of one block. */
 type ChangeKind = 'text' | 'own' | `attribute ${number} ${string}`;
 
@@ -68,7 +71,7 @@ export function createBaseHalfNoteUndoFence(manager: () => { stopCapturing(): vo
 
 function changeKind(transaction: Transaction): ChangeKind {
 	const event = transaction.getMeta('uiEvent');
-	if (event === 'paste' || event === 'drop' || event === 'cut') {
+	if (event === 'paste' || event === 'drop' || event === 'cut' || transaction.getMeta(BASEHALF_NOTE_OWN_STEP) === true) {
 		return 'own';
 	}
 	const attributes: string[] = [];

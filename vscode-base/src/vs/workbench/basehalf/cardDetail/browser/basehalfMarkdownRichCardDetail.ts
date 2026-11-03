@@ -813,6 +813,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.openResource':
 				await this.handleOpenResource(state, message.href);
 				break;
+			case 'basehalf.markdownRich.writeWarning':
+				this.logService.warn(`[basehalf] A block of ${state.resource.toString()} was saved without its formats: ${message.message}`, message.blockId, message.block, message.stack);
+				break;
 			case 'basehalf.markdownRich.clipboard':
 				// The same as the keys: the page's own copy, cut, or paste, with all that the clipboard holds.
 				this.webview?.[message.action]();

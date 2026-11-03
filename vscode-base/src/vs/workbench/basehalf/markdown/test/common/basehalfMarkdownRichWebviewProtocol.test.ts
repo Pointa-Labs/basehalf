@@ -294,6 +294,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.clipboard', key: 'workspace\u0000doc.md', action }), true);
 		}
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.clipboard', key: 'workspace\u0000doc.md', action: 'selectAll' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.writeWarning', key: 'workspace\u0000doc.md', blockId: 'b1', message: 'no form', block: '{}' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.writeWarning', key: 'workspace\u0000doc.md', message: 'no form' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.openSource',
 			key: 'workspace\u0000doc.md',

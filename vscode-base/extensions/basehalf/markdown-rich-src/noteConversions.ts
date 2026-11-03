@@ -26,6 +26,8 @@ export interface IBaseHalfNoteWriteWarning {
 	readonly blockId: string | undefined;
 	readonly message: string;
 	readonly stack: string | undefined;
+	/** The block as JSON, cut to 4 KiB, for the log. */
+	readonly block: string;
 }
 
 export interface IBaseHalfNoteConversionOptions {
@@ -114,10 +116,17 @@ function writeHintsKey(hints: IBaseHalfNoteWriteHints): string {
  * every Markdown character escaped. The caller is told either way.
  */
 function writeWordsOf(editor: IBaseHalfNoteConversionEditor, block: unknown, hints: IBaseHalfNoteWriteHints, error: unknown, options: IBaseHalfNoteConversionOptions): string {
+	let json: string;
+	try {
+		json = JSON.stringify(block)?.slice(0, 4096) ?? '';
+	} catch {
+		json = '';
+	}
 	options.onWriteWarning?.({
 		blockId: baseHalfNoteBlockId(block),
 		message: error instanceof Error ? error.message : String(error),
-		stack: error instanceof Error ? error.stack : undefined
+		stack: error instanceof Error ? error.stack : undefined,
+		block: json
 	});
 	try {
 		return editor.blocksToMarkdownLossy([block as never]).trimEnd();

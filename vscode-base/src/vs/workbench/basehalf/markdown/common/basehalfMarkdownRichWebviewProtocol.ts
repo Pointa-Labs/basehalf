@@ -275,6 +275,19 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly href: string;
 	}
 	| {
+		/**
+		 * A save wrote a block without its formats, as the editor's own writer
+		 * or as plain text, because Rich's writer failed on it (note formats,
+		 * design A5): for the log, with the block as JSON cut to 4 KiB.
+		 */
+		readonly type: 'basehalf.markdownRich.writeWarning';
+		readonly key: string;
+		readonly blockId?: string;
+		readonly message: string;
+		readonly stack?: string;
+		readonly block: string;
+	}
+	| {
 		/** Copy, Cut, or Paste of Rich's menu: the host runs the page's own, as for the keys (note formats, rules 73 and 75). */
 		readonly type: 'basehalf.markdownRich.clipboard';
 		readonly key: string;
@@ -435,6 +448,11 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return typeof candidate.href === 'string' && candidate.href.length > 0;
 		case 'basehalf.markdownRich.clipboard':
 			return candidate.action === 'copy' || candidate.action === 'cut' || candidate.action === 'paste';
+		case 'basehalf.markdownRich.writeWarning':
+			return typeof candidate.message === 'string'
+				&& typeof candidate.block === 'string'
+				&& (candidate.blockId === undefined || typeof candidate.blockId === 'string')
+				&& (candidate.stack === undefined || typeof candidate.stack === 'string');
 		case 'basehalf.markdownRich.openSource':
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.adhdCommand':

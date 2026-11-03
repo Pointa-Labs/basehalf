@@ -661,14 +661,10 @@ export async function assertMarkdownRichFileAttachment(page) {
 	await page.keyboard.type('/file', { delay: 70 });
 	const item = frame.locator('.bn-suggestion-menu-item', { hasText: 'File' }).first();
 	await item.waitFor({ state: 'visible', timeout: 8_000 });
+	// File opens the system's file chooser at once (note formats, rule 49).
+	const chooser = page.waitForEvent('filechooser', { timeout: 8_000 });
 	await item.click();
-
-	const addFile = frame.locator('.bn-add-file-button').last();
-	await addFile.waitFor({ state: 'visible', timeout: 8_000 });
-	await addFile.click();
-	const input = frame.locator('.bn-file-input input[type="file"], input[type="file"]').last();
-	await input.waitFor({ state: 'attached', timeout: 8_000 });
-	await input.setInputFiles({
+	await (await chooser).setFiles({
 		name: 'handout.pdf',
 		mimeType: 'application/pdf',
 		buffer: createMinimalPdfFixture()
@@ -693,6 +689,16 @@ export async function assertMarkdownRichFileAttachment(page) {
 	if (await frame.locator('[data-test="fileDownloadButton"]').count() > 0) {
 		throw new Error('The stock BlockNote download action leaked into BaseHalf file semantics');
 	}
+	// Replace on a file block offers a file from the disk only: the note stores the block as a link (note formats, rule 50).
+	const replace = frame.locator('.basehalf-markdown-rich-portal .bn-formatting-toolbar button[aria-label="Replace file"]').first();
+	await replace.waitFor({ state: 'visible', timeout: 5_000 });
+	await replace.click();
+	await frame.locator('[data-test="upload-tab"]').first().waitFor({ state: 'visible', timeout: 5_000 });
+	if (await frame.locator('[data-test="embed-tab"]').count() > 0) {
+		throw new Error('Replace offered a web address for a file block, which the note stores as a link');
+	}
+	await replace.click();
+	await frame.locator('[data-test="upload-tab"]').first().waitFor({ state: 'hidden', timeout: 5_000 });
 
 	// Opening an attachment stays in the canvas/card-detail flow. Direct-render
 	// binary media intentionally has no raw Source projection.

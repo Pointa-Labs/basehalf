@@ -7,12 +7,13 @@ import { createExtension, getBlockInfoFromSelection, type BlockNoteEditor } from
 import { FilePanelExtension, FormattingToolbarExtension } from '@blocknote/core/extensions';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
-import type { EditorView } from '@tiptap/pm/view';
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { addRowAfter, columnResizingPluginKey, goToNextCell, isInTable } from 'prosemirror-tables';
 import { openBaseHalfNoteTogglesAround } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
 import { BASEHALF_RAW_PASSTHROUGH_BLOCK } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { isBaseHalfNoteToggle } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteBlocks.js';
 import { baseHalfNoteMayHold } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteStructure.js';
+import { makeBaseHalfNoteMediaPlaceholders } from './noteMedia.js';
 import { baseHalfNoteChangedRanges, normalizeBaseHalfNote } from './noteNormalizer.js';
 import { repairBaseHalfNoteDroppedHtml } from './notePaste.js';
 import { baseHalfNoteToggleState } from './noteToggleState.js';
@@ -34,6 +35,9 @@ export interface IBaseHalfNoteShapeOptions {
 	/** Whether Rich is reading a note or a change made outside it: what it reads is adjusted by the reader and opens no toggle (rule 80). */
 	readonly reading?: () => boolean;
 }
+
+/** The blocks whose formats the last save could not write (design A5), outlined until a save writes them all. */
+export const baseHalfNoteUnwrittenKey = new PluginKey<ReadonlySet<string>>('baseHalfNoteUnwritten');
 
 export function makeBaseHalfNoteShapeExtension(options: IBaseHalfNoteShapeOptions = {}) {
 	const fence = createBaseHalfNoteUndoFence(() => options.undoManager?.());
@@ -61,6 +65,30 @@ export function makeBaseHalfNoteShapeExtension(options: IBaseHalfNoteShapeOption
 			},
 		},
 		prosemirrorPlugins: [
+			makeBaseHalfNoteMediaPlaceholders(),
+			new Plugin<ReadonlySet<string>>({
+				key: baseHalfNoteUnwrittenKey,
+				state: {
+					init: () => new Set<string>(),
+					apply: (transaction, ids) => (transaction.getMeta(baseHalfNoteUnwrittenKey) as ReadonlySet<string> | undefined) ?? ids,
+				},
+				props: {
+					decorations: state => {
+						const ids = baseHalfNoteUnwrittenKey.getState(state);
+						if (!ids || ids.size === 0) {
+							return null;
+						}
+						const outlined: Decoration[] = [];
+						state.doc.descendants((node, position) => {
+							if (node.type.name === 'blockContainer' && ids.has(String(node.attrs.id))) {
+								outlined.push(Decoration.node(position, position + node.nodeSize, { class: 'basehalf-note-unwritten' }));
+							}
+							return true;
+						});
+						return DecorationSet.create(state.doc, outlined);
+					},
+				},
+			}),
 			new Plugin({
 				key: new PluginKey('baseHalfNoteNormalizer'),
 				appendTransaction: (transactions, _old, state) => {

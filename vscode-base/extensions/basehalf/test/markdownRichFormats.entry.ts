@@ -36,6 +36,7 @@ import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/b
 import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDecorations.js';
 import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
 import { installBaseHalfNoteCopy } from '../markdown-rich-src/noteCopy.js';
+import { addBaseHalfNoteMediaFile, installBaseHalfNoteResizeUnderZoom } from '../markdown-rich-src/noteMedia.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from '../markdown-rich-src/notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
@@ -50,6 +51,21 @@ import { makeBaseHalfSelectionRevealExtension } from '../markdown-rich-src/selec
  * what it catches in the editor before D110.
  */
 export type NoteFormatsMode = 'basehalf' | 'baseline';
+
+/**
+ * The copy of a file put into a note, as the host makes it: under
+ * `attachments/`. A name that starts with `fail` cannot be copied, and one
+ * that starts with `slow` takes 300 ms.
+ */
+async function uploadTestFile(file: File): Promise<string> {
+	if (file.name.startsWith('slow')) {
+		await new Promise(resolve => setTimeout(resolve, 300));
+	}
+	if (file.name.startsWith('fail')) {
+		throw new Error(`${file.name} cannot be copied.`);
+	}
+	return `attachments/${encodeURIComponent(file.name)}`;
+}
 
 /** The folder of the note the test opens. Nothing is served there, so a picture of a note loads nothing. */
 const NOTE_FOLDER = `${location.origin}/notes/`;
@@ -254,7 +270,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 	const ydoc = new YDoc();
 	// The fragment name of editor.tsx (BLOCKNOTE_FRAGMENT_NAME).
 	const fragment = ydoc.getXmlFragment('bn');
-	const editor = createNoteEditor(fragment, setup.extensions(), async file => `attachments/${file.name}`, setup.paste?.handler);
+	const editor = createNoteEditor(fragment, setup.extensions(), uploadTestFile, setup.paste?.handler);
 	const api = setup.editorApi(editor);
 	setup.paste?.install(editor, api);
 	const offCopy = setup.copy?.(editor);
@@ -897,6 +913,123 @@ async function copies(t: INoteFormatsTest): Promise<void> {
 	});
 }
 
+/**
+ * Part h, files added from the slash menu (note formats, rule 49): a
+ * placeholder that is no part of the note shows the file while it is
+ * copied, then the block takes the place of the empty block the menu was
+ * in, in one step of undo; a note chosen for File is a link; a file that
+ * cannot be copied adds nothing.
+ */
+async function media(t: INoteFormatsTest): Promise<void> {
+	const placeholder = () => t.editor.domElement?.querySelector('.basehalf-note-media-placeholder')?.textContent ?? null;
+	await t.load('Start.\n');
+	await t.frames();
+	t.caret('Start.');
+	await t.keyboard.press('Enter');
+	await t.keyboard.type('typed');
+	await t.keyboard.press('Enter');
+	const adding = addBaseHalfNoteMediaFile(t.editor, 'video', new File(['x'], 'slow clip.mp4', { type: 'video/mp4' }));
+	await t.frames();
+	const whileCopied = { placeholder: placeholder(), saved: await t.save() };
+	await adding;
+	await t.frames();
+	const added = { placeholder: placeholder(), blocks: t.blocks().map(block => block.type) };
+	await t.keyboard.type('after');
+	await t.frames();
+	const typedBelow = await t.save();
+	t.command('undo');
+	t.command('undo');
+	await t.frames();
+	t.check('a file added from the slash menu shows a placeholder while it is copied, then is one block where the menu was, the caret in the line below it, in one step of undo', {
+		whileCopied,
+		added,
+		typedBelow,
+		undone: await t.save(),
+	}, {
+		whileCopied: { placeholder: 'Adding slow clip.mp4…', saved: 'Start.\n\ntyped\n' },
+		added: { placeholder: null, blocks: ['paragraph', 'paragraph', 'video', 'paragraph'] },
+		typedBelow: 'Start.\n\ntyped\n\n<video src="attachments/slow%20clip.mp4" controls></video>\n\nafter\n',
+		undone: 'Start.\n\ntyped\n',
+	});
+
+	await t.load('Start.\n');
+	await t.frames();
+	t.caret('Start.');
+	await addBaseHalfNoteMediaFile(t.editor, 'file', new File(['# x'], 'notes.md', { type: 'text/markdown' }));
+	await addBaseHalfNoteMediaFile(t.editor, 'file', new File(['x'], 'handout.pdf', { type: 'application/pdf' }));
+	await t.frames();
+	const files = { saved: await t.save(), blocks: t.blocks().map(block => block.type) };
+	await addBaseHalfNoteMediaFile(t.editor, 'image', new File(['x'], 'fail.png', { type: 'image/png' }));
+	await t.frames();
+	t.check('a note chosen for File is added as a link, another file as a file block, one after the other, and a file that cannot be copied adds nothing', {
+		files,
+		failed: { placeholder: placeholder(), saved: await t.save() },
+	}, {
+		files: { saved: 'Start.\n\n[notes.md](attachments/notes.md)\n\n[handout.pdf](attachments/handout.pdf)\n', blocks: ['paragraph', 'paragraph', 'file', 'paragraph'] },
+		failed: { placeholder: 'Could not add fail.png.', saved: 'Start.\n\n[notes.md](attachments/notes.md)\n\n[handout.pdf](attachments/handout.pdf)\n' },
+	});
+}
+
+/** A picture of 200 by 80 pixels, of one color. */
+const WIDE_PICTURE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAABQCAIAAADTD63nAAAA6UlEQVR4nO3SQQkAIADAQNMZzEwGtIRDkIMLsMfGXBuuG88L+JKxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi8QB5TvLZS9xqhUAAAAASUVORK5CYII=';
+
+/**
+ * Part i, a picture's edge on a magnified page (note formats, rule 28,
+ * criterion 10): with the page drawn at 200%, the edge the pointer drags
+ * stays within 1 pixel of the pointer, and the width is stored as a whole
+ * number of pixels.
+ */
+async function magnifiedResize(t: INoteFormatsTest): Promise<void> {
+	await t.load('Resize below.\n');
+	await t.frames();
+	const [first] = t.editor.document;
+	t.editor.insertBlocks([{ type: 'image', props: { url: WIDE_PICTURE } }] as Parameters<typeof t.editor.insertBlocks>[0], first, 'after');
+	await until('the picture loads', () => (t.editor.domElement?.querySelector('img') as HTMLImageElement | null)?.naturalWidth === 200);
+	// As Card Detail magnifies a note (zoom and outline of a note): the page drawn larger, nothing laid out anew.
+	const notePage = document.querySelector<HTMLElement>('.basehalf-markdown-rich-page');
+	if (!notePage) {
+		throw new Error('The test bed has no page.');
+	}
+	notePage.style.transformOrigin = '0 0';
+	notePage.style.transform = 'scale(2)';
+	const removeZoom = installBaseHalfNoteResizeUnderZoom(window, () => 2);
+	try {
+		await t.frames(4);
+		const picture = t.editor.domElement?.querySelector('img')?.getBoundingClientRect();
+		if (!picture) {
+			throw new Error('The picture is not shown.');
+		}
+		await t.mouse.move(picture.left + picture.width / 2, picture.top + picture.height / 2);
+		await t.frames(4);
+		const rightHandle = () => [...document.querySelectorAll('.bn-resize-handle')].map(handle => handle.getBoundingClientRect()).sort((a, b) => b.left - a.left)[0];
+		const handle = rightHandle();
+		const x = handle.left + handle.width / 2;
+		const y = handle.top + handle.height / 2;
+		await t.mouse.move(x, y);
+		await t.mouse.down();
+		const drift: number[] = [];
+		for (let step = 1; step <= 4; step++) {
+			await t.mouse.move(x + step * 10, y);
+			await t.frames(2);
+			const now = rightHandle();
+			drift.push(Math.round(now.left + now.width / 2 - (x + step * 10)));
+		}
+		await t.mouse.up();
+		await t.frames();
+		t.check('at 200% the dragged edge of a picture stays under the pointer, and its width is stored as a whole number', {
+			drift,
+			saved: await t.save(),
+		}, {
+			drift: [0, 0, 0, 0],
+			saved: `Resize below.\n\n<img src="${WIDE_PICTURE}" width="220">\n`,
+		});
+	} finally {
+		removeZoom();
+		notePage.style.transform = '';
+		notePage.style.transformOrigin = '';
+	}
+}
+
 /** Selects the first text that matches, and gives the editor the keyboard. */
 function selectText(t: INoteFormatsTest, text: string): void {
 	const view = t.editor.prosemirrorView;
@@ -1147,6 +1280,8 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	f: copies,
 	e: keys,
 	g: toggles,
+	h: media,
+	i: magnifiedResize,
 	k: fixedBlocks,
 	n: shape,
 };
