@@ -123,7 +123,7 @@ import {
 	makeBaseHalfSelectionRevealExtension,
 	setBaseHalfSelectionReveal,
 } from './selectionRevealDecorations.js';
-import { baseHalfEditorLabel, baseHalfNoteSchema, renderedNote } from './noteSchema.js';
+import { baseHalfEditorLabel, baseHalfNoteSchema, setRenderedNoteBase } from './noteSchema.js';
 import { baseHalfNoteFileAddressAt, baseHalfNotePictureElement, makeBaseHalfNotePictureEditExtension, setBaseHalfNotePictureEditMark } from './notePictureEdit.js';
 import { BASEHALF_IMAGE_CROP_MARGIN, BASEHALF_NOTE_PICTURE_EDIT_ROOM } from '../../../src/vs/workbench/basehalf/mediaEdit/common/basehalfNotePictureEdit.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from './noteUndo.js';
@@ -1116,7 +1116,7 @@ function MarkdownRichEditor(): JSX.Element {
 		state.key = key;
 		state.resource = resource;
 		state.baseUri = baseUri;
-		renderedNote.baseUri = baseUri;
+		setRenderedNoteBase(baseUri);
 		state.editable = editable;
 		state.conflictDisk = undefined;
 		state.writeError = undefined;
@@ -1767,7 +1767,14 @@ function MarkdownRichEditor(): JSX.Element {
 
 			// Lines in a closed toggle show once it opens, as for a link to a heading (note formats, rule 56).
 			openBaseHalfNoteTogglesAround(elements[0]);
-			elements[0].scrollIntoView({ block: 'center', inline: 'nearest' });
+			// Only the note's view scrolls: the page's own scrollIntoView would scroll the parts of the window around
+			// Card Detail too, which then stand moved after it closes (rule 56).
+			const scroller = scrollRef.current;
+			if (scroller) {
+				const view = scroller.getBoundingClientRect();
+				const block = elements[0].getBoundingClientRect();
+				scroller.scrollTop += block.top + block.height / 2 - (view.top + view.height / 2);
+			}
 			setBaseHalfSelectionReveal(editor, ids);
 
 			if (revealTimer.current !== undefined) {
@@ -2030,7 +2037,7 @@ function MarkdownRichEditor(): JSX.Element {
 		pendingInit.current = undefined;
 		session.current.surface = payload.surface;
 		session.current.baseUri = payload.baseUri;
-		renderedNote.baseUri = payload.baseUri;
+		setRenderedNoteBase(payload.baseUri);
 		if (payload.surface === 'detail') {
 			ensureReadingAids(session.current.key !== payload.key, payload.reducedMotion ?? false);
 		}

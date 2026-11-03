@@ -75,8 +75,9 @@ class BaseHalfCanvasNoteInParts extends Disposable {
 	private buildNext(): void {
 		const part = append(this.container, $(`.${BASEHALF_CANVAS_NOTE_PART_CLASS}`));
 		this._register(renderBaseHalfCanvasStoredMarkdown(part, this.resource, baseHalfCanvasNotePartSource(this.plan, this.built), this.onOpenLink));
-		// A video and a sound play in BaseHalf's player, whose picture is the card's (note formats, rule 52).
-		this._register(playBaseHalfNoteMedia(part, 'card'));
+		// A video and a sound play in BaseHalf's player, whose picture is the card's (note formats, rule 52),
+		// and the card drawn again for a change of the note takes them over (note rendering, rule 4b).
+		this._register(playBaseHalfNoteMedia(part, { note: this.resource, surface: 'rest' }));
 		this.built++;
 		if (this.complete) {
 			this.watching.clear();

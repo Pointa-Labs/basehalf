@@ -801,8 +801,9 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		const editable = this.root.querySelector<HTMLElement>(':scope > .ProseMirror');
 		editable?.setAttribute('aria-label', `Edit ${state.relativePath}`);
 		if (editable) {
-			// The editor shows copies of the blocks drawn above: their videos and sounds play in BaseHalf's player there (note formats, rule 52).
-			renderStore.add(playBaseHalfNoteMedia(editable, 'card'));
+			// The editor shows copies of the blocks drawn above: their videos and sounds play in BaseHalf's player there (note formats, rule 52),
+			// and the editor drawn again for a change made elsewhere takes them over (note rendering, rule 4b).
+			renderStore.add(playBaseHalfNoteMedia(editable, { note: state.resource, surface: 'editor' }));
 		}
 		this.root.scrollTop = scrollTop;
 		if (options.focus) {

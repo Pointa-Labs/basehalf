@@ -134,6 +134,12 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
 	 * moves nothing.
 	 */
 	moveByKey(key: string): boolean;
+	/**
+	 * Goes without keeping where its video stands: it stood in for another
+	 * player of the same video, which takes its place, as when a note is drawn
+	 * again (note rendering, rule 4b).
+	 */
+	discard(): void;
 }
 
 /**
@@ -244,6 +250,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	private range: IBaseHalfCanvasVideoPlayRange | undefined;
 	private rangeFrame: number | undefined;
 	private rangeJump: ReturnType<typeof setTimeout> | undefined;
+	/** Where its video stands is kept when it goes, unless it stood in for another player. */
+	private keepsItsPlace = true;
 
 	constructor(
 		container: HTMLElement,
@@ -340,7 +348,9 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		this._register(toDisposable(() => {
 			livePlayers.delete(this);
 			this.stopWatchingRange();
-			this.rememberWhereItStands();
+			if (this.keepsItsPlace) {
+				this.rememberWhereItStands();
+			}
 			releaseBaseHalfCanvasCardMedia(this.video);
 			this.element.remove();
 		}));
@@ -384,6 +394,11 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	pause(): void {
 		this.sound.pause();
 		this.updatePlayButton();
+	}
+
+	discard(): void {
+		this.keepsItsPlace = false;
+		this.dispose();
 	}
 
 	seek(time: number): void {

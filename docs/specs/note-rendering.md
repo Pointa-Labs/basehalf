@@ -129,6 +129,14 @@ Not in scope, and unchanged:
    icon and its name ([formats of a note](note-formats.md), rule 81). A link
    and a picture show no system tooltip: their `title` is dropped when they
    are drawn.
+4b. **A note drawn again keeps its players.** Preview draws a note again at
+   every change of it, the card's editor after a change made elsewhere, and
+   the card at rest when its file changes. A video or a sound whose block is
+   still in the note keeps its player through that: one that plays goes on
+   playing, at the same place and with its sound as it was, and one that
+   stands shows the same frame, so that no frame shows it without its
+   picture. The player of a block that has left the note goes. When a note
+   holds the same video more than once, the players keep their order.
 5. Rendering does not run code and does not follow a command link. The note
    is untrusted content. An `<input>` is shown only as a check box, and the
    box is disabled.
@@ -144,6 +152,11 @@ Not in scope, and unchanged:
    file of the workspace in Card Detail, a web address in the browser, a
    heading in its note ([formats of a note](note-formats.md#links)). A link
    that leads nowhere does nothing, and nothing asks.
+6c. Rich's page reads a relative address from the note's folder wherever it
+   meets one: also in the elements its editor makes for itself, as when it
+   reads a note, draws a picture before it has read the picture's address,
+   or copies blocks. It never asks for a file at the page's own address, and
+   nothing it asks for is refused.
 
 ### How the rendered form is laid out on the card
 
@@ -431,6 +444,16 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 13c. A click on `[x](my%20file.md)` on the card and in Preview opens Card
     Detail of `my file.md`, and no link there has a `title`.
 13d. `<details open>` shows open on the card and in Preview.
+13e. In the real window, a video of a note that plays on its card at rest, in
+    the card's editor, and in Preview goes on playing while the note is
+    written from outside four times, half a second apart, as an agent writes
+    it: sampled on every frame, its player stays, unpaused, with a frame to
+    show, its time never goes back, and over the writes it advances as much
+    as the time that passed. A sound does the same, and a video that stands
+    keeps its frame and its time.
+13f. Opening a note in Rich that holds a picture, a video, and a sound at
+    relative addresses, one of them in the store of the note's files, and
+    copying the picture, asks the window for no address that is refused.
 14. A note with such a table that is opened and not edited keeps every byte.
 
 15. A note of 131,072 bytes opens in the card's editor on a double click. A
@@ -490,3 +513,11 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
   first is built, and scrolls it to its last paragraph; it also keeps the
   place of the note when the note is redrawn and when its editor opens and
   closes.
+- Unit: `basehalfCanvasNoteMedia.test.ts` covers rule 4b: a drawing of a
+  note takes over the players of the drawing it replaces, in their order, one
+  that plays goes on playing, and the player of a block that has left the
+  note goes. Smoke: `canvas-note-media-plays-on-when-drawn-again` covers
+  criterion 13e on the card at rest and in the card's editor, and
+  `preview-note-media-plays-on-when-drawn-again` in Preview, each sampled on
+  every frame; `note-formats-media-asks-for-no-refused-address` covers
+  criterion 13f.
