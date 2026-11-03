@@ -5376,18 +5376,20 @@ edit, a picture, a video, a sound, a table, code, a toggle, or any other fixed
 block, the caret goes to the end of the nearest block it can edit before the
 block, or else to the start of the nearest one after it, and a note without
 such a block gets an empty line after its last block that the file keeps only
-once something is typed into it. Card Detail opens from the card's Expand,
-and for a larger note. In the card's editor a fixed block is one unit: a click
+once something is typed into it. Card Detail opens from the card's Expand, and
+for a larger note. In the card's editor a fixed block is one unit: a click
 selects it, Delete or Backspace removes it as one step of undo, Copy and Cut
 take its Markdown, a paste of it puts the same block back, and a letter typed
 while it is selected starts a paragraph after it. Its size, its caption, its
 file, and a toggle's children stay Card Detail's. On the card, in the card's
 editor, and in Preview, a video of a note shows its first frame and a sound
 its glyph with BaseHalf's own bar, the bar of a video's card, played with its
-sound by the bar's play and never by the pointer; a paragraph that is one
-link to a file shows as Rich's file block, the file's icon and its name, and
-opens the file on a click. A press on a resting note still moves its card,
-also on a video's picture; only a player's bar takes presses. See
+sound by the bar's play and never by the pointer; a paragraph that is one link
+to a file shows as Rich's file block, the file's icon beside its name, and
+opens the file on a click. Rich's own file block gets that layout back: the
+editor's file block carries no mark of a file block, so its icon stood above
+its name in a box as wide as the name. A press on a resting note still moves
+its card, also on a video's picture; only a player's bar takes presses. See
 [formats of a note](specs/note-formats.md), rules 52, 81, 82, and 82a, and
 [note rendering](specs/note-rendering.md), rules 4a, 11, and 25.
 

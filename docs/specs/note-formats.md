@@ -607,19 +607,19 @@ start).
     palette spans, `open` on a toggle, figures, videos from Markdown
     pictures, links resolved by rule 55, and the room around captions and
     toggles. A paragraph that is one link to a file, which Rich shows as a
-    file block (rule 12), shows there as Rich shows it: the file's icon and
-    its name in a box. A click on it opens the file, as the link does
-    (rule 53).
+    file block (rule 12), shows there as Rich shows it: the file's icon
+    beside its name, in a box across the line. A click on it opens the file,
+    as the link does (rule 53).
 82. The card's editor edits paragraphs, headings of level 1 to 3, list
     items, and quotes that hold underline or palette colors, and writes them
     in their canonical form. Every other block, a picture, a video, a sound,
-    a table, code, a toggle, and every other fixed block, is one unit there,
-    drawn as at rest. A click selects it. Delete or Backspace removes it, as
-    one step of undo. Copy and Cut put its Markdown on the clipboard, and a
-    paste of it into the card's editor puts the same block back. A letter or
-    Enter typed while it is selected starts a paragraph after it. Its size,
-    its caption, its file, and a toggle's children are changed in Card
-    Detail.
+    a file block, a table, code, a toggle, and every other fixed block, and
+    a list that holds one of them, is one unit there, drawn as at rest. A
+    click selects it. Delete or Backspace removes it, as one step of undo.
+    Copy and Cut put its Markdown on the clipboard, and a paste of it into
+    the card's editor puts the same block back. A letter or Enter typed
+    while it is selected starts a paragraph after it. Its size, its caption,
+    its file, and a toggle's children are changed in Card Detail.
 82a. A double click anywhere on a note's card edits the note there
     ([note rendering](note-rendering.md), rule 25). On a block that the
     card's editor cannot edit, the caret goes to the end of the nearest
