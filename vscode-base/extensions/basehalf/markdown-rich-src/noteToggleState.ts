@@ -40,9 +40,12 @@ export function openBaseHalfNoteStoredOpenToggles(root: ParentNode): void {
  * modules hold the object it changes.
  */
 export function installBaseHalfNoteToggleState(): void {
-	defaultToggledState.get = block => baseHalfNoteToggleState.folds.get(block.id) ?? baseHalfNoteToggleState.initiallyOpen.has(block.id);
+	// The editor asks also for a toggle it no longer holds, as undefined.
+	defaultToggledState.get = block => !!block && (baseHalfNoteToggleState.folds.get(block.id) ?? baseHalfNoteToggleState.initiallyOpen.has(block.id));
 	defaultToggledState.set = (block, open) => {
-		baseHalfNoteToggleState.folds.set(block.id, open);
+		if (block) {
+			baseHalfNoteToggleState.folds.set(block.id, open);
+		}
 	};
 	// What the editor kept in the browser's storage before Rich kept folding itself.
 	try {

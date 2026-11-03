@@ -14,6 +14,7 @@ import { BASEHALF_RAW_PASSTHROUGH_BLOCK } from '../../../src/vs/workbench/baseha
 import { isBaseHalfNoteToggle } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteBlocks.js';
 import { baseHalfNoteMayHold } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteStructure.js';
 import { baseHalfNoteChangedRanges, normalizeBaseHalfNote } from './noteNormalizer.js';
+import { repairBaseHalfNoteDroppedHtml } from './notePaste.js';
 import { baseHalfNoteToggleState } from './noteToggleState.js';
 import { createBaseHalfNoteUndoFence } from './noteUndoFence.js';
 
@@ -38,6 +39,7 @@ export function makeBaseHalfNoteShapeExtension(options: IBaseHalfNoteShapeOption
 	const fence = createBaseHalfNoteUndoFence(() => options.undoManager?.());
 	// What the changes since the view was last drawn changed, for the toggles that open.
 	let changed: [number, number][] = [];
+	let dropping = false;
 	return createExtension({
 		key: 'baseHalfNoteShape',
 		// Ahead of the editor's own keys for a selected block (rule 71).
@@ -113,16 +115,39 @@ export function makeBaseHalfNoteShapeExtension(options: IBaseHalfNoteShapeOption
 				},
 			}),
 			new Plugin({
+				key: new PluginKey('baseHalfNoteDrop'),
+				props: {
+					handleDOMEvents: {
+						drop: () => {
+							// The editor reads a drop's HTML right after this, in the same event.
+							dropping = true;
+							queueMicrotask(() => dropping = false);
+							return false;
+						},
+					},
+					// HTML dropped from another application is read as a paste is (rule 73).
+					transformPastedHTML: html => dropping ? repairBaseHalfNoteDroppedHtml(html) : html,
+				},
+			}),
+			new Plugin({
 				key: new PluginKey('baseHalfNoteTypedLetters'),
 				props: { handleKeyDown: keepTypedLetters },
 			}),
 			new Plugin({
 				key: new PluginKey('baseHalfNoteCaretBeforeKeys'),
 				view: view => {
-					// In the capture phase: ahead of the editor's own key handling.
+					// In the capture phase: ahead of the editor's own key and clipboard handling.
 					const listener = (event: KeyboardEvent) => readCaretBeforeKey(view, event);
+					// The editor deletes what a cut took without saying it was a cut (rule 78).
+					const cut = () => fence.ownStepNow();
 					view.dom.addEventListener('keydown', listener, true);
-					return { destroy: () => view.dom.removeEventListener('keydown', listener, true) };
+					view.dom.addEventListener('cut', cut, true);
+					return {
+						destroy: () => {
+							view.dom.removeEventListener('keydown', listener, true);
+							view.dom.removeEventListener('cut', cut, true);
+						},
+					};
 				},
 			}),
 		],

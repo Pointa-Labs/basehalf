@@ -564,6 +564,7 @@ start).
     | a line break in a caption | a space |
     | text that reads as Markdown | Markdown; other text as typed |
     | a table with merged cells, a header column, or cell colors | a table as rule 60 says |
+    | a table without a header row | its rows under an empty header row (rule 58) |
     | blocks under a block that may not hold them | as rule 66 says |
 
 73. Command-V, Paste in Rich's menu, and a drop read a paste the same way.

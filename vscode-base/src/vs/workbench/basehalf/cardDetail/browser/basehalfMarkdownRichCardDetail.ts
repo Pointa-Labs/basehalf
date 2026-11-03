@@ -813,6 +813,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.openResource':
 				await this.handleOpenResource(state, message.href);
 				break;
+			case 'basehalf.markdownRich.clipboard':
+				// The same as the keys: the page's own copy, cut, or paste, with all that the clipboard holds.
+				this.webview?.[message.action]();
+				break;
 			case 'basehalf.markdownRich.openSource':
 				// The escape hatch for passthrough blocks: reopen this card in
 				// the source projection with the block's lines selected.

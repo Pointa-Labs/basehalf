@@ -86,6 +86,8 @@ import {
 	type IBaseHalfMarkdownSaveContribution,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { createBaseHalfNoteEditorApi } from './noteConversions.js';
+import { installBaseHalfNoteCopy } from './noteCopy.js';
+import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from './notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from './noteShape.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
@@ -713,6 +715,8 @@ function MarkdownRichEditor(): JSX.Element {
 			},
 		},
 		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension],
+		// What is pasted is read as a note's file is read (note formats, rules 72 to 74).
+		pasteHandler: baseHalfNotePasteHandler,
 		collaboration: {
 			fragment: fragment as XmlFragment,
 			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
@@ -748,6 +752,9 @@ function MarkdownRichEditor(): JSX.Element {
 	const editorApi = useMemo<IBaseHalfMarkdownEditorApi>(() => createBaseHalfNoteEditorApi(editor, {
 		onWriteWarning: warning => console.error('[basehalf] A block of the note could not be written in its formats; its words were written.', warning),
 	}), [editor]);
+	useMemo(() => installBaseHalfNotePaste(editor, editorApi), [editor, editorApi]);
+	// What a copy, a cut, and a drag carry out of Rich (note formats, rules 75 to 77).
+	useEffect(() => installBaseHalfNoteCopy(editor, document.body), [editor]);
 
 	const discardSelectionForNextSharedTransaction = noteUndo.discardSelectionForNextSharedTransaction;
 
@@ -2042,9 +2049,6 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 
 			const existing = (state.adhd?.highlight_keywords ?? []).find(keyword => keyword.toLowerCase() === selected.toLowerCase());
-			const clipboardText = selection && view
-				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
-				: selected;
 			const items: ContextMenuItem[] = [];
 			if (clickedFileUrl) {
 				items.push({
@@ -2076,32 +2080,24 @@ function MarkdownRichEditor(): JSX.Element {
 						run: () => postAdhdCommand({ command: 'addKeyword', keyword: selected }),
 					});
 			}
-			// Copy/cut/paste must behave exactly like their keyboard
-			// counterparts: rich content rides the editor's own clipboard
-			// serialization and paste parsing, not a plain-text detour.
-			// Never throws: clipboard access can fail on focus/permission, and
-			// callers (Cut) must still complete their own action.
-			const copySelection = async (): Promise<void> => {
-				try {
-					if (view && !view.state.selection.empty) {
-						const { dom, text } = view.serializeForClipboard(view.state.selection.content());
-						await navigator.clipboard.write([new ClipboardItem({
-							'text/html': new Blob([dom.innerHTML], { type: 'text/html' }),
-							'text/plain': new Blob([text], { type: 'text/plain' }),
-						})]);
-						return;
-					}
-				} catch {
-					// fall through to the plain-text fallback
+			// Copy, Cut, and Paste are the page's own, run by the host as for
+			// their keys, so that they carry and take all that the keys do:
+			// the note's Markdown, pictures, files, and Rich's own blocks
+			// (note formats, rules 73 and 75). The editor has the keyboard
+			// first, so that the page's selection is the editor's.
+			const clipboard = (action: 'copy' | 'cut' | 'paste'): void => {
+				if (action !== 'copy' && !canApplyAsyncMutation()) {
+					return;
 				}
-				await navigator.clipboard.writeText(clipboardText).catch(() => undefined);
+				view?.focus();
+				vscode.postMessage({ type: 'basehalf.markdownRich.clipboard', key: mutationKey, action });
 			};
 
 			if (selected.length > 0) {
 				items.push({
 					id: 'copy',
 					label: 'Copy',
-					run: () => void copySelection(),
+					run: () => clipboard('copy'),
 				});
 			}
 
@@ -2110,49 +2106,14 @@ function MarkdownRichEditor(): JSX.Element {
 					items.push({
 						id: 'cut',
 						label: 'Cut',
-						run: () => {
-							void asyncMutationBarrier.run(async () => {
-								await copySelection();
-								if (!canApplyAsyncMutation()) {
-									return;
-								}
-								view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
-								view.focus();
-							});
-						},
+						run: () => clipboard('cut'),
 					});
 				}
-				items.push(
-					{
-						id: 'paste',
-						label: 'Paste',
-						run: () => {
-							void asyncMutationBarrier.run(async () => {
-								let html: string | undefined;
-								try {
-									for (const item of await navigator.clipboard.read()) {
-										if (item.types.includes('text/html')) {
-											html = await (await item.getType('text/html')).text();
-											break;
-										}
-									}
-								} catch {
-									// clipboard.read unavailable; fall through to plain text
-								}
-								const text = html === undefined ? await navigator.clipboard.readText().catch(() => '') : '';
-								if (!canApplyAsyncMutation()) {
-									return;
-								}
-								view.focus();
-								if (html !== undefined) {
-									view.pasteHTML(html);
-								} else if (text) {
-									view.pasteText(text);
-								}
-							});
-						},
-					},
-				);
+				items.push({
+					id: 'paste',
+					label: 'Paste',
+					run: () => clipboard('paste'),
+				});
 			}
 
 			event.preventDefault();
@@ -2165,7 +2126,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 		dom.addEventListener('contextmenu', onContextMenu);
 		return () => dom.removeEventListener('contextmenu', onContextMenu);
-	}, [asyncMutationBarrier, editor, postAdhdCommand, vscode]);
+	}, [editor, postAdhdCommand, vscode]);
 
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;

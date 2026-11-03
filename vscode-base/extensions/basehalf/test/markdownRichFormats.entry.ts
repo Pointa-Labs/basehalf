@@ -35,6 +35,8 @@ import {
 import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
 import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDecorations.js';
 import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
+import { installBaseHalfNoteCopy } from '../markdown-rich-src/noteCopy.js';
+import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from '../markdown-rich-src/notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
@@ -53,11 +55,12 @@ export type NoteFormatsMode = 'basehalf' | 'baseline';
 const NOTE_FOLDER = `${location.origin}/notes/`;
 
 /** The editor of a note, as Card Detail creates it (useCreateBlockNote in editor.tsx). */
-function createNoteEditor(fragment: XmlFragment, extensions: readonly ExtensionFactoryInstance[], uploadFile: (file: File) => Promise<string>) {
+function createNoteEditor(fragment: XmlFragment, extensions: readonly ExtensionFactoryInstance[], uploadFile: (file: File) => Promise<string>, pasteHandler?: typeof baseHalfNotePasteHandler) {
 	return BlockNoteEditor.create({
 		schema: baseHalfNoteSchema,
 		dictionary: en,
 		uploadFile,
+		...(pasteHandler ? { pasteHandler } : {}),
 		resolveFileUrl: async url => !url || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url) ? url : new URL(url, NOTE_FOLDER).toString(),
 		extensions: [makeBaseHalfAdhdDecorationExtension(), makeBaseHalfSelectionRevealExtension(), ...extensions],
 		collaboration: {
@@ -90,6 +93,10 @@ interface INoteFormatsModeSetup {
 	readonly editorApi: (editor: NoteEditor) => IBaseHalfMarkdownEditorApi;
 	/** Extensions of the editor besides those Rich has always had, made for each editor. */
 	readonly extensions: () => readonly ExtensionFactoryInstance[];
+	/** Rich's paste, as editor.tsx installs it (notePaste.ts), or the editor's own. */
+	readonly paste?: { readonly handler: typeof baseHalfNotePasteHandler; install(editor: NoteEditor, api: IBaseHalfMarkdownEditorApi): void };
+	/** Rich's copy, as editor.tsx installs it (noteCopy.ts): what removes it. */
+	readonly copy?: (editor: NoteEditor) => () => void;
 }
 
 /**
@@ -111,6 +118,8 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 			undoManager: () => openNow.history?.ensure(),
 			reading: () => openNow.reading,
 		})],
+		paste: { handler: baseHalfNotePasteHandler, install: (editor, api) => installBaseHalfNotePaste(editor, api) },
+		copy: editor => installBaseHalfNoteCopy(editor, document.body),
 	},
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
 };
@@ -245,8 +254,10 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 	const ydoc = new YDoc();
 	// The fragment name of editor.tsx (BLOCKNOTE_FRAGMENT_NAME).
 	const fragment = ydoc.getXmlFragment('bn');
-	const editor = createNoteEditor(fragment, setup.extensions(), async file => `attachments/${file.name}`);
+	const editor = createNoteEditor(fragment, setup.extensions(), async file => `attachments/${file.name}`, setup.paste?.handler);
 	const api = setup.editorApi(editor);
+	setup.paste?.install(editor, api);
+	const offCopy = setup.copy?.(editor);
 	const history = createBaseHalfNoteUndo(editor);
 	openNow.history = history;
 	// As editor.tsx's change listener, which keeps the undo manager live first.
@@ -380,6 +391,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 		},
 	};
 	const dispose = () => {
+		offCopy?.();
 		offChange();
 		root.unmount();
 		ydoc.destroy();
@@ -718,6 +730,173 @@ async function keys(t: INoteFormatsTest): Promise<void> {
 	});
 }
 
+/** Pastes `data`, by type, as Command-V does: the editor's paste handler reads the clipboard's data. */
+async function paste(t: INoteFormatsTest, data: Readonly<Record<string, string>>): Promise<void> {
+	const transfer = new DataTransfer();
+	for (const [type, value] of Object.entries(data)) {
+		transfer.setData(type, value);
+	}
+	t.editor.domElement?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+	// A paste of Markdown reads it before it pastes.
+	await t.frames(3);
+}
+
+/**
+ * Part d, paste (note formats, rules 72 to 74): what Command-V brings, from
+ * another application, as Markdown, or from a code editor, comes in as what
+ * the note can store, the same as the note's file would show it.
+ */
+async function pastes(t: INoteFormatsTest): Promise<void> {
+	const into = async (data: Readonly<Record<string, string>>): Promise<{ readonly saved: string; readonly blocks: readonly string[] }> => {
+		await t.load('Start.\n');
+		await t.frames();
+		t.caret('Start.');
+		await t.keyboard.press('Enter');
+		await paste(t, data);
+		return { saved: await t.save(), blocks: t.blocks().map(block => block.type) };
+	};
+	t.check('HTML from another application keeps underline but over a whole link and palette colors, and drops other colors, alignment, and a picture\'s width', {
+		formats: (await into({
+			'text/html': '<p style="text-align:center;background-color:yellow"><u>under</u>, <a href="https://example.com/a"><u>a whole link</u></a>, <span style="color: rgb(232, 112, 107)">red</span>, and <span style="color:#123456">other</span>.</p>',
+			'text/plain': 'under, a whole link, red, and other.',
+		})).saved,
+		picture: (await into({ 'text/html': '<img src="https://example.com/pic.png" width="200">', 'text/plain': '' })).saved,
+	}, {
+		formats: 'Start.\n\n<u>under</u>, [a whole link](https://example.com/a), <span style="color:#e8706b;">red</span>, and other.\n',
+		picture: 'Start.\n\n![](https://example.com/pic.png)\n',
+	});
+	t.check('a pasted toggle is stored closed, and a pasted table has one header row and no merged cells', {
+		toggle: (await into({ 'text/html': '<details open><summary>Title</summary><p>child</p></details>', 'text/plain': 'Title child' })).saved,
+		table: (await into({
+			'text/html': '<table><tr><td colspan="2" style="background-color:red">wide</td></tr><tr><td>x</td><td>y</td></tr></table>',
+			'text/plain': 'wide x y',
+		})).saved,
+	}, {
+		toggle: 'Start.\n\n<details>\n<summary>Title</summary>\n\nchild\n\n</details>\n',
+		table: 'Start.\n\n|      |     |\n| ---- | --- |\n| wide |     |\n| x    | y   |\n',
+	});
+	t.check('pasted Markdown is read as the note\'s file is: what Rich cannot edit is a fixed block, and a paragraph that is one link to a file a file block', {
+		markdown: await into({ 'text/plain': '# Heading\n\n<div>raw</div>\n\n- one\n- two\n' }),
+		fileLink: (await into({ 'text/plain': '[handout.pdf](handout.pdf) and [a link](https://example.com/b)\n\n[handout.pdf](handout.pdf)\n' })).blocks,
+		plain: (await into({ 'text/plain': 'plain * words' })).saved,
+	}, {
+		markdown: { saved: 'Start.\n\n# Heading\n\n<div>raw</div>\n\n- one\n- two\n', blocks: ['paragraph', 'heading', 'rawPassthrough', 'bulletListItem', 'bulletListItem'] },
+		fileLink: ['paragraph', 'paragraph', 'file'],
+		plain: 'Start.\n\nplain * words\n',
+	});
+	const typescript = { 'vscode-editor-data': JSON.stringify({ mode: 'typescript' }), 'text/plain': 'const a = 1;' };
+	const fromSource = {
+		markdown: (await into({ 'vscode-editor-data': JSON.stringify({ mode: 'markdown' }), 'text/plain': '- a\n- b' })).saved,
+		code: (await into(typescript)).saved,
+	};
+	await t.load('abcdef\n');
+	await t.frames();
+	t.caret('abc');
+	await paste(t, typescript);
+	t.check('Markdown copied from a code editor is read as Markdown, and code of another language is one block of code, also in the middle of a line', {
+		...fromSource,
+		midLine: await t.save(),
+	}, {
+		markdown: 'Start.\n\n- a\n- b\n',
+		code: 'Start.\n\n```typescript\nconst a = 1;\n```\n',
+		midLine: 'abc\n\n```typescript\nconst a = 1;\n```\n\ndef\n',
+	});
+
+	// A fixed block copied within Rich: the editor's own HTML of it.
+	await t.load('Start.\n\n<div>raw</div>\n');
+	await t.frames();
+	const fixedHtml = t.editor.blocksToFullHTML([t.editor.document[1]]);
+	await t.load('Start.\n');
+	await t.frames();
+	t.caret('Start.');
+	await t.keyboard.press('Enter');
+	await paste(t, { 'blocknote/html': fixedHtml, 'text/html': fixedHtml, 'text/plain': '<div>raw</div>' });
+	t.check('a fixed block copied within Rich is pasted as a fixed block of its text', { saved: await t.save(), blocks: t.blocks().map(block => block.type) }, {
+		saved: 'Start.\n\n<div>raw</div>\n',
+		blocks: ['paragraph', 'rawPassthrough'],
+	});
+}
+
+/** Selects from the start of the first text `from` to the end of the first text `to` after it, and gives the editor the keyboard. */
+function selectBetween(t: INoteFormatsTest, from: string, to: string): void {
+	const view = t.editor.prosemirrorView;
+	let start: number | undefined;
+	let end: number | undefined;
+	view.state.doc.descendants((node, position) => {
+		if (node.isText && node.text) {
+			if (start === undefined && node.text.includes(from)) {
+				start = position + node.text.indexOf(from);
+			}
+			if (start !== undefined && end === undefined && node.text.includes(to) && position + node.text.indexOf(to) >= start) {
+				end = position + node.text.indexOf(to) + to.length;
+			}
+		}
+		return end === undefined;
+	});
+	if (start === undefined || end === undefined) {
+		throw new Error(`The note has no text from "${from}" to "${to}".`);
+	}
+	view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, start, end)));
+	t.editor.focus();
+}
+
+/** Copies or cuts the selection as Command-C or Command-X does, and gives what the clipboard holds. */
+async function copy(t: INoteFormatsTest, kind: 'copy' | 'cut' = 'copy'): Promise<{ readonly text: string; readonly html: string }> {
+	const transfer = new DataTransfer();
+	t.editor.domElement?.dispatchEvent(new ClipboardEvent(kind, { clipboardData: transfer, bubbles: true, cancelable: true }));
+	await t.frames();
+	return { text: transfer.getData('text/plain'), html: transfer.getData('text/html') };
+}
+
+/**
+ * Part f, copy (note formats, rules 75 to 77): what Command-C and Command-X
+ * put on the clipboard as text is the Markdown the note stores for the
+ * selection, with toggles closed and fixed blocks as their text, and the
+ * HTML for another application has the palette's values; code is copied as
+ * its code, and a cut is a step of undo of its own.
+ */
+async function copies(t: INoteFormatsTest): Promise<void> {
+	await t.load('Some **bold**, <u>under</u>, and <span style="color:#e8706b;">red</span> text.\n');
+	await t.frames();
+	selectBetween(t, 'Some', 'text.');
+	const inline = await copy(t);
+	t.check('a copy within one block puts its text with its formats as the note stores them, and its HTML with the palette\'s values', {
+		text: inline.text,
+		red: /<span [^>]*style="color:#e8706b;"[^>]*>red<\/span>/.test(inline.html),
+	}, { text: 'Some **bold**, <u>under</u>, and <span style="color:#e8706b;">red</span> text.', red: true });
+
+	await t.load('<details open>\n<summary>Title</summary>\n\nchild\n\n</details>\n\n<div>raw</div>\n\n- one\n- two\n');
+	await t.frames();
+	selectBetween(t, 'Title', 'two');
+	const blocks = await copy(t);
+	await t.load('```js\nconst x = 1;\n```\n');
+	await t.frames();
+	selectBetween(t, 'const', '1;');
+	const code = await copy(t);
+	t.check('a copy of blocks puts the Markdown the note stores for them, a toggle closed and a fixed block as its text; a copy in code puts its code', {
+		blocks: blocks.text,
+		code: code.text,
+	}, {
+		blocks: '<details>\n<summary>Title</summary>\n\nchild\n\n</details>\n\n<div>raw</div>\n\n- one\n- two',
+		code: 'const x = 1;',
+	});
+
+	await t.load('First line.\n\nSecond line.\n');
+	await t.frames();
+	t.caret('Second line.');
+	await t.keyboard.type(' more');
+	selectBetween(t, 'First', 'line.');
+	const cut = await copy(t, 'cut');
+	const afterCut = await t.save();
+	t.command('undo');
+	await t.frames();
+	t.check('a cut puts the same text, deletes what it took, and is a step of undo of its own', { text: cut.text, afterCut, undone: await t.save() }, {
+		text: 'First line.',
+		afterCut: 'Second line. more\n',
+		undone: 'First line.\n\nSecond line. more\n',
+	});
+}
+
 /** Selects the first text that matches, and gives the editor the keyboard. */
 function selectText(t: INoteFormatsTest, text: string): void {
 	const view = t.editor.prosemirrorView;
@@ -964,6 +1143,8 @@ async function fixedBlocks(t: INoteFormatsTest): Promise<void> {
 const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	'0': testBed,
 	c: schema,
+	d: pastes,
+	f: copies,
 	e: keys,
 	g: toggles,
 	k: fixedBlocks,

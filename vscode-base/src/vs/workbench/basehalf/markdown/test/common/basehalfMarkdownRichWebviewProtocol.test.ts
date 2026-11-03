@@ -290,6 +290,10 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.attachmentUpload', key: 'workspace\u0000doc.md', requestId: 'attachment-1', name: '', mediaType: '', data: new ArrayBuffer(1) }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openResource', key: 'workspace\u0000doc.md', href: 'attachments/lecture.pdf' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openResource', key: 'workspace\u0000doc.md', href: '' }), false);
+		for (const action of ['copy', 'cut', 'paste']) {
+			assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.clipboard', key: 'workspace\u0000doc.md', action }), true);
+		}
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.clipboard', key: 'workspace\u0000doc.md', action: 'selectAll' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.openSource',
 			key: 'workspace\u0000doc.md',

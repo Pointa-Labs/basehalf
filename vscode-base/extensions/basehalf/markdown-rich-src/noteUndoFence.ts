@@ -23,6 +23,8 @@ export interface IBaseHalfNoteUndoFence {
 	before(transaction: Transaction): void;
 	/** Makes what `change` changes, such as a move of blocks by keys, a step of its own. */
 	ownStep(change: () => void): void;
+	/** Makes the next change of this task, such as the deletion of a cut, a step of its own. */
+	ownStepNow(): void;
 }
 
 /** A fence over the undo manager that `manager` gives, which may change while the note is open. */
@@ -56,6 +58,10 @@ export function createBaseHalfNoteUndoFence(manager: () => { stopCapturing(): vo
 			} finally {
 				forced = false;
 			}
+		},
+		ownStepNow: () => {
+			forced = true;
+			queueMicrotask(() => forced = false);
 		},
 	};
 }

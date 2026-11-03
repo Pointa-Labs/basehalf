@@ -275,6 +275,12 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly href: string;
 	}
 	| {
+		/** Copy, Cut, or Paste of Rich's menu: the host runs the page's own, as for the keys (note formats, rules 73 and 75). */
+		readonly type: 'basehalf.markdownRich.clipboard';
+		readonly key: string;
+		readonly action: 'copy' | 'cut' | 'paste';
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.openSource';
 		readonly key: string;
 		readonly selection: IBaseHalfMarkdownRichTextSelection;
@@ -427,6 +433,8 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 				&& candidate.data instanceof ArrayBuffer;
 		case 'basehalf.markdownRich.openResource':
 			return typeof candidate.href === 'string' && candidate.href.length > 0;
+		case 'basehalf.markdownRich.clipboard':
+			return candidate.action === 'copy' || candidate.action === 'cut' || candidate.action === 'paste';
 		case 'basehalf.markdownRich.openSource':
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.adhdCommand':
