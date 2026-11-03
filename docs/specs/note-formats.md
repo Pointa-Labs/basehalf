@@ -605,6 +605,11 @@ start).
     after → at the end of the line before it, starts a paragraph after the
     block. A key acts at the caret the note shows, also when it arrives on a
     busy page before the page has reported the click that moved the caret.
+71a. **Select All selects the whole note.** Command-A, and Select All in the
+    window's Edit menu, select every block of the note, also the pictures,
+    videos, sounds, file blocks, and other fixed blocks at its start or its
+    end, which a selection of text cannot reach; a copy then carries them
+    all. A field in Rich, as a link's address, keeps its own Select All.
 
 ### Paste and drop
 
@@ -910,6 +915,9 @@ this specification. Outside changes are merged meanwhile, as always.
 35. After Card Detail opened a note at a heading in a closed toggle far down
     the note and closed again, the parts of the window and the note's card
     stand where they stood before, to the pixel.
+36. In a note whose last blocks are a picture and a file block, Command-A and
+    then Command-C put on the clipboard the Markdown of every block of the
+    note, the picture's and the file block's links too.
 
 ## Verification
 
@@ -948,8 +956,11 @@ this specification. Outside changes are merged meanwhile, as always.
   criterion 21 in Rich and in Preview with the system in light and in dark
   appearance, its pixels on the screen too; criterion 24 in every frame;
   Chinese typed with an input method into an underlined red word, a toggle's
-  title, and a caption; a copy from Rich pasted into Source; and Command-P
-  from Rich. The `canvas` suite runs criteria 12, 13 (a click on the card at
+  title, and a caption; a copy from Rich pasted into Source; Command-P
+  from Rich; and criterion 36 (`note-formats-select-all-takes-every-block`,
+  a clipboard step). Before rule 71a, Command-A left out the picture and the
+  file block at the end of a note: the window's own Select All selected the
+  page's text, which reached only to the end of the last line of text. The `canvas` suite runs criteria 12, 13 (a click on the card at
   rest and Command-click in the card's editor), 21 on the card, 23, 30, and
   35,
   and the clicks on a summary, a video, and a sound on a resting card, with
