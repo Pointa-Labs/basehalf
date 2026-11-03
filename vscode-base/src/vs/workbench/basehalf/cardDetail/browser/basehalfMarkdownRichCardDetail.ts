@@ -75,7 +75,7 @@ import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlain
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
-import { BaseHalfNotePictureEditing } from './basehalfNotePictureEditing.js';
+import { applyBaseHalfNotePictureChoices, BaseHalfNotePictureEditing } from './basehalfNotePictureEditing.js';
 import { baseHalfMarkdownPathHref } from '../../markdown/common/basehalfNoteMarkdownText.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
@@ -852,6 +852,14 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.endPictureEdit':
 				await this.pictureEditing.value?.end();
 				break;
+			case 'basehalf.markdownRich.applyPictureChoices': {
+				// The note's undo or redo of an edit of a picture: the file gets the choices, and Rich shows its version.
+				const version = await this.instantiationService.invokeFunction(accessor => applyBaseHalfNotePictureChoices(accessor, state.resource, message.href, message.choices));
+				if (version) {
+					void this.bridge?.sendPictureVersion(message.href, version);
+				}
+				break;
+			}
 			case 'basehalf.markdownRich.openSource':
 				// The escape hatch for passthrough blocks: reopen this card in
 				// the source projection with the block's lines selected.
@@ -1581,7 +1589,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			box: this.pictureBoxInLayer(box),
 		}, {
 			layer: this.pictureLayer(),
-			ended: (ended, version) => void this.bridge?.sendPictureEditEnded(ended, version),
+			ended: (ended, version, step) => void this.bridge?.sendPictureEditEnded(ended, version, step && { before: { ...step.before }, after: { ...step.after } }),
 			show: shown => void this.bridge?.sendShowPicture(shown),
 		});
 		this.pictureEditing.value = editing;

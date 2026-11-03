@@ -304,6 +304,46 @@ suite('BaseHalfMediaEditService', () => {
 		});
 	});
 
+	test('a change whose undo another keeps is no step of the canvas, and that undo puts back its choices as a step of the canvas does (D113)', async () => {
+		const { fileService, service, undoRedoService, bytesOf, same, recordOf, notifications } = setUp();
+		const wav = makeWav();
+		await fileService.writeFile(SOUND, VSBuffer.wrap(wav));
+		const state = await service.readEditState(SOUND_FILE);
+		service.change(SOUND_FILE, state, { keep: [{ start: 0, end: 1.5 }] }, 'Trim take.wav', { step: false });
+		await service.flush(SOUND);
+		const trimmed = (await recordOf(SOUND_INFORMATION))?.keep;
+		// The note's undo: the choices before, and the original's own bytes come back.
+		const undone = await service.applyChoices(SOUND, {});
+		await service.flush(SOUND);
+		const whole = [same(await bytesOf(SOUND), wav), await fileService.exists(joinPath(SOUND_INFORMATION, 'edit.yaml'))];
+		// And its redo.
+		const redone = await service.applyChoices(SOUND, { keep: [{ start: 0, end: 1.5 }] });
+		await service.flush(SOUND);
+		// A file this window never edited is not changed by such an undo, which says so.
+		const elsewhere = await service.applyChoices(joinPath(WORKSPACE, 'takes', 'other.wav'), {});
+		assert.deepStrictEqual({
+			labels: undoRedoService.labels,
+			canUndo: undoRedoService.canUndo(BASEHALF_CANVAS_UNDO_REDO_SOURCE),
+			trimmed,
+			undone,
+			whole,
+			redone,
+			kept: (await recordOf(SOUND_INFORMATION))?.keep,
+			elsewhere,
+			notifications
+		}, {
+			labels: [],
+			canUndo: false,
+			trimmed: [{ start: 0, end: 1.5 }],
+			undone: true,
+			whole: [true, false],
+			redone: true,
+			kept: [{ start: 0, end: 1.5 }],
+			elsewhere: false,
+			notifications: ['info: \'other.wav\' changed meanwhile. Undo did not change it.']
+		});
+	});
+
 	test('a file is written once at a time: a change while a write runs is written after it (D85)', async () => {
 		const { fileService, service, clones, recordOf } = setUp();
 		await fileService.writeFile(SOUND, VSBuffer.wrap(makeWav()));

@@ -138,8 +138,16 @@ export interface IBaseHalfMediaEditService {
 	copySource(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): Promise<IBaseHalfMediaSourceCopy>;
 	/** The choices that an editor of the file shows: those of this window's last change of it, or of its record. */
 	choicesOf(file: URI, state: IBaseHalfMediaEditState): IBaseHalfMediaChoices;
-	/** A change in an editor: one step of the canvas undo, named `label`, that the file follows once the choices rest. */
-	change(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, label: string): void;
+	/**
+	 * A change in an editor: one step of the canvas undo, named `label`, that the file follows once the choices rest;
+	 * with `step: false`, no step, for an editor whose undo another keeps, as a picture's in its note (D113).
+	 */
+	change(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, label: string, options?: { readonly step?: boolean }): void;
+	/**
+	 * The undo or the redo of a step that another undo than the canvas's keeps, as a note's (D113): puts back
+	 * the choices as the undo of a step does, or says why it cannot and changes nothing.
+	 */
+	applyChoices(file: URI, choices: IBaseHalfMediaChoices): Promise<boolean>;
 	/** Revert to Original: one step that puts the original back in the file's place. */
 	revertToOriginal(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): void;
 	/** Where the writing of the file stands; nothing while no write runs or failed. */
@@ -520,13 +528,18 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		return this.entryOf(file, state)?.desired ?? (state.record ? normalizeBaseHalfMediaChoices(state.record) : {});
 	}
 
-	change(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, label: string): void {
+	change(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, label: string, options?: { readonly step?: boolean }): void {
 		if (state.unavailable) {
 			return;
 		}
 		const entry = this.entryFor(file, state);
 		const next = normalizeBaseHalfMediaChoices(choices);
 		if (sameChoices(next, entry.desired)) {
+			return;
+		}
+		if (options?.step === false) {
+			entry.last = undefined;
+			this.setDesired(entry, next);
 			return;
 		}
 		const now = Date.now();
@@ -545,6 +558,16 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 
 	revertToOriginal(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): void {
 		this.change(file, state, {}, localize('basehalf.mediaEdit.step.revert', "Revert {0} to Original", basename(file.resource)));
+	}
+
+	async applyChoices(file: URI, choices: IBaseHalfMediaChoices): Promise<boolean> {
+		const entry = this.entries.get(file);
+		if (!entry) {
+			// This window did not edit the file, or the file changed outside BaseHalf since.
+			this.notificationService.info(localize('basehalf.mediaEdit.step.changed', "'{0}' changed meanwhile. Undo did not change it.", basename(file)));
+			return false;
+		}
+		return this.applyStep(entry, normalizeBaseHalfMediaChoices(choices));
 	}
 
 	/** The undo or the redo of a step: the choices it puts back, or why it cannot, which it says. */

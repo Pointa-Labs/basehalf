@@ -9,6 +9,7 @@ import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichHostMessage,
+	BaseHalfMarkdownRichPictureChoices,
 	BaseHalfMarkdownRichSurface,
 	BaseHalfMarkdownRichWebviewMessage,
 	IBaseHalfMarkdownRichFileLink,
@@ -106,13 +107,24 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
-	/** The editing of a picture ended: Rich shows its file at `version`, and closes the room under it (D113). */
-	sendPictureEditEnded(blockId: string, version: string | undefined): Promise<boolean> {
+	/** The editing of a picture ended: Rich shows its file at `version`, closes the room under it, and keeps `step` for its undo (D113). */
+	sendPictureEditEnded(blockId: string, version: string | undefined, step?: { readonly before: BaseHalfMarkdownRichPictureChoices; readonly after: BaseHalfMarkdownRichPictureChoices }): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.pictureEditEnded',
 			key: this.key,
 			blockId,
-			...(version !== undefined ? { version } : {})
+			...(version !== undefined ? { version } : {}),
+			...(step ? { step } : {})
+		});
+	}
+
+	/** An undo or a redo of the note set the choices of the picture file at `href`: Rich shows it at `version` (D113). */
+	sendPictureVersion(href: string, version: string): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.pictureVersion',
+			key: this.key,
+			href,
+			version
 		});
 	}
 

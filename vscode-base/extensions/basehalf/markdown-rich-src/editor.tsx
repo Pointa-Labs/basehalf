@@ -50,7 +50,7 @@ import {
 	type TableHandleProps,
 } from '@blocknote/react';
 import { RiExternalLinkFill, RiImageEditFill } from 'react-icons/ri';
-import { applyUpdate, Doc as YDoc, type XmlFragment } from 'yjs';
+import { applyUpdate, Doc as YDoc, UndoManager, type Transaction as YTransaction, type XmlFragment, type YMapEvent } from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
 import { TextSelection, type EditorState } from '@tiptap/pm/state';
 import { createRoot } from 'react-dom/client';
@@ -608,6 +608,11 @@ function BaseHalfSideMenuController({ portalElement }: { readonly portalElement:
 	);
 }
 
+/** The note's map of picture edits (D113): the choices of each picture file's edit that the note's undo holds, never written to the file. */
+const BASEHALF_NOTE_PICTURE_EDITS = 'basehalfNotePictureEdits';
+/** The origin of what an undo of a picture's edit goes back to, which no undo tracks. */
+const BASEHALF_NOTE_PICTURE_EDIT_BASE = 'basehalf.notePictureEdit.base';
+
 function MarkdownRichEditor(): JSX.Element {
 	const vscode = useMemo(() => acquireVsCodeApi(), []);
 	const initialKey = useMemo(() => decodeHtmlKey(document.getElementById('root')?.dataset.basehalfKey ?? ''), []);
@@ -867,6 +872,60 @@ function MarkdownRichEditor(): JSX.Element {
 			...(box && box.width > 0 && box.height > 0 ? { box: { left: box.left, top: box.top, width: size ? size.width * scale : box.width, height: size ? size.height * scale : box.height } } : {}),
 		});
 	}, [editor, vscode]);
+
+	/**
+	 * The edit of a picture from Edit to Done is one step of the note's undo
+	 * (D113): a change of the note's map of picture edits, which is never
+	 * written to the file. Its undo and redo give the window the choices
+	 * before or after, which the picture's file gets.
+	 */
+	const recordPictureEdit = useCallback((url: string, step: { readonly before: object; readonly after: object }): void => {
+		const manager = noteUndo.ensure();
+		if (!manager) {
+			return;
+		}
+		const edits = ydoc.getMap<string>(BASEHALF_NOTE_PICTURE_EDITS);
+		if (!manager.scope.includes(edits)) {
+			manager.addToScope(edits);
+		}
+		// What the step undoes to, set where no undo sees it.
+		ydoc.transact(() => edits.set(url, JSON.stringify(step.before)), BASEHALF_NOTE_PICTURE_EDIT_BASE);
+		manager.stopCapturing();
+		ydoc.transact(() => edits.set(url, JSON.stringify(step.after)), ySyncPluginKey);
+		manager.stopCapturing();
+	}, [noteUndo, ydoc]);
+	useEffect(() => {
+		const edits = ydoc.getMap<string>(BASEHALF_NOTE_PICTURE_EDITS);
+		const onChange = (event: YMapEvent<string>, transaction: YTransaction): void => {
+			if (!(transaction.origin instanceof UndoManager)) {
+				return;
+			}
+			for (const url of event.keysChanged) {
+				const value = edits.get(url);
+				if (value !== undefined) {
+					vscode.postMessage({ type: 'basehalf.markdownRich.applyPictureChoices', key: session.current.key, href: url, choices: JSON.parse(value) });
+				}
+			}
+		};
+		edits.observe(onChange);
+		return () => edits.unobserve(onChange);
+	}, [vscode, ydoc]);
+
+	/** An undo or a redo set the choices of a picture's file: every picture of that file shows it at its new version. */
+	const showPictureVersion = useCallback((url: string, version: string): void => {
+		const address = noteFileAddress(url, session.current.baseUri);
+		if (address === undefined) {
+			return;
+		}
+		pictureVersions.current.set(address, version);
+		const shown = baseHalfNoteFileAddressAt(address, version);
+		for (const content of editor.domElement?.querySelectorAll<HTMLElement>('.bn-block-content[data-content-type="image"]') ?? []) {
+			const picture = content.querySelector('img.bn-visual-media');
+			if (content.dataset.url === url && picture instanceof HTMLImageElement) {
+				picture.src = shown;
+			}
+		}
+	}, [editor]);
 
 	/** The editor stands where the picture is: the note shows it again, and once it is drawn the editor goes (D113). */
 	const showEditedPicture = useCallback((blockId: string): void => {
@@ -2086,8 +2145,16 @@ function MarkdownRichEditor(): JSX.Element {
 				case 'basehalf.markdownRich.revealHeading':
 					readingAids.current?.outline.revealHeading(message.heading);
 					break;
-				case 'basehalf.markdownRich.pictureEditEnded':
+				case 'basehalf.markdownRich.pictureEditEnded': {
+					const edited = pictureEdit.current;
+					if (message.step && edited?.blockId === message.blockId) {
+						recordPictureEdit(edited.url, message.step);
+					}
 					void endPictureEdit(message.blockId, message.version).catch(reportError);
+					break;
+				}
+				case 'basehalf.markdownRich.pictureVersion':
+					showPictureVersion(message.href, message.version);
 					break;
 				case 'basehalf.markdownRich.showPicture':
 					showEditedPicture(message.blockId);
@@ -2173,7 +2240,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [adoptDiskFrontmatter, applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, endPictureEdit, flushPendingEditorCommands, focusAtPoint, notifyDirty, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, showEditedPicture, vscode, waitForCompositionSettled, ydoc]);
+	}, [adoptDiskFrontmatter, applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, endPictureEdit, flushPendingEditorCommands, focusAtPoint, notifyDirty, recordPictureEdit, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, showEditedPicture, showPictureVersion, vscode, waitForCompositionSettled, ydoc]);
 
 	useEffect(() => {
 		postFormatState();
@@ -3031,3 +3098,4 @@ function noteFileAddress(url: string, baseUri: string | undefined): string | und
 	}
 	return baseUri ? new URL(url, baseUri).toString() : url;
 }
+
