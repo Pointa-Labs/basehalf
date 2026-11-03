@@ -62,12 +62,17 @@ In the workspace, under `.bh/`:
 | `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation: the background of a note's card, or whether the card of a PDF or a book shows its cover ([PDFs and books](documents-and-books.md#hiding-and-showing-the-cover)) |
 | `.bh/legacy-references.yaml` | project metadata | append-only migration record, only after a migration |
 | `.bh/cache/` | machine-local runtime state | the task records of generations and their partial downloads under `generation/` ([generation cards](generation-cards.md#the-task-record)), undo stashes, the kept versions under `kept/`, what the steps of undo took away until they go to the Trash ([exact undo](exact-undo.md#the-kept-versions)), recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)), `gone-originals.json`, since when the file of each original has been gone ([editing media](media-editing.md#when-the-file-is-gone)), `edit/`, what an edit writes before it takes the file's place, the last writes of each edited file for undo, and the copy that a video plays from while it is edited ([editing media](media-editing.md#while-it-is-saved-and-after)), and `selection.yaml`, the record of [the selection agents can see](selection-for-agents.md); not shared through git, and not watched for changes, except `generation/`, which BaseHalf watches so that every window of the workspace shows the same generations |
-| `.bh/.gitignore` | BaseHalf's own ignore file | hides itself, every `canvas.yaml`, and `.bh/cache/` from git ([canvas card placement](canvas-card-placement.md#places-stay-out-of-git)) |
+| `.bh/attachments/<folder>/<file>` | content, shared through git with the notes | the files put into notes, one folder per note, in the store of the note's home ([files in notes](files-in-notes.md)) |
+| `.bh/cache/note-files.json` | machine-local runtime state | since when each stored file is mentioned nowhere, and what a file the system keeps in the cloud mentioned when last read ([files in notes](files-in-notes.md#leaving)) |
+| `.bh/.gitignore` | BaseHalf's own ignore file | hides itself, every `canvas.yaml`, and `.bh/cache/` from git with anchored rules, kept at BaseHalf's own text ([canvas card placement](canvas-card-placement.md#places-stay-out-of-git)) |
 
 BaseHalf does not create or edit the user's `.gitignore`. Lines that earlier
 releases appended there stay unless the user removes them. The one ignore
 file BaseHalf writes is its own, inside `.bh/`. It is written before the
-first layout or working file, and one that is there is left as it is.
+first layout or working file, and written again when it differs from
+BaseHalf's own text ([files in notes](files-in-notes.md), rule 45). A git
+repository inside the workspace folder gets a `.bh/` of its own when the first
+file is put into one of its notes.
 
 Project metadata may be committed, so that descriptions, the upstream lists
 BaseHalf keeps, and the prompts, settings, drafts, and records of generation

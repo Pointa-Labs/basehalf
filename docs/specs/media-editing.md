@@ -1112,6 +1112,16 @@ in Card Detail.
 - A copy of an edited file on a disk that cannot clone files takes as much
   room again for its original.
 
+
+### A note's files
+
+A picture, a video, or a sound kept for a note ([files in notes](files-in-notes.md))
+is edited as any media file is, in place in its note. Its original and its
+edit record are card information at its own path:
+`.bh/mirror/.bh/attachments/<folder>/<file>/`. The file never moves, so the
+record never follows it. When the file is released by the 30-day rule, its
+original goes to the Trash with it, and its record is deleted.
+
 ## Acceptance criteria
 
 1. Card Detail of a video, an image, and a sound opens to view it: no crop

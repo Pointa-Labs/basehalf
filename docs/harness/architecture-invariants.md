@@ -149,6 +149,11 @@ D85 in [decisions.md](../decisions.md).
   D110). A change written to the file from outside reaches it also when it
   lands while the rich projection saves: after each of its saves the file's
   text is read again, whatever the file's state says.
+- A file put into a note is content: it is kept in the note's own folder in
+  `.bh/attachments/` of the note's home and shared through git with the note,
+  and the note links it with a plain relative link
+  ([files in notes](../specs/files-in-notes.md), D111). Markdown links stay
+  navigation only.
 - An explicit reference `A → B` means A's context flows into B. The graph is
   directed, many-to-many, cyclic when useful, and never self-referential.
   Markdown links navigate but do not create reference edges. Edges carry no
@@ -204,16 +209,21 @@ D85 in [decisions.md](../decisions.md).
   agent calls BaseHalf for that
   ([following moved items](../specs/following-moved-items.md), D44). What
   BaseHalf writes by itself is its own: the card information it moves along
-  with an item, and the places of cards that appear. Opening a folder
-  changes nothing that git shows, and nothing is written by itself in a
-  marked folder.
+  with an item, and the places of cards that appear; for files in notes, the
+  route of a store link that leads nowhere, the clones and links of a note
+  copy BaseHalf made, and the release to the Trash of stored files that no
+  text file mentioned for 30 days ([files in notes](../specs/files-in-notes.md)).
+  Opening a folder changes nothing that git shows but those corrections and
+  releases, and nothing is written by itself in a marked folder.
 - BaseHalf assumes users do not read code and never open `.bh/`. No message,
   button, or repair step sends them to a file's source or to a hidden file;
   repairs are actions in BaseHalf's own interface (D41). Messages give reasons
   in plain words: no file-format terms, no path under `.bh/`, and no raw file
   system error text, which goes to the log.
 - BaseHalf writes no agent guides, no `.bh/agent-harness/`, no focus state,
-  and no edits of the user's `.gitignore` into workspaces. Its one ignore
+  and no edits of the user's `.gitignore` into workspaces, but the removal of
+  the two lines early versions wrote, after the user confirms
+  ([files in notes](../specs/files-in-notes.md), rule 46). Its one ignore
   file is `.bh/.gitignore`. Agent Area Claude Code sessions
   receive BaseHalf context at launch instead, as defined in
   [agent launch context](../specs/agent-launch-context.md).

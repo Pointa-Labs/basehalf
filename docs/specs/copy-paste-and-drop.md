@@ -270,6 +270,17 @@ place that should take something needed code of its own, and most had none.
   paste and no cut. A note's Rich editor in Card Detail pastes and cuts as
   [formats of a note](note-formats.md#paste-and-drop) says.
 
+
+### A note's editor
+
+A note's editor takes what is pasted or dropped by [files in notes](files-in-notes.md):
+items of this workspace folder are linked where they are, also when they were
+cut, and the clipboard stays as it is; files from elsewhere, and files under
+`.bh/`, are copied into the note's own folder; a picture with no file is saved
+there, named by the time it was put in; text is typed at the caret. A note's
+card that is not being edited is part of the canvas: files dropped on it become
+cards.
+
 ## Acceptance criteria
 
 1. A card selected on the canvas, Command-C, then Command-V on the canvas

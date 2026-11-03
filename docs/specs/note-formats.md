@@ -97,9 +97,8 @@ start).
 
 ## Non-goals
 
-- Files put into a note, where they are kept, and how their links follow
-  them: a later decision (D111). Until then a file put into a note goes to
-  the attachments folder as before.
+- Where a file put into a note is kept, how it is named and linked, and how
+  its links follow a move: [files in notes](files-in-notes.md) (D111).
 - The cover of a PDF in a file block, callouts, and links that follow a
   renamed file.
 - Rewriting notes written before this: nothing is changed until the user
@@ -430,16 +429,17 @@ start).
 ### Pictures, videos, and sounds
 
 49. Picture, Video, Sound, and File in the slash menu and the add button open
-    the system's file chooser at once. The chosen file is copied where a file
-    put into a note goes ([Non-goals](#non-goals)); once the copy is done, the
+    the system's file chooser at once. The chosen file is copied into the
+    note's own folder ([files in notes](files-in-notes.md), rule 12); once the copy is done, the
     block is added where the menu was, with its address, in one step of undo,
     and a caret still there goes on in the line below it. Until then a
     placeholder that is not part of the note says, by the file's name, that
     the file is being added. Cancel in the chooser adds nothing. A file that
     cannot be added shows "Could not add" and its name, as "Could not add
-    clip.mp4.", in the placeholder for 3 s, and nothing is added. A note, or a
-    file whose name has no extension, chosen for File is added as a paragraph
-    of its link: that is how the note stores it and reads it back.
+    clip.mp4.", in the placeholder for 3 s, and nothing is added. A note or a
+    folder of the workspace is added as a paragraph of its link, linked where
+    it is (files in notes, rule 15); a file kept for the note is a file block
+    whatever its name.
 50. Replace keeps the editor's own panel: a file from the disk, and for a
     picture, a video, and a sound a web address too. A file block offers no
     web address: the note stores it as a link and reads it back as one.
@@ -458,7 +458,8 @@ start).
     to `http:`, `https:`, or `mailto:` opens in the system's browser or mail
     application. A link to a heading opens its note at the heading (rule 56).
     Any other address, a file that is not there, and an address outside the
-    workspace's folders do nothing, and nothing asks.
+    workspace's folders and the stores above them ([files in notes](files-in-notes.md),
+    rule 20) do nothing, and nothing asks.
 54. **The gestures.** On the card at rest, in Preview, and on a fixed block
     of Rich, a click opens a link, as a page does. In Rich and in the card's
     editor, a click puts the caret in it and Command-click or Ctrl-click, by the system,
@@ -561,7 +562,8 @@ start).
     | `<details>`, open or not | a toggle, stored closed |
     | a relative picture, video, or sound in Markdown | read from the note's folder, its kind by the list of media files |
     | Markdown that Rich cannot edit | a fixed block holding the pasted text |
-    | a paragraph that is one link to a file of the note's folder, without formats, at any depth | a file block |
+    | a paragraph that is one link to a file of the note's folder, or one link into the store of files in notes, without formats, at any depth | a file block |
+    | a file from outside the workspace, or a picture with no file | kept in the note's own folder ([files in notes](files-in-notes.md), rules 12 and 13) |
     | a line break in a caption | a space |
     | text that reads as Markdown | Markdown; other text as typed |
     | a table with merged cells, a header column, or cell colors | a table as rule 60 says |

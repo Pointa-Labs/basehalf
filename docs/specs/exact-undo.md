@@ -362,6 +362,16 @@ Not in scope, and unchanged:
   is kept all the same, with its card information byte for byte, and its
   card gets a new place when it comes back.
 
+
+### A note's files
+
+A note deleted on the canvas, kept in the kept versions, or moved to the Trash
+at close keeps its files where they are, in the store of files in notes. They
+leave only by the 30-day rule ([files in notes](files-in-notes.md#leaving)),
+so undo, Put Back, and `git restore` give back a note whose pictures show. A
+copy that the canvas made keeps its clones after the copy is undone, and they
+leave by the same rule.
+
 ## Acceptance criteria
 
 1. Delete in a card's menu, the selection toolbar's Delete, and the Delete

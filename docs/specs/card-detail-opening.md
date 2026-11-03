@@ -43,7 +43,9 @@ Escape, which closes it.
 Not in scope, and unchanged: what Card Detail shows (its header, badge, and
 projections), navigation and its history, a folder's card (a double click on
 it opens the folder's canvas), and switching Card Detail from one file to
-another.
+another. A note's file opens over the note's canvas, and navigation never
+shows the canvas of a folder under `.bh/` ([files in notes](files-in-notes.md),
+rule 26).
 
 ## Terms
 
