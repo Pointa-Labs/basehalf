@@ -446,9 +446,15 @@ start).
 51. A picture or a video is never wider than the column of the place that
     shows it ([note rendering](note-rendering.md), rules 8 and 17), whatever
     its stored width.
-52. A video or a sound in a note plays in the element's own controls in Rich,
-    on the card, and in Preview, not in BaseHalf's player, until files in
-    notes (D111). On the canvas, one that starts pauses the others
+52. A video or a sound in a note plays in BaseHalf's own player on the card,
+    in the card's editor, and in Preview, and in the editor's own controls in
+    Rich. BaseHalf's player shows a video's first frame, or a sound's glyph,
+    with a bar of the look of a video card's bar: play and pause, the time
+    played, a position slider, the length, and for a video a sound button.
+    The bar's play plays it with its sound, and the pointer plays nothing. On
+    the card a press on the picture is the card's, as on a video's card, and
+    only the bar takes presses; in Preview a click on the picture plays and
+    pauses it. On the canvas, one that starts pauses the others
     ([generation cards](generation-cards.md#the-player)).
 
 ### Links
@@ -600,11 +606,28 @@ start).
     ([note rendering](note-rendering.md), rules 1 to 6): the sound element,
     palette spans, `open` on a toggle, figures, videos from Markdown
     pictures, links resolved by rule 55, and the room around captions and
-    toggles.
+    toggles. A paragraph that is one link to a file, which Rich shows as a
+    file block (rule 12), shows there as Rich shows it: the file's icon and
+    its name in a box. A click on it opens the file, as the link does
+    (rule 53).
 82. The card's editor edits paragraphs, headings of level 1 to 3, list
     items, and quotes that hold underline or palette colors, and writes them
-    in their canonical form. A toggle is one fixed unit there, drawn as at
-    rest; its children are edited in Card Detail.
+    in their canonical form. Every other block, a picture, a video, a sound,
+    a table, code, a toggle, and every other fixed block, is one unit there,
+    drawn as at rest. A click selects it. Delete or Backspace removes it, as
+    one step of undo. Copy and Cut put its Markdown on the clipboard, and a
+    paste of it into the card's editor puts the same block back. A letter or
+    Enter typed while it is selected starts a paragraph after it. Its size,
+    its caption, its file, and a toggle's children are changed in Card
+    Detail.
+82a. A double click anywhere on a note's card edits the note there
+    ([note rendering](note-rendering.md), rule 25). On a block that the
+    card's editor cannot edit, the caret goes to the end of the nearest
+    block it can edit before it, or, with none before it, to the start of
+    the nearest one after it. A note without a block that the card's editor
+    can edit gets an empty line after its last block, which the file keeps
+    only once something is typed into it. Card Detail opens from the card's
+    Expand, and for a note above 128 KiB.
 83. A heading inside a closed toggle is not in the outline, and is again when
     the toggle opens ([zoom and outline of a note](note-zoom-and-outline.md),
     rule 9).
@@ -785,8 +808,14 @@ this specification. Outside changes are merged meanwhile, as always.
     full write at most 150 ms, and the load at most 10% longer than before
     this decision on the same machine.
 23. On the card's editor, a paragraph with `<u>` and a palette span can be
-    typed into, and keeps its tags; a toggle is one unit drawn closed, and a
-    double click on it opens Card Detail.
+    typed into, and keeps its tags; a toggle is one unit drawn closed. A
+    double click on a picture of a note opens the card's editor, not Card
+    Detail, with the caret at the end of the line before the picture; a
+    click selects the picture, Delete removes it, and one undo brings it
+    back; a letter typed while it is selected starts a paragraph after it,
+    and the file holds the picture and the letter, nothing else changed. A
+    double click on a note that holds only a picture opens the card's editor
+    and writes nothing.
 24. A heading inside a closed toggle has no tick in the outline; opening the
     toggle adds it within one frame.
 25. A fixed block holding a palette span shows its color in Rich as on the
@@ -801,6 +830,12 @@ this specification. Outside changes are merged meanwhile, as always.
 29. On the notes of the fidelity corpus and of `docs/`, no kind of block that
     Rich edited before this decision is fixed after it in more than 1% of its
     blocks, except the kinds that L2 lists.
+30. On the card and in Preview, a video of a note shows its first frame with
+    BaseHalf's bar, and the bar's play plays it with its sound; a sound shows
+    BaseHalf's sound bar; neither plays under the pointer. A paragraph that
+    is one link to `handout.pdf` shows as a file block named `handout.pdf`,
+    and a click on it opens `handout.pdf`. A press on the picture of a video
+    on a resting card moves the card.
 
 ## Verification
 
@@ -841,9 +876,9 @@ this specification. Outside changes are merged meanwhile, as always.
   Chinese typed with an input method into an underlined red word, a toggle's
   title, and a caption; a copy from Rich pasted into Source; and Command-P
   from Rich. The `canvas` suite runs criteria 12, 13 (a click on the card at
-  rest and Command-click in the card's editor), and 21 on the card, and the
-  clicks on a summary, a video, and a sound on a resting card, with one
-  player at a time. The steps that write the system's clipboard run in CI,
+  rest and Command-click in the card's editor), 21 on the card, 23, and 30,
+  and the clicks on a summary, a video, and a sound on a resting card, with
+  one player at a time. The steps that write the system's clipboard run in CI,
   or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
