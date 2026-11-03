@@ -166,8 +166,12 @@ its own, which the agents' folders link to
    note that has `.bh/` or `.git`; never overwrite a file there; link it
    relative to the note, writing every space and every ASCII punctuation mark
    other than `-._~/` as `%XX`. To take a file out of a note, remove its link;
-   never move, rename, or delete anything under `.bh/`. BaseHalf corrects the
-   `../` of a moved note's links when it sees the note.
+   never move, rename, or delete anything under `.bh/`. An agent that moves a
+   note into a folder of another depth gives its links into `.bh/attachments/`
+   the `../` the new place needs; BaseHalf corrects a link that leads nowhere
+   when it sees the note ([files in notes](files-in-notes.md), rule 28). An
+   image or a sound the agent makes for a note when the user asks goes into
+   the note's folder, not beside the note as a card.
 
 The body describes where things are and what they mean. Following D36, it
 does not tell an agent what to read or in what order. It stays under 500
