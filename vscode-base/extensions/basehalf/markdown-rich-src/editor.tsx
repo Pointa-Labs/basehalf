@@ -1767,7 +1767,14 @@ function MarkdownRichEditor(): JSX.Element {
 
 			// Lines in a closed toggle show once it opens, as for a link to a heading (note formats, rule 56).
 			openBaseHalfNoteTogglesAround(elements[0]);
-			elements[0].scrollIntoView({ block: 'center', inline: 'nearest' });
+			// Only the note's view scrolls: the page's own scrollIntoView would scroll the parts of the window around
+			// Card Detail too, which then stand moved after it closes (rule 56).
+			const scroller = scrollRef.current;
+			if (scroller) {
+				const view = scroller.getBoundingClientRect();
+				const block = elements[0].getBoundingClientRect();
+				scroller.scrollTop += block.top + block.height / 2 - (view.top + view.height / 2);
+			}
 			setBaseHalfSelectionReveal(editor, ids);
 
 			if (revealTimer.current !== undefined) {
