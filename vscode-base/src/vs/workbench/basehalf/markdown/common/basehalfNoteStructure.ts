@@ -293,7 +293,7 @@ function listHintOf(hint: IBaseHalfNoteListHint, children: readonly IBaseHalfNot
  * Whether a link's address is a file that a file block stands for: a path
  * from the note's folder to a file with an extension that is no note's.
  */
-function isLocalFileHref(href: string): boolean {
+export function isBaseHalfNoteFileAddress(href: string): boolean {
 	if (!href || href.startsWith('/') || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) {
 		return false;
 	}
@@ -334,7 +334,7 @@ function fileOfParagraph(block: Readonly<Record<string, unknown>>): Readonly<Rec
 	}
 	const shown = block.content.filter(item => !(isBaseHalfNoteRecord(item) && item.type === 'text' && typeof item.text === 'string' && item.text.trim() === ''));
 	const link = shown.length === 1 ? shown[0] : undefined;
-	if (!isBaseHalfNoteRecord(link) || link.type !== 'link' || typeof link.href !== 'string' || !isLocalFileHref(link.href)) {
+	if (!isBaseHalfNoteRecord(link) || link.type !== 'link' || typeof link.href !== 'string' || !isBaseHalfNoteFileAddress(link.href)) {
 		return undefined;
 	}
 	const runs: readonly unknown[] = Array.isArray(link.content) ? link.content : [link.content];

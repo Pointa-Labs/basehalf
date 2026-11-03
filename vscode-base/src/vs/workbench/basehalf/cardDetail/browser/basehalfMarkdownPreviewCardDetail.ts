@@ -22,7 +22,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
-import { baseHalfNoteRenderOptions, removeBaseHalfNoteLinkTitles } from '../../markdown/browser/basehalfNoteRenderOptions.js';
+import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { installBaseHalfSidewaysScrollbar } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehalfMarkdownRichTextModel.js';
@@ -254,7 +254,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			...baseHalfNoteRenderOptions({ note: state.resource, actionHandler: href => this.openLink(state.resource, href) }),
 			asyncRenderCallback: () => undefined
 		}, this.previewContent);
-		removeBaseHalfNoteLinkTitles(rendered.element);
+		finishBaseHalfNoteRendering(rendered.element);
 		rendered.element.classList.add('basehalf-card-detail-markdown-preview-content');
 		this.rendered.add(rendered);
 		this.outline.refresh();

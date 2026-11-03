@@ -28,7 +28,8 @@ import { segmentBaseHalfMarkdownTopLevelBodyWithToggles, splitBaseHalfMarkdownFr
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelectionLines.js';
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
-import { baseHalfNoteRenderOptions, removeBaseHalfNoteLinkTitles } from '../../markdown/browser/basehalfNoteRenderOptions.js';
+import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
+import { baseHalfNoteFileLinks } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { restoreBaseHalfSidewaysScroll } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 
@@ -214,7 +215,7 @@ export function renderBaseHalfCanvasStoredMarkdown(
 	const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: true });
 	markdown.baseUri = resource;
 	const rendered = renderMarkdown(markdown, baseHalfNoteRenderOptions({ note: resource, actionHandler: onOpenLink }), container);
-	removeBaseHalfNoteLinkTitles(rendered.element);
+	finishBaseHalfNoteRendering(rendered.element);
 	// A task item shows its box in place of the list bullet. The class is set
 	// here because a `:has()` rule on the canvas slows every card render.
 	// eslint-disable-next-line no-restricted-syntax
@@ -227,6 +228,16 @@ export function renderBaseHalfCanvasStoredMarkdown(
 		box.classList.add(BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS);
 	}
 	return rendered;
+}
+
+/**
+ * Whether a block of a note holds a paragraph that Rich shows as a file
+ * block, read with the note's reference definitions. Such a paragraph holds
+ * a link, Markdown or HTML.
+ */
+function holdsFileBlock(source: string, referenceDefinitions: string): boolean {
+	return (source.includes('[') || /<a\s/i.test(source))
+		&& baseHalfNoteFileLinks(referenceDefinitions ? `${source}\n\n${referenceDefinitions}` : source).length > 0;
 }
 
 /**
@@ -714,7 +725,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				: `${sourceSegments[index - 1].sep}${segment.prefix}`;
 			const separator = index === sourceSegments.length - 1 ? segment.sep : '';
 			const element = append(this.root, $('.basehalf-canvas-markdown-inline-unit'));
-			const supported = vendor.canEditCanvasMarkdownUnit(segment.source);
+			// A file block is one unit, as a picture is (note formats, rule 82).
+			const supported = vendor.canEditCanvasMarkdownUnit(segment.source) && !holdsFileBlock(segment.source, referenceDefinitions);
 			const unit: IBaseHalfCanvasMarkdownRenderedUnit = {
 				element,
 				supported,

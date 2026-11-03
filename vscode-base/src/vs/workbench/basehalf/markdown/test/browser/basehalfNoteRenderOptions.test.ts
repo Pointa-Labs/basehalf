@@ -8,7 +8,7 @@ import { renderMarkdown } from '../../../../../base/browser/markdownRenderer.js'
 import { MarkdownString } from '../../../../../base/common/htmlContent.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfNoteRenderOptions, removeBaseHalfNoteLinkTitles } from '../../browser/basehalfNoteRenderOptions.js';
+import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../browser/basehalfNoteRenderOptions.js';
 
 suite('BaseHalfNoteRenderOptions', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -18,7 +18,7 @@ suite('BaseHalfNoteRenderOptions', () => {
 		markdown.baseUri = URI.file('/notes/note.md');
 		const root = document.createElement('div');
 		const rendering = renderMarkdown(markdown, baseHalfNoteRenderOptions({ note }), root);
-		removeBaseHalfNoteLinkTitles(rendering.element);
+		finishBaseHalfNoteRendering(rendering.element);
 		return { root, dispose: () => rendering.dispose() };
 	}
 
@@ -90,6 +90,48 @@ suite('BaseHalfNoteRenderOptions', () => {
 				'/notes/my file.md',
 				'/notes/笔记.md',
 			]);
+		} finally {
+			note.dispose();
+		}
+	});
+
+	test('a paragraph that is one link to a file is drawn as a file block that opens the file, and no other link is (note formats, rule 81)', () => {
+		const note = rendered([
+			'[handout.pdf](handout.pdf)',
+			'',
+			'<a href="slides.key">slides.key</a>',
+			'',
+			'- item',
+			'',
+			'  [nested.pdf](nested.pdf)',
+			'',
+			'See [inline.pdf](inline.pdf) here.',
+			'',
+			'[titled](titled.pdf "Title")',
+			'',
+			'[**bold**](bold.pdf)',
+			'',
+			'[a note](other.md)',
+			'',
+			'> [quoted.pdf](quoted.pdf)',
+			''
+		].join('\n'), URI.file('/notes/note.md'));
+		try {
+			const blocks = Array.from(note.root.querySelectorAll<HTMLElement>('a.bh-md-file'), link => ({
+				name: link.textContent,
+				opens: URI.parse(link.dataset.href ?? '').path,
+				icon: link.firstElementChild?.matches('svg.bh-md-file-icon') ?? false,
+				within: link.parentElement?.tagName,
+			}));
+			assert.deepStrictEqual({ blocks, links: note.root.querySelectorAll('a[data-href]').length, titles: note.root.querySelectorAll('[title]').length }, {
+				blocks: [
+					{ name: 'handout.pdf', opens: '/notes/handout.pdf', icon: true, within: 'P' },
+					{ name: 'slides.key', opens: '/notes/slides.key', icon: true, within: 'P' },
+					{ name: 'nested.pdf', opens: '/notes/nested.pdf', icon: true, within: 'P' },
+				],
+				links: 8,
+				titles: 0,
+			});
 		} finally {
 			note.dispose();
 		}
