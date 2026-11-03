@@ -210,9 +210,9 @@ one folder for every note of that folder:
 30. A move outside BaseHalf, or while it was closed, leaves the links broken
     until BaseHalf sees the note (300 ms after the folder's file events are
     quiet, or at the next open). Then a link into the store that leads
-    nowhere gets its route corrected when its key is in the note's home store,
-    or its files cloned into a new folder of the home's store when the key is
-    in another store BaseHalf knows. Only links that lead nowhere are
+    nowhere gets its route corrected when its key is in a store at or above
+    the note, the nearest first, or its files cloned into a new folder of the
+    home's store when the key is in another store BaseHalf knows. Only links that lead nowhere are
     touched; nothing is written while git is in the middle of an operation in
     that repository, nor in a marked folder.
 31. A note moved into another home has its files cloned into a new folder of
