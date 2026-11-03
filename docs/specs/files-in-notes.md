@@ -252,9 +252,11 @@ one folder for every note of that folder:
     the folder its links already use.
 35. A block cut or copied into another note keeps working there: its relative
     links are rebased to the receiving note, and each stored file that is not
-    in the receiving note's folder is cloned there. Into the same note nothing
-    is copied. A block of file blocks alone copies the files themselves for
-    other places, never as cut.
+    in the receiving note's folder is cloned there, with its edit record. Into
+    the same note nothing is copied. A copy out of Rich names the note it
+    comes from; text copied elsewhere, as from Source, is pasted as written.
+    A block of file blocks alone copies the files themselves for other
+    places, never as cut.
 
 ### Leaving
 
@@ -401,4 +403,9 @@ one folder for every note of that folder:
   cloned, refused); in the real window, a drop from another app through the
   browser's drag with paths (a 120 MB file cloned), a drop of Files items on
   the page's element with the drop mark, and the chooser with paths.
-- Stages 4 to 7 add their own checks as they are built.
+- Stage 5: `basehalfNoteFileCopies.test.ts` (a copied note and a copied
+  folder: new folders of clones and edit records, a store carried along, a
+  failed clone); `basehalfMarkdownAttachment.test.ts` (the links of pasted
+  blocks); the Rich bundle test's blocks pasted from another note; in the
+  real window, Duplicate of a note with a video and its edit record.
+- Stages 4, 6, and 7 add their own checks as they are built.
