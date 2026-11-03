@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfNotePictureEditing.css';
-import { $, addDisposableListener, append, getWindow } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, getWindow, scheduleAtNextAnimationFrame } from '../../../../base/browser/dom.js';
 import { raceTimeout } from '../../../../base/common/async.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { relativePath } from '../../../../base/common/resources.js';
@@ -115,13 +115,15 @@ export class BaseHalfNotePictureEditing extends Disposable {
 		placeStage(stage, this.target.box);
 		// Hidden until the picture is drawn in it: the note's own picture shows meanwhile.
 		stage.classList.add('drawing');
-		const shown = editing.show({ stage });
+		// Drawn editing from the start, so that what shows first is laid out as it stays.
+		const shown = editing.show({ stage, editing: true });
 		await raceTimeout(shown?.drawn ?? Promise.resolve(), BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS);
+		// One frame more, hidden: the editor lays out its picture again once the line under it is there.
+		await new Promise<void>(resolve => this._register(scheduleAtNextAnimationFrame(getWindow(stage), resolve)));
 		if (this._store.isDisposed) {
 			return false;
 		}
 		stage.classList.remove('drawing');
-		editing.setEditing(true);
 		const done = append(stage, $<HTMLButtonElement>('button.basehalf-note-picture-done'));
 		done.type = 'button';
 		done.textContent = localize('basehalf.notePictureEdit.done', "Done");

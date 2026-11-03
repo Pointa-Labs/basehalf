@@ -649,6 +649,8 @@ function MarkdownRichEditor(): JSX.Element {
 	// The picture whose editor the window draws over it (D113), and the version of each file it edited, by address.
 	const pictureEdit = useRef<{ readonly blockId: string; readonly url: string; ending: boolean } | undefined>(undefined);
 	const [editedPicture, setEditedPicture] = useState<string | undefined>(undefined);
+	// After the editing, the toolbar waits for the pointer or a key: the page still takes the pointer to be where it pressed Edit.
+	const [toolbarWaits, setToolbarWaits] = useState(false);
 	const pictureVersions = useRef(new Map<string, string>());
 	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension({
 		openLink: href => openLinkRef.current(href),
@@ -933,6 +935,7 @@ function MarkdownRichEditor(): JSX.Element {
 			return;
 		}
 		pictureEdit.current = undefined;
+		setToolbarWaits(true);
 		setEditedPicture(undefined);
 		setBaseHalfNotePictureEditMark(editor.prosemirrorView, undefined);
 		const picture = baseHalfNotePictureElement(editor.domElement, blockId);
@@ -971,7 +974,23 @@ function MarkdownRichEditor(): JSX.Element {
 			window.removeEventListener('wheel', onWheel, { capture: true });
 		};
 	}, [editedPicture, vscode]);
-	const notePictureEdit = useMemo(() => ({ edit: editPicture, editing: editedPicture }), [editPicture, editedPicture]);
+	// The page learns where the pointer is from its next move, and the toolbar shows again then, or at a key or a press.
+	useEffect(() => {
+		if (!toolbarWaits) {
+			return;
+		}
+		const show = (): void => setToolbarWaits(false);
+		const events = ['pointermove', 'pointerdown', 'keydown'] as const;
+		for (const type of events) {
+			window.addEventListener(type, show, { capture: true, passive: true });
+		}
+		return () => {
+			for (const type of events) {
+				window.removeEventListener(type, show, { capture: true });
+			}
+		};
+	}, [toolbarWaits]);
+	const notePictureEdit = useMemo(() => ({ edit: editPicture, editing: editedPicture, hidden: !!editedPicture || toolbarWaits }), [editPicture, editedPicture, toolbarWaits]);
 	const slashMenuItems = useCallback(async (query: string) => filterSuggestionItems(baseHalfSlashMenuItems(editor), query), [editor]);
 	const ensureLiveUndoManager = noteUndo.ensure;
 
@@ -2954,7 +2973,7 @@ function stopUsedKeys(event: ReactKeyboardEvent): void {
 }
 
 /** What Edit of a picture's toolbar does, and the picture whose editor stands over it (D113). */
-const BaseHalfNotePictureEditContext = createContext<{ readonly edit: (blockId: string) => void; readonly editing: string | undefined }>({ edit: () => undefined, editing: undefined });
+const BaseHalfNotePictureEditContext = createContext<{ readonly edit: (blockId: string) => void; readonly editing: string | undefined; readonly hidden: boolean }>({ edit: () => undefined, editing: undefined, hidden: false });
 
 function BaseHalfFormattingToolbar(): JSX.Element | null {
 	const pictureEdit = useContext(BaseHalfNotePictureEditContext);
@@ -2963,8 +2982,8 @@ function BaseHalfFormattingToolbar(): JSX.Element | null {
 		.map(item => item.key === 'fileRenameButton' ? <BaseHalfFileRenameButton key={'fileRenameButton'} />
 			: item.key === 'replaceFileButton' ? <BaseHalfFileReplaceButton key={'replaceFileButton'} />
 				: item);
-	// While a picture is edited, its editor has the tools.
-	return pictureEdit.editing ? null : <FormattingToolbar>{[<BaseHalfPictureEditButton key={'pictureEditButton'} />, ...items]}</FormattingToolbar>;
+	// While a picture is edited, its editor has the tools; after it, the toolbar waits for the pointer.
+	return pictureEdit.hidden ? null : <FormattingToolbar>{[<BaseHalfPictureEditButton key={'pictureEditButton'} />, ...items]}</FormattingToolbar>;
 }
 
 /** Edit for a picture of a file (D113): the window draws the picture's editor over it, in the note. */

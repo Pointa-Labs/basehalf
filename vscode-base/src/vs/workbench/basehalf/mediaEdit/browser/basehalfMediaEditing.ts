@@ -54,6 +54,8 @@ export interface IBaseHalfMediaEditingView {
 	 * edited (editing media, "What Card Detail shows", D102).
 	 */
 	readonly room?: HTMLElement;
+	/** The editor starts editing, as one drawn where its picture is edited at once does (D113): its first layout is that of editing. */
+	readonly editing?: boolean;
 }
 
 /** How often the copy is made anew when the file changed while it was made. */
@@ -158,6 +160,9 @@ export class BaseHalfMediaEditing extends Disposable {
 		const { state } = session;
 		const choices = this.mediaEditService.choicesOf(this.file.resource, state);
 		const host = view.room ?? view.stage;
+		if (view.editing) {
+			this.editing = true;
+		}
 		let editor: IBaseHalfMediaEditor;
 		let drawn = Promise.resolve();
 		if (session.video && view.player) {
