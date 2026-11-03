@@ -18,6 +18,7 @@ import {
 	isBaseHalfNoteRecord,
 	isBaseHalfNoteToggle
 } from './basehalfNoteBlocks.js';
+import { baseHalfNoteStoreLink } from './basehalfNoteFileLinks.js';
 import { baseHalfNoteMediaKind } from './basehalfNoteMediaKind.js';
 import { baseHalfNotePaletteAlias, BaseHalfNotePaletteColor, BaseHalfNotePaletteRole, isBaseHalfNotePaletteColor } from './basehalfNotePalette.js';
 
@@ -291,11 +292,16 @@ function listHintOf(hint: IBaseHalfNoteListHint, children: readonly IBaseHalfNot
 
 /**
  * Whether a link's address is a file that a file block stands for: a path
- * from the note's folder to a file with an extension that is no note's.
+ * from the note's folder to a file with an extension that is no note's, or a
+ * link into the store of the note's files, whatever its name (files in
+ * notes, rule 21).
  */
 function isLocalFileHref(href: string): boolean {
 	if (!href || href.startsWith('/') || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) {
 		return false;
+	}
+	if (baseHalfNoteStoreLink(href)) {
+		return true;
 	}
 	const path = href.split(/[?#]/, 1)[0];
 	const name = path.slice(path.lastIndexOf('/') + 1);

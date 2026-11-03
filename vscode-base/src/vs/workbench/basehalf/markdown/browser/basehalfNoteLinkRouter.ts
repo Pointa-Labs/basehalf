@@ -3,11 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { basename, dirname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
+import { BASEHALF_MEDIA_FILE_EXTENSIONS } from '../../../../platform/protocol/common/basehalfMediaFiles.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfNoteHeadingLine, resolveBaseHalfNoteLink } from '../common/basehalfNoteLinks.js';
@@ -59,7 +61,12 @@ export async function openBaseHalfNoteLink(services: IBaseHalfNoteLinkServices, 
 				await openAt(services, note, target.heading);
 				return;
 			case 'file':
-				if (await services.files.exists(target.uri)) {
+				if (!await services.files.exists(target.uri)) {
+					return;
+				}
+				if (isNoteFile(target.uri)) {
+					await openNoteFile(services, note, target.uri);
+				} else {
 					await openAt(services, target.uri, target.heading);
 				}
 				return;
@@ -67,6 +74,34 @@ export async function openBaseHalfNoteLink(services: IBaseHalfNoteLinkServices, 
 	} catch (error) {
 		services.log.error(error);
 	}
+}
+
+/** Whether a file is a note's own, in the store of a home: `.bh/attachments/<folder>/<file>` (files in notes, rule 1). */
+function isNoteFile(resource: URI): boolean {
+	const segments = resource.path.split('/');
+	const at = segments.length - 4;
+	return at >= 0 && segments[at] === '.bh' && segments[at + 1] === 'attachments';
+}
+
+const viewedExtensions: ReadonlySet<string> = new Set(Object.values(BASEHALF_MEDIA_FILE_EXTENSIONS).flat());
+
+/**
+ * A note's own file opens in BaseHalf's viewer for its kind over the note's
+ * canvas, never over a canvas of the store; a kind without a viewer opens in
+ * the system's application for it (files in notes, rule 22).
+ */
+async function openNoteFile(services: IBaseHalfNoteLinkServices, note: URI, resource: URI): Promise<void> {
+	const name = basename(resource).toLowerCase();
+	const dot = name.lastIndexOf('.');
+	if (dot <= 0 || !viewedExtensions.has(name.slice(dot))) {
+		await services.opener.open(resource, { openExternal: true, fromUserGesture: true, allowCommands: false });
+		return;
+	}
+	await services.navigation.openResource(resource, {
+		source: 'api',
+		pinned: true,
+		canvasFolder: services.navigation.state.canvasFolder?.resource ?? dirname(note),
+	});
 }
 
 async function openAt(services: IBaseHalfNoteLinkServices, resource: URI, heading: string | undefined): Promise<void> {

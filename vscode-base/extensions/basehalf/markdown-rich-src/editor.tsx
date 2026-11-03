@@ -19,7 +19,6 @@ import {
 	EditLinkButton,
 	FilePanel,
 	FilePanelController,
-	FileRenameButton,
 	FileReplaceButton,
 	FormattingToolbar,
 	FormattingToolbarController,
@@ -95,7 +94,8 @@ import {
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { createBaseHalfNoteEditorApi, type IBaseHalfNoteWriteWarning } from './noteConversions.js';
 import { installBaseHalfNoteCopy } from './noteCopy.js';
-import { chooseBaseHalfNoteMedia, installBaseHalfNoteResizeUnderZoom, type BaseHalfNoteMediaChoice } from './noteMedia.js';
+import { chooseBaseHalfNoteMedia, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type BaseHalfNoteMediaChoice, type IBaseHalfNoteStoredFile } from './noteMedia.js';
+import { baseHalfNoteLinkPath } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteFileLinks.js';
 import { installBaseHalfNoteBlockIndex } from './noteBlockIndex.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from './notePaste.js';
 import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
@@ -624,7 +624,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const renderedAnnounced = useRef(false);
 	const pendingFileSearches = useRef(new Map<string, (files: readonly IBaseHalfMarkdownRichFileLink[]) => void>());
 	const pendingAttachmentUploads = useRef(new Map<string, {
-		readonly resolve: (url: string) => void;
+		readonly resolve: (stored: IBaseHalfNoteStoredFile) => void;
 		readonly reject: (error: Error) => void;
 		readonly timer: number;
 	}>());
@@ -636,6 +636,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
 	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
+	const fileDropExtension = useMemo(() => makeBaseHalfNoteFileDropExtension(), []);
 	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension({
 		openLink: href => openLinkRef.current(href),
 		undoManager: () => noteUndoRef.current?.ensure(),
@@ -663,21 +664,23 @@ function MarkdownRichEditor(): JSX.Element {
 		return () => observer.disconnect();
 	}, []);
 
-	const uploadFile = useCallback((file: File): Promise<string> => asyncMutationBarrier.run(async () => {
+	// A file put into the note is kept in the note's own folder, and its block
+	// takes the stored file's name (files in notes, rules 12 and 21).
+	const uploadFile = useCallback((file: File): Promise<IBaseHalfNoteStoredFile> => asyncMutationBarrier.run(async () => {
 		const state = session.current;
 		if (!state.key || !state.ready || !state.editable || state.structuralFrozen) {
-			throw new Error('This document is read-only.');
+			throw new Error(`Could not add ${file.name}: the note is read-only.`);
 		}
 		if (file.size > BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES) {
-			throw new Error(`Files larger than ${BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES / 1024 / 1024} MB cannot be inserted.`);
+			throw new Error(`Could not add ${file.name}: a note takes files of at most ${BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES / 1024 / 1024} MB.`);
 		}
 
 		const data = await file.arrayBuffer();
 		const requestId = `attachment-${nextRequestId()}`;
-		return new Promise<string>((resolve, reject) => {
+		return new Promise<IBaseHalfNoteStoredFile>((resolve, reject) => {
 			const timer = window.setTimeout(() => {
 				pendingAttachmentUploads.current.delete(requestId);
-				reject(new Error('The attachment took too long to save.'));
+				reject(new Error(`Could not add ${file.name}: it took too long.`));
 			}, 30_000);
 			pendingAttachmentUploads.current.set(requestId, { resolve, reject, timer });
 			vscode.postMessage({
@@ -727,7 +730,7 @@ function MarkdownRichEditor(): JSX.Element {
 				return true;
 			},
 		},
-		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension],
+		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension, fileDropExtension],
 		// What is pasted is read as a note's file is read (note formats, rules 72 to 74).
 		pasteHandler: baseHalfNotePasteHandler,
 		collaboration: {
@@ -1955,9 +1958,9 @@ function MarkdownRichEditor(): JSX.Element {
 					}
 					window.clearTimeout(pending.timer);
 					if (message.url) {
-						pending.resolve(message.url);
+						pending.resolve({ props: { url: message.url, name: message.name ?? baseHalfNoteLinkPath(message.url)?.split('/').pop() ?? message.url } });
 					} else {
-						pending.reject(new Error(message.error ?? 'The attachment could not be saved.'));
+						pending.reject(new Error(message.error ?? 'The file could not be added.'));
 					}
 					break;
 				}
@@ -2077,7 +2080,7 @@ function MarkdownRichEditor(): JSX.Element {
 	useEffect(() => () => {
 		for (const pending of pendingAttachmentUploads.current.values()) {
 			window.clearTimeout(pending.timer);
-			pending.reject(new Error('The editor was closed before the attachment finished saving.'));
+			pending.reject(new Error('The note was closed before the file was added.'));
 		}
 		pendingAttachmentUploads.current.clear();
 	}, []);
@@ -2102,9 +2105,8 @@ function MarkdownRichEditor(): JSX.Element {
 			const canPaste = !!view && state.editable && !state.structuralFrozen && state.conflictDisk === undefined && state.writeError === undefined;
 			const clickedBlockId = (event.target as HTMLElement | null)?.closest?.('[data-id]')?.getAttribute('data-id');
 			const clickedBlock = clickedBlockId ? editor.getBlock(clickedBlockId) : undefined;
-			const clickedFileUrl = clickedBlock
-				&& (clickedBlock.type === 'file' || clickedBlock.type === 'image' || clickedBlock.type === 'audio' || clickedBlock.type === 'video')
-				&& typeof clickedBlock.props.url === 'string'
+			// A picture, a video, or a sound is edited in place; a file block opens its file (files in notes, rule 22).
+			const clickedFileUrl = clickedBlock?.type === 'file' && typeof clickedBlock.props.url === 'string' && clickedBlock.props.url
 				? clickedBlock.props.url
 				: undefined;
 			// Without a selection the menu still offers Paste at the cursor.
@@ -2117,7 +2119,7 @@ function MarkdownRichEditor(): JSX.Element {
 			if (clickedFileUrl) {
 				items.push({
 					id: 'open-file',
-					label: baseHalfEditorLabel('Open in Card Detail', '在卡片详情中打开', '在卡片詳情中開啟'),
+					label: baseHalfEditorLabel('Open', '打开', '開啟'),
 					run: () => vscode.postMessage({ type: 'basehalf.markdownRich.openResource', key: state.key, href: clickedFileUrl }),
 				});
 			}
@@ -2200,14 +2202,15 @@ function MarkdownRichEditor(): JSX.Element {
 
 		const onDoubleClick = (event: MouseEvent): void => {
 			const target = event.target as HTMLElement | null;
-			const mediaTarget = target?.closest('.bn-file-name-with-icon, .bn-visual-media');
-			if (!mediaTarget) {
+			// A double click on a file block opens its file; a picture, a video, or a sound is edited in place (files in notes, rule 22).
+			const fileTarget = target?.closest('.bn-file-block-content-wrapper');
+			if (!fileTarget) {
 				return;
 			}
-			const blockId = mediaTarget.closest('[data-id]')?.getAttribute('data-id');
+			const blockId = fileTarget.closest('[data-id]')?.getAttribute('data-id');
 			const block = blockId ? editor.getBlock(blockId) : undefined;
 			if (!block
-				|| (block.type !== 'file' && block.type !== 'image' && block.type !== 'audio' && block.type !== 'video')
+				|| block.type !== 'file'
 				|| !('url' in block.props)
 				|| typeof block.props.url !== 'string'
 				|| !block.props.url) {
@@ -2706,8 +2709,9 @@ function BaseHalfFilePanel(props: FilePanelProps): JSX.Element {
 // What the note cannot store, or what BaseHalf does otherwise (note formats,
 // rules 2 and 3): alignment, Nest and Unnest (Tab and Shift-Tab stay),
 // merged cells, comments, a file's preview, and its download.
+// A block's name is its stored file's name, so the toolbar offers no Rename (files in notes, rule 21).
 const baseHalfRemovedToolbarItems: ReadonlySet<string> = new Set([
-	'tableCellMergeButton', 'fileDownloadButton', 'filePreviewButton',
+	'tableCellMergeButton', 'fileDownloadButton', 'filePreviewButton', 'fileRenameButton',
 	'textAlignLeftButton', 'textAlignCenterButton', 'textAlignRightButton',
 	'nestBlockButton', 'unnestBlockButton', 'addCommentButton', 'addTiptapCommentButton',
 ]);
@@ -2726,9 +2730,7 @@ function stopUsedKeys(event: ReactKeyboardEvent): void {
 function BaseHalfFormattingToolbar(): JSX.Element {
 	const items = getFormattingToolbarItems()
 		.filter(item => !baseHalfRemovedToolbarItems.has(String(item.key)))
-		.map(item => item.key === 'fileRenameButton' ? <BaseHalfFileRenameButton key={'fileRenameButton'} />
-			: item.key === 'replaceFileButton' ? <BaseHalfFileReplaceButton key={'replaceFileButton'} />
-				: item);
+		.map(item => item.key === 'replaceFileButton' ? <BaseHalfFileReplaceButton key={'replaceFileButton'} /> : item);
 	return <FormattingToolbar>{items}</FormattingToolbar>;
 }
 
@@ -2773,13 +2775,6 @@ function BaseHalfFileReplaceButton(): JSX.Element | null {
 			</Components.Generic.Popover.Content>
 		</Components.Generic.Popover.Root>
 	);
-}
-
-/** Rename for a picture and a file: the note stores no name of a video or a sound (rule 22). */
-function BaseHalfFileRenameButton(): JSX.Element | null {
-	const editor = useBlockNoteEditor();
-	const blocks = useSelectedBlocks(editor);
-	return blocks.length === 1 && (blocks[0].type === 'image' || blocks[0].type === 'file') ? <FileRenameButton /> : null;
 }
 
 /** The menu of a block's drag handle holds Delete only (rule 4). */

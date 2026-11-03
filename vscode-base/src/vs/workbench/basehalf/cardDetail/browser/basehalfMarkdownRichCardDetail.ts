@@ -50,7 +50,6 @@ import {
 import { baseHalfMarkdownRichBodiesDiffer, baseHalfMarkdownRichBody } from '../../markdown/common/basehalfMarkdownRichSession.js';
 import {
 	BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
-	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichSurface,
 	BaseHalfMarkdownRichWorkbenchCommand,
@@ -67,7 +66,7 @@ import {
 import { IBaseHalfAdhdCommand } from '../../markdown/common/basehalfAdhd.js';
 import { IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../markdown/common/basehalfAdhdMirror.js';
 import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
-import { IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
+import { baseHalfNoteFileFailure, IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
@@ -808,7 +807,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				await this.handleFileSearch(state, message.requestId, message.query);
 				break;
 			case 'basehalf.markdownRich.attachmentUpload':
-				await this.handleAttachmentUpload(state, message.requestId, message.name, message.data);
+				await this.handleAttachmentUpload(state, message.requestId, message.name, message.mediaType, message.data);
 				break;
 			case 'basehalf.markdownRich.openResource':
 				await this.handleOpenResource(state, message.href);
@@ -980,22 +979,20 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 	}
 
-	private async handleAttachmentUpload(state: IBaseHalfCardDetailState, requestId: string, name: string, data: ArrayBuffer): Promise<void> {
+	// A file put into the note goes into the note's own folder in the store
+	// (files in notes, rules 12 and 13); a failure says why in plain words,
+	// with no path under `.bh` (rule 49).
+	private async handleAttachmentUpload(state: IBaseHalfCardDetailState, requestId: string, name: string, mediaType: string, data: ArrayBuffer): Promise<void> {
 		if (!this.isEditable() || this.structuralFrozen) {
-			await this.bridge?.sendAttachmentResult(requestId, { error: 'This document is read-only.' });
+			await this.bridge?.sendAttachmentResult(requestId, { error: `Could not add ${name}: the note is read-only.` });
 			return;
 		}
-		if (data.byteLength > BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES) {
-			await this.bridge?.sendAttachmentResult(requestId, { error: `Files larger than ${BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES / 1024 / 1024} MB cannot be inserted.` });
-			return;
-		}
-
 		try {
-			const stored = await this.attachmentService.store(state.resource, name, data);
-			await this.bridge?.sendAttachmentResult(requestId, { url: stored.href });
+			const stored = await this.attachmentService.store(state.resource, this.model?.getValue() ?? '', name, mediaType, data);
+			await this.bridge?.sendAttachmentResult(requestId, { url: stored.href, name: stored.name });
 		} catch (error) {
-			this.logService.error('[BaseHalf] rich Markdown attachment write failed', error);
-			await this.bridge?.sendAttachmentResult(requestId, { error: toErrorMessage(error) });
+			this.logService.error('[BaseHalf] a file could not be put into the note', error);
+			await this.bridge?.sendAttachmentResult(requestId, { error: baseHalfNoteFileFailure(name, error) });
 		}
 	}
 

@@ -171,6 +171,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.fileSearchResult', key: 'workspace\u0000doc.md', requestId: 'files-1', files: [{ name: 'guide.md', path: 'docs/guide.md' }] }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.fileSearchResult', key: 'workspace\u0000doc.md', files: [] }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1', url: 'attachments/file.pdf' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1', url: '.bh/attachments/7k3f9q2m1x/file%202.pdf', name: 'file 2.pdf' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1', url: '.bh/attachments/7k3f9q2m1x/file.pdf', name: '' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1', error: 'Write failed' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.setStructuralFreeze', key: 'workspace\u0000doc.md', requestId: '', frozen: true }), false);

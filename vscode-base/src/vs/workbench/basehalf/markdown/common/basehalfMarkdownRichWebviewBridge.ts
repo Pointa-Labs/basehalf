@@ -138,12 +138,13 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
-	sendAttachmentResult(requestId: string, result: { readonly url?: string; readonly error?: string }): Promise<boolean> {
+	sendAttachmentResult(requestId: string, result: { readonly url?: string; readonly name?: string; readonly error?: string }): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.attachmentResult',
 			key: this.key,
 			requestId,
 			...(result.url ? { url: result.url } : {}),
+			...(result.name ? { name: result.name } : {}),
 			...(result.error ? { error: result.error } : {})
 		});
 	}

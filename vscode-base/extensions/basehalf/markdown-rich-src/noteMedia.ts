@@ -3,18 +3,21 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BlockNoteEditor, PartialBlock } from '@blocknote/core';
-import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
+import { createExtension, type BlockNoteEditor, type PartialBlock } from '@blocknote/core';
+import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { BASEHALF_MEDIA_FILE_EXTENSIONS } from '../../../src/vs/platform/protocol/common/basehalfMediaFiles.js';
+import { baseHalfNoteMediaKind } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMediaKind.js';
 import { baseHalfEditorLabel } from './noteSchema.js';
 import { BASEHALF_NOTE_OWN_STEP } from './noteUndoFence.js';
 
-// Pictures, videos, sounds, and files added from the slash menu and the add
-// button (note formats, rule 49): the system's file chooser opens at once,
-// and the block is added with its address once the file is copied, in one
-// step of undo. Until then a placeholder that is no part of the note shows
-// the file's name. Rich never shows a block the file would not keep.
+// Pictures, videos, sounds, and files put into a note from the slash menu
+// and the add button (note formats, rule 49), pasted, or dropped: each file
+// is kept in the note's own folder (files in notes, rule 12), and its block,
+// a picture, a video, or a sound by the one list of media files and any other
+// file a file block, is added with its address once the file is copied, in
+// one step of undo. Until then a placeholder that is no part of the note
+// shows the file's name. Rich never shows a block the file would not keep.
 
 type NoteEditor = BlockNoteEditor<any, any, any>;
 
@@ -29,6 +32,42 @@ const accepted: Readonly<Record<BaseHalfNoteMediaChoice, string>> = {
 
 /** How long a placeholder says that a file could not be added. */
 const FAILURE_SHOWN_MS = 3000;
+
+/** What the host answers for a file put into the note: its address and the stored file's name, which its block shows. */
+export interface IBaseHalfNoteStoredFile {
+	readonly props: { readonly url: string; readonly name: string };
+}
+
+/**
+ * The kinds of data the editor reads a paste or a drop as, first to last.
+ * Files are read only when nothing before them is there, as the editor reads
+ * them.
+ */
+const editorReadOrder = ['vscode-editor-data', 'blocknote/html', 'text/markdown', 'text/html', 'text/plain', 'Files'];
+
+/**
+ * The files a paste or a drop puts into the note (note formats, rule 72):
+ * files copied or dragged alone, and the picture that a page or an app
+ * copies beside the HTML of that one picture. Nothing for any other paste.
+ */
+export function baseHalfNoteTransferFiles(data: DataTransfer): File[] {
+	const files = Array.from(data.files);
+	if (files.length === 0) {
+		return [];
+	}
+	const first = editorReadOrder.find(type => data.types.includes(type));
+	if (first === 'Files') {
+		return files;
+	}
+	return first === 'text/html' && isOnePicture(data.getData('text/html')) ? files.filter(file => file.type.startsWith('image/')) : [];
+}
+
+/** Whether HTML holds one picture and no text: what a page or an app copies for a picture. */
+function isOnePicture(html: string): boolean {
+	const template = document.createElement('template');
+	template.innerHTML = html;
+	return template.content.querySelectorAll('img').length === 1 && (template.content.textContent ?? '').trim() === '';
+}
 
 interface IPlaceholderChange {
 	readonly add?: Decoration;
@@ -63,29 +102,82 @@ function placeholderPosition(state: EditorState, element: HTMLElement): number |
 	return placeholderKey.getState(state)?.find(undefined, undefined, spec => spec.element === element)[0]?.from;
 }
 
-/** Whether a file chosen for File is added as a link: a note, and a file whose name has no extension. */
-function addedAsLink(name: string): boolean {
-	const dot = name.lastIndexOf('.');
-	const extension = dot > 0 ? name.slice(dot).toLowerCase() : '';
-	return extension === '' || extension === '.md' || extension === '.markdown';
+/**
+ * Files dropped on the note go in where they were let go (files in notes,
+ * rule 12), ahead of the editor's own reading of a drop, which would leave a
+ * file that cannot be kept as an empty block.
+ */
+export const makeBaseHalfNoteFileDropExtension = createExtension(({ editor }: { readonly editor: NoteEditor }) => ({
+	key: 'baseHalfNoteFileDrop',
+	prosemirrorPlugins: [new Plugin({
+		key: new PluginKey('baseHalfNoteFileDrop'),
+		view: view => {
+			const onDrop = (event: DragEvent): void => {
+				const files = editor.isEditable && event.dataTransfer ? baseHalfNoteTransferFiles(event.dataTransfer) : [];
+				if (files.length === 0) {
+					return;
+				}
+				event.preventDefault();
+				event.stopPropagation();
+				void addBaseHalfNoteFiles(editor, files, { x: event.clientX, y: event.clientY });
+			};
+			// In the capture phase: ahead of the editor's own reading of a drop.
+			view.dom.addEventListener('drop', onDrop, true);
+			return { destroy: () => view.dom.removeEventListener('drop', onDrop, true) };
+		},
+	})],
+}));
+
+/**
+ * Adds `files` one after another where the caret is, or where they were
+ * dropped (files in notes, rule 14): each is put in as `addBaseHalfNoteFile`
+ * puts one, and a caret that follows each goes on after the last.
+ */
+export async function addBaseHalfNoteFiles(editor: NoteEditor, files: readonly File[], dropped?: { readonly x: number; readonly y: number }): Promise<void> {
+	const view = editor.prosemirrorView;
+	const at = dropped && view?.posAtCoords({ left: dropped.x, top: dropped.y });
+	if (view && at) {
+		view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at.pos))));
+	}
+	let after: string | undefined;
+	for (const file of files) {
+		after = await addBaseHalfNoteFile(editor, file, after) ?? after;
+	}
+}
+
+/** The place at the end of the block `id`, after its content and before its children. */
+function blockEnd(state: EditorState, id: string): number | undefined {
+	let end: number | undefined;
+	state.doc.descendants((node, position) => {
+		if (end !== undefined) {
+			return false;
+		}
+		if (node.type.name === 'blockContainer' && node.attrs.id === id && node.firstChild) {
+			end = position + 1 + node.firstChild.nodeSize;
+		}
+		return end === undefined;
+	});
+	return end;
 }
 
 /**
- * Adds `file`, chosen for `kind`, where the caret is: a placeholder shows it
- * while it is copied, then the block takes the place of the empty block the
- * menu was in, or follows the block it was in, in one step of undo. A file
- * that cannot be copied leaves nothing but the placeholder's word for 3 s.
+ * Adds `file` where the caret is, or after the block `after`: a placeholder
+ * shows it while it is copied, then the block takes the place of the empty
+ * block the caret was in, or follows the block it was in, in one step of
+ * undo, and its id is given back. A file that
+ * cannot be copied leaves nothing but the placeholder's words for 3 s, which
+ * say why.
  */
-export async function addBaseHalfNoteMediaFile(editor: NoteEditor, kind: BaseHalfNoteMediaChoice, file: File): Promise<void> {
+export async function addBaseHalfNoteFile(editor: NoteEditor, file: File, after?: string): Promise<string | undefined> {
 	const view = editor.prosemirrorView;
 	if (!view || !editor.uploadFile) {
-		return;
+		return undefined;
 	}
 	const element = document.createElement('span');
 	element.className = 'basehalf-note-media-placeholder';
 	element.contentEditable = 'false';
 	element.textContent = baseHalfEditorLabel(`Adding ${file.name}…`, `正在添加 ${file.name}…`, `正在新增 ${file.name}…`);
-	const add: IPlaceholderChange = { add: Decoration.widget(view.state.selection.from, element, { element, side: 1, ignoreSelection: true }) };
+	const add: IPlaceholderChange = { add: Decoration.widget((after ? blockEnd(view.state, after) : undefined) ?? view.state.selection.from, element, { element, side: 1, ignoreSelection: true }) };
 	view.dispatch(view.state.tr.setMeta(placeholderKey, add).setMeta('addToHistory', false));
 	const remove = (): void => {
 		const current = editor.prosemirrorView;
@@ -93,25 +185,26 @@ export async function addBaseHalfNoteMediaFile(editor: NoteEditor, kind: BaseHal
 			current.dispatch(current.state.tr.setMeta(placeholderKey, { remove: element } satisfies IPlaceholderChange).setMeta('addToHistory', false));
 		}
 	};
-	let url: string;
+	let stored: IBaseHalfNoteStoredFile['props'];
 	try {
-		const uploaded = await editor.uploadFile(file);
-		if (typeof uploaded !== 'string' || uploaded === '') {
-			throw new Error('The copy of the file has no address.');
+		const uploaded = await editor.uploadFile(file) as IBaseHalfNoteStoredFile | string;
+		stored = typeof uploaded === 'string' ? { url: uploaded, name: file.name } : uploaded.props;
+		if (!stored.url) {
+			throw new Error(`Could not add ${file.name}.`);
 		}
-		url = uploaded;
 	} catch (error) {
-		// The placeholder tells the user; the reason is for the log.
-		console.warn('[basehalf] A chosen file could not be added to the note.', error);
-		element.textContent = baseHalfEditorLabel(`Could not add ${file.name}.`, `无法添加 ${file.name}。`, `無法新增 ${file.name}。`);
+		// The placeholder tells the user why, in plain words (files in notes, rule 49).
+		console.warn('[basehalf] A file could not be added to the note.', error);
+		const reason = error instanceof Error && error.message.startsWith('Could not add ') ? error.message : `Could not add ${file.name}.`;
+		element.textContent = baseHalfEditorLabel(reason, `无法添加 ${file.name}。`, `無法新增 ${file.name}。`);
 		element.classList.add('failed');
 		setTimeout(remove, FAILURE_SHOWN_MS);
-		return;
+		return undefined;
 	}
 	const current = editor.prosemirrorView;
 	const at = current ? placeholderPosition(current.state, element) : undefined;
 	if (!current || at === undefined) {
-		return;
+		return undefined;
 	}
 	const $at = current.state.doc.resolve(at);
 	let id: string | undefined;
@@ -122,10 +215,9 @@ export async function addBaseHalfNoteMediaFile(editor: NoteEditor, kind: BaseHal
 	const block = id ? editor.getBlock(id) : undefined;
 	// The caret still in the block the menu was in follows the added block; one put elsewhere meanwhile stays.
 	const caretFollows = !!block && editor.getTextCursorPosition().block.id === block.id;
-	const added: PartialBlock<any, any, any> = kind === 'file' && addedAsLink(file.name)
-		? { type: 'paragraph', content: [{ type: 'link', href: url, content: file.name }] }
-		: { type: kind, props: { url, name: file.name } };
-	editor.transact(transaction => {
+	// A file kept for the note is its block whatever its name (note formats, rule 49).
+	const added: PartialBlock<any, any, any> = { type: baseHalfNoteMediaKind(stored.url) ?? 'file', props: { url: stored.url, name: stored.name } };
+	return editor.transact(transaction => {
 		const [inserted] = !block
 			? editor.insertBlocks([added], editor.document[editor.document.length - 1], 'after')
 			: block.type === 'paragraph' && Array.isArray(block.content) && block.content.length === 0
@@ -143,6 +235,7 @@ export async function addBaseHalfNoteMediaFile(editor: NoteEditor, kind: BaseHal
 		}
 		transaction.setMeta(placeholderKey, { remove: element } satisfies IPlaceholderChange);
 		transaction.setMeta(BASEHALF_NOTE_OWN_STEP, true);
+		return inserted?.id;
 	});
 }
 
@@ -156,7 +249,7 @@ export function chooseBaseHalfNoteMedia(editor: NoteEditor, kind: BaseHalfNoteMe
 	input.addEventListener('change', () => {
 		const file = input.files?.[0];
 		if (file) {
-			void addBaseHalfNoteMediaFile(editor, kind, file);
+			void addBaseHalfNoteFile(editor, file);
 		}
 	}, { once: true });
 	input.click();

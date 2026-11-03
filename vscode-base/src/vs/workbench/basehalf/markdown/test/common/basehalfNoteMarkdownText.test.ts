@@ -482,7 +482,7 @@ suite('BaseHalfNoteMarkdownText', () => {
 	});
 
 	suite('baseHalfMarkdownPathHref', () => {
-		test('encodes what a path segment cannot hold in a link, and keeps letters of any script', () => {
+		test('encodes every ASCII character but letters, digits, and -._~, and keeps letters of any script, in NFC', () => {
 			const cases: [string, string][] = [
 				['lecture #1.pdf', 'lecture%20%231.pdf'],
 				['docs/lecture #1.pdf', 'docs/lecture%20%231.pdf'],
@@ -500,7 +500,10 @@ suite('BaseHalfNoteMarkdownText', () => {
 				['.bh/attachments/n/x y.pdf', '.bh/attachments/n/x%20y.pdf'],
 				['a\u3000b.md', 'a%E3%80%80b.md'],
 				['naïve café.md', 'naïve%20café.md'],
-				['a\'b!c$d*e+f,g;h=i@j~k-l_m.md', 'a\'b!c$d*e+f,g;h=i@j~k-l_m.md']
+				['a\'b!c$d*e+f,g;h=i@j~k-l_m.md', 'a%27b%21c%24d%2Ae%2Bf%2Cg%3Bh%3Di%40j~k-l_m.md'],
+				['e\u0301tude.md', '\u00e9tude.md'],
+				['a\u200bb\u202ec.md', 'a%E2%80%8Bb%E2%80%AEc.md'],
+				['报告 v2.pdf', '报告%20v2.pdf']
 			];
 			assert.deepStrictEqual(cases.map(([path]) => baseHalfMarkdownPathHref(path)), cases.map(([, written]) => written));
 		});

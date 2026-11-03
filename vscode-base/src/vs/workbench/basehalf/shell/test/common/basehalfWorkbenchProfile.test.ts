@@ -237,7 +237,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSaveDelay'], 250);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['window.menuStyle'], 'custom');
 		assert.deepStrictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.exclude'], {
-			'.bh': true,
+			'**/.bh': true,
 			'AGENTS.md': true,
 			'CLAUDE.md': true
 		});

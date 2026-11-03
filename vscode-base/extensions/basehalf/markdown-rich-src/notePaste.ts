@@ -9,6 +9,7 @@ import { buildBaseHalfMarkdownLoadProjection, type IBaseHalfMarkdownEditorApi } 
 import { repairBaseHalfNoteHtml, tidyBaseHalfNoteHtml } from '../../../src/vs/workbench/basehalf/markdown/browser/basehalfNoteHtmlRepair.js';
 import { baseHalfNoteBlockChildren, isBaseHalfNoteRecord } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteBlocks.js';
 import { postProcessBaseHalfNoteBlocks, stripBaseHalfNoteReadHints, type BaseHalfNoteReadMode } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteStructure.js';
+import { addBaseHalfNoteFiles, baseHalfNoteTransferFiles } from './noteMedia.js';
 
 // Rich's paste (note formats, rules 72 to 74): HTML from another application
 // and Markdown are read as a note's file is read, so what comes in is what
@@ -116,11 +117,18 @@ function vscodeEditorMode(data: DataTransfer): string | undefined {
  * The editor's paste handler (rules 72 to 74): text that reads as Markdown is
  * Markdown, other text is text as typed, and Markdown copied from Source or
  * another code editor of Markdown is Markdown; code of another language
- * stays a code block. The rest is the editor's own choice of what to paste.
+ * stays a code block. Files, and a picture copied from a page, are kept in
+ * the note's own folder (files in notes, rules 12 and 13). The rest is the
+ * editor's own choice of what to paste.
  */
 export function baseHalfNotePasteHandler({ event, editor, defaultPasteHandler }: IBaseHalfNotePasteEvent): boolean {
 	const data = event.clipboardData;
 	const inCode = editor.transact(transaction => !!transaction.selection.$from.parent.type.spec.code);
+	const files = data ? baseHalfNoteTransferFiles(data) : [];
+	if (files.length > 0) {
+		void addBaseHalfNoteFiles(editor, files);
+		return true;
+	}
 	const mode = data && !inCode && data.types.includes('vscode-editor-data') ? vscodeEditorMode(data) : undefined;
 	const text = mode ? data?.getData('text/plain') : undefined;
 	if (mode && text) {

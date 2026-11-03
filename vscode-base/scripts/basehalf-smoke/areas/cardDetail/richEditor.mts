@@ -656,7 +656,8 @@ export async function assertMarkdownRichFileLinkAutocomplete(page) {
 
 export async function assertMarkdownRichFileAttachment(page) {
 	const readmePath = path.join(workspacePath, 'README.md');
-	const attachmentPath = path.join(workspacePath, 'attachments', 'handout.pdf');
+	// The note's own folder in the store of its files, linked from the note (files in notes, rules 1, 8, and 18).
+	const storeLink = /\[handout\.pdf\]\(\.bh\/attachments\/([a-z0-9]{10})\/handout\.pdf\)/;
 	let frame = await activeMarkdownRichFrame(page);
 	const target = frame.locator('.bn-block-content').last();
 	await target.click();
@@ -674,12 +675,16 @@ export async function assertMarkdownRichFileAttachment(page) {
 		buffer: createMinimalPdfFixture()
 	});
 
-	await waitUntil(() => fs.existsSync(attachmentPath), 'the inserted attachment to be written beside the document', 15_000);
 	await waitUntil(
-		() => fs.readFileSync(readmePath, 'utf8').includes('[handout.pdf](attachments/handout.pdf)'),
-		'the inserted attachment to persist as a relative Markdown file link',
+		() => storeLink.test(fs.readFileSync(readmePath, 'utf8')),
+		'the inserted file to persist as a link into the note\'s own folder in the store',
 		15_000
 	);
+	const folder = storeLink.exec(fs.readFileSync(readmePath, 'utf8'))[1];
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, '.bh', 'attachments', folder, 'handout.pdf')), 'the inserted file to be kept in the note\'s own folder', 15_000);
+	if (fs.existsSync(path.join(workspacePath, 'attachments'))) {
+		throw new Error('A file put into a note was written into a folder of the workspace');
+	}
 
 	// Close the live YJS projection and rebuild it from Markdown truth. A
 	// standalone attachment link must come back as a first-class file block,
@@ -692,6 +697,17 @@ export async function assertMarkdownRichFileAttachment(page) {
 	await attachment.click();
 	if (await frame.locator('[data-test="fileDownloadButton"]').count() > 0) {
 		throw new Error('The stock BlockNote download action leaked into BaseHalf file semantics');
+	}
+	// A block's name is its stored file's name: the toolbar offers no Rename (files in notes, rule 21).
+	if (await frame.locator('.basehalf-markdown-rich-portal .bn-formatting-toolbar button[aria-label="Rename file"]').count() > 0) {
+		throw new Error('The toolbar of a file block offered Rename');
+	}
+	// The file block's menu has Open, and no label names Card Detail (rule 22).
+	await attachment.click({ button: 'right' });
+	const menuText = await frame.locator('.basehalf-markdown-rich-context-menu').first().textContent({ timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	if (!/\bOpen\b/.test(menuText ?? '') || /Card Detail/.test(menuText ?? '')) {
+		throw new Error(`The menu of a file block must offer Open and name no Card Detail: ${JSON.stringify(menuText)}`);
 	}
 	// Replace on a file block offers a file from the disk only: the note stores the block as a link (note formats, rule 50).
 	const replace = frame.locator('.basehalf-markdown-rich-portal .bn-formatting-toolbar button[aria-label="Replace file"]').first();

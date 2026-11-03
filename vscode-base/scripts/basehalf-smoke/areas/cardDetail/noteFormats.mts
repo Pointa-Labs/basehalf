@@ -302,9 +302,22 @@ async function chooseFromTheMenu(page, frame, line, query, item, files) {
 export async function assertNoteFormatsMediaFromTheMenu(page) {
 	let frame = await showNote(page, ['Media here.', ''], 'Media here.');
 	await chooseFromTheMenu(page, frame, 'Media here.', '/video', 'Video', { name: 'clip.mp4', mimeType: 'video/mp4', buffer: Buffer.from('a stand-in for a video') });
-	await waitUntil(() => /^Media here\.\n\n<video src="[^"]*clip\.mp4" controls><\/video>\n$/.test(readFormatsNote()), 'the chosen video to be stored as a video where the menu was', 15_000).catch(() => {
-		throw new Error(`The video chosen in the slash menu was not stored as a video: ${JSON.stringify(readFormatsNote())}`);
+	// It is kept in the note's own folder in the store, linked from the note (files in notes, rules 12 and 18).
+	await waitUntil(() => /^Media here\.\n\n<video src="\.\.\/\.bh\/attachments\/[a-z0-9]{10}\/clip\.mp4" controls><\/video>\n$/.test(readFormatsNote()), 'the chosen video to be stored as a video where the menu was', 15_000).catch(() => {
+		throw new Error(`The video chosen in the slash menu was not stored as a video in the note's own folder: ${JSON.stringify(readFormatsNote())}`);
 	});
+	const stored = /attachments\/([a-z0-9]{10})\//.exec(readFormatsNote())[1];
+	if (!fs.existsSync(path.join(workspacePath, '.bh', 'attachments', stored, 'clip.mp4'))) {
+		throw new Error('The chosen video was not kept in the note\'s own folder');
+	}
+	// A video of the note is edited in place: its menu opens it nowhere else and names no Card Detail (rule 22).
+	await frame.locator('video').first().click({ button: 'right' });
+	const menu = frame.locator('.basehalf-markdown-rich-context-menu').first();
+	const menuText = await menu.count() > 0 ? await menu.textContent({ timeout: 2_000 }) : '';
+	await page.keyboard.press('Escape');
+	if (/\bOpen\b|Card Detail/.test(menuText ?? '')) {
+		throw new Error(`The menu of a video in a note offered to open it elsewhere: ${JSON.stringify(menuText)}`);
+	}
 	await page.keyboard.press(`${COMMAND}+z`);
 	await waitUntil(() => readFormatsNote() === 'Media here.\n', 'one Undo to take the added video away', 10_000).catch(() => {
 		throw new Error(`One Undo did not take the added video away: ${JSON.stringify(readFormatsNote())}`);

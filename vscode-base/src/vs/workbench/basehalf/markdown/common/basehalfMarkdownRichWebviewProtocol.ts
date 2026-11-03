@@ -161,6 +161,8 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly key: string;
 		readonly requestId: string;
 		readonly url?: string;
+		/** The stored file's name, which the file's block shows (files in notes, rule 21). */
+		readonly name?: string;
 		readonly error?: string;
 	}
 	| {
@@ -371,6 +373,7 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& candidate.requestId.length > 0
 				&& (typeof candidate.url === 'string' || typeof candidate.error === 'string')
 				&& (candidate.url === undefined || candidate.url.length > 0)
+				&& (candidate.name === undefined || (typeof candidate.name === 'string' && candidate.name.length > 0))
 				&& (candidate.error === undefined || candidate.error.length > 0);
 		case 'basehalf.markdownRich.save':
 			return typeof candidate.requestId === 'string'

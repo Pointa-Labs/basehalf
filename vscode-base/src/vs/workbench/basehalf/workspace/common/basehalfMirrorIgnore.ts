@@ -13,23 +13,27 @@ import { baseHalfAssertBhPathComponentsNotSymbolicLink } from './basehalfMirrorT
 /**
  * Card places change far more often than anything else BaseHalf stores, and
  * each person arranges their own canvas. So layouts stay in the folder and out
- * of git (canvas card placement, "Places stay out of git").
+ * of git (canvas card placement, "Places stay out of git"). Every rule is
+ * anchored at `.bh/`, so that a note's file in the store, whatever its name,
+ * is tracked (files in notes, rule 45).
  *
  * - `/.gitignore` hides this file itself, so that writing it shows nothing.
- * - `canvas.yaml` hides every layout. `!canvas.yaml/` keeps the mirror
- *   directory of a user's own file of that name, with its description.
+ * - The two `canvas.yaml` rules hide every layout in the mirror, and keep the
+ *   mirror directory of a user's own file of that name, with its description.
  * - `/cache/` hides BaseHalf's working files.
- * - `*.basehalf-tmp` hides the file a mirror write goes through before it
- *   takes its name. It is there for a moment, or longer after a crash.
+ * - The two `*.basehalf-tmp` rules hide the file a mirror write goes through
+ *   before it takes its name. It is there for a moment, or longer after a
+ *   crash.
  */
 export const BASEHALF_MIRROR_IGNORE_CONTENT = [
 	'# Written by BaseHalf. Card positions and BaseHalf\'s working files are',
 	'# not shared through git.',
 	'/.gitignore',
-	'canvas.yaml',
-	'!canvas.yaml/',
+	'/mirror/**/canvas.yaml',
+	'!/mirror/**/canvas.yaml/',
 	'/cache/',
-	'*.basehalf-tmp',
+	'/*.basehalf-tmp',
+	'/mirror/**/*.basehalf-tmp',
 	''
 ].join('\n');
 
@@ -40,41 +44,49 @@ export function baseHalfMirrorIgnoreResource(workspaceFolder: URI): URI {
 }
 
 /**
- * Writes the ignore file when it is not there. It is called before a layout
- * or anything under `.bh/cache/` is written. One that is there is left as it
- * is, whatever it holds. A failure rejects, and the caller then writes nothing
- * that git would show.
+ * Writes the ignore file when it is not there or holds anything else. It is
+ * called before a layout, a file of a note, or anything under `.bh/cache/`
+ * is written. A failure rejects, and the caller then writes nothing that git
+ * would show.
  */
 export async function baseHalfEnsureMirrorIgnoreFile(fileService: IFileService, workspaceFolder: URI): Promise<void> {
 	const resource = baseHalfMirrorIgnoreResource(workspaceFolder);
 	await baseHalfAssertBhPathComponentsNotSymbolicLink(fileService, workspaceFolder, resource);
-	if (await isThere(fileService, resource)) {
+	const current = await readIgnoreFile(fileService, resource);
+	if (current !== undefined && current !== TOO_LARGE && current.toString() === BASEHALF_MIRROR_IGNORE_CONTENT) {
 		return;
 	}
 	await fileService.createFolder(dirname(resource));
 	await baseHalfAssertBhPathComponentsNotSymbolicLink(fileService, workspaceFolder, resource);
+	const content = VSBuffer.fromString(BASEHALF_MIRROR_IGNORE_CONTENT);
 	try {
-		await baseHalfCommitMirrorFile(fileService, resource, VSBuffer.fromString(BASEHALF_MIRROR_IGNORE_CONTENT), null);
+		if (current === TOO_LARGE) {
+			await fileService.writeFile(resource, content, { atomic: { postfix: '.basehalf-tmp' } });
+		} else {
+			await baseHalfCommitMirrorFile(fileService, resource, content, current ?? null);
+		}
 	} catch (error) {
 		// Another window, or another write of this one, was first.
-		if (await isThere(fileService, resource)) {
+		const after = await readIgnoreFile(fileService, resource).catch(() => undefined);
+		if (after !== undefined && after !== TOO_LARGE && after.toString() === BASEHALF_MIRROR_IGNORE_CONTENT) {
 			return;
 		}
 		throw error;
 	}
 }
 
-async function isThere(fileService: IFileService, resource: URI): Promise<boolean> {
+const TOO_LARGE = Symbol('tooLarge');
+
+/** The ignore file's bytes; nothing when it is not there. */
+async function readIgnoreFile(fileService: IFileService, resource: URI): Promise<VSBuffer | typeof TOO_LARGE | undefined> {
 	try {
-		await fileService.readFile(resource, { limits: { size: IGNORE_FILE_READ_LIMIT } });
-		return true;
+		return (await fileService.readFile(resource, { limits: { size: IGNORE_FILE_READ_LIMIT } })).value;
 	} catch (error) {
 		if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
-			return false;
+			return undefined;
 		}
-		// Whatever is there, also something larger than BaseHalf would write, is left as it is.
 		if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_TOO_LARGE) {
-			return true;
+			return TOO_LARGE;
 		}
 		throw error;
 	}
