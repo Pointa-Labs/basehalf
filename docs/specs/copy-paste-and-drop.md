@@ -176,6 +176,10 @@ place that should take something needed code of its own, and most had none.
   name with a number after it: `cat.jpg`, then `cat 2.jpg`.
 - Text on the canvas or in an input row becomes a note with that text,
   `untitled.md` or the first free `untitled-1.md`, as New Note names it.
+  Text copied out of a note, which the copy names, keeps working there: its
+  relative links are read from that note's place, and its stored files are
+  cloned into a folder of the new note's own
+  ([files in notes](files-in-notes.md), rule 33).
 - Items from outside this workspace folder are copied in. On the canvas they
   are named as a paste of files is named
   ([exact undo](exact-undo.md#what-the-canvas-made)); in the card's folder

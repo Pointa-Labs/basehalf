@@ -21,6 +21,7 @@ import { baseHalfCanvasChildPath } from '../../../canvas/common/basehalfCanvasMo
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfTransferFileNames } from '../../../clipboard/common/basehalfClipboard.js';
 import { BaseHalfTransferPart, baseHalfCreateTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
+import { IBaseHalfMarkdownAttachmentService } from '../../../markdown/common/basehalfMarkdownAttachment.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
 import { BASEHALF_VIDEO_INPUT_EXTENSIONS, BaseHalfTakenInputKind } from '../../../video/common/basehalfVideoCatalog.js';
@@ -95,6 +96,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@ILogService private readonly logService: ILogService,
 		@ILifecycleService lifecycleService: ILifecycleService,
+		@IBaseHalfMarkdownAttachmentService private readonly markdownAttachmentService: IBaseHalfMarkdownAttachmentService,
 	) {
 		super();
 		this.canvas = context.canvas;
@@ -405,7 +407,14 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		const cardFolder = dirname(item.stat.resource);
 		if (part.kind !== 'item') {
 			const names = part.kind === 'picture' ? baseHalfTransferFileNames(part.extension, part.name) : baseHalfTransferFileNames('md');
-			return this.makeInCardFolder(folder, cardFolder, names, accept, target => baseHalfCreateTransferFile(this.fileService, target, part));
+			return this.makeInCardFolder(folder, cardFolder, names, accept, async target => {
+				// Text copied out of a note is a copy of that note there too (files in notes, rule 33).
+				const copied = part.kind === 'text' && part.note ? await this.markdownAttachmentService.copiedNoteText(target, part.text, part.note) : undefined;
+				for (const failure of copied?.failures ?? []) {
+					this.logService.warn(`[BaseHalf] ${failure.message}`);
+				}
+				await baseHalfCreateTransferFile(this.fileService, target, part, copied?.text);
+			});
 		}
 		const resource = part.item.resource;
 		const extUri = this.uriIdentityService.extUri;

@@ -22,22 +22,32 @@ export function baseHalfTransferParts(transfer: BaseHalfTransfer): readonly Base
 }
 
 /** Writes a picture as it is, or text as a note, into a new file at `target`; never over a file. */
-export async function baseHalfCreateTransferFile(fileService: IFileService, target: URI, content: BaseHalfTransferContent): Promise<void> {
-	const data = content.kind === 'picture' ? content.data : VSBuffer.fromString(content.text.replace(/\r\n?/g, '\n'));
+export async function baseHalfCreateTransferFile(fileService: IFileService, target: URI, content: BaseHalfTransferContent, text?: string): Promise<void> {
+	const data = content.kind === 'picture' ? content.data : VSBuffer.fromString((text ?? content.text).replace(/\r\n?/g, '\n'));
 	await fileService.createFile(target, data, { overwrite: false });
 }
 
 /**
+ * The text that a note made at `target` from text copied out of the note
+ * `source` holds (files in notes, rule 33): its links read from the source's
+ * place, given from the new note's, and its stored files its own.
+ */
+export type BaseHalfCopiedNoteText = (target: URI, text: string, source: URI) => Promise<string>;
+
+/**
  * Makes a picture or text a new file in `folder` (copy, paste, and drop,
- * "What is not a file becomes one"): a picture as it is, text as a note. It
- * takes the first name that no file has and that `taken` does not hold, as
- * the name of a draft is, and never writes over a file. Returns the file.
+ * "What is not a file becomes one"): a picture as it is, text as a note,
+ * which `copiedNoteText` gives what a copy of the note it was copied out of
+ * needs. It takes the first name that no file has and that `taken` does not
+ * hold, as the name of a draft is, and never writes over a file. Returns the
+ * file.
  */
 export async function baseHalfWriteTransferFile(
 	fileService: IFileService,
 	folder: URI,
 	content: BaseHalfTransferContent,
-	taken: (resource: URI) => Promise<boolean>
+	taken: (resource: URI) => Promise<boolean>,
+	copiedNoteText?: BaseHalfCopiedNoteText
 ): Promise<URI> {
 	const names = content.kind === 'picture' ? baseHalfTransferFileNames(content.extension, content.name) : baseHalfTransferFileNames('md');
 	for (const name of names) {
@@ -45,7 +55,8 @@ export async function baseHalfWriteTransferFile(
 		if (await fileService.exists(target) || await taken(target)) {
 			continue;
 		}
-		await baseHalfCreateTransferFile(fileService, target, content);
+		const text = content.kind === 'text' && content.note && copiedNoteText ? await copiedNoteText(target, content.text, content.note) : undefined;
+		await baseHalfCreateTransferFile(fileService, target, content, text);
 		return target;
 	}
 	throw new Error(content.kind === 'picture'

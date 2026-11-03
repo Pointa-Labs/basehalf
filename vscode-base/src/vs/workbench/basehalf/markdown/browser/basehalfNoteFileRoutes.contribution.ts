@@ -115,8 +115,11 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 	 * from its new place: clones in the new home's store when its home
 	 * changed (rule 31), a folder that is a home carrying its store along
 	 * (rule 32), else the routes (rule 29), all in one edit that joins the
-	 * move's step. A note whose edit could not be planned is corrected once
-	 * its folder is quiet.
+	 * move's step. The edit is planned while the move waits and made once the
+	 * move's own step is in place, so that an undo takes the edit back first,
+	 * while its notes are still where the move put them, and a redo makes it
+	 * again after the move. A note whose edit could not be planned is
+	 * corrected once its folder is quiet.
 	 */
 	private async correctMoved(files: readonly SourceTargetPair[], undoRedoGroupId: number | undefined): Promise<void> {
 		const services = this.routeServices();
@@ -155,10 +158,16 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 				}
 			}
 		}
-		await this.apply(edits, toSave, undoRedoGroupId);
+		// Not waited for: it is made once the move that waits for this is done.
+		void this.apply(edits, toSave, undoRedoGroupId).catch(error => this.logService.warn('[BaseHalf] could not give a moved note its files', error));
 	}
 
-	/** Makes `edits` in one step of undo, with the canvas's undo source unless it joins a running step; saves each note that had no unsaved changes. */
+	/**
+	 * Makes `edits` in one step of undo, with the canvas's undo source unless
+	 * it joins a running step, once that step is done; saves each note that
+	 * had no unsaved changes. Its undo and redo open a note again whose model
+	 * is gone.
+	 */
 	private async apply(edits: readonly ResourceTextEdit[], notes: ResourceSet, undoRedoGroupId?: number): Promise<void> {
 		if (edits.length === 0) {
 			return;
@@ -166,6 +175,8 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 		const unsaved = [...notes].filter(note => !this.textFileService.isDirty(note));
 		await this.bulkEditService.apply([...edits], {
 			undoRedoGroupId,
+			undoRedoAfterRunningEdit: true,
+			undoRedoAcrossFiles: true,
 			undoRedoSource: BASEHALF_CANVAS_UNDO_REDO_SOURCE,
 			label: localize('basehalf.noteFiles.routes', "Correct Links to Notes' Files"),
 			code: 'undoredo.basehalfNoteFileRoutes'
@@ -244,6 +255,10 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 
 	/** A note seen after a move outside BaseHalf (rule 30): an open note in a step of a BaseHalf service, a closed note on the disk. */
 	private async correct(services: IBaseHalfNoteFileRouteServices, workspaceFolder: URI, note: URI): Promise<void> {
+		// A note that moved on meanwhile, as by an undo right after a redo, is corrected where it went, never written back here.
+		if (!await this.fileService.exists(note)) {
+			return;
+		}
 		const model = this.textFileService.files.get(note);
 		if (model?.isResolved()) {
 			const text = { value: model.textEditorModel.getValue(), versionId: model.textEditorModel.getVersionId(), dirty: model.isDirty() };

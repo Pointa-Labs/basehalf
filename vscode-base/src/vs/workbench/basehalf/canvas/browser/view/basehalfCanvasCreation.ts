@@ -42,7 +42,7 @@ import {
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
 import { BaseHalfTransfer } from '../../../clipboard/common/basehalfClipboard.js';
 import { baseHalfDragHoldsFilesItems, baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../../clipboard/browser/basehalfTransfer.js';
-import { BaseHalfTransferContent, baseHalfWriteTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
+import { BaseHalfCopiedNoteText, BaseHalfTransferContent, baseHalfWriteTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { planBaseHalfMarkdownUpstreamEdit } from '../../../references/common/basehalfReferenceStore.js';
@@ -194,6 +194,20 @@ export class BaseHalfCanvasCreation {
 		}
 	}
 
+	/**
+	 * A note made from text copied out of another note is a copy of that note
+	 * (files in notes, rule 33): its links are read from the note's place and
+	 * its stored files cloned into a folder of its own; what could not be
+	 * cloned stays the other note's, and says why.
+	 */
+	private readonly copiedNoteText: BaseHalfCopiedNoteText = async (target, text, source) => {
+		const copied = await this.view.markdownAttachmentService.copiedNoteText(target, text, source);
+		for (const failure of copied.failures) {
+			this.view.queueCanvasWarning(failure.message);
+		}
+		return copied.text;
+	};
+
 	/** Cut items of this workspace folder move, as in Files; every other item is copied. */
 	private transferOperation(folder: IBaseHalfCanvasFolderState, transfer: Extract<BaseHalfTransfer, { readonly kind: 'items' }>): 'move' | 'copy' {
 		return transfer.cut && transfer.items.every(item => this.view.uriIdentityService.extUri.isEqualOrParent(item.resource, folder.workspaceFolder)) ? 'move' : 'copy';
@@ -209,7 +223,7 @@ export class BaseHalfCanvasCreation {
 		if (!target?.stat.isDirectory) {
 			return;
 		}
-		const made = await baseHalfWriteTransferFile(this.view.fileService, target.stat.resource, transfer, candidate => this.isDraftPath(candidate));
+		const made = await baseHalfWriteTransferFile(this.view.fileService, target.stat.resource, transfer, candidate => this.isDraftPath(candidate), this.copiedNoteText);
 		this.view.keptVersions.recordMade([made], { label: localize('basehalf.canvas.paste.madeUndo', "Paste {0}", basename(made)), undoRedoGroup: new UndoRedoGroup() });
 	}
 
@@ -1243,7 +1257,8 @@ export class BaseHalfCanvasCreation {
 		}
 		if (content) {
 			const made = await baseHalfWriteTransferFile(this.view.fileService, folder.resource, content,
-				async candidate => reserved.has(this.view.uriIdentityService.extUri.getComparisonKey(candidate)) || await this.isDraftPath(candidate));
+				async candidate => reserved.has(this.view.uriIdentityService.extUri.getComparisonKey(candidate)) || await this.isDraftPath(candidate),
+				this.copiedNoteText);
 			this.view.keptVersions.recordMade([made], { label: localize('basehalf.canvas.paste.madeUndo', "Paste {0}", basename(made)), undoRedoGroup });
 			placed.push({ target: made, kind: 'file' });
 		}

@@ -15,12 +15,21 @@ export interface IBaseHalfTransferItem {
 
 /**
  * What one copy, one cut, or one drag holds, as BaseHalf reads it (copy,
- * paste, and drop, "Terms"): items, a picture with no file, or text.
+ * paste, and drop, "Terms"): items, a picture with no file, or text, with
+ * the note the text was copied out of when the copy names one (files in
+ * notes, rules 33 and 35).
  */
 export type BaseHalfTransfer =
 	| { readonly kind: 'items'; readonly items: readonly IBaseHalfTransferItem[]; readonly cut: boolean }
 	| { readonly kind: 'picture'; readonly data: VSBuffer; readonly extension: string; readonly name?: string }
-	| { readonly kind: 'text'; readonly text: string };
+	| { readonly kind: 'text'; readonly text: string; readonly note?: URI };
+
+/**
+ * The kind of data in which the window keeps what a page or an editor of it
+ * wrote onto the clipboard under kinds of its own, as the note a copy out of
+ * Rich or a note's Source names.
+ */
+export const BASEHALF_CLIPBOARD_WEB_CUSTOM_DATA_TYPE = 'org.chromium.web-custom-data';
 
 export const IBaseHalfClipboardService = createDecorator<IBaseHalfClipboardService>('baseHalfClipboardService');
 
@@ -96,6 +105,50 @@ export function parseBaseHalfClipboardRecord(text: string): { readonly items: re
 		items.push(item.draft === true ? { resource, draft: true } : { resource });
 	}
 	return items.length > 0 ? { items, cut: parsed.cut } : undefined;
+}
+
+/**
+ * The kinds and values that a page or an editor of the window wrote onto the
+ * clipboard under kinds of its own, as the window keeps them in one piece of
+ * data: its length, then the number of entries, then each kind and value as
+ * a length in UTF-16 units and those units, each padded to four bytes, all
+ * in little-endian order. Nothing for data that is not whole.
+ */
+export function parseBaseHalfClipboardWebCustomData(data: VSBuffer): ReadonlyMap<string, string> {
+	const read = new Map<string, string>();
+	const view = new DataView(data.buffer.buffer, data.buffer.byteOffset, data.byteLength);
+	if (data.byteLength < 8 || view.getUint32(0, true) > data.byteLength - 4) {
+		return read;
+	}
+	let offset = 4;
+	const end = 4 + view.getUint32(0, true);
+	const string16 = (): string | undefined => {
+		if (offset + 4 > end) {
+			return undefined;
+		}
+		const length = view.getUint32(offset, true);
+		const start = offset + 4;
+		if (length > (end - start) / 2) {
+			return undefined;
+		}
+		let value = '';
+		for (let index = 0; index < length; index++) {
+			value += String.fromCharCode(view.getUint16(start + index * 2, true));
+		}
+		offset = start + Math.ceil(length * 2 / 4) * 4;
+		return value;
+	};
+	const count = view.getUint32(offset, true);
+	offset += 4;
+	for (let index = 0; index < count; index++) {
+		const kind = string16();
+		const value = kind === undefined ? undefined : string16();
+		if (kind === undefined || value === undefined) {
+			return new Map();
+		}
+		read.set(kind, value);
+	}
+	return read;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

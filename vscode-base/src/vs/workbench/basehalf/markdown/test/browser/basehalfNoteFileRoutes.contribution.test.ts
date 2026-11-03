@@ -25,6 +25,7 @@ import { ITextFileService } from '../../../../services/textfile/common/textfiles
 import { workbenchInstantiationService } from '../../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
+import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../../canvas/common/basehalfCanvasEditing.js';
 import { BaseHalfNoteFileRoutesContribution } from '../../browser/basehalfNoteFileRoutes.contribution.js';
 
 const FOLDER = URI.file('/workspace');
@@ -59,7 +60,9 @@ suite('BaseHalfNoteFileRoutesContribution', () => {
 		disposables.add(instantiationService.createInstance(BaseHalfNoteFileRoutesContribution));
 		const textFileService = instantiationService.get(ITextFileService);
 		const text = (path: string) => textFileService.files.get(joinPath(FOLDER, ...path.split('/')))?.textEditorModel?.getValue();
-		const move = (from: string, to: string, source: UndoRedoSource) => bulkEdit.apply([new ResourceFileEdit(joinPath(FOLDER, ...from.split('/')), joinPath(FOLDER, ...to.split('/')))], { undoRedoSource: source, label: 'Move' });
+		// What an editor would show: the note's model, or its file once no model is left.
+		const shown = async (path: string) => text(path) ?? (await fileService.readFile(joinPath(FOLDER, ...path.split('/')))).value.toString();
+		const move = (from: string, to: string, source: UndoRedoSource | undefined) => bulkEdit.apply([new ResourceFileEdit(joinPath(FOLDER, ...from.split('/')), joinPath(FOLDER, ...to.split('/')))], { undoRedoSource: source, label: 'Move' });
 		const close = async () => {
 			// The editors' notes go with the test.
 			await new Promise(resolve => setTimeout(resolve, 0));
@@ -67,7 +70,13 @@ suite('BaseHalfNoteFileRoutesContribution', () => {
 				model.dispose();
 			}
 		};
-		return { fileService, textFileService, undoRedo: instantiationService.get(IUndoRedoService), asked, text, move, close };
+		// Saved as BaseHalf writes a note no editor holds, before the user goes on.
+		const saved = async (path: string) => {
+			for (let wait = 0; wait < 100 && textFileService.isDirty(joinPath(FOLDER, ...path.split('/'))); wait++) {
+				await new Promise(resolve => setTimeout(resolve, 10));
+			}
+		};
+		return { fileService, textFileService, undoRedo: instantiationService.get(IUndoRedoService), asked, text, shown, move, saved, close };
 	}
 
 	test('an open note moved to another depth in BaseHalf has its routes corrected in the step of the move: an editor\'s undo leaves the correction, and one undo where the move was made takes both back, asking nothing (files in notes, rule 29)', async () => {
@@ -81,8 +90,9 @@ suite('BaseHalfNoteFileRoutesContribution', () => {
 
 		await workspace.move('notes/n.md', 'notes/deep/n.md', files);
 		const moved = workspace.text('notes/deep/n.md');
+		await workspace.saved('notes/deep/n.md');
 		await workspace.undoRedo.undo(joinPath(FOLDER, 'notes', 'deep', 'n.md'));
-		const afterEditorUndo = workspace.text('notes/deep/n.md');
+		const afterEditorUndo = await workspace.shown('notes/deep/n.md');
 		await workspace.undoRedo.undo(files);
 		const back = workspace.text('notes/n.md');
 		const there = await workspace.fileService.exists(joinPath(FOLDER, 'notes', 'deep', 'n.md'));
@@ -91,6 +101,70 @@ suite('BaseHalfNoteFileRoutesContribution', () => {
 		assert.deepStrictEqual({ moved, afterEditorUndo, back, there, asked: workspace.asked }, {
 			moved: '# N\n\n![x](../../.bh/attachments/aaaaaaaaaa/x.png)\n',
 			afterEditorUndo: '# N\n\n![x](../../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			back: '# N\n\n![x](../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			there: false,
+			asked: [],
+		});
+	});
+
+	test('a redo of a move brings the correction again with it, the undo of both comes again, and neither writes a correction of its own or asks anything (files in notes, rule 29)', async () => {
+		const workspace = await open({
+			'notes/n.md': '# N\n\n![x](../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			'notes/deep/other.md': '',
+			'.bh/attachments/aaaaaaaaaa/x.png': 'x',
+		});
+		await workspace.textFileService.files.resolve(joinPath(FOLDER, 'notes', 'n.md'));
+		const files = new UndoRedoSource();
+
+		await workspace.move('notes/n.md', 'notes/deep/n.md', files);
+		await workspace.saved('notes/deep/n.md');
+		await workspace.undoRedo.undo(files);
+		const back = workspace.text('notes/n.md');
+		await workspace.undoRedo.redo(files);
+		const again = workspace.text('notes/deep/n.md');
+		await workspace.undoRedo.undo(files);
+		const backAgain = workspace.text('notes/n.md');
+		// The notes that appeared are read once their folder is quiet: their links lead somewhere.
+		await new Promise(resolve => setTimeout(resolve, 400));
+		const result = {
+			back,
+			again,
+			backAgain,
+			there: await workspace.fileService.exists(joinPath(FOLDER, 'notes', 'deep', 'n.md')),
+			redo: workspace.undoRedo.canRedo(files),
+			correctionsOfTheirOwn: workspace.undoRedo.canUndo(BASEHALF_CANVAS_UNDO_REDO_SOURCE),
+			asked: workspace.asked,
+		};
+		await workspace.close();
+
+		assert.deepStrictEqual(result, {
+			back: '# N\n\n![x](../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			again: '# N\n\n![x](../../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			backAgain: '# N\n\n![x](../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			there: false,
+			redo: true,
+			correctionsOfTheirOwn: false,
+			asked: [],
+		});
+	});
+
+	test('a move made without an undo source, as an extension makes one, gives the correction none: an editor\'s Command-Z of the note takes back both, and asks nothing (files in notes, rule 29)', async () => {
+		const workspace = await open({
+			'notes/n.md': '# N\n\n![x](../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			'notes/deep/other.md': '',
+			'.bh/attachments/aaaaaaaaaa/x.png': 'x',
+		});
+		await workspace.textFileService.files.resolve(joinPath(FOLDER, 'notes', 'n.md'));
+
+		await workspace.move('notes/n.md', 'notes/deep/n.md', undefined);
+		const moved = workspace.text('notes/deep/n.md');
+		await workspace.undoRedo.undo(joinPath(FOLDER, 'notes', 'deep', 'n.md'));
+		const back = workspace.text('notes/n.md');
+		const there = await workspace.fileService.exists(joinPath(FOLDER, 'notes', 'deep', 'n.md'));
+		await workspace.close();
+
+		assert.deepStrictEqual({ moved, back, there, asked: workspace.asked }, {
+			moved: '# N\n\n![x](../../.bh/attachments/aaaaaaaaaa/x.png)\n',
 			back: '# N\n\n![x](../.bh/attachments/aaaaaaaaaa/x.png)\n',
 			there: false,
 			asked: [],

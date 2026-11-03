@@ -14,9 +14,10 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INativeHostService } from '../../../../platform/native/common/native.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
 import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import { baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
-import { BaseHalfTransfer, IBaseHalfClipboardService, IBaseHalfTransferItem, baseHalfClipboardRecord, parseBaseHalfClipboardFileNames, parseBaseHalfClipboardRecord } from '../common/basehalfClipboard.js';
+import { BASEHALF_CLIPBOARD_WEB_CUSTOM_DATA_TYPE, BaseHalfTransfer, IBaseHalfClipboardService, IBaseHalfTransferItem, baseHalfClipboardRecord, parseBaseHalfClipboardFileNames, parseBaseHalfClipboardRecord, parseBaseHalfClipboardWebCustomData } from '../common/basehalfClipboard.js';
 
 /** The list of the files that the clipboard holds as files, in the form the system gives for all of them at once. */
 const FILE_NAMES_TYPE = 'NSFilenamesPboardType';
@@ -99,7 +100,23 @@ export class BaseHalfClipboardService implements IBaseHalfClipboardService {
 			return { kind: 'picture', data: VSBuffer.wrap(image), extension: 'png' };
 		}
 		const text = await this.nativeHostService.readClipboardText();
-		return text.length > 0 ? { kind: 'text', text } : undefined;
+		if (text.length === 0) {
+			return undefined;
+		}
+		const note = isMacintosh ? await this.copiedNote() : undefined;
+		return note ? { kind: 'text', text, note } : { kind: 'text', text };
+	}
+
+	/** The note that the text on the clipboard was copied out of, as a copy out of Rich or a note's Source names it (files in notes, rule 35). */
+	private async copiedNote(): Promise<URI | undefined> {
+		try {
+			const named = parseBaseHalfClipboardWebCustomData(await this.nativeHostService.readClipboardBuffer(BASEHALF_CLIPBOARD_WEB_CUSTOM_DATA_TYPE)).get(BASEHALF_NOTE_COPY_SOURCE);
+			const note = named ? URI.parse(named) : undefined;
+			return note?.scheme === Schemas.file ? note : undefined;
+		} catch (error) {
+			this.logService.warn('[BaseHalf] the note a copy names could not be read from the clipboard', error);
+			return undefined;
+		}
 	}
 
 	async readItems(): Promise<{ readonly items: readonly IBaseHalfTransferItem[]; readonly cut: boolean } | undefined> {

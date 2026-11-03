@@ -15,7 +15,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES, IBaseHalfMarkdownRichNoteItem, IBaseHalfMarkdownRichNoteItemFailure } from './basehalfMarkdownRichWebviewProtocol.js';
-import { baseHalfNoteStoreLinks } from './basehalfNoteFileLinks.js';
+import { baseHalfNoteLinkDestinationRanges, baseHalfNoteLinkPath, baseHalfNoteStoreLinks } from './basehalfNoteFileLinks.js';
 import {
 	BASEHALF_NO_WORKSPACE_SETUP_MARKER,
 	BASEHALF_NOTE_FILES_STORE_PATH,
@@ -68,6 +68,21 @@ export interface IBaseHalfMarkdownAttachmentService {
 	 * stays the other note's, and says why.
 	 */
 	rebase(documentResource: URI, noteText: string, resources: readonly URI[]): Promise<IBaseHalfNoteRebase>;
+
+	/**
+	 * The text that the new note `documentResource` holds when it is made
+	 * from `text` copied out of the note `source` (rule 33): each relative
+	 * link read from the source's place and given from this note's, and each
+	 * stored file cloned first into a folder of this note's own, with its
+	 * edit record. A file that cannot be cloned stays the source's, and says
+	 * why.
+	 */
+	copiedNoteText(documentResource: URI, text: string, source: URI): Promise<IBaseHalfCopiedNoteText>;
+}
+
+export interface IBaseHalfCopiedNoteText {
+	readonly text: string;
+	readonly failures: readonly IBaseHalfMarkdownRichNoteItemFailure[];
 }
 
 export interface IBaseHalfNoteRebase {
@@ -172,6 +187,29 @@ export class BaseHalfMarkdownAttachmentService implements IBaseHalfMarkdownAttac
 			}
 		}
 		return { urls, failures };
+	}
+
+	async copiedNoteText(documentResource: URI, text: string, source: URI): Promise<IBaseHalfCopiedNoteText> {
+		const places = baseHalfNoteLinkDestinationRanges(text).flatMap(({ at, destination }) => {
+			const path = baseHalfNoteLinkPath(destination);
+			if (!path) {
+				return [];
+			}
+			// What follows the path, a part of the page or a query, stays as it was written.
+			const address = destination.startsWith('<') && destination.endsWith('>') ? destination.slice(1, -1) : destination;
+			const rest = address.search(/[?#]/);
+			return [{ at, length: destination.length, resource: joinPath(dirname(source), ...path.split('/')), rest: rest < 0 ? '' : address.slice(rest) }];
+		});
+		if (places.length === 0) {
+			return { text, failures: [] };
+		}
+		// A new note has no folder of its own yet: the first clone makes one, and the others go there too.
+		const rebased = await this.rebase(documentResource, '', places.map(place => place.resource));
+		let copied = text;
+		for (const [index, place] of [...places.entries()].sort((a, b) => b[1].at - a[1].at)) {
+			copied = copied.slice(0, place.at) + rebased.urls[index] + place.rest + copied.slice(place.at + place.length);
+		}
+		return { text: copied, failures: rebased.failures };
 	}
 
 	/**
@@ -314,18 +352,31 @@ export class BaseHalfMarkdownAttachmentService implements IBaseHalfMarkdownAttac
 /**
  * The edit record of a stored file, its original and `edit.yaml` at the
  * file's own path in the workspace folder's mirror (rule 27), cloned to the
- * path of its clone, so that a copy keeps Revert to Original. A file without
- * a record has nothing to clone.
+ * path of its clone, so that a copy keeps Revert to Original. A file of a
+ * store outside the workspace folder, as of a note imported from another
+ * workspace, has its record in the mirror of the nearest folder above it
+ * that keeps one (rule 33). A file without a record has nothing to clone.
  */
 export async function baseHalfCloneNoteFileEditRecord(services: { readonly fileService: IFileService; readonly fileClonesService: IBaseHalfFileClonesService }, workspaceFolder: URI, original: URI, clone: URI): Promise<void> {
 	const { fileService } = services;
-	const from = relativePath(workspaceFolder, original);
 	const to = relativePath(workspaceFolder, clone);
-	if (!from || !to || from.startsWith('../') || to.startsWith('../')) {
+	if (!to || to.startsWith('../')) {
 		return;
 	}
-	const record = joinPath(workspaceFolder, '.bh', 'mirror', ...from.split('/'));
-	if (!(await fileService.stat(record).catch(() => undefined))?.isDirectory) {
+	const isFolder = async (resource: URI) => !!(await fileService.stat(resource).catch(() => undefined))?.isDirectory;
+	let record: URI | undefined;
+	const from = isEqualOrParent(original, workspaceFolder) ? relativePath(workspaceFolder, original) : undefined;
+	if (from) {
+		record = joinPath(workspaceFolder, '.bh', 'mirror', ...from.split('/'));
+	} else {
+		for (let folder = dirname(original); !record && !isEqual(dirname(folder), folder);) {
+			folder = dirname(folder);
+			const path = relativePath(folder, original);
+			const candidate = path ? joinPath(folder, '.bh', 'mirror', ...path.split('/')) : undefined;
+			record = candidate && await isFolder(candidate) ? candidate : undefined;
+		}
+	}
+	if (!record || !await isFolder(record)) {
 		return;
 	}
 	const copyFolder = async (source: URI, target: URI): Promise<void> => {

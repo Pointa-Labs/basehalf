@@ -228,6 +228,10 @@ one folder for every note of that folder:
     note on its own (rule 30) is a step of a BaseHalf service, which the
     canvas's Command-Z reaches. The undo or redo of a move writes no
     correction of its own: the step's edit goes back or comes again with it.
+    A move made without an undo source, as an extension makes one, gives the
+    edit none either, so that its step is undone where such a step is: with
+    a source of its own, the step would ask at its second part, and the
+    canvas's Command-Z would take back a move the canvas did not make.
 30. A move outside BaseHalf, or while it was closed, leaves the links broken
     until BaseHalf sees the note (300 ms after the folder's file events are
     quiet, or at the next open). Then a link into the store that leads
@@ -238,13 +242,17 @@ one folder for every note of that folder:
     folder of the home's store, with their edit records, and the links
     pointed there (rule 31). BaseHalf knows the stores of the workspace's
     folders, looked for in the first 5,000 folders of each. Only links that
-    lead nowhere are touched; nothing is written while git is in the middle
+    lead nowhere, or into the store of another home of the workspace folder
+    (rule 31), are touched; nothing is written while git is in the middle
     of an operation in that repository, nor in a marked folder.
 31. A note moved into another home has its files cloned into a new folder of
     the new home's store, with their edit records, and its links pointed
     there; the old files leave by rule 43. A move in BaseHalf is known as it
-    happens, a move outside BaseHalf by the links that then lead nowhere
-    (rule 30); one whose links still lead somewhere changes nothing.
+    happens, a move outside BaseHalf by its links (rule 30): they then lead
+    nowhere, or still into the store of the home the note left, as from a
+    note moved down into a repository, and a link into the store of another
+    home of the workspace folder is given a clone in the note's home either
+    way. A store above the workspace folder (rule 48) is no other home's.
 32. A folder moved to another depth corrects the notes below it by rules 29
     and 30. A folder that is a home carries its store along.
 
@@ -258,9 +266,17 @@ one folder for every note of that folder:
     clone that fails leaves the copy linking the original's files, and says
     why. A copied folder that carries a store of its own along (a home)
     gives its notes that copy of the store; the other stores' files are
-    cloned into a new folder of the copy's home.
-34. A copy made outside BaseHalf shares the original's files: a shared file
-    stays while either note mentions it. A file put into the copy goes into
+    cloned into a new folder of the copy's home. A note made from pasted
+    text copies the note that the text was copied out of, which a copy out
+    of Rich or a note's Source names (rule 35): its relative links are read
+    from that note's place and given from the new note's, as a block's are,
+    and its stored files are cloned into a folder of its own; text that names
+    no note is written as it is. A file of a store outside the workspace
+    folder, as of a note imported from another workspace, is cloned with the
+    edit record that the nearest folder above it keeps in its mirror.
+34. A copy made outside BaseHalf in the same home shares the original's
+    files: a shared file stays while either note mentions it; a copy into
+    another home gets clones by rule 31. A file put into the copy goes into
     the folder its links already use.
 35. A block cut or copied into another note keeps working there: its relative
     links are rebased to the receiving note, and each stored file that is not
@@ -280,13 +296,15 @@ one folder for every note of that folder:
     versions, [exact undo](exact-undo.md)), in Files, or outside BaseHalf.
     Undo, redo, a paste of a cut block, Put Back, and `git restore` find the
     files.
-37. **The scan.** At an open, after the comparison of moved items, at most
-    once a day per home and by one window at a time (a lock in `.bh/cache/`
-    that goes stale after five minutes), BaseHalf lists the text files of the
-    workspace folder outside `.git` and `node_modules` (Markdown, txt, html,
-    json, yaml, csv, xml, org, rst, adoc, tex, ipynb), with the notes in the
-    kept versions and the text of the notes open in the window, saved or not,
-    and reads each whole. A folder without `.bh/` is not scanned.
+37. **The scan.** At an open, after the comparison of moved items, and while
+    a window stays open (it looks every hour whether the day has passed), at
+    most once a day per home and by one window at a time (a lock in
+    `.bh/cache/` that goes stale after five minutes), BaseHalf lists the
+    text files of the workspace folder outside `.git` and `node_modules`
+    (Markdown, txt, html, json, yaml, csv, xml, org, rst, adoc, tex, ipynb),
+    with the notes in the kept versions and the text of the notes open in the
+    window, saved or not, and reads each whole. A folder without `.bh/` is not
+    scanned.
 38. A stored file counts as mentioned wherever its key occurs after
     `attachments/` in a scanned file, written as it is or percent-encoded, in
     NFC or NFD. A false match only keeps a file longer.
@@ -412,6 +430,17 @@ one folder for every note of that folder:
     picture in the receiving note, from a clone in its folder.
 14. The skill's text names `.bh/attachments/` as note content and its version
     is 12.
+15. In a repository whose `.gitignore` holds the two lines early versions
+    wrote, the first file in a store shows one notice with Remove, Show, and
+    Keep, which names no path; Remove, after the confirmation, deletes exactly
+    those two lines, and the notice does not come again in that home.
+16. Text copied out of a note in Rich and pasted on the canvas of another
+    folder makes a note whose pictures show, from clones in a folder of its
+    own; the note it came from is untouched.
+17. A note moved by `mv` into a repository inside the workspace folder, whose
+    links still lead into the workspace folder's store, links clones in the
+    repository's store within 10 s while BaseHalf runs, and at the next open
+    after a move while it was closed.
 
 ## Verification
 
@@ -439,9 +468,8 @@ one folder for every note of that folder:
   edit records, from another home's store above the note and from one beside
   it; nothing in a marked folder); the routes contribution's test (a move of
   an open note in one step of undo with its correction, which an editor's
-  Command-Z leaves; an undo of the move writes nothing); the bulk edit
-  service's test (an edit that joins the step of a running edit takes its
-  undo source).
+  Command-Z leaves; an undo of the move writes nothing; an edit that joins
+  the step of a running edit takes its undo source).
 - Stage 5, the rest: the Rich bundle test's Markdown pasted from another
   note's Source (links rebased, stored files cloned) and a copy of blocks
   that are all files (the files asked for the clipboard; a cut asks
@@ -463,3 +491,19 @@ one folder for every note of that folder:
   because the writer ended before the system took the file; with the
   clipboard read back first, 30 of 30 held it
   ([copy, paste, and drop](copy-paste-and-drop.md#tried-again-2026-11-03)).
+- The gaps closed after the stages: the routes test (a link into the store of
+  another home of the workspace folder, which still leads somewhere, gets a
+  clone; a store above the workspace folder is left); the routes
+  contribution's test (with the correction saved and no editor holding the
+  note, an undo of a move takes the correction back before the move, a redo
+  makes it again after the move, a second undo takes both back again, and
+  no correction of its own is made or asked about; a move without an undo
+  source gives the edit none, and an editor's Command-Z takes back both); the copies test (a note made from text
+  copied out of another note: links rebased, stored files cloned into a
+  folder of its own, records of a store outside the workspace folder); the
+  clipboard's test (the note a copy names, read from the window's own custom
+  data of the clipboard); the retention contribution's test (a window that
+  stays open scans again once the day has passed); the smoke's
+  `note-files-git-notice` step (criterion 15) and, in the real window, a
+  repository made with `git init` whose `.gitignore` holds the early lines:
+  the notice at the open, Remove, Show, and Keep.

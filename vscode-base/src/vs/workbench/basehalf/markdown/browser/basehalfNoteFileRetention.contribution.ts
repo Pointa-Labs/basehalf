@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { IntervalTimer } from '../../../../base/common/async.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { isEqualOrParent } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -15,15 +16,21 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
 import { baseHalfReleaseUnmentionedNoteFiles } from '../common/basehalfNoteFileRetention.js';
 
+/** How often a window that stays open looks whether a folder's day has passed (files in notes, rule 37). */
+export const BASEHALF_NOTE_FILE_RESCAN_MS = 60 * 60 * 1000;
+
 /**
  * At the open of each workspace folder, once the comparison of moved items
  * is done, the scan of the files no note mentions runs (files in notes,
- * rule 37); it scans a folder at most once a day, whatever the windows.
+ * rule 37), and again every hour while the window stays open; it scans a
+ * folder at most once a day, whatever the windows.
  */
 export class BaseHalfNoteFileRetentionContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.baseHalfNoteFileRetention';
 
 	private readonly scanned = new Set<string>();
+	/** The folders whose scan runs: a look that comes meanwhile waits for the next. */
+	private readonly running = new Set<string>();
 	private disposed = false;
 
 	constructor(
@@ -37,6 +44,9 @@ export class BaseHalfNoteFileRetentionContribution extends Disposable implements
 		super();
 		this.scanFolders();
 		this._register(this.contextService.onDidChangeWorkspaceFolders(() => this.scanFolders()));
+		// A window that stays open for days scans once a day too; the scan itself keeps to its day.
+		const timer = this._register(new IntervalTimer());
+		timer.cancelAndSet(() => this.rescanFolders(), BASEHALF_NOTE_FILE_RESCAN_MS);
 	}
 
 	override dispose(): void {
@@ -51,15 +61,37 @@ export class BaseHalfNoteFileRetentionContribution extends Disposable implements
 				continue;
 			}
 			this.scanned.add(key);
-			void this.scan(folder.uri).catch(error => this.logService.warn('[BaseHalf] the scan of the files no note mentions failed', error));
+			void this.scan(folder.uri);
+		}
+	}
+
+	private rescanFolders(): void {
+		for (const folder of this.contextService.getWorkspace().folders) {
+			if (this.scanned.has(folder.uri.toString())) {
+				void this.scan(folder.uri);
+			}
 		}
 	}
 
 	private async scan(workspaceFolder: URI): Promise<void> {
-		await this.movedItemsService.whenCompared(workspaceFolder);
-		if (this.disposed) {
+		const key = workspaceFolder.toString();
+		if (this.running.has(key)) {
 			return;
 		}
+		this.running.add(key);
+		try {
+			await this.movedItemsService.whenCompared(workspaceFolder);
+			if (!this.disposed) {
+				await this.release(workspaceFolder);
+			}
+		} catch (error) {
+			this.logService.warn('[BaseHalf] the scan of the files no note mentions failed', error);
+		} finally {
+			this.running.delete(key);
+		}
+	}
+
+	private async release(workspaceFolder: URI): Promise<void> {
 		await baseHalfReleaseUnmentionedNoteFiles({
 			fileService: this.fileService,
 			logService: this.logService,

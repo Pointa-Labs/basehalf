@@ -42,10 +42,13 @@ suite('BaseHalfNoteFileCopies', () => {
 			}
 		} as unknown as IBaseHalfFileClonesService;
 		const services = { fileService, fileClonesService, workspaceFolderOf: (resource: URI) => isEqualOrParent(resource, WORKSPACE) ? WORKSPACE : undefined };
+		const at = (path: string) => path.startsWith('/') ? URI.file(path) : joinPath(WORKSPACE, ...path.split('/'));
 		const copy = async (source: string, target: string) => {
-			await fileService.copy(joinPath(WORKSPACE, ...source.split('/')), joinPath(WORKSPACE, ...target.split('/')), false);
-			return baseHalfCopyNoteFiles(services, [{ source: joinPath(WORKSPACE, ...source.split('/')), target: joinPath(WORKSPACE, ...target.split('/')) }]);
+			await fileService.copy(at(source), at(target), false);
+			return baseHalfCopyNoteFiles(services, [{ source: at(source), target: at(target) }]);
 		};
+		// A file of another workspace, as an import reads it.
+		const elsewhere = (path: string, content: string) => fileService.writeFile(URI.file(path), VSBuffer.fromString(content));
 		const tree = async () => {
 			const files: Record<string, string> = {};
 			const walk = async (folder: URI) => {
@@ -60,7 +63,7 @@ suite('BaseHalfNoteFileCopies', () => {
 			await walk(WORKSPACE);
 			return files;
 		};
-		return { copy, tree };
+		return { copy, elsewhere, tree };
 	}
 
 	/** The tree with each new folder of the store named by the order it first shows in. */
@@ -103,6 +106,25 @@ suite('BaseHalfNoteFileCopies', () => {
 				'deep/copy.md': '![a](../.bh/attachments/<new1>/a%20b.png)\n\n<video src="../.bh/attachments/<new1>/clip.mp4" controls></video>\n\n[again](../.bh/attachments/<new1>/a%20b.png) [gone](.bh/attachments/aaaaaaaaaa/gone.pdf) [other](other.md)\n',
 				'note.md': note,
 				'other.md': '',
+			},
+		});
+	});
+
+	test('a note imported from another workspace gets its own folder of clones, each with the edit record that the nearest folder above it keeps (rule 33)', async () => {
+		const workspace = await open({});
+		await workspace.elsewhere('/other/notes/n.md', '![p](../.bh/attachments/bbbbbbbbbb/p.png)\n');
+		await workspace.elsewhere('/other/.bh/attachments/bbbbbbbbbb/p.png', 'p');
+		await workspace.elsewhere('/other/.bh/mirror/.bh/attachments/bbbbbbbbbb/p.png/edit.yaml', 'original: original.png\n');
+		await workspace.elsewhere('/other/.bh/mirror/.bh/attachments/bbbbbbbbbb/p.png/original.png', 'first');
+
+		const failed = await workspace.copy('/other/notes/n.md', 'n.md');
+		assert.deepStrictEqual({ failed, tree: named(await workspace.tree()) }, {
+			failed: [],
+			tree: {
+				'.bh/attachments/<new1>/p.png': 'p',
+				'.bh/mirror/.bh/attachments/<new1>/p.png/edit.yaml': 'original: original.png\n',
+				'.bh/mirror/.bh/attachments/<new1>/p.png/original.png': 'first',
+				'n.md': '![p](.bh/attachments/<new1>/p.png)\n',
 			},
 		});
 	});

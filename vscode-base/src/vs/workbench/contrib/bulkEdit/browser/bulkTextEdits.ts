@@ -193,6 +193,8 @@ export class BulkTextEdits {
 		private readonly _progress: IProgress<void>,
 		private readonly _token: CancellationToken,
 		edits: ResourceTextEdit[],
+		/** BaseHalf: one element across files also for one file, whose undo opens the file again once its model is gone. */
+		private readonly _acrossFiles: boolean,
 		@IEditorWorkerService private readonly _editorWorker: IEditorWorkerService,
 		@IModelService private readonly _modelService: IModelService,
 		@ITextModelService private readonly _textModelResolverService: ITextModelService,
@@ -306,7 +308,7 @@ export class BulkTextEdits {
 			if (!validation.canApply) {
 				throw new Error(`${validation.reason.toString()} has changed in the meantime`);
 			}
-			if (tasks.length === 1) {
+			if (tasks.length === 1 && !this._acrossFiles) {
 				// This edit touches a single model => keep things simple
 				const task = tasks[0];
 				if (!task.isNoOp()) {

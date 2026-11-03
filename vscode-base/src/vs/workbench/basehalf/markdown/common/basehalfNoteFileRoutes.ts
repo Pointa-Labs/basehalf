@@ -48,10 +48,12 @@ export const BASEHALF_NOTE_STORE_SEARCH_FOLDERS = 5000;
  * workspace folder (rule 48), the nearest first, gets the route to it. A
  * link whose key is in another store BaseHalf knows, of another home above
  * the note or beside it, gets its file cloned, with its edit record, into a
- * new folder of the home's store, one for the note, and is pointed there. A
- * link that leads somewhere, or whose key no store holds, is left as it is.
- * Nothing is edited in a marked folder or while git is in the middle of an
- * operation in the note's repository.
+ * new folder of the home's store, one for the note, and is pointed there; so
+ * does a link that leads into the store of another home of the workspace
+ * folder, as a note's link does after a move down into a repository outside
+ * BaseHalf. Any other link that leads somewhere, or whose key no store holds,
+ * is left as it is. Nothing is edited in a marked folder or while git is in
+ * the middle of an operation in the note's repository.
  */
 export async function baseHalfNoteFileRouteEdits(services: IBaseHalfNoteFileRouteServices, workspaceFolder: URI, note: URI, markdown: string): Promise<IBaseHalfNoteRouteEdit[]> {
 	const { fileService } = services;
@@ -81,7 +83,16 @@ export async function baseHalfNoteFileRouteEdits(services: IBaseHalfNoteFileRout
 	const clones = new BaseHalfNoteFileClones(services, workspaceFolder, home);
 	const edits: IBaseHalfNoteRouteEdit[] = [];
 	for (const { at, destination, link } of links) {
-		if (await fileService.exists(joinPath(folder, ...link.path.split('/')))) {
+		const linked = joinPath(folder, ...link.path.split('/'));
+		if (await fileService.exists(linked)) {
+			// The store of the home the note left, or of a home inside it: the note's home holds what the note shows (rule 31).
+			const linkedHome = joinPath(folder, ...link.route.split('/').filter(segment => segment !== ''));
+			if (services.fileClonesService && isEqualOrParent(linkedHome, workspaceFolder) && !isEqual(linkedHome, home)) {
+				const clone = await clones.clone(linked);
+				if (clone) {
+					edits.push({ at, length: destination.length, text: baseHalfMarkdownAttachmentHref(note, clone) });
+				}
+			}
 			continue;
 		}
 		const key = [link.folder, link.file];
