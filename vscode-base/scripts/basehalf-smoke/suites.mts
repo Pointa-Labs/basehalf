@@ -43,6 +43,7 @@ import {
 	assertSourceCardSaveActionHidden,
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
+import { assertNoteBlockMenuChoiceIsOneUndo, assertNoteBlockMenuEscapeClosesEveryList, assertNoteBlockMenuFiles, assertNoteBlockMenuLooks, assertNoteBlockMenuPlacement } from './areas/cardDetail/noteBlockMenu.mts';
 import { assertNoteFormatsCopyCarriesMarkdown, assertNoteFormatsCopyIntoSource, assertNoteFormatsSelectAllTakesEveryBlock, assertNoteFormatsInlineFormatsStored, assertNoteFormatsInputMethod, assertNoteFormatsMenuPaste, assertNoteFormatsOutlineFollowsToggles, assertNoteFormatsPaletteInBothAppearances, assertNoteFormatsPasteFromAPage, assertNoteFormatsKeepTypedLetters, assertNoteFormatsKeysStayInRich, assertNoteFormatsLinksOpenTheirTargets, assertNoteFormatsMediaFromTheMenu, assertNoteFormatsOfferOnlyWhatTheFileKeeps, assertNoteFormatsToggleStored, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
 import { assertNoteFormatsMediaAsksForNoRefusedAddress, assertPreviewNoteMediaPlaysOnWhenDrawnAgain } from './areas/cardDetail/noteMediaDrawnAgain.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
@@ -297,6 +298,11 @@ async function runCardDetailSuite(page) {
 	await step('note-formats-media-from-the-menu', () => assertNoteFormatsMediaFromTheMenu(page));
 	await step('note-formats-inline-formats-stored', () => assertNoteFormatsInlineFormatsStored(page));
 	await step('note-formats-toggle-stored', () => assertNoteFormatsToggleStored(page));
+	await step('note-block-menu-looks', () => assertNoteBlockMenuLooks(page));
+	await step('note-block-menu-choice-is-one-undo', () => assertNoteBlockMenuChoiceIsOneUndo(page));
+	await step('note-block-menu-files', () => assertNoteBlockMenuFiles(page));
+	await step('note-block-menu-placement', () => assertNoteBlockMenuPlacement(page));
+	await step('note-block-menu-escape-closes-every-list', () => assertNoteBlockMenuEscapeClosesEveryList(page));
 	await step('note-formats-input-method', () => assertNoteFormatsInputMethod(page));
 	await step('note-formats-outline-follows-toggles', () => assertNoteFormatsOutlineFollowsToggles(page));
 	await step('note-formats-palette-in-both-appearances', () => assertNoteFormatsPaletteInBothAppearances(page));

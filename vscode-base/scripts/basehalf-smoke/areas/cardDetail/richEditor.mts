@@ -268,6 +268,7 @@ export async function assertMarkdownRichSlashMenuThemedPortal(page) {
 	});
 
 	await page.keyboard.press('Escape');
+	await slashMenu.waitFor({ state: 'hidden', timeout: 5_000 });
 	await page.keyboard.press('Backspace');
 
 	if (!diagnostic.portalClass.includes('bn-root') || !diagnostic.portalClass.includes('bn-mantine')) {

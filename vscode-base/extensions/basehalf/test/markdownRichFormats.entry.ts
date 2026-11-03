@@ -14,7 +14,8 @@ import '@blocknote/mantine/style.css';
 import '../markdown-rich-src/editor.css';
 
 import { BlockNoteEditor, type ExtensionFactoryInstance } from '@blocknote/core';
-import { en } from '@blocknote/core/locales';
+import { SuggestionMenu } from '@blocknote/core/extensions';
+import { en, zh } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { AllSelection, TextSelection } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
@@ -33,12 +34,15 @@ import {
 	type IBaseHalfMarkdownReuseEntry,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
+import type { IBaseHalfMarkdownRichFileLink } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichWebviewProtocol.js';
 import { baseHalfNoteFileLinks } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownHtml.js';
 import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDecorations.js';
 import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
 import { createCanvasMarkdownInlineEditor } from '../canvas-markdown-inline-src/canvasMarkdownInline.js';
 import { installBaseHalfNoteCopy } from '../markdown-rich-src/noteCopy.js';
 import { addBaseHalfNoteFile, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type BaseHalfNoteItemsRequest, type IBaseHalfNoteItems, type IBaseHalfNoteStoredFile } from '../markdown-rich-src/noteMedia.js';
+import { createBaseHalfNoteAddedLine, type IBaseHalfNoteAddedLine } from '../markdown-rich-src/noteAddedLine.js';
+import { BaseHalfFileLinkMenu, BaseHalfNoteBlockMenu } from '../markdown-rich-src/noteBlockMenu.js';
 import { baseHalfMarkdownPathHref } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownText.js';
 import { normalizeBaseHalfNote } from '../markdown-rich-src/noteNormalizer.js';
 import { installBaseHalfNoteBlockIndex } from '../markdown-rich-src/noteBlockIndex.js';
@@ -213,6 +217,8 @@ export interface INoteFormatsTest {
 	readonly fragment: XmlFragment;
 	/** Rich's undo (noteUndo.ts). */
 	readonly history: IBaseHalfNoteUndo;
+	/** The line of the add button (noteAddedLine.ts), for what the menu of blocks in a note does. */
+	readonly addedLine: IBaseHalfNoteAddedLine;
 	/** The reader and the writer of this mode. */
 	readonly api: IBaseHalfMarkdownEditorApi;
 	/** Whether the editor's view was made anew when it became editable, as Card Detail's is after the first load. */
@@ -233,6 +239,7 @@ export interface INoteFormatsTest {
 	caret(target: string | number, edge?: 'start' | 'end'): void;
 	readonly keyboard: {
 		type(text: string): Promise<void>;
+		insertText(text: string): Promise<void>;
 		press(key: string): Promise<void>;
 		down(key: string): Promise<void>;
 		up(key: string): Promise<void>;
@@ -312,7 +319,7 @@ interface IOpenNote {
  * second mount tears the plugin views down and builds them again, which is
  * what Rich's undo has to outlive.
  */
-async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): Promise<IOpenNote> {
+async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult, blockMenu: boolean): Promise<IOpenNote> {
 	const setup = MODES[mode];
 	const ydoc = new YDoc();
 	// The fragment name of editor.tsx (BLOCKNOTE_FRAGMENT_NAME).
@@ -324,6 +331,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 	const offCopy = setup.copy?.(editor);
 	const history = createBaseHalfNoteUndo(editor);
 	openNow.history = history;
+	const addedLine = createBaseHalfNoteAddedLine(editor, () => history.ensure());
 	// As editor.tsx's change listener, which keeps the undo manager live first.
 	const offChange = editor.onChange(() => {
 		history.ensure();
@@ -354,22 +362,25 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 		tableHandles: portal,
 		comments: portal,
 	};
-	// The toolbar of a selection, the side menu, and the menu of `[[` are
-	// BaseHalf's own controllers in editor.tsx; they join the page when
-	// noteToolbars.tsx holds them.
+	// The toolbar of a selection and the side menu are BaseHalf's own controllers
+	// in editor.tsx; they join the page when noteToolbars.tsx holds them. A part
+	// about the menu of blocks has BaseHalf's own menu, and the others the editor's.
 	const render = (editable: boolean) => root.render(createElement(NoteView, {
 		editor,
 		editable,
 		sideMenu: false,
 		formattingToolbar: false,
 		linkToolbar: true,
-		slashMenu: true,
+		slashMenu: !blockMenu,
 		filePanel: true,
 		tableHandles: true,
-		emojiPicker: true,
+		emojiPicker: !blockMenu,
 		comments: true,
 		portalElements,
-	}));
+	}, blockMenu ? [
+		createElement(BaseHalfNoteBlockMenu, { key: 'menu', line: addedLine, portalElement: portal }),
+		createElement(BaseHalfFileLinkMenu, { key: 'links', searchFiles: searchTestFiles, portalElement: portal }),
+	] : undefined));
 
 	let mountedAgain = false;
 	const test: INoteFormatsTest = {
@@ -377,6 +388,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 		editor,
 		fragment,
 		history,
+		addedLine,
 		api,
 		get mountedAgain() {
 			return mountedAgain;
@@ -432,6 +444,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 		},
 		keyboard: {
 			type: text => input({ device: 'keyboard', method: 'type', args: [text] }),
+			insertText: text => input({ device: 'keyboard', method: 'insertText', args: [text] }),
 			press: key => input({ device: 'keyboard', method: 'press', args: [key] }),
 			down: key => input({ device: 'keyboard', method: 'down', args: [key] }),
 			up: key => input({ device: 'keyboard', method: 'up', args: [key] }),
@@ -457,6 +470,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 	const dispose = () => {
 		offCopy?.();
 		offChange();
+		addedLine.dispose();
 		root.unmount();
 		ydoc.destroy();
 		shell.remove();
@@ -1756,6 +1770,381 @@ async function fileBlocks(t: INoteFormatsTest): Promise<void> {
 		[{ name: 'nested.pdf', href: 'nested.pdf', icon: 'bh-md-file-icon', title: false }]);
 }
 
+/** The workspace's files, as the host answers the list of `[[`. */
+async function searchTestFiles(query: string): Promise<readonly IBaseHalfMarkdownRichFileLink[]> {
+	const files = [
+		{ name: 'plan.md', path: 'notes/plan.md', href: 'plan.md' },
+		{ name: 'overview of the whole harbour and its long history.md', path: 'notes/a/folder/with/a/long/name/overview of the whole harbour and its long history.md', href: 'a/folder/with/a/long/name/overview%20of%20the%20whole%20harbour%20and%20its%20long%20history.md' },
+	];
+	return files.filter(file => file.name.includes(query));
+}
+
+/**
+ * Part s, the menu of blocks in a note (the menu of blocks in a note): what it
+ * holds and how its rows measure, how letters rank them, the one row that is lit,
+ * where the add button's line goes, that a line that stays empty leaves the note
+ * and undo and redo as they were, and that a choice is one step of undo.
+ */
+async function blockMenu(t: INoteFormatsTest): Promise<void> {
+	const menu = () => document.querySelector<HTMLElement>('.basehalf-note-menu');
+	const titles = () => [...document.querySelectorAll('.basehalf-note-menu-row .basehalf-note-menu-title')].map(title => title.textContent);
+	const lit = () => [...document.querySelectorAll('.basehalf-note-menu-row[aria-selected="true"] .basehalf-note-menu-title')].map(title => title.textContent);
+	const groups = () => [...document.querySelectorAll('.basehalf-note-menu-group')].map(group => group.textContent);
+	const steps = () => ({ undo: t.history.current?.undoStack.length ?? 0, redo: t.history.current?.redoStack.length ?? 0 });
+	const caretBlock = () => t.editor.getTextCursorPosition().block;
+	const shown = async (what: string, condition: () => boolean) => {
+		await until(what, condition);
+		await t.frames();
+	};
+	const blockWith = (text: string): string => {
+		const find = (blocks: readonly unknown[]): string | undefined => {
+			for (const block of blocks as readonly { readonly id: string; readonly content?: unknown; readonly children: readonly unknown[] }[]) {
+				if (Array.isArray(block.content) && inlineText(block.content).includes(text)) {
+					return block.id;
+				}
+				const inner = find(block.children);
+				if (inner) {
+					return inner;
+				}
+			}
+			return undefined;
+		};
+		const id = find(t.editor.document);
+		if (!id) {
+			throw new Error(`The note has no block with "${text}".`);
+		}
+		return id;
+	};
+	const add = async (text: string) => {
+		t.addedLine.add(blockWith(text));
+		await shown('the menu is open', () => menu() !== null);
+	};
+	const closed = () => shown('the menu is closed', () => menu() === null);
+	const twoLines = 'One\n\nTwo\n';
+	const twoBlocks = [{ type: 'paragraph', text: 'One' }, { type: 'paragraph', text: 'Two' }];
+
+	// What it holds, and how it measures.
+	await t.load(twoLines);
+	await add('One');
+	const box = menu()!.getBoundingClientRect();
+	const rowBoxes = [...document.querySelectorAll<HTMLElement>('.basehalf-note-menu-row')].map(row => row.getBoundingClientRect().height);
+	t.check('the add button\'s menu holds every block in one order, in three groups, one row lit', {
+		titles: titles(),
+		groups: groups(),
+		lit: lit(),
+		forms: [...document.querySelectorAll('.basehalf-note-menu-form')].map(form => form.textContent),
+	}, {
+		titles: ['Paragraph', 'Heading 1', 'Heading 2', 'Heading 3', 'Bullet List', 'Numbered List', 'Check List', 'Toggle List', 'Quote', 'Code Block', 'Table', 'Divider', 'Image', 'Video', 'Audio', 'File', 'Link to File', 'Toggle Heading 1', 'Toggle Heading 2', 'Toggle Heading 3', 'Heading 4', 'Heading 5', 'Heading 6', 'Emoji'],
+		groups: ['Basic', 'Media and Files', 'More'],
+		lit: ['Paragraph'],
+		forms: ['#', '##', '###', '-', '1.', '[ ]', '>', '```', '---', '[[', '####', '#####', '######', ':'],
+	});
+	t.check('it is 280 px wide and at most 428 px tall, and each of its rows is one line of 30 px', { width: box.width, tall: box.height <= 428, rows: [...new Set(rowBoxes)] }, { width: 280, tall: true, rows: [30] });
+	const line = t.blocks();
+	t.check('the new line is under the line of the button, with the caret in it', { line, caret: caretBlock().id === t.editor.document[1].id }, { line: [twoBlocks[0], { type: 'paragraph', text: '' }, twoBlocks[1]], caret: true });
+
+	// Escape: the line goes, and the note, undo, redo, and the caret are as they were.
+	await t.keyboard.press('Escape');
+	await closed();
+	t.check('Escape closes the menu, and the line goes', t.blocks(), twoBlocks);
+	t.check('undo and redo are as before the click: nothing to undo', steps(), { undo: 0, redo: 0 });
+
+	t.caret('One');
+	await t.keyboard.type('x');
+	await t.frames();
+	t.command('undo');
+	await t.frames();
+	const beforeAdd = steps();
+	t.caret('Two', 'start');
+	const caretBefore = t.editor.prosemirrorView.state.selection.from;
+	await add('One');
+	await t.keyboard.press('Escape');
+	await closed();
+	t.check('a redo that waited still waits after a canceled add, and the caret is back', { steps: steps(), caret: t.editor.prosemirrorView.state.selection.from }, { steps: beforeAdd, caret: caretBefore });
+	t.command('redo');
+	await t.frames();
+	t.check('and it still works', t.blocks()[0].text, 'Onex');
+	t.command('undo');
+	await t.frames();
+
+	// A choice is one step, however long the menu stayed open and whatever was typed.
+	await t.load(twoLines);
+	const unchanged = await t.save();
+	await add('One');
+	await t.keyboard.type('heading 2');
+	await new Promise(resolve => setTimeout(resolve, 700));
+	await t.keyboard.press('Enter');
+	await closed();
+	t.check('Heading 2 chosen after letters: the block is where the line was, without the letters', t.blocks(), [twoBlocks[0], { type: 'heading', text: '' }, twoBlocks[1]]);
+	t.check('and the caret is in it', caretBlock().type, 'heading');
+	t.check('one step of undo holds the line and the block', steps(), { undo: 1, redo: 0 });
+	t.command('undo');
+	await t.frames();
+	t.check('one undo gives the note back', { blocks: t.blocks(), saved: await t.save() }, { blocks: twoBlocks, saved: unchanged });
+	t.command('redo');
+	await t.frames();
+	t.check('one redo makes the block again', t.blocks()[1].type, 'heading');
+
+	// One row is lit, and the pointer's move makes it current.
+	await t.load(twoLines);
+	await add('One');
+	const quote = [...document.querySelectorAll<HTMLElement>('.basehalf-note-menu-row')].find(row => row.textContent?.startsWith('Quote'))!.getBoundingClientRect();
+	await t.mouse.move(quote.x + 40, quote.y + 15, 2);
+	await t.frames();
+	t.check('the row under a moved pointer is the one lit', lit(), ['Quote']);
+	await t.keyboard.press('ArrowDown');
+	await t.frames();
+	t.check('the keys move that one', lit(), ['Code Block']);
+	await t.keyboard.press('Enter');
+	await closed();
+	t.check('and Enter chooses it', t.blocks()[1].type, 'codeBlock');
+	await t.mouse.move(5, 5);
+
+	await t.load(twoLines);
+	await add('One');
+	for (let press = 0; press < 13; press++) {
+		await t.keyboard.press('ArrowDown');
+	}
+	await t.frames();
+	const image = document.querySelector<HTMLElement>('.basehalf-note-menu-row[aria-selected="true"]')!.getBoundingClientRect();
+	const shownBox = menu()!.getBoundingClientRect();
+	t.check('a row the keys reach is scrolled into view', { row: lit(), inView: image.top >= shownBox.top && image.bottom <= shownBox.bottom }, { row: ['Video'], inView: true });
+	await t.keyboard.press('Escape');
+	await closed();
+
+	// Letters.
+	await add('One');
+	await t.keyboard.type('he');
+	await shown('letters narrow the list', () => titles().length < 24);
+	t.check('letters rank the rows, and the list has no group names', { first: titles()[0], lit: lit(), groups: groups(), width: menu()!.getBoundingClientRect().width }, { first: 'Heading 1', lit: ['Heading 1'], groups: [], width: 280 });
+	await t.keyboard.type('qq');
+	await shown('nothing is found', () => titles().length === 0);
+	t.check('with nothing found it says so at the same width', { text: menu()!.textContent, width: menu()!.getBoundingClientRect().width }, { text: en.suggestion_menu.no_items_title, width: 280 });
+	await t.keyboard.press('Enter');
+	await closed();
+	t.check('Enter then does what it does in the note, and the line stays with its letters', t.blocks().map(block => block.text), ['One', 'heqq', '', 'Two']);
+
+	await t.load(twoLines);
+	await add('One');
+	await t.keyboard.type('written');
+	await shown('nothing is found', () => titles().length === 0);
+	await t.keyboard.press('Escape');
+	await closed();
+	t.check('a line with letters stays after Escape', t.blocks().map(block => block.text), ['One', 'written', 'Two']);
+	t.command('undo');
+	await t.frames();
+	t.check('undo takes the letters away, and the line stays', t.blocks().map(block => block.text), ['One', '', 'Two']);
+	t.command('undo');
+	await t.frames();
+	t.check('the next undo takes the line away', t.blocks(), twoBlocks);
+
+	// Other ways of leaving: Backspace, undo, a click elsewhere, and a click into the line.
+	await t.load(twoLines);
+	await add('One');
+	await t.keyboard.press('Backspace');
+	await closed();
+	await t.frames();
+	t.check('Backspace in the new line leaves all as it was', { blocks: t.blocks(), steps: steps() }, { blocks: twoBlocks, steps: { undo: 0, redo: 0 } });
+
+	await add('One');
+	t.command('undo');
+	await closed();
+	await t.frames();
+	t.check('undo while the menu is open leaves all as it was', { blocks: t.blocks(), steps: steps() }, { blocks: twoBlocks, steps: { undo: 0, redo: 0 } });
+
+	await t.load('One\n\nTwo\n\nThree\n\nFour\n');
+	await add('One');
+	const aimedAt = document.querySelector<HTMLElement>(`[data-id="${blockWith('Three')}"] .bn-inline-content`)!.getBoundingClientRect();
+	// To the right of the menu, which covers the start of that line.
+	await t.mouse.click(aimedAt.x + 320, aimedAt.y + aimedAt.height / 2);
+	await closed();
+	await until('the line goes', () => t.blocks().length === 4);
+	await t.frames();
+	t.check('a click elsewhere puts the caret where the user aimed, and the line goes', { caret: inlineText(caretBlock().content as readonly unknown[]), steps: steps() }, { caret: 'Three', steps: { undo: 0, redo: 0 } });
+
+	await t.load(twoLines);
+	await add('One');
+	const newLine = document.querySelector<HTMLElement>(`[data-id="${t.editor.document[1].id}"] .bn-inline-content`)!.getBoundingClientRect();
+	await t.mouse.click(newLine.x + 10, newLine.y + newLine.height / 2);
+	await closed();
+	await t.frames(4);
+	t.check('a click into the new line keeps it', t.blocks().map(block => block.text), ['One', '', 'Two']);
+
+	// Where the line goes.
+	await t.load([
+		'- Parent', '  - Child', '',
+		'<details open>', '<summary>Open toggle</summary>', '', 'Inside the open.', '', '</details>', '',
+		'<details>', '<summary>Closed toggle</summary>', '', 'Inside the closed.', '', '</details>', '',
+		'```', 'code', '```', '',
+		'After.', '',
+	].join('\n'));
+	const before = t.blocks();
+	await add('Parent');
+	t.check('beside a list item with children, the line is their first child', t.blocks()[0].children?.map(child => child.text), ['', 'Child']);
+	await t.keyboard.press('Escape');
+	await closed();
+	await add('Open toggle');
+	t.check('beside an open toggle, the line is its first child', t.blocks()[1].children?.map(child => child.text), ['', 'Inside the open.']);
+	await t.keyboard.press('Escape');
+	await closed();
+	await add('Closed toggle');
+	t.check('beside a closed toggle, the line follows it', { children: t.blocks()[2].children?.map(child => child.text), next: t.blocks()[3] }, { children: ['Inside the closed.'], next: { type: 'paragraph', text: '' } });
+	await t.keyboard.press('Escape');
+	await closed();
+	t.check('and each of those lines went as it came', t.blocks(), before);
+
+	await t.load('```\n```\n\nAfter.\n');
+	await add('After.');
+	await t.keyboard.press('Escape');
+	await closed();
+	t.addedLine.add(t.editor.document[0].id);
+	await shown('the menu opens under an empty code block', () => menu() !== null);
+	t.check('beside an empty code block the button makes a line after it, as `/` does not work in code', t.blocks().map(block => block.type), ['codeBlock', 'paragraph', 'paragraph']);
+	await t.keyboard.press('Escape');
+	await closed();
+
+	await t.load('One\n\n\n\nTwo\n');
+	t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+	await t.frames();
+	const emptyBefore = t.blocks();
+	t.addedLine.add(t.editor.document[1].id);
+	await shown('the menu opens on the empty line', () => menu() !== null);
+	t.check('beside an empty line the button makes no line', t.blocks(), emptyBefore);
+	await t.keyboard.press('Escape');
+	await closed();
+	t.check('and Escape leaves that line', t.blocks(), emptyBefore);
+
+	// Emoji and Link to File open their own lists, and put nothing into the note until something is chosen.
+	await t.load(twoLines);
+	await add('One');
+	await t.keyboard.type('emoji');
+	await t.keyboard.press('Enter');
+	await shown('the list of emoji is open', () => document.querySelector('.bn-grid-suggestion-menu') !== null);
+	t.check('Emoji puts no letter into the line', t.blocks()[1], { type: 'paragraph', text: '' });
+	await t.keyboard.press('Escape');
+	await shown('the list of emoji is closed', () => document.querySelector('.bn-grid-suggestion-menu') === null);
+	await t.frames();
+	t.check('and Escape from it leaves all as it was', { blocks: t.blocks(), steps: steps() }, { blocks: twoBlocks, steps: { undo: 0, redo: 0 } });
+
+	await add('One');
+	await t.keyboard.type('link');
+	await t.keyboard.press('Enter');
+	await shown('the list of files is open', () => menu()?.classList.contains('wide') === true && titles().length > 0);
+	t.check('Link to File opens the list of `[[`, wide, with the rest of each path', {
+		titles: titles(),
+		details: [...document.querySelectorAll('.basehalf-note-menu-detail')].map(detail => detail.textContent),
+		width: menu()!.getBoundingClientRect().width,
+		line: t.blocks()[1],
+	}, {
+		titles: ['plan.md', 'overview of the whole harbour and its long history.md'],
+		details: ['notes', 'notes/a/folder/with/a/long/name'],
+		width: 360,
+		line: { type: 'paragraph', text: '' },
+	});
+	const rowHeights = [...document.querySelectorAll<HTMLElement>('.basehalf-note-menu-row')].map(row => row.getBoundingClientRect().height);
+	t.check('a long name stays on one line', [...new Set(rowHeights)], [30]);
+	await t.keyboard.press('Enter');
+	await closed();
+	t.check('a chosen file is a link in the line', t.blocks()[1].text?.trim(), 'plan.md');
+
+	// `/`.
+	await t.load('Line\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n');
+	t.caret('Line');
+	await t.keyboard.type('/');
+	await shown('`/` opens the menu', () => menu() !== null);
+	await t.keyboard.press('Escape');
+	await closed();
+	t.check('a `/` the user typed stays after Escape', t.blocks()[0].text, 'Line/');
+	t.caret('2');
+	await t.keyboard.type('/');
+	await t.frames(4);
+	t.check('`/` in a table cell opens no menu', menu(), null);
+
+	// The words of the window's language, and letters of any language.
+	await t.load(twoLines);
+	const english = t.editor.dictionary;
+	document.documentElement.lang = 'zh-CN';
+	Object.assign(t.editor, { dictionary: zh });
+	await add('One');
+	t.check('in Chinese the rows have the editor\'s words, in BaseHalf\'s groups', { first: titles().slice(0, 2), link: titles()[16], groups: groups() }, { first: ['段落', '一级标题'], link: '链接到文件', groups: ['基础', '媒体和文件', '更多'] });
+	await t.keyboard.type('image');
+	await shown('English letters find a row of a Chinese list', () => titles().length < 24);
+	t.check('English letters find a row in a Chinese window', titles()[0], '图片');
+	await t.keyboard.press('Escape');
+	await closed();
+	document.documentElement.lang = 'en';
+	Object.assign(t.editor, { dictionary: english });
+	await t.load(twoLines);
+	await add('One');
+	await t.keyboard.insertText('图片');
+	await shown('Chinese letters find a row of an English list', () => titles().length < 24);
+	t.check('and Chinese letters in an English one', titles()[0], 'Image');
+	await t.keyboard.press('Escape');
+	await closed();
+
+	// What the rows' forms say.
+	await t.load('Start\n');
+	const forms: readonly (readonly [string, string, unknown?])[] = [
+		['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['#### ', 'heading', 4], ['##### ', 'heading', 5], ['###### ', 'heading', 6],
+		['- ', 'bulletListItem'], ['1. ', 'numberedListItem'], ['[ ] ', 'checkListItem'], ['> ', 'quote'], ['``` ', 'codeBlock'], ['---', 'divider'],
+	];
+	for (const [form, type, level] of forms) {
+		await t.load('Start\n');
+		t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+		t.caret(1);
+		await t.keyboard.type(form);
+		await t.frames();
+		const made = t.editor.document[1];
+		t.check(`\`${form.trim()}\` makes its block`, { type: made.type, level: (made.props as { readonly level?: number }).level }, { type, level });
+	}
+	await t.load('Start\n');
+	t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+	t.caret(1);
+	await t.keyboard.type('[[');
+	await shown('`[[` opens the list of files', () => menu()?.classList.contains('wide') === true);
+	await t.keyboard.press('Escape');
+	await closed();
+	await t.load('Start\n');
+	t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+	t.caret(1);
+	await t.keyboard.type(':sm');
+	await shown('`:` and letters open the list of emoji', () => document.querySelector('.bn-grid-suggestion-menu') !== null);
+	await t.keyboard.press('Escape');
+	await shown('the list of emoji is closed', () => document.querySelector('.bn-grid-suggestion-menu') === null);
+
+	// A file chooser opened from the add button's menu: the line waits under it.
+	await t.load(twoLines);
+	await add('One');
+	await t.keyboard.press('Escape');
+	await closed();
+	const nothing = steps();
+	await add('One');
+	const ended = t.addedLine.holdForChooser();
+	t.editor.getExtension(SuggestionMenu)?.closeMenu();
+	await closed();
+	t.addedLine.settle();
+	await t.frames();
+	t.check('the line waits under the chooser', t.blocks().map(block => block.text), ['One', '', 'Two']);
+	ended();
+	await t.frames();
+	t.check('Cancel leaves all as it was', { blocks: t.blocks(), steps: steps() }, { blocks: twoBlocks, steps: nothing });
+
+	await t.load(twoLines);
+	const beforeFile = await t.save();
+	await add('One');
+	const endedAfterFile = t.addedLine.holdForChooser();
+	t.editor.getExtension(SuggestionMenu)?.closeMenu();
+	await closed();
+	await addBaseHalfNoteFile(t.editor, new File(['x'], 'chosen.png', { type: 'image/png' }));
+	await t.frames();
+	endedAfterFile();
+	t.check('a chosen file takes the place of the line', t.blocks().map(block => block.type), ['paragraph', 'image', 'paragraph']);
+	t.check('in one step of undo', steps(), { undo: 1, redo: 0 });
+	t.command('undo');
+	await t.frames();
+	t.check('one undo gives the note back, with no line left', { blocks: t.blocks(), saved: await t.save() }, { blocks: twoBlocks, saved: beforeFile });
+}
+
 /**
  * The parts of the test, by name. Each runs on a note of its own and records
  * its checks with `t.check`. Parts a to i of D110 join here.
@@ -1775,6 +2164,7 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	k: fixedBlocks,
 	n: shape,
 	r: fileBlocks,
+	s: blockMenu,
 };
 
 // As editor.tsx does before the first note is drawn.
@@ -1792,7 +2182,7 @@ async function run(name: string, mode: NoteFormatsMode): Promise<INoteFormatsPar
 	const started = performance.now();
 	let open: IOpenNote | undefined;
 	try {
-		open = await openNote(mode, result);
+		open = await openNote(mode, result, part === blockMenu);
 		await part(open.test);
 	} catch (error) {
 		result.error = error instanceof Error ? error.stack ?? error.message : String(error);

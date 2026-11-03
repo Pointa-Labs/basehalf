@@ -44,7 +44,7 @@ export async function openNoteFormatsNote(page) {
 	await assertCardDetail(page, 'guide.md');
 }
 
-function readFormatsNote() {
+export function readFormatsNote() {
 	return fs.readFileSync(path.join(workspacePath, FORMATS_NOTE), 'utf8');
 }
 
@@ -184,7 +184,7 @@ export async function assertNoteFormatsKeysStayInRich(page) {
 }
 
 /** Writes the note the steps work on and waits until Rich shows `needle`. */
-async function showNote(page, lines, needle) {
+export async function showNote(page, lines, needle) {
 	fs.writeFileSync(path.join(workspacePath, FORMATS_NOTE), lines.join('\n'), 'utf8');
 	const frame = await activeMarkdownRichFrame(page);
 	await frame.locator('.bn-editor .bn-block-content', { hasText: needle }).first().waitFor({ state: 'visible', timeout: 20_000 });

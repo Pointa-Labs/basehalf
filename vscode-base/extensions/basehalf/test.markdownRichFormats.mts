@@ -111,7 +111,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 const INPUT_METHODS: Record<string, readonly string[]> = {
-	keyboard: ['type', 'press', 'down', 'up'],
+	keyboard: ['type', 'insertText', 'press', 'down', 'up'],
 	mouse: ['click', 'move', 'down', 'up'],
 };
 
