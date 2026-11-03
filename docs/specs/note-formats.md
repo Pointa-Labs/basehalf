@@ -780,8 +780,10 @@ this specification. Outside changes are merged meanwhile, as always.
     50 toggles, 20 tables, 50 pictures), with 50 letters typed into one
     paragraph: the work of a save takes at most 16 ms at the 95th
     percentile, the adjusting after a key at most 1 ms at the 95th
-    percentile, the first full write at most 150 ms, and the load at most
-    10% longer than before this decision on the same machine.
+    percentile, all the editor does after a typed letter at most 8 ms at the
+    95th percentile, so that the letter shows in the next frame, the first
+    full write at most 150 ms, and the load at most 10% longer than before
+    this decision on the same machine.
 23. On the card's editor, a paragraph with `<u>` and a palette span can be
     typed into, and keeps its tags; a toggle is one unit drawn closed, and a
     double click on it opens Card Detail.

@@ -39,6 +39,7 @@ import { createCanvasMarkdownInlineEditor } from '../canvas-markdown-inline-src/
 import { installBaseHalfNoteCopy } from '../markdown-rich-src/noteCopy.js';
 import { addBaseHalfNoteMediaFile, installBaseHalfNoteResizeUnderZoom } from '../markdown-rich-src/noteMedia.js';
 import { normalizeBaseHalfNote } from '../markdown-rich-src/noteNormalizer.js';
+import { installBaseHalfNoteBlockIndex } from '../markdown-rich-src/noteBlockIndex.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from '../markdown-rich-src/notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
@@ -115,6 +116,8 @@ interface INoteFormatsModeSetup {
 	readonly paste?: { readonly handler: typeof baseHalfNotePasteHandler; install(editor: NoteEditor, api: IBaseHalfMarkdownEditorApi): void };
 	/** Rich's copy, as editor.tsx installs it (noteCopy.ts): what removes it. */
 	readonly copy?: (editor: NoteEditor) => () => void;
+	/** Rich's index of blocks by their ids, as editor.tsx installs it (noteBlockIndex.ts). */
+	readonly blockIndex?: (editor: NoteEditor) => void;
 }
 
 /**
@@ -138,6 +141,7 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 		})],
 		paste: { handler: baseHalfNotePasteHandler, install: (editor, api) => installBaseHalfNotePaste(editor, api) },
 		copy: editor => installBaseHalfNoteCopy(editor, document.body),
+		blockIndex: editor => installBaseHalfNoteBlockIndex(editor),
 	},
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
 };
@@ -275,6 +279,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 	const editor = createNoteEditor(fragment, setup.extensions(), uploadTestFile, setup.paste?.handler);
 	const api = setup.editorApi(editor);
 	setup.paste?.install(editor, api);
+	setup.blockIndex?.(editor);
 	const offCopy = setup.copy?.(editor);
 	const history = createBaseHalfNoteUndo(editor);
 	openNow.history = history;
@@ -1098,8 +1103,10 @@ function percentile(values: readonly number[], share: number): number {
 /**
  * Part p, the budget of a long note (note formats, criterion 22, plan R2):
  * on a note of about 2,000 blocks, the work of a save after each of 50
- * typed letters, and the rules Rich runs after each change. The numbers are
- * logged; the checks hold the budget with room for this headless page.
+ * typed letters, all the editor does after a letter, its 100 toggles
+ * looking themselves up among it, and the rules Rich runs after each change.
+ * The numbers are logged; the checks hold the budget with room for this
+ * headless page.
  */
 async function longNote(t: INoteFormatsTest): Promise<void> {
 	const note = `${Array.from({ length: 100 }, (_, n) => longNotePart(n)).join('\n\n')}\n`;
@@ -1122,8 +1129,15 @@ async function longNote(t: INoteFormatsTest): Promise<void> {
 		await t.save();
 		saves.push(performance.now() - start);
 	}
-	// The rules after a change, timed on their own: a letter typed into the long note.
 	const view = t.editor.prosemirrorView;
+	// A letter typed into the long note with all the editor does after it, the lookups of its 100 toggles among it.
+	const letters: number[] = [];
+	for (let letter = 0; letter < 50; letter++) {
+		const start = performance.now();
+		view.dispatch(view.state.tr.insertText('z'));
+		letters.push(performance.now() - start);
+	}
+	// The rules after a change, timed on their own: a letter typed into the long note.
 	const rules: number[] = [];
 	for (let letter = 0; letter < 50; letter++) {
 		const typed = view.state.tr.insertText('y');
@@ -1136,15 +1150,17 @@ async function longNote(t: INoteFormatsTest): Promise<void> {
 		loadMs: Math.round(loadMs),
 		coldWriteMs: Math.round(coldMs),
 		saveP95Ms: Math.round(percentile(saves, 0.95) * 10) / 10,
+		letterP95Ms: Math.round(percentile(letters, 0.95) * 10) / 10,
 		rulesP95Ms: Math.round(percentile(rules, 0.95) * 100) / 100,
 	};
 	t.log('long note', measured);
-	t.check('on a note of about 2,000 blocks, a save after a typed letter and the rules after a change stay in their budget', {
+	t.check('on a note of about 2,000 blocks, a save after a typed letter, all the editor does after a letter, and the rules after a change stay in their budget', {
 		blocks: blocks >= 1800,
 		saveWithin16Ms: measured.saveP95Ms <= 16,
+		letterWithin8Ms: measured.letterP95Ms <= 8,
 		rulesWithin1Ms: measured.rulesP95Ms <= 1,
 		saved: (await t.save()).includes('Paragraph 50.6 with'),
-	}, { blocks: true, saveWithin16Ms: true, rulesWithin1Ms: true, saved: true });
+	}, { blocks: true, saveWithin16Ms: true, letterWithin8Ms: true, rulesWithin1Ms: true, saved: true });
 }
 
 /** Selects the first text that matches, and gives the editor the keyboard. */

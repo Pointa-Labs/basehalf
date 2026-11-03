@@ -96,6 +96,7 @@ import {
 import { createBaseHalfNoteEditorApi, type IBaseHalfNoteWriteWarning } from './noteConversions.js';
 import { installBaseHalfNoteCopy } from './noteCopy.js';
 import { chooseBaseHalfNoteMedia, installBaseHalfNoteResizeUnderZoom, type BaseHalfNoteMediaChoice } from './noteMedia.js';
+import { installBaseHalfNoteBlockIndex } from './noteBlockIndex.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from './notePaste.js';
 import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
@@ -788,6 +789,7 @@ function MarkdownRichEditor(): JSX.Element {
 		return value;
 	}, [editor, editorApi]);
 	useMemo(() => installBaseHalfNotePaste(editor, editorApi), [editor, editorApi]);
+	useMemo(() => installBaseHalfNoteBlockIndex(editor), [editor]);
 	// What a copy, a cut, and a drag carry out of Rich (note formats, rules 75 to 77).
 	useEffect(() => installBaseHalfNoteCopy(editor, document.body), [editor]);
 	// A picture's edge follows the pointer on a magnified page (note formats, rule 28).
@@ -2018,18 +2020,25 @@ function MarkdownRichEditor(): JSX.Element {
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
-		const offChange = editor.onChange((_editor, { getChanges }) => {
+		// The document as the editor's last report of a change left it.
+		let reported = editor.prosemirrorView?.state.doc;
+		const offChange = editor.onChange(() => {
 			// Keep the undo manager live even if a plugin-view teardown killed
 			// the one in plugin state after this document loaded.
 			ensureLiveUndoManager();
 			const state = session.current;
+			const doc = editor.prosemirrorView?.state.doc;
+			const previous = reported;
+			reported = doc;
 			if (state.loading || !state.ready) {
 				return;
 			}
 			// The editor reports a change also when it only becomes editable,
-			// with no block changed: that is no edit, and saving after it
+			// with the document as it was: that is no edit, and saving after it
 			// would read a change made outside Rich meanwhile as a conflict.
-			if (getChanges().length === 0) {
+			// The document says so at once, where asking the editor which
+			// blocks changed reads every block of the note twice, on each key.
+			if (doc && previous && (doc === previous || doc.eq(previous))) {
 				return;
 			}
 			state.editRevision += 1;
