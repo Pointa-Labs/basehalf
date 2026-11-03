@@ -16,7 +16,7 @@ import { baseHalfNoteMayHold } from '../../../src/vs/workbench/basehalf/markdown
 import { makeBaseHalfNoteMediaPlaceholders } from './noteMedia.js';
 import { baseHalfNoteChangedRanges, normalizeBaseHalfNote } from './noteNormalizer.js';
 import { repairBaseHalfNoteDroppedHtml } from './notePaste.js';
-import { baseHalfNoteToggleState } from './noteToggleState.js';
+import { baseHalfNoteToggleIsOpen } from './noteToggleState.js';
 import { createBaseHalfNoteUndoFence } from './noteUndoFence.js';
 
 // The shape of a note in Rich (note formats, rules 6, 45, 60 to 66, 70, 71,
@@ -251,10 +251,6 @@ function tab(editor: NoteEditor, direction: 1 | -1): boolean {
 	return true;
 }
 
-function toggleIsOpen(id: string): boolean {
-	return baseHalfNoteToggleState.folds.get(id) ?? baseHalfNoteToggleState.initiallyOpen.has(id);
-}
-
 /**
  * Enter in a toggle's title (rule 45): at its end, an empty first block in
  * it when it is open or holds nothing, else a block after it; inside it, the
@@ -278,7 +274,7 @@ function enterInToggleTitle(editor: NoteEditor): boolean {
 	}
 	if ($head.parentOffset === title.content.size) {
 		editor.transact(() => {
-			if (toggleIsOpen(block.id) || block.children.length === 0) {
+			if (baseHalfNoteToggleIsOpen(block.id) || block.children.length === 0) {
 				const [first] = block.children.length > 0
 					? editor.insertBlocks([{ type: 'paragraph' }], block.children[0], 'before')
 					: editor.updateBlock(block, { children: [{ type: 'paragraph' }] }).children;
@@ -387,7 +383,7 @@ function openTogglesAt(view: EditorView, positions: readonly number[]): void {
 			const container = $position.node(depth - 1);
 			const content = container.firstChild;
 			hidden = $position.node(depth).type.name === 'blockGroup' && container.type.name === 'blockContainer' && !!content
-				&& isBaseHalfNoteToggle({ type: content.type.name, props: content.attrs }) && !toggleIsOpen(String(container.attrs.id));
+				&& isBaseHalfNoteToggle({ type: content.type.name, props: content.attrs }) && !baseHalfNoteToggleIsOpen(String(container.attrs.id));
 		}
 		if (hidden) {
 			const { node } = view.domAtPos(position);

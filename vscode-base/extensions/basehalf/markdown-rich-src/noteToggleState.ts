@@ -19,6 +19,11 @@ export interface IBaseHalfNoteToggleState {
 
 export const baseHalfNoteToggleState: IBaseHalfNoteToggleState = { initiallyOpen: new Set(), folds: new Map() };
 
+/** Whether the toggle `id` shows open. */
+export function baseHalfNoteToggleIsOpen(id: string): boolean {
+	return baseHalfNoteToggleState.folds.get(id) ?? baseHalfNoteToggleState.initiallyOpen.has(id);
+}
+
 /**
  * Opens, through its own button, each toggle the file stores open that the
  * editor shows closed: a note read into blocks the editor already held was
@@ -41,7 +46,7 @@ export function openBaseHalfNoteStoredOpenToggles(root: ParentNode): void {
  */
 export function installBaseHalfNoteToggleState(): void {
 	// The editor asks also for a toggle it no longer holds, as undefined.
-	defaultToggledState.get = block => !!block && (baseHalfNoteToggleState.folds.get(block.id) ?? baseHalfNoteToggleState.initiallyOpen.has(block.id));
+	defaultToggledState.get = block => !!block && baseHalfNoteToggleIsOpen(block.id);
 	defaultToggledState.set = (block, open) => {
 		if (block) {
 			baseHalfNoteToggleState.folds.set(block.id, open);

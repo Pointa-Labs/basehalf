@@ -1,0 +1,159 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The menu of blocks in a note, drawn as BaseHalf's other menus are (the menu of blocks in a note, rules 4 to 7). */
+
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu,
+.basehalf-markdown-rich-portal.bn-mantine .bn-grid-suggestion-menu {
+	box-sizing: border-box;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu {
+	width: 280px;
+	padding: 6px;
+	scroll-padding: 6px;
+	font-size: 13px;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu.wide {
+	width: 360px;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu .basehalf-note-menu-group {
+	padding: 6px 8px 4px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-weight: 400;
+	line-height: 16px;
+}
+
+/* The first name stands level with the first row's text, without the room a name after a row has. */
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu .basehalf-note-menu-group:first-child {
+	padding-top: 2px;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu .basehalf-note-menu-row {
+	display: flex;
+	box-sizing: border-box;
+	width: 100%;
+	height: 30px;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	padding: 0 8px;
+	color: inherit;
+	border-radius: 7px;
+	font-size: 13px;
+	line-height: 18px;
+	cursor: pointer;
+}
+
+/* One row is lit, whichever of the keys and the pointer made it current. */
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu .basehalf-note-menu-row:hover {
+	background: transparent;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .basehalf-note-menu .basehalf-note-menu-row[aria-selected="true"] {
+	color: var(--vscode-menu-selectionForeground, inherit);
+	background: var(--vscode-menu-selectionBackground);
+}
+
+.basehalf-note-menu-icon {
+	display: flex;
+	width: 16px;
+	height: 16px;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-note-menu-row[aria-selected="true"] .basehalf-note-menu-icon {
+	color: inherit;
+}
+
+.basehalf-note-menu-toggle-icon {
+	display: flex;
+	align-items: center;
+	margin-left: -2px;
+}
+
+.basehalf-note-menu-toggle-icon > svg:first-child {
+	margin-right: -2px;
+}
+
+.basehalf-note-menu-title {
+	overflow: hidden;
+	flex: 0 1 auto;
+	min-width: 0;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.basehalf-note-menu-detail {
+	overflow: hidden;
+	flex: 1 1 0;
+	min-width: 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.basehalf-note-menu-form {
+	flex: none;
+	margin-left: auto;
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 11px;
+}
+
+.basehalf-note-menu-row[aria-selected="true"] .basehalf-note-menu-detail,
+.basehalf-note-menu-row[aria-selected="true"] .basehalf-note-menu-form {
+	color: inherit;
+	opacity: 0.8;
+}
+
+.basehalf-note-menu-none {
+	padding: 6px 8px;
+	color: var(--vscode-descriptionForeground);
+	line-height: 18px;
+}
+
+/* The list of `:`: eight emoji across, on the same surface (rule 37). */
+.basehalf-markdown-rich-portal.bn-mantine .bn-grid-suggestion-menu {
+	gap: 0;
+	padding: 6px;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .bn-grid-suggestion-menu .bn-grid-suggestion-menu-item {
+	border-radius: 7px;
+	font-size: 22px;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .bn-grid-suggestion-menu .bn-grid-suggestion-menu-item:hover {
+	background: transparent;
+}
+
+.basehalf-markdown-rich-portal.bn-mantine .bn-grid-suggestion-menu .bn-grid-suggestion-menu-item[aria-selected="true"] {
+	background: var(--vscode-menu-selectionBackground);
+}
+
+/* An empty line says what its letters do while the menu filters there (rule 23), over the editor's own words. */
+.basehalf-markdown-rich .bn-editor .bn-suggestion-decorator .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
+	content: var(--basehalf-note-menu-filter);
+}
+
+/* The menu of the drag handle opens over the add button beside it, whose tip would stick out at its edge. */
+.bn-side-menu:has(> [aria-expanded="true"]) > button:first-child {
+	visibility: hidden;
+}

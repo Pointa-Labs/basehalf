@@ -9,6 +9,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { BASEHALF_MEDIA_FILE_EXTENSIONS } from '../../../src/vs/platform/protocol/common/basehalfMediaFiles.js';
 import { baseHalfNoteMediaKind } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMediaKind.js';
 import type { IBaseHalfMarkdownRichNoteItem, IBaseHalfMarkdownRichNoteItemFailure } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichWebviewProtocol.js';
+import { baseHalfNoteAddedLineOf } from './noteAddedLine.js';
 import { baseHalfEditorLabel } from './noteSchema.js';
 import { BASEHALF_NOTE_OWN_STEP } from './noteUndoFence.js';
 
@@ -348,12 +349,16 @@ function putInAtPlaceholder(editor: NoteEditor, element: HTMLElement, blocks: Pa
 	const block = id ? editor.getBlock(id) : undefined;
 	// The caret still in the block the menu was in follows the added block; one put elsewhere meanwhile stays.
 	const caretFollows = !!block && editor.getTextCursorPosition().block.id === block.id;
+	// A line that the add button made for them goes as it came, and they take its place, in one step of undo (the menu of blocks in a note, rule 32).
+	const place = block ? baseHalfNoteAddedLineOf(editor)?.take(block.id) : undefined;
 	return editor.transact(transaction => {
-		const inserted = !block
-			? editor.insertBlocks(blocks, editor.document[editor.document.length - 1], 'after')
-			: block.type === 'paragraph' && Array.isArray(block.content) && block.content.length === 0
-				? editor.replaceBlocks([block], blocks).insertedBlocks
-				: editor.insertBlocks(blocks, block, 'after');
+		const inserted = place && editor.getBlock(place.reference)
+			? editor.insertBlocks(blocks, place.reference, place.side)
+			: !block || place
+				? editor.insertBlocks(blocks, editor.document[editor.document.length - 1], 'after')
+				: block.type === 'paragraph' && Array.isArray(block.content) && block.content.length === 0
+					? editor.replaceBlocks([block], blocks).insertedBlocks
+					: editor.insertBlocks(blocks, block, 'after');
 		const last = inserted[inserted.length - 1];
 		if (caretFollows && last) {
 			if (Array.isArray(last.content)) {
@@ -466,8 +471,13 @@ async function addBaseHalfNoteFilesWithPaths(editor: NoteEditor, files: readonly
 	}
 }
 
-/** Opens the system's file chooser for `kind` at once, and adds the files the user chooses, one block each; Cancel adds nothing. */
-export function chooseBaseHalfNoteMedia(editor: NoteEditor, kind: BaseHalfNoteMediaChoice): void {
+/**
+ * Opens the system's file chooser for `kind` at once, and adds the files the
+ * user chooses, one block each; Cancel adds nothing. `ended` is called once the
+ * chooser has given all it will: on Cancel, or once the words of what could not
+ * be added have gone.
+ */
+export function chooseBaseHalfNoteMedia(editor: NoteEditor, kind: BaseHalfNoteMediaChoice, ended: () => void): void {
 	const input = document.createElement('input');
 	input.type = 'file';
 	input.multiple = true;
@@ -477,9 +487,12 @@ export function chooseBaseHalfNoteMedia(editor: NoteEditor, kind: BaseHalfNoteMe
 	input.addEventListener('change', () => {
 		const files = Array.from(input.files ?? []);
 		if (files.length > 0) {
-			void addBaseHalfNoteFilesWithPaths(editor, files);
+			void addBaseHalfNoteFilesWithPaths(editor, files).finally(() => setTimeout(ended, FAILURE_SHOWN_MS));
+		} else {
+			ended();
 		}
 	}, { once: true });
+	input.addEventListener('cancel', ended, { once: true });
 	input.click();
 }
 

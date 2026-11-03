@@ -7,14 +7,14 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import './editor.css';
 
-import type { BlockNoteEditor } from '@blocknote/core';
-import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, SideMenuExtension } from '@blocknote/core/extensions';
+import { insertOrUpdateBlockForSlashMenu, SideMenuExtension, SuggestionMenu } from '@blocknote/core/extensions';
 import { en, zh, zhTW, type Dictionary } from '@blocknote/core/locales';
-import { BlockNoteView, type Theme } from '@blocknote/mantine';
+import { applyBlockNoteCSSVariablesFromTheme, BlockNoteView, type Theme } from '@blocknote/mantine';
 import {
 	AddButton,
 	DeleteButton,
 	DeleteLinkButton,
+	DragHandleButton,
 	DragHandleMenu,
 	EditLinkButton,
 	FilePanel,
@@ -27,12 +27,10 @@ import {
 	LinkToolbarController,
 	RemoveBlockItem,
 	SideMenu,
-	SuggestionMenuController,
 	TableHandle,
 	TableHandleMenu,
 	TableHandlesController,
 	UploadTab,
-	getDefaultReactSlashMenuItems,
 	getFormattingToolbarItems,
 	useBlockNoteEditor,
 	useComponentsContext,
@@ -40,7 +38,6 @@ import {
 	useDictionary,
 	useExtensionState,
 	useSelectedBlocks,
-	type DefaultReactSuggestionItem,
 	type FilePanelProps,
 	type FloatingUIOptions,
 	type GenericPopoverReference,
@@ -61,7 +58,6 @@ import {
 	useMemo,
 	useRef,
 	useState,
-	type CSSProperties,
 	type FunctionComponent,
 	type JSX,
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -96,7 +92,9 @@ import {
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { createBaseHalfNoteEditorApi, type IBaseHalfNoteWriteWarning } from './noteConversions.js';
 import { installBaseHalfNoteCopy } from './noteCopy.js';
-import { addBaseHalfNoteItems, baseHalfNoteDropCursor, chooseBaseHalfNoteMedia, showBaseHalfNoteDropPoint, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type BaseHalfNoteItemsRequest, type BaseHalfNoteMediaChoice, type IBaseHalfNoteItems, type IBaseHalfNoteStoredFile } from './noteMedia.js';
+import { addBaseHalfNoteItems, baseHalfNoteDropCursor, showBaseHalfNoteDropPoint, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type BaseHalfNoteItemsRequest, type IBaseHalfNoteItems, type IBaseHalfNoteStoredFile } from './noteMedia.js';
+import { createBaseHalfNoteAddedLine, type IBaseHalfNoteAddedLine } from './noteAddedLine.js';
+import { BaseHalfAddBlockButton, BaseHalfFileLinkMenu, BaseHalfNoteBlockMenu } from './noteBlockMenu.js';
 import { baseHalfNoteLinkPath } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteFileLinks.js';
 import { installBaseHalfNoteBlockIndex } from './noteBlockIndex.js';
 import { installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from './notePaste.js';
@@ -438,48 +436,6 @@ function baseHalfBlockMatchesEditableType(
 
 type BaseHalfEditableBlockType = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'bulletList' | 'orderedList';
 
-// Wires the `[[` gesture to workspace file search: picking a file inserts a
-// plain Markdown link (relative href). It is navigation for people and Agents;
-// the explicit BaseHalf reference graph is intentionally untouched. The menu triggers
-// on `[` with a same-character lookbehind — the suggestion plugin's own
-// multi-character matching only works at a block start — and the leftover
-// opening bracket is removed when a file is picked.
-function BaseHalfFileLinkMenu({ searchFiles }: {
-	readonly searchFiles: (query: string) => Promise<readonly IBaseHalfMarkdownRichFileLink[]>;
-}): JSX.Element {
-	const editor = useBlockNoteEditor();
-	const shouldOpen = useCallback((transaction: { readonly selection: { readonly $from: { readonly nodeBefore: { readonly text?: string } | null } } }) => {
-		return transaction.selection.$from.nodeBefore?.text?.endsWith('[') ?? false;
-	}, []);
-
-	return (
-		<SuggestionMenuController
-			triggerCharacter={'['}
-			shouldOpen={shouldOpen}
-			getItems={async query => {
-				const files = await searchFiles(query);
-				return files.map(file => ({
-					title: file.name,
-					subtext: file.path,
-					onItemClick: () => {
-						const view = editor.prosemirrorView;
-						if (view) {
-							const from = view.state.selection.from;
-							if (view.state.doc.textBetween(from - 1, from) === '[') {
-								view.dispatch(view.state.tr.delete(from - 1, from));
-							}
-						}
-						editor.insertInlineContent([
-							{ type: 'link', href: file.href, content: file.name },
-							' ',
-						]);
-					},
-				}));
-			}}
-		/>
-	);
-}
-
 /**
  * The menus, lists, and panels of the page that close on Escape themselves:
  * BlockNote's suggestion menus (slash, files, emoji), its dropdown menus
@@ -507,8 +463,10 @@ type FloatingMiddleware = NonNullable<NonNullable<FloatingUIOptions['useFloating
 // BlockNote's own reference is the block's box when the pointer reached it,
 // which a zoom, a scroll, or a new layout leaves behind; the handles measure
 // the block each time floating-ui places them instead.
-function BaseHalfSideMenuController({ portalElement }: { readonly portalElement: HTMLElement | null }): JSX.Element {
+function BaseHalfSideMenuController({ portalElement, addedLine }: { readonly portalElement: HTMLElement | null; readonly addedLine: IBaseHalfNoteAddedLine }): JSX.Element {
 	const editor = useBlockNoteEditor();
+	// While a list of the editor is open, the handles do not show (the menu of blocks in a note, rule 24).
+	const listOpen = useExtensionState(SuggestionMenu, { editor, selector: state => !!state?.show });
 	const state = useExtensionState(SideMenuExtension, {
 		editor,
 		selector: state => state !== undefined ? {
@@ -595,7 +553,7 @@ function BaseHalfSideMenuController({ portalElement }: { readonly portalElement:
 			reference={reference}
 			portalElement={portalElement ?? undefined}
 			useFloatingOptions={{
-				open: state?.show,
+				open: state?.show && !listOpen,
 				placement: 'left-start',
 				middleware,
 			}}
@@ -603,7 +561,12 @@ function BaseHalfSideMenuController({ portalElement }: { readonly portalElement:
 			focusManagerProps={{ disabled: true }}
 			elementProps={{ style: { zIndex: 20 } }}
 		>
-			{state?.blockId && <SideMenu dragHandleMenu={BaseHalfDragHandleMenu} />}
+			{state?.blockId && (
+				<SideMenu>
+					<BaseHalfAddBlockButton line={addedLine} />
+					<DragHandleButton dragHandleMenu={BaseHalfDragHandleMenu} />
+				</SideMenu>
+			)}
 		</GenericPopover>
 	);
 }
@@ -678,6 +641,12 @@ function MarkdownRichEditor(): JSX.Element {
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
 	const contextMenuRef = useRef<HTMLDivElement>(null);
 	const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
+	// Rich's menus and toolbars are drawn on the portal, and the editor sets its theme on its own root only (the menu of blocks in a note, rule 8).
+	useEffect(() => {
+		if (portalElement) {
+			applyBlockNoteCSSVariablesFromTheme(baseHalfBlockNoteTheme, portalElement);
+		}
+	}, [portalElement]);
 	const [version, setVersion] = useState(0);
 	const [colorScheme, setColorScheme] = useState<'light' | 'dark'>(workbenchColorScheme);
 
@@ -803,6 +772,9 @@ function MarkdownRichEditor(): JSX.Element {
 	// plugin-view teardowns of this webview's startup (noteUndo.ts).
 	const noteUndo = useMemo(() => createBaseHalfNoteUndo(editor), [editor]);
 	noteUndoRef.current = noteUndo;
+
+	const addedLine = useMemo(() => createBaseHalfNoteAddedLine(editor, () => noteUndo.ensure()), [editor, noteUndo]);
+	useEffect(() => () => addedLine.dispose(), [addedLine]);
 
 	/**
 	 * Edit of the toolbar of a picture, a video, or a sound (D113, D114): the
@@ -1061,7 +1033,6 @@ function MarkdownRichEditor(): JSX.Element {
 		};
 	}, [toolbarWaits]);
 	const noteMediaEdit = useMemo(() => ({ edit: editMedia, editing: editedMedia, hidden: !!editedMedia || toolbarWaits }), [editMedia, editedMedia, toolbarWaits]);
-	const slashMenuItems = useCallback(async (query: string) => filterSuggestionItems(baseHalfSlashMenuItems(editor), query), [editor]);
 	const ensureLiveUndoManager = noteUndo.ensure;
 
 	// Rich reads a note as its card does and writes it with BaseHalf's writer
@@ -2989,7 +2960,6 @@ function MarkdownRichEditor(): JSX.Element {
 					className="basehalf-markdown-rich-portal bn-root bn-mantine"
 					data-color-scheme={colorScheme}
 					data-mantine-color-scheme={colorScheme}
-					style={paletteVariables}
 				/>
 			)}
 			{state.conflictDisk !== undefined && (
@@ -3053,7 +3023,7 @@ function MarkdownRichEditor(): JSX.Element {
 						slashMenu={false}
 						filePanel={false}
 						tableHandles={false}
-						emojiPicker={usesEmbeddedControls}
+						emojiPicker={false}
 						comments={false}
 						portalElements={usesEmbeddedControls ? portalElements : undefined}
 					>
@@ -3062,32 +3032,17 @@ function MarkdownRichEditor(): JSX.Element {
 								<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
 							</BaseHalfNoteMediaEditContext.Provider>
 						)}
-						{usesEmbeddedControls && <BaseHalfSideMenuController portalElement={portalElement} />}
+						{usesEmbeddedControls && <BaseHalfSideMenuController portalElement={portalElement} addedLine={addedLine} />}
 						{usesEmbeddedControls && <LinkToolbarController linkToolbar={linkToolbar} portalElement={portalElement} />}
 						{usesEmbeddedControls && <TableHandlesController tableHandle={BaseHalfTableHandle} tableCellHandle={BaseHalfNoTableCellHandle} portalElement={portalElement} />}
-						{usesEmbeddedControls && <BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />}
-						{usesEmbeddedControls && <SuggestionMenuController triggerCharacter={'/'} getItems={slashMenuItems} portalElement={portalElement} />}
+						{usesEmbeddedControls && <BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} portalElement={portalElement} />}
+						{usesEmbeddedControls && <BaseHalfNoteBlockMenu line={addedLine} portalElement={portalElement} />}
 						{usesEmbeddedControls && <FilePanelController filePanel={BaseHalfFilePanel} portalElement={portalElement} />}
 					</BlockNoteView>
 				</div>
 			</div>
 		</div>
 	);
-}
-
-const mediaChoices: ReadonlySet<string> = new Set<BaseHalfNoteMediaChoice>(['image', 'video', 'audio', 'file']);
-
-/**
- * The items of the slash menu, and of the add button that opens it: Picture,
- * Video, Sound, and File open the system's file chooser at once, and their
- * block is added once its file is copied (note formats, rule 49).
- */
-function baseHalfSlashMenuItems(editor: BlockNoteEditor<any, any, any>): DefaultReactSuggestionItem[] {
-	return getDefaultReactSlashMenuItems(editor).map(item => {
-		// Each item keeps the key of the editor's own list, which its type leaves out.
-		const key = (item as { readonly key?: string }).key;
-		return key && mediaChoices.has(key) ? { ...item, onItemClick: () => chooseBaseHalfNoteMedia(editor, key as BaseHalfNoteMediaChoice) } : item;
-	});
 }
 
 /**
@@ -3231,12 +3186,6 @@ function BaseHalfTableHandle(props: TableHandleProps): JSX.Element {
 function BaseHalfNoTableCellHandle(_props: TableCellButtonProps): null {
 	return null;
 }
-
-/** The palette's colors on BaseHalf's portal, where the editor's menus are drawn: the editor sets them on its own root only. */
-const paletteVariables: CSSProperties = Object.fromEntries(BASEHALF_NOTE_PALETTE_COLORS.flatMap(name => [
-	[`--bn-colors-highlights-${name}-text`, BASEHALF_NOTE_PALETTE[name].text],
-	[`--bn-colors-highlights-${name}-background`, BASEHALF_NOTE_PALETTE[name].background],
-]));
 
 const root = document.getElementById('root');
 if (!root) {
