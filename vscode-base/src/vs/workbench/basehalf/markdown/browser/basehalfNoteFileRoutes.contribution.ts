@@ -23,14 +23,14 @@ import { IWorkingCopyFileService, SourceTargetPair } from '../../../services/wor
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
 import { baseHalfNoteHome } from '../common/basehalfMarkdownAttachment.js';
-import { baseHalfNoteFileCloneEdits } from '../common/basehalfNoteFileCopies.js';
+import { baseHalfCopyNoteFiles, baseHalfNoteFileCloneEdits } from '../common/basehalfNoteFileCopies.js';
 import { baseHalfApplyNoteRouteEdits, baseHalfNoteFileRouteEdits, baseHalfNoteStoresBelow, IBaseHalfNoteFileRouteServices, IBaseHalfNoteRouteEdit } from '../common/basehalfNoteFileRoutes.js';
 
 /** How long the file events of a folder are quiet before the notes that appeared are read (files in notes, rule 30). */
 const QUIET_MS = 300;
 /** The most notes of one moved folder that are read. */
 const MAX_NOTES = 2000;
-/** The most notes of one move that are corrected in its step; the others are corrected once their folder is quiet. */
+/** The most notes of one move that are read in its step; the others are corrected once their folder is quiet. */
 const MAX_NOTES_IN_STEP = 200;
 const SKIPPED_FOLDERS: ReadonlySet<string> = new Set(['.bh', '.git', 'node_modules']);
 
@@ -131,11 +131,16 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 				baseHalfNoteHome(this.fileService, source, this.contextService.getWorkspaceFolder(source)?.uri ?? workspaceFolder),
 				baseHalfNoteHome(this.fileService, target, workspaceFolder)
 			]);
-			for (const note of await this.notesAt(target)) {
-				if (toSave.size >= MAX_NOTES_IN_STEP) {
-					this.add(note);
-					continue;
-				}
+			const copies = { ...services, fileClonesService: this.fileClonesService, workspaceFolderOf: (resource: URI) => this.contextService.getWorkspaceFolder(resource)?.uri };
+			// The move waits for what is read in its step; a folder of more notes is given its clones and corrections outside it, as BaseHalf writes notes no editor holds.
+			const notes = await this.notesAt(target, MAX_NOTES_IN_STEP + 1);
+			if (notes.length > MAX_NOTES_IN_STEP) {
+				void (isEqual(from, to) ? Promise.resolve([]) : baseHalfCopyNoteFiles(copies, [{ source, target }]))
+					.catch(error => this.logService.warn('[BaseHalf] could not give the notes of a moved folder their files', error))
+					.finally(() => this.add(target));
+				continue;
+			}
+			for (const note of notes) {
 				const text = await this.textOf(note);
 				if (!text) {
 					continue;
@@ -143,7 +148,7 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 				const path = relativePath(target, note);
 				const planned = isEqual(from, to)
 					? await baseHalfNoteFileRouteEdits(services, workspaceFolder, note, text.value)
-					: (await baseHalfNoteFileCloneEdits({ ...services, fileClonesService: this.fileClonesService, workspaceFolderOf: resource => this.contextService.getWorkspaceFolder(resource)?.uri }, path ? joinPath(source, ...path.split('/')) : source, note, target, text.value))?.edits ?? [];
+					: (await baseHalfNoteFileCloneEdits(copies, path ? joinPath(source, ...path.split('/')) : source, note, target, text.value))?.edits ?? [];
 				if (planned.length > 0) {
 					edits.push(...textEdits(note, text, planned));
 					toSave.add(note);
@@ -208,11 +213,11 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 		}
 	}
 
-	/** The note at `resource`, or the notes in the folder at `resource`. */
-	private async notesAt(resource: URI): Promise<URI[]> {
+	/** The note at `resource`, or the notes in the folder at `resource`, at most `limit`. */
+	private async notesAt(resource: URI, limit = MAX_NOTES): Promise<URI[]> {
 		const notes: URI[] = [];
 		const queue = [resource];
-		while (queue.length > 0 && notes.length < MAX_NOTES) {
+		while (queue.length > 0 && notes.length < limit) {
 			const current = queue.shift()!;
 			if (isNote(current.path)) {
 				notes.push(current);
