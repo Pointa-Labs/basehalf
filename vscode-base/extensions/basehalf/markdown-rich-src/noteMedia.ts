@@ -184,7 +184,8 @@ export function installBaseHalfNoteResizeUnderZoom(page: Window, scale: () => nu
 		event.target.dispatchEvent(new MouseEvent('mousemove', {
 			bubbles: true,
 			cancelable: true,
-			clientX: start + (event.clientX - start) / level,
+			// Whole pixels: the event keeps a whole number, and cutting a level's last fraction off would lose a pixel.
+			clientX: Math.round(start + (event.clientX - start) / level),
 			clientY: event.clientY,
 			screenX: event.screenX,
 			screenY: event.screenY,

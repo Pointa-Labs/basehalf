@@ -991,9 +991,11 @@ async function magnifiedResize(t: INoteFormatsTest): Promise<void> {
 	if (!notePage) {
 		throw new Error('The test bed has no page.');
 	}
+	// A level a pinch leaves is a fraction past 2, as Card Detail's zoom draws it.
+	const level = 2.0000008;
 	notePage.style.transformOrigin = '0 0';
-	notePage.style.transform = 'scale(2)';
-	const removeZoom = installBaseHalfNoteResizeUnderZoom(window, () => 2);
+	notePage.style.transform = `scale(${level})`;
+	const removeZoom = installBaseHalfNoteResizeUnderZoom(window, () => level);
 	try {
 		await t.frames(4);
 		const picture = t.editor.domElement?.querySelector('img')?.getBoundingClientRect();
