@@ -8,6 +8,9 @@
 // store, and finding a note's links. It imports nothing: Rich's webview reads
 // it too.
 
+/** The kind of data that names the note a copy out of Rich or a note's Source comes from (files in notes, rule 35). */
+export const BASEHALF_NOTE_COPY_SOURCE = 'basehalf/note';
+
 /** A link into the store, read from its destination. */
 export interface IBaseHalfNoteStoreLink {
 	/** The decoded path, relative to the note. */

@@ -8,8 +8,8 @@ import { Fragment, Slice } from '@tiptap/pm/model';
 import { buildBaseHalfMarkdownLoadProjection, type IBaseHalfMarkdownEditorApi } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { repairBaseHalfNoteHtml, tidyBaseHalfNoteHtml } from '../../../src/vs/workbench/basehalf/markdown/browser/basehalfNoteHtmlRepair.js';
 import { baseHalfNoteBlockChildren, isBaseHalfNoteRecord } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteBlocks.js';
+import { BASEHALF_NOTE_COPY_SOURCE, baseHalfNoteLinkDestinationRanges } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteFileLinks.js';
 import { postProcessBaseHalfNoteBlocks, stripBaseHalfNoteReadHints, type BaseHalfNoteReadMode } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteStructure.js';
-import { BASEHALF_NOTE_COPY_SOURCE } from './noteCopy.js';
 import { addBaseHalfNoteFiles, addBaseHalfNoteItems, baseHalfNoteTransferFiles, showBaseHalfNoteFailures, type BaseHalfNoteItemsRequest } from './noteMedia.js';
 
 // Rich's paste (note formats, rules 72 to 74): HTML from another application
@@ -177,6 +177,44 @@ async function rebaseCopy(editor: BlockNoteEditor<any, any, any>, data: DataTran
 }
 
 /**
+ * Markdown copied out of another note's Source, rebased to this one as its
+ * blocks would be (files in notes, rule 35): each relative destination of a
+ * link or a picture is read from the note it came from, and the host gives
+ * it from this note, with a stored file of the other note's folder cloned
+ * into this note's folder. What the host cannot clone stays the other
+ * note's, and says why.
+ */
+async function rebaseMarkdownCopy(editor: BlockNoteEditor<any, any, any>, data: DataTransfer, source: string, requestItems: BaseHalfNoteItemsRequest): Promise<void> {
+	const markdown = data.getData('text/plain');
+	const places = baseHalfNoteLinkDestinationRanges(markdown).flatMap(({ at, destination }) => {
+		const path = destination.startsWith('<') && destination.endsWith('>') ? destination.slice(1, -1) : destination;
+		if (!isRelative(path)) {
+			return [];
+		}
+		try {
+			return [{ at, length: destination.length, address: new URL(path, source).href }];
+		} catch {
+			return [];
+		}
+	});
+	const uris = [...new Set(places.map(place => place.address))];
+	const rebased = uris.length > 0 ? await requestItems('rebase', { uris }) : undefined;
+	if (!rebased) {
+		return;
+	}
+	const urls = new Map(uris.map((uri, index) => [uri, rebased.items[index]?.url]));
+	let text = markdown;
+	for (const place of [...places].sort((a, b) => b.at - a.at)) {
+		const url = urls.get(place.address);
+		if (url) {
+			text = text.slice(0, place.at) + url + text.slice(place.at + place.length);
+		}
+	}
+	data.setData('text/plain', text);
+	showBaseHalfNoteFailures(editor, rebased.failures);
+}
+
+/**
  * The editor's paste handler with the clipboard's items (files in notes,
  * rules 12, 14, and 15): files that BaseHalf or a file manager copied and
  * cards copied on the canvas or in Files come with their paths, which only
@@ -207,6 +245,12 @@ export function makeBaseHalfNotePasteHandler(requestItems: BaseHalfNoteItemsRequ
 		if (source && source !== note() && data.types.includes('blocknote/html')) {
 			const copy = copyOfTransfer(data);
 			void rebaseCopy(editor, copy, source, requestItems).catch(error => console.warn('[basehalf] The pasted blocks could not be read from the note they came from.', error)).then(() => replay(copy));
+			return true;
+		}
+		// Markdown out of another note's Source keeps working here as its blocks would.
+		if (source && source !== note() && vscodeEditorMode(data) === 'markdown') {
+			const copy = copyOfTransfer(data);
+			void rebaseMarkdownCopy(editor, copy, source, requestItems).catch(error => console.warn('[basehalf] The pasted Markdown could not be read from the note it came from.', error)).then(() => replay(copy));
 			return true;
 		}
 		if (data.types.some(type => notItems.includes(type))) {

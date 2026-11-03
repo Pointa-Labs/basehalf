@@ -13,7 +13,7 @@ import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '..
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
 import { isMacintosh, language } from '../../../../base/common/platform.js';
-import { basename, dirname, isEqual, relativePath } from '../../../../base/common/resources.js';
+import { basename, dirname, isEqual, isEqualOrParent, relativePath } from '../../../../base/common/resources.js';
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -861,6 +861,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.openResource':
 				await this.handleOpenResource(state, message.href);
 				break;
+			case 'basehalf.markdownRich.copiedFiles':
+				await this.handleCopiedFiles(state, message.uris, message.text);
+				break;
 			case 'basehalf.markdownRich.writeWarning':
 				this.logService.warn(`[basehalf] A block of ${state.resource.toString()} was saved without its formats: ${message.message}`, message.blockId, message.block, message.stack);
 				break;
@@ -1186,6 +1189,20 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	 * A link of the note opened from Rich, or a file block's file: what it goes
 	 * to (note formats, rule 53). A heading of this note is shown in Rich.
 	 */
+	/**
+	 * A copy of blocks that are all files puts the files themselves on the
+	 * clipboard as well, for a file manager, the canvas, or another app
+	 * (files in notes, rule 35): only files of the workspace folder or of a
+	 * store above it, all of them or none.
+	 */
+	private async handleCopiedFiles(state: IBaseHalfCardDetailState, uris: readonly string[], text: string): Promise<void> {
+		const places = [state.workspaceFolder, ...baseHalfNoteStoresAbove(state.workspaceFolder)];
+		const resources = uris.map(uri => URI.parse(uri));
+		if (resources.every(resource => resource.scheme === state.workspaceFolder.scheme && places.some(place => isEqualOrParent(resource, place)))) {
+			await this.clipboardService.addFiles(resources, text);
+		}
+	}
+
 	private async handleOpenResource(state: IBaseHalfCardDetailState, href: string): Promise<void> {
 		await this.instantiationService.invokeFunction(accessor => openBaseHalfNoteLink(baseHalfNoteLinkServices(accessor), state.resource, href, heading => {
 			void this.bridge?.sendRevealHeading(heading);
