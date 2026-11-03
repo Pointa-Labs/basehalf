@@ -1437,6 +1437,12 @@ function MarkdownRichEditor(): JSX.Element {
 				return;
 			}
 			saveTimer.current = undefined;
+			// Nothing is left to save: a save or a load since the edit took it.
+			// A request now would carry the disk's text as Rich last saw it, and
+			// a change made outside Rich meanwhile would read as a conflict.
+			if (!session.current.dirty) {
+				return;
+			}
 			void serializeAndRequestSave(nextRequestId(), false, false);
 		}, AUTOSAVE_MS);
 	}, [serializeAndRequestSave]);
@@ -2012,12 +2018,18 @@ function MarkdownRichEditor(): JSX.Element {
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
-		const offChange = editor.onChange(() => {
+		const offChange = editor.onChange((_editor, { getChanges }) => {
 			// Keep the undo manager live even if a plugin-view teardown killed
 			// the one in plugin state after this document loaded.
 			ensureLiveUndoManager();
 			const state = session.current;
 			if (state.loading || !state.ready) {
+				return;
+			}
+			// The editor reports a change also when it only becomes editable,
+			// with no block changed: that is no edit, and saving after it
+			// would read a change made outside Rich meanwhile as a conflict.
+			if (getChanges().length === 0) {
 				return;
 			}
 			state.editRevision += 1;
