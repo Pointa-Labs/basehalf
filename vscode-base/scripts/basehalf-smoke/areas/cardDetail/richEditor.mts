@@ -760,7 +760,11 @@ export async function assertMarkdownRichFileCopyHoldsTheFile(page) {
 			await app.evaluate(({ clipboard }) => clipboard.writeText('before the copy'));
 			await block.click();
 			await page.keyboard.press('Meta+C');
-			const file = await waitForReading(readFile, read => read !== '', `copy ${copy} of twelve of the file block to put handout.pdf on the clipboard`, 5_000);
+			const file = await waitForReading(readFile, read => read !== '', `copy ${copy} of twelve of the file block to put handout.pdf on the clipboard`, 5_000).catch(async error => {
+				// What the clipboard holds tells which part failed: no copy at all, or a copy whose file did not join it.
+				const held = await app.evaluate(({ clipboard }) => ({ formats: clipboard.availableFormats(), text: clipboard.readText().slice(0, 120), mark: /basehalf-copy-[a-z0-9-]+/.exec(clipboard.readHTML())?.[0] }));
+				throw new Error(`${error instanceof Error ? error.message : String(error)}; the clipboard holds ${JSON.stringify(held)}`);
+			});
 			if (!decodeURIComponent(file).endsWith(stored)) {
 				throw new Error(`A copy of a file block must put its stored file on the clipboard: ${file}`);
 			}
