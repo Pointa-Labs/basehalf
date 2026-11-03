@@ -10,12 +10,12 @@
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
-import { workspacePath } from '../../context.mts';
+import { app, workspacePath } from '../../context.mts';
 import { createSolidPng } from '../../fixture.mts';
 import { assertCardDetail, closeCardDetailIfOpen, pinch } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
 import { quickOpen, shownFileName } from '../../lib/quickInput.mts';
-import { waitUntil } from '../../lib/steps.mts';
+import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 // The suite's last steps take over a note that Quick Open knows from the start.
 const FORMATS_NOTE = path.join('docs', 'guide.md');
@@ -357,10 +357,153 @@ async function dragPictureEdge(page, frame, picture) {
 	return { off, before, after };
 }
 
+/** Opens the note again from Quick Open, and gives Rich's frame: what Rich shows then is read from the file. */
+async function reopenFormatsNote(page) {
+	await closeCardDetailIfOpen(page);
+	await quickOpen(page, 'guide.md');
+	await assertCardDetail(page, 'guide.md');
+	return activeMarkdownRichFrame(page);
+}
+
+/**
+ * Note formats, criteria 3 and 21: underline with the keys, and red and a yellow background from the toolbar's
+ * Colors menu, on `word` of `**important word here**` store `**important <span …><u>word</u></span> here**`; opened
+ * again, the word is underlined and drawn rgb(232, 112, 107).
+ */
+export async function assertNoteFormatsInlineFormatsStored(page) {
+	let frame = await showNote(page, ['**important word here**', ''], 'important word here');
+	await selectText(frame, 'word');
+	await page.keyboard.press(`${COMMAND}+u`);
+	await waitUntil(() => readFormatsNote().includes('<u>word</u>'), 'Mod-U to underline the word', 10_000);
+	const colors = frame.locator('.basehalf-markdown-rich-portal [data-test="colors"]').first();
+	await colors.waitFor({ state: 'visible', timeout: 5_000 });
+	await colors.click();
+	await frame.locator('[data-test="text-color-red"]').first().click();
+	await waitUntil(() => readFormatsNote().includes('color:#e8706b;'), 'the Colors menu to make the word red', 10_000);
+	await colors.click();
+	await frame.locator('[data-test="background-color-yellow"]').first().click();
+	const stored = '**important <span style="color:#e8706b;background-color:#4a401d;"><u>word</u></span> here**\n';
+	await waitUntil(() => readFormatsNote() === stored, 'underline, red, and yellow to be stored in their spellings', 10_000).catch(() => {
+		throw new Error(`The formats of a word were not stored in their spellings: ${JSON.stringify(readFormatsNote())}`);
+	});
+	frame = await reopenFormatsNote(page);
+	await frame.locator('.bn-editor u', { hasText: 'word' }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	const shown = await frame.evaluate(() => {
+		const walker = document.createTreeWalker(document.querySelector('.bn-editor') ?? document.body, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (node.textContent === 'word' && node.parentElement) {
+				return { color: getComputedStyle(node.parentElement).color, underlined: !!node.parentElement.closest('u') };
+			}
+		}
+		return undefined;
+	});
+	if (shown?.color !== 'rgb(232, 112, 107)' || !shown.underlined) {
+		throw new Error(`Opened again, the word should be underlined and drawn rgb(232, 112, 107): ${JSON.stringify(shown)}`);
+	}
+}
+
+/**
+ * Note formats, criteria 4 and 5: Toggle List from the slash menu, a title, Enter, and a block in it store a toggle in
+ * its spelling, closed; folding it writes nothing; opened again, it shows closed with its block.
+ */
+export async function assertNoteFormatsToggleStored(page) {
+	let frame = await showNote(page, ['Toggles.', ''], 'Toggles.');
+	await clickLine(frame, 'Toggles.', 'end');
+	await page.keyboard.press('Enter');
+	await page.keyboard.type('/toggle', { delay: 50 });
+	const entry = frame.locator('.bn-suggestion-menu-item', { hasText: 'Toggle List' }).first();
+	await entry.waitFor({ state: 'visible', timeout: 8_000 });
+	await entry.click();
+	await page.keyboard.type('Title');
+	await page.keyboard.press('Enter');
+	await page.keyboard.type('child');
+	const stored = 'Toggles.\n\n<details>\n<summary>Title</summary>\n\nchild\n\n</details>\n';
+	await waitUntil(() => readFormatsNote() === stored, 'a new toggle to be stored closed, in its spelling', 10_000).catch(() => {
+		throw new Error(`The new toggle was not stored in its spelling: ${JSON.stringify(readFormatsNote())}`);
+	});
+	const file = path.join(workspacePath, FORMATS_NOTE);
+	const before = fs.statSync(file).mtimeMs;
+	await frame.locator('.bn-toggle-button').first().click();
+	await page.waitForTimeout(2_000);
+	if (fs.statSync(file).mtimeMs !== before || readFormatsNote() !== stored) {
+		throw new Error(`Folding a toggle wrote the note: ${JSON.stringify(readFormatsNote())}`);
+	}
+	frame = await reopenFormatsNote(page);
+	const wrapper = frame.locator('.bn-toggle-wrapper').first();
+	await wrapper.waitFor({ state: 'visible', timeout: 15_000 });
+	const shown = { open: await wrapper.getAttribute('data-show-children'), child: await frame.locator('.bn-block-content', { hasText: 'child' }).count() };
+	if (shown.open !== 'false' || shown.child !== 1) {
+		throw new Error(`Opened again, the toggle should show closed and hold its block: ${JSON.stringify(shown)}`);
+	}
+}
+
+/**
+ * Note formats, criterion 18: Command-C of underlined and red text and of a list puts on the system's clipboard, as
+ * text, the Markdown the note stores for them. It runs only while the clipboard holds text alone, which it puts
+ * back, or where the clipboard is the run's own (CI, or BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1).
+ */
+export async function assertNoteFormatsCopyCarriesMarkdown(page) {
+	const allowOverwrite = process.env.CI === 'true' || process.env.CI === '1' || process.env.BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE === '1';
+	const state = await app.evaluate(({ clipboard }, allowOverwrite) => {
+		const textOnly = clipboard.availableFormats().every(format => format.toLowerCase().startsWith('text/plain'));
+		return textOnly || allowOverwrite ? { exercised: true, previousText: clipboard.readText() } : { exercised: false, previousText: '' };
+	}, allowOverwrite);
+	if (!state.exercised || process.platform !== 'darwin') {
+		console.error('[basehalf-smoke] skip note formats copy: preserving non-text clipboard formats');
+		return;
+	}
+	try {
+		const lines = ['A <u>word</u> and <span style="color:#e8706b;">red</span>.', '', '- one', '- two', ''];
+		const frame = await showNote(page, lines, 'two');
+		await frame.evaluate(() => {
+			const editor = document.querySelector('.ProseMirror');
+			const walker = document.createTreeWalker(editor ?? document.body, NodeFilter.SHOW_TEXT);
+			let first;
+			let last;
+			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+				first ??= node.textContent?.startsWith('A ') ? node : undefined;
+				last = node.textContent === 'two' ? node : last;
+			}
+			if (!first || !last || !(editor instanceof HTMLElement)) {
+				throw new Error('The note to copy is not shown');
+			}
+			editor.focus();
+			const range = document.createRange();
+			range.setStart(first, 0);
+			range.setEnd(last, last.textContent.length);
+			document.getSelection()?.removeAllRanges();
+			document.getSelection()?.addRange(range);
+		});
+		await page.waitForTimeout(150);
+		await page.keyboard.press('Meta+C');
+		const expected = 'A <u>word</u> and <span style="color:#e8706b;">red</span>.\n\n- one\n- two';
+		await waitForReading(() => app.evaluate(({ clipboard }) => clipboard.readText()), text => text === expected, 'Command-C to put the Markdown the note stores on the clipboard', 10_000).catch(async () => {
+			throw new Error(`Command-C put another text on the clipboard: ${JSON.stringify(await app.evaluate(({ clipboard }) => clipboard.readText()))}`);
+		});
+	} finally {
+		await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), state.previousText);
+	}
+}
+
 const LINKED_NOTE = path.join('docs', 'my file.md');
 const COMMAND = process.platform === 'darwin' ? 'Meta' : 'Control';
 const RICH_SCROLL = '.basehalf-markdown-rich-scroll';
 const PREVIEW_SCROLL = '.basehalf-card-detail.visible .basehalf-card-detail-surface.active .basehalf-card-detail-markdown-preview-scroll';
+
+/**
+ * Command-clicks `link` in Rich with the events of a click in its own page: a click that opens another note replaces
+ * the frame the link is in, and the protocol's click waits on that frame without end.
+ */
+async function commandClick(link) {
+	await link.scrollIntoViewIfNeeded();
+	await link.evaluate((element, metaIsCommand) => {
+		const box = element.getBoundingClientRect();
+		const init = { bubbles: true, cancelable: true, view: window, button: 0, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2, metaKey: metaIsCommand, ctrlKey: !metaIsCommand };
+		element.dispatchEvent(new MouseEvent('mousedown', init));
+		element.dispatchEvent(new MouseEvent('mouseup', init));
+		element.dispatchEvent(new MouseEvent('click', init));
+	}, process.platform === 'darwin');
+}
 
 /** Card Detail shows `name` within 1 s of `gesture`, and no dialog shows (note formats, criterion 13). */
 async function assertOpensWithinASecond(page, name, gesture) {
@@ -428,7 +571,7 @@ export async function assertNoteFormatsLinksOpenTheirTargets(page) {
 	let frame = await showNote(page, [
 		'# Links',
 		'',
-		'Links: [Setup](#setup), [gone](missing.md), and',
+		'Links: [Setup](#setup), [gone](missing.md), [site](https://example.com/a?b=c#d), and',
 		'',
 		...filler,
 		'<details>',
@@ -462,14 +605,14 @@ export async function assertNoteFormatsLinksOpenTheirTargets(page) {
 	const richLink = name => frame.locator('.bn-editor a', { hasText: name }).first();
 	await richLink('my file.md').waitFor({ state: 'visible', timeout: 10_000 });
 
-	await richLink('my file.md').click({ modifiers: [COMMAND] });
+	await commandClick(richLink('my file.md'));
 	await assertOpensWithinASecond(page, 'my file.md', 'Command-click on a link in Rich');
 	await quickOpen(page, 'guide.md');
 	await assertCardDetail(page, 'guide.md');
 	frame = await activeMarkdownRichFrame(page);
-	await richLink('gone').click({ modifiers: [COMMAND] });
+	await commandClick(richLink('gone'));
 	await assertNothingOpens(page, 'guide.md', 'Command-click on a link to a missing file in Rich');
-	await richLink('Setup').click({ modifiers: [COMMAND] });
+	await commandClick(richLink('Setup'));
 	await assertHeadingRevealed(frame, RICH_SCROLL, 'Setup', 'Command-click on a link to a heading in a closed toggle in Rich');
 
 	// Preview: a click opens a link, as a page does.
@@ -489,5 +632,84 @@ export async function assertNoteFormatsLinksOpenTheirTargets(page) {
 	await assertNothingOpens(page, 'guide.md', 'A click on a link to a missing file in Preview');
 	await preview.locator('a', { hasText: 'Setup' }).first().click();
 	await assertHeadingRevealed(page, PREVIEW_SCROLL, 'Setup', 'A click on a link to a heading in a closed toggle in Preview');
-	await showProjection(page, 'Rich');
+
+	// A web link goes to the system's browser at its address as written, with no dialog. The run stands in for
+	// the browser, so that nothing opens on the machine.
+	await app.evaluate(({ shell }) => {
+		const run = globalThis as unknown as { basehalfSmokeOpened?: string[]; basehalfSmokeOpenExternal?: typeof shell.openExternal };
+		run.basehalfSmokeOpened = [];
+		run.basehalfSmokeOpenExternal ??= shell.openExternal;
+		shell.openExternal = async url => {
+			run.basehalfSmokeOpened?.push(url);
+		};
+	});
+	try {
+		const opened = () => app.evaluate(() => (globalThis as unknown as { basehalfSmokeOpened?: string[] }).basehalfSmokeOpened ?? []);
+		await preview.locator('a', { hasText: 'site' }).first().click();
+		await waitForReading(opened, addresses => addresses.length > 0, 'a click on a web link in Preview to open it in the system\'s browser', 1_000).catch(() => {
+			throw new Error('A click on a web link in Preview opened nothing within 1 s');
+		});
+		await showProjection(page, 'Rich');
+		frame = await activeMarkdownRichFrame(page);
+		await commandClick(richLink('site'));
+		await waitForReading(opened, addresses => addresses.length > 1, 'Command-click on a web link in Rich to open it in the system\'s browser', 1_000).catch(() => {
+			throw new Error('Command-click on a web link in Rich opened nothing within 1 s');
+		});
+		const addresses = await opened();
+		if (addresses.some(address => address !== 'https://example.com/a?b=c#d') || await page.locator('.monaco-dialog-box').count() > 0) {
+			throw new Error(`A web link should open at its address as written, with no dialog: ${JSON.stringify(addresses)}`);
+		}
+	} finally {
+		await app.evaluate(({ shell }) => {
+			const run = globalThis as unknown as { basehalfSmokeOpenExternal?: typeof shell.openExternal };
+			if (run.basehalfSmokeOpenExternal) {
+				shell.openExternal = run.basehalfSmokeOpenExternal;
+			}
+		});
+	}
+}
+
+/**
+ * Note formats, criterion 17 and plan R7: what a page in a browser puts on the clipboard, a centered paragraph
+ * with a red word, a merged colored table, an underlined link, and a picture with a width, pasted with Command-V,
+ * stores the forms of rule 72. It runs only while the clipboard holds text alone, which it puts back, or where the
+ * clipboard is the run's own (CI, or BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1).
+ */
+export async function assertNoteFormatsPasteFromAPage(page) {
+	const allowOverwrite = process.env.CI === 'true' || process.env.CI === '1' || process.env.BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE === '1';
+	const state = await app.evaluate(({ clipboard }, allowOverwrite) => {
+		const textOnly = clipboard.availableFormats().every(format => format.toLowerCase().startsWith('text/plain'));
+		return textOnly || allowOverwrite ? { exercised: true, previousText: clipboard.readText() } : { exercised: false, previousText: '' };
+	}, allowOverwrite);
+	if (!state.exercised || process.platform !== 'darwin') {
+		console.error('[basehalf-smoke] skip note formats paste from a page: preserving non-text clipboard formats');
+		return;
+	}
+	try {
+		const frame = await showNote(page, ['Pasted below.', ''], 'Pasted below.');
+		await app.evaluate(({ clipboard }) => clipboard.write({
+			html: '<p style="text-align:center">A centered line with a <span style="color: rgb(232, 112, 107)">red</span> word.</p>'
+				+ '<table><tr><td colspan="2" style="background-color:yellow">wide</td></tr><tr><td>x</td><td>y</td></tr></table>'
+				+ '<p><a href="https://example.com/"><u>linked</u></a> and a picture <img src="https://example.com/picture.png" width="200"></p>',
+			text: 'A centered line with a red word.\nwide\nx y\nlinked and a picture',
+		}));
+		await clickLine(frame, 'Pasted below.', 'end');
+		await page.keyboard.press('Enter');
+		await page.keyboard.press('Meta+V');
+		await waitUntil(() => readFormatsNote().includes('linked'), 'Command-V to paste what the page copied', 10_000);
+		await page.waitForTimeout(500);
+		const stored = readFormatsNote();
+		const forms = {
+			red: stored.includes('A centered line with a <span style="color:#e8706b;">red</span> word.'),
+			splitTable: stored.includes('| wide |') && !stored.includes('colspan'),
+			link: stored.includes('[linked](https://example.com/)') && !stored.includes('<u>linked'),
+			picture: stored.includes('![](https://example.com/picture.png)') && !stored.includes('width='),
+			noAlignmentOrCellColor: !/text-align|background-color:yellow/.test(stored),
+		};
+		if (Object.values(forms).some(kept => !kept)) {
+			throw new Error(`A paste from a page did not store the forms of rule 72: ${JSON.stringify({ forms, stored })}`);
+		}
+	} finally {
+		await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), state.previousText);
+	}
 }

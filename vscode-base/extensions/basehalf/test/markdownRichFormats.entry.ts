@@ -38,6 +38,7 @@ import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversion
 import { createCanvasMarkdownInlineEditor } from '../canvas-markdown-inline-src/canvasMarkdownInline.js';
 import { installBaseHalfNoteCopy } from '../markdown-rich-src/noteCopy.js';
 import { addBaseHalfNoteMediaFile, installBaseHalfNoteResizeUnderZoom } from '../markdown-rich-src/noteMedia.js';
+import { normalizeBaseHalfNote } from '../markdown-rich-src/noteNormalizer.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from '../markdown-rich-src/notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
@@ -1067,6 +1068,74 @@ async function cardEditor(t: INoteFormatsTest): Promise<void> {
 	}
 }
 
+/** The `n`-th part of a long note of every kind of block, about 2,000 blocks in all with `parts` of 100. */
+function longNotePart(n: number): string {
+	return [
+		...Array.from({ length: 12 }, (_, line) => `Paragraph ${n}.${line} with **bold**, *italic*, <u>underline</u>, <span style="color:#e8706b;">red</span>, and [a link](notes/other-${line}.md).`),
+		`- item ${n} one\n- item ${n} two\n- item ${n} three`,
+		`<details>\n<summary>Toggle ${n}</summary>\n\nFirst ${n}.\n\nSecond ${n}.\n\n</details>`,
+		...(n % 5 === 0 ? [`| A | B | C |\n| --- | --- | --- |\n| a${n} | b | c |\n| d | e | f |`] : []),
+		`![](pictures/picture-${n}.png)`,
+	].join('\n\n');
+}
+
+function percentile(values: readonly number[], share: number): number {
+	const sorted = [...values].sort((a, b) => a - b);
+	return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))];
+}
+
+/**
+ * Part p, the budget of a long note (note formats, criterion 22, plan R2):
+ * on a note of about 2,000 blocks, the work of a save after each of 50
+ * typed letters, and the rules Rich runs after each change. The numbers are
+ * logged; the checks hold the budget with room for this headless page.
+ */
+async function longNote(t: INoteFormatsTest): Promise<void> {
+	const note = `${Array.from({ length: 100 }, (_, n) => longNotePart(n)).join('\n\n')}\n`;
+	const loadStart = performance.now();
+	await t.load(note);
+	const loadMs = performance.now() - loadStart;
+	t.log('load', Math.round(loadMs));
+	await t.frames();
+	const blocks = (function count(list: readonly IShortBlock[]): number {
+		return list.reduce((sum, block) => sum + 1 + count(block.children ?? []), 0);
+	})(t.blocks());
+	t.caret('Paragraph 50.6 with');
+	const saves: number[] = [];
+	const cold = performance.now();
+	await t.save();
+	const coldMs = performance.now() - cold;
+	for (let letter = 0; letter < 50; letter++) {
+		await t.keyboard.type('x');
+		const start = performance.now();
+		await t.save();
+		saves.push(performance.now() - start);
+	}
+	// The rules after a change, timed on their own: a letter typed into the long note.
+	const view = t.editor.prosemirrorView;
+	const rules: number[] = [];
+	for (let letter = 0; letter < 50; letter++) {
+		const typed = view.state.tr.insertText('y');
+		const start = performance.now();
+		normalizeBaseHalfNote([typed], view.state.apply(typed));
+		rules.push(performance.now() - start);
+	}
+	const measured = {
+		blocks,
+		loadMs: Math.round(loadMs),
+		coldWriteMs: Math.round(coldMs),
+		saveP95Ms: Math.round(percentile(saves, 0.95) * 10) / 10,
+		rulesP95Ms: Math.round(percentile(rules, 0.95) * 100) / 100,
+	};
+	t.log('long note', measured);
+	t.check('on a note of about 2,000 blocks, a save after a typed letter and the rules after a change stay in their budget', {
+		blocks: blocks >= 1800,
+		saveWithin16Ms: measured.saveP95Ms <= 16,
+		rulesWithin1Ms: measured.rulesP95Ms <= 1,
+		saved: (await t.save()).includes('Paragraph 50.6 with'),
+	}, { blocks: true, saveWithin16Ms: true, rulesWithin1Ms: true, saved: true });
+}
+
 /** Selects the first text that matches, and gives the editor the keyboard. */
 function selectText(t: INoteFormatsTest, text: string): void {
 	const view = t.editor.prosemirrorView;
@@ -1320,6 +1389,7 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	h: media,
 	i: magnifiedResize,
 	j: cardEditor,
+	p: longNote,
 	k: fixedBlocks,
 	n: shape,
 };

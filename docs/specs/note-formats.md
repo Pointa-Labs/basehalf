@@ -815,8 +815,9 @@ this specification. Outside changes are merged meanwhile, as always.
   68, and criteria 2, 3, 9, and 29 in part.
 - The bundle test of Rich (`npm run basehalf:test-markdown-rich-formats`)
   runs Rich's real reader, writer, schema, paste, copy, undo, and toggle
-  state in a headless browser: rules 1 to 8, 25, 40, 44, 45, 61 to 66, 69,
-  70, 72 to 80, and criteria 3, 5, 6, 8, 17, 18, 22 (logged), 27, and 28.
+  state in a headless browser: rules 1 to 8, 25, 28, 40, 44, 45, 49, 61 to
+  66, 69, 70, 72 to 80, and criteria 3, 5, 6, 8, 10, 17, 18, 22 (on a note of
+  about 2,000 blocks, its numbers logged), 27, and 28.
 - Unit tests in the window of the test runner: the repair of the HTML Rich
   reads (`basehalfNoteHtmlRepair.test.ts`), the card's and Preview's
   rendering of audio, spans, `open`, videos, links, and titles
@@ -828,15 +829,16 @@ this specification. Outside changes are merged meanwhile, as always.
 - The card's editor's own test (`npm run basehalf:test-canvas-markdown-inline`)
   covers rule 82 and criterion 23.
 - The `cardDetail` suite of the smoke runs criteria 1, 3 to 6, 8 to 11, 13,
-  14, 16, 17, 19, 20, and 26 to 28 in the real window, each on a note of its
-  own, read from the disk after Card Detail opens it again; the `canvas`
-  suite criteria 12 and 13 on the card.
+  14, 16 to 20, 21 in Rich, and 26 to 28 in the real window, each on a note
+  of its own, read from the disk after Card Detail opens it again; the
+  `canvas` suite criteria 12 and 13 on the card.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
-- In the real window, by hand, recorded with numbers: criteria 10, 21, 22,
-  the clicks on a summary, a video, and a sound on a resting card, a web
-  link of criterion 13, which opens the system's browser that a smoke run
-  leaves alone, a paste from a browser page, a copy pasted into Source, and
-  the keys of rule 69.
+- In the real window, by hand, recorded with numbers: criterion 21 on the
+  card and in Preview in both appearances, criterion 22, the clicks on a
+  summary, a video, and a sound on a resting card, a web link of criterion
+  13, which opens the system's browser that a smoke run leaves alone, a
+  paste from a browser page, a copy pasted into Source, and the keys of rule
+  69.
 - The count of criterion 29 is a script run before each change of the
   reader or the guard.

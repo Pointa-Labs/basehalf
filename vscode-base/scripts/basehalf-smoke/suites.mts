@@ -43,7 +43,7 @@ import {
 	assertSourceCardSaveActionHidden,
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
-import { assertNoteFormatsKeepTypedLetters, assertNoteFormatsKeysStayInRich, assertNoteFormatsLinksOpenTheirTargets, assertNoteFormatsMediaFromTheMenu, assertNoteFormatsOfferOnlyWhatTheFileKeeps, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
+import { assertNoteFormatsCopyCarriesMarkdown, assertNoteFormatsInlineFormatsStored, assertNoteFormatsPasteFromAPage, assertNoteFormatsKeepTypedLetters, assertNoteFormatsKeysStayInRich, assertNoteFormatsLinksOpenTheirTargets, assertNoteFormatsMediaFromTheMenu, assertNoteFormatsOfferOnlyWhatTheFileKeeps, assertNoteFormatsToggleStored, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import { assertCardDetailEditShowsOnItsCard } from './areas/cardDetail/editOnCard.mts';
 import { assertCardDetailImageCropBack } from './areas/cardDetail/imageCropBack.mts';
@@ -278,6 +278,10 @@ async function runCardDetailSuite(page) {
 	await step('note-formats-keep-typed-letters', () => assertNoteFormatsKeepTypedLetters(page));
 	await step('note-formats-links-open-their-targets', () => assertNoteFormatsLinksOpenTheirTargets(page));
 	await step('note-formats-media-from-the-menu', () => assertNoteFormatsMediaFromTheMenu(page));
+	await step('note-formats-inline-formats-stored', () => assertNoteFormatsInlineFormatsStored(page));
+	await step('note-formats-toggle-stored', () => assertNoteFormatsToggleStored(page));
+	await step('note-formats-copy-carries-markdown', () => assertNoteFormatsCopyCarriesMarkdown(page));
+	await step('note-formats-paste-from-a-page', () => assertNoteFormatsPasteFromAPage(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */
