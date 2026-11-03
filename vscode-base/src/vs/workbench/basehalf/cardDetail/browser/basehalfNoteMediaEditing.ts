@@ -17,6 +17,7 @@ import { IInstantiationService, ServicesAccessor } from '../../../../platform/in
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaVersion, whenBaseHalfCanvasMediaDrawn } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { noteBaseHalfNoteMediaVersion } from '../../canvas/browser/basehalfCanvasNoteMedia.js';
 import { baseHalfNoteStoresAbove } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { resolveBaseHalfNoteLink } from '../../markdown/common/basehalfNoteLinks.js';
 import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
@@ -223,7 +224,12 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 				await this.mediaEditService.flush(resource);
 			}
 			const stat = resource ? await this.fileService.stat(resource).catch(() => undefined) : undefined;
-			this.host.ended(this.target.blockId, stat ? baseHalfCanvasMediaVersion(stat) : undefined, step, time);
+			const version = stat ? baseHalfCanvasMediaVersion(stat) : undefined;
+			if (resource && version && step) {
+				// The note's card and Preview play the file anew at its version (D114).
+				noteBaseHalfNoteMediaVersion(resource, version);
+			}
+			this.host.ended(this.target.blockId, version, step, time);
 		})();
 		return this.ending;
 	}
@@ -374,7 +380,11 @@ export function applyBaseHalfNoteMediaChoices(accessor: ServicesAccessor, note: 
 		}
 		await mediaEditService.flush(file.resource);
 		const stat = await fileService.stat(file.resource).catch(() => undefined);
-		return stat ? baseHalfCanvasMediaVersion(stat) : undefined;
+		const version = stat ? baseHalfCanvasMediaVersion(stat) : undefined;
+		if (version) {
+			noteBaseHalfNoteMediaVersion(file.resource, version);
+		}
+		return version;
 	})();
 }
 
