@@ -34,6 +34,21 @@ export interface IBaseHalfMarkdownRichFocusPoint {
 }
 
 /**
+ * The choices of an edit of a picture (`IBaseHalfMediaChoices` of the edit
+ * record), which Rich keeps for the note's undo as the window gave them and
+ * gives back as they are (D113).
+ */
+export type BaseHalfMarkdownRichPictureChoices = Readonly<Record<string, unknown>>;
+
+/** Where a picture stands in Rich's page, in the page's pixels of the window, from the top left of its frame. */
+export interface IBaseHalfMarkdownRichBox {
+	readonly left: number;
+	readonly top: number;
+	readonly width: number;
+	readonly height: number;
+}
+
+/**
  * A wheel event of a pinch that the window took over the page. The browser
  * hands a pinch of the trackpad to the window, not to the page that draws the
  * note, so the window passes it on (zoom and outline of a note). The point is
@@ -134,6 +149,32 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly type: 'basehalf.markdownRich.revealHeading';
 		readonly key: string;
 		readonly heading: string;
+	}
+	| {
+		/**
+		 * The editing of a picture of the note ended (D113): Rich shows the
+		 * picture's file at `version`, a version the window gives it, and
+		 * closes the room it made under the picture.
+		 */
+		readonly type: 'basehalf.markdownRich.pictureEditEnded';
+		readonly key: string;
+		readonly blockId: string;
+		readonly version?: string;
+		/** The choices before Edit and after Done, when the edit changed the file: one step of the note's undo. */
+		readonly step?: { readonly before: BaseHalfMarkdownRichPictureChoices; readonly after: BaseHalfMarkdownRichPictureChoices };
+	}
+	| {
+		/** An undo or a redo of the note set the choices of the picture file at `href`: Rich shows it at `version` (D113). */
+		readonly type: 'basehalf.markdownRich.pictureVersion';
+		readonly key: string;
+		readonly href: string;
+		readonly version: string;
+	}
+	| {
+		/** The editor of the picture stands where the note shows it now: the note's own picture shows again (D113). */
+		readonly type: 'basehalf.markdownRich.showPicture';
+		readonly key: string;
+		readonly blockId: string;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.focusAtPoint';
@@ -294,6 +335,48 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly action: 'copy' | 'cut' | 'paste';
 	}
 	| {
+		/**
+		 * Edit of a picture's toolbar (D113): the window draws the picture's
+		 * editor over the picture at `box`, its address in the note `href`.
+		 * Rich has made room under the picture, and the note does not move
+		 * until the editing ends.
+		 */
+		readonly type: 'basehalf.markdownRich.editPicture';
+		readonly key: string;
+		readonly blockId: string;
+		readonly href: string;
+		readonly box: IBaseHalfMarkdownRichBox;
+	}
+	| {
+		/**
+		 * The picture whose editing ended stands at `box` with its file at
+		 * the version the window gave, under the editor, which glides there,
+		 * and the room under it closed (D113); no box when it is not there.
+		 */
+		readonly type: 'basehalf.markdownRich.pictureLaidOut';
+		readonly key: string;
+		readonly blockId: string;
+		readonly box?: IBaseHalfMarkdownRichBox;
+	}
+	| {
+		/** The note's own picture is drawn again: the editor over it goes (D113). */
+		readonly type: 'basehalf.markdownRich.pictureShown';
+		readonly key: string;
+		readonly blockId: string;
+	}
+	| {
+		/** A press in the note while a picture is edited, outside its editor: the editing ends (D113). */
+		readonly type: 'basehalf.markdownRich.endPictureEdit';
+		readonly key: string;
+	}
+	| {
+		/** The note's undo or redo of the edit of the picture file at `href`: the file gets `choices` (D113). */
+		readonly type: 'basehalf.markdownRich.applyPictureChoices';
+		readonly key: string;
+		readonly href: string;
+		readonly choices: BaseHalfMarkdownRichPictureChoices;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.openSource';
 		readonly key: string;
 		readonly selection: IBaseHalfMarkdownRichTextSelection;
@@ -355,6 +438,15 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.revealHeading':
 			return typeof candidate.heading === 'string' && candidate.heading.length > 0;
+		case 'basehalf.markdownRich.pictureEditEnded':
+			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
+				&& (candidate.version === undefined || typeof candidate.version === 'string')
+				&& (candidate.step === undefined || isObject(candidate.step) && isObject((candidate.step as { before?: unknown }).before) && isObject((candidate.step as { after?: unknown }).after));
+		case 'basehalf.markdownRich.pictureVersion':
+			return typeof candidate.href === 'string' && candidate.href.length > 0
+				&& typeof candidate.version === 'string' && candidate.version.length > 0;
+		case 'basehalf.markdownRich.showPicture':
+			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0;
 		case 'basehalf.markdownRich.focusAtPoint':
 			return isBaseHalfMarkdownRichFocusPoint(candidate.point);
 		case 'basehalf.markdownRich.focus':
@@ -448,6 +540,19 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return typeof candidate.href === 'string' && candidate.href.length > 0;
 		case 'basehalf.markdownRich.clipboard':
 			return candidate.action === 'copy' || candidate.action === 'cut' || candidate.action === 'paste';
+		case 'basehalf.markdownRich.editPicture':
+			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
+				&& typeof candidate.href === 'string' && candidate.href.length > 0
+				&& isBaseHalfMarkdownRichBox(candidate.box);
+		case 'basehalf.markdownRich.pictureLaidOut':
+			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
+				&& (candidate.box === undefined || isBaseHalfMarkdownRichBox(candidate.box));
+		case 'basehalf.markdownRich.pictureShown':
+			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0;
+		case 'basehalf.markdownRich.endPictureEdit':
+			return true;
+		case 'basehalf.markdownRich.applyPictureChoices':
+			return typeof candidate.href === 'string' && candidate.href.length > 0 && isObject(candidate.choices);
 		case 'basehalf.markdownRich.writeWarning':
 			return typeof candidate.message === 'string'
 				&& typeof candidate.block === 'string'
@@ -587,6 +692,14 @@ function isBaseHalfMarkdownRichZoomGesture(value: unknown): value is IBaseHalfMa
 		&& (gesture.deltaMode === 0 || gesture.deltaMode === 1 || gesture.deltaMode === 2)
 		&& isFiniteNumber(gesture.x)
 		&& isFiniteNumber(gesture.y);
+}
+
+function isBaseHalfMarkdownRichBox(value: unknown): value is IBaseHalfMarkdownRichBox {
+	if (!isObject(value)) {
+		return false;
+	}
+	const box = value as Partial<IBaseHalfMarkdownRichBox>;
+	return isFiniteNumber(box.left) && isFiniteNumber(box.top) && isFiniteNumber(box.width) && isFiniteNumber(box.height) && box.width > 0 && box.height > 0;
 }
 
 function isFiniteNumber(value: unknown): value is number {

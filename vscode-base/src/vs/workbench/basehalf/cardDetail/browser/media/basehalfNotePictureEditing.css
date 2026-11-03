@@ -1,0 +1,96 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * A picture edited in its note (D113): the layer over Rich's page, which
+ * takes no press but on the editor, and the editor of the picture drawn in it
+ * over the picture, with the tools and the line under it, and Done at the end
+ * of the tools in the yellow of Card Detail's Done.
+ */
+.monaco-workbench .basehalf-card-detail-note-picture-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-note-picture-stage {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	pointer-events: auto;
+}
+
+/*
+ * The editor draws in the picture's box only, with its corners: the margin
+ * around it, in which the frame rests and a held corner follows, shows the
+ * note, as the text above the picture.
+ */
+.monaco-workbench .basehalf-note-picture-stage .basehalf-image-crop-view {
+	clip-path: inset(24px round 4px);
+}
+
+/* Until the picture is drawn in the editor, the note's own picture shows. */
+.monaco-workbench .basehalf-note-picture-stage.drawing {
+	visibility: hidden;
+}
+
+/* Once the editing ended, the line and Done go while the editor glides to the picture's place in the note. */
+.monaco-workbench .basehalf-note-picture-stage.ending > .basehalf-media-edit-line,
+.monaco-workbench .basehalf-note-picture-stage.ending > .basehalf-note-picture-done {
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+}
+
+/* The line stands on its foot, as under the editor of a picture's card. */
+.monaco-workbench .basehalf-note-picture-stage > .basehalf-media-edit-line {
+	padding-bottom: 10px;
+}
+
+.monaco-workbench .basehalf-note-picture-done {
+	--basehalf-note-picture-done-yellow: #f5c400;
+	position: absolute;
+	right: 16px;
+	/* In the middle of the row of tools, which stands over the line. */
+	bottom: 44px;
+	height: 24px;
+	min-width: 48px;
+	padding: 0 10px;
+	box-sizing: border-box;
+	color: #1c1c1e;
+	background: var(--basehalf-note-picture-done-yellow);
+	border: 0;
+	border-radius: 12px;
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 24px;
+	cursor: pointer;
+}
+
+.monaco-workbench.vs-dark .basehalf-note-picture-done,
+.monaco-workbench.hc-black .basehalf-note-picture-done {
+	--basehalf-note-picture-done-yellow: #ffd60a;
+}
+
+.monaco-workbench .basehalf-note-picture-done:hover {
+	background: color-mix(in srgb, var(--basehalf-note-picture-done-yellow) 88%, #fff);
+}
+
+.monaco-workbench .basehalf-note-picture-done:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-note-picture-done:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-note-picture-done {
+		border: 1px solid ButtonText;
+	}
+}

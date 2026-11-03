@@ -9,6 +9,7 @@ import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichHostMessage,
+	BaseHalfMarkdownRichPictureChoices,
 	BaseHalfMarkdownRichSurface,
 	BaseHalfMarkdownRichWebviewMessage,
 	IBaseHalfMarkdownRichFileLink,
@@ -103,6 +104,36 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			type: 'basehalf.markdownRich.revealHeading',
 			key: this.key,
 			heading
+		});
+	}
+
+	/** The editing of a picture ended: Rich shows its file at `version`, closes the room under it, and keeps `step` for its undo (D113). */
+	sendPictureEditEnded(blockId: string, version: string | undefined, step?: { readonly before: BaseHalfMarkdownRichPictureChoices; readonly after: BaseHalfMarkdownRichPictureChoices }): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.pictureEditEnded',
+			key: this.key,
+			blockId,
+			...(version !== undefined ? { version } : {}),
+			...(step ? { step } : {})
+		});
+	}
+
+	/** An undo or a redo of the note set the choices of the picture file at `href`: Rich shows it at `version` (D113). */
+	sendPictureVersion(href: string, version: string): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.pictureVersion',
+			key: this.key,
+			href,
+			version
+		});
+	}
+
+	/** The editor of a picture stands where the note shows it now: Rich shows its own picture again (D113). */
+	sendShowPicture(blockId: string): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.showPicture',
+			key: this.key,
+			blockId
 		});
 	}
 

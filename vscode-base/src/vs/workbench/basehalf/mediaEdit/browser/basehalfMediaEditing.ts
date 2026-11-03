@@ -54,6 +54,8 @@ export interface IBaseHalfMediaEditingView {
 	 * edited (editing media, "What Card Detail shows", D102).
 	 */
 	readonly room?: HTMLElement;
+	/** The editor starts editing, as one drawn where its picture is edited at once does (D113): its first layout is that of editing. */
+	readonly editing?: boolean;
 }
 
 /** How often the copy is made anew when the file changed while it was made. */
@@ -158,6 +160,9 @@ export class BaseHalfMediaEditing extends Disposable {
 		const { state } = session;
 		const choices = this.mediaEditService.choicesOf(this.file.resource, state);
 		const host = view.room ?? view.stage;
+		if (view.editing) {
+			this.editing = true;
+		}
 		let editor: IBaseHalfMediaEditor;
 		let drawn = Promise.resolve();
 		if (session.video && view.player) {
@@ -185,7 +190,7 @@ export class BaseHalfMediaEditing extends Disposable {
 				this.line = undefined;
 			}
 		}));
-		store.add(editor.onDidChange(change => this.mediaEditService.change(this.file, state, editor.choices, this.stepLabel(change))));
+		store.add(editor.onDidChange(change => this.change(state, editor.choices, this.stepLabel(change))));
 		this.line = this.createLine(host, store);
 		this.renderLine();
 		return { drawn };
@@ -244,6 +249,39 @@ export class BaseHalfMediaEditing extends Disposable {
 	/** Puts the keyboard on the media (D100). */
 	focus(): void {
 		this.editor?.focus();
+	}
+
+	/**
+	 * Whose the steps of the changes are: the canvas undo's, or, once set,
+	 * the steps of an undo of its own, which this is given before and after
+	 * each change, as the editing of a picture in its note keeps (D113).
+	 */
+	ownSteps: ((before: IBaseHalfMediaChoices, after: IBaseHalfMediaChoices) => void) | undefined;
+
+	/** Sets choices as an undo of its own does: no step of the canvas, and the editor shows them as after an undo. */
+	setChoices(choices: IBaseHalfMediaChoices): void {
+		if (this.session) {
+			this.mediaEditService.change(this.file, this.session.state, choices, '', { step: false });
+		}
+	}
+
+	private change(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, label: string): void {
+		const own = this.ownSteps;
+		if (!own) {
+			this.mediaEditService.change(this.file, state, choices, label);
+			return;
+		}
+		const before = this.mediaEditService.choicesOf(this.file.resource, state);
+		this.mediaEditService.change(this.file, state, choices, label, { step: false });
+		const after = this.mediaEditService.choicesOf(this.file.resource, state);
+		if (!sameChoices(before, after)) {
+			own(before, after);
+		}
+	}
+
+	/** The choices of the file as the editor shows them. */
+	get choices(): IBaseHalfMediaChoices | undefined {
+		return this.session ? this.mediaEditService.choicesOf(this.file.resource, this.session.state) : undefined;
 	}
 
 	/** An undo, a redo, or Revert to Original set other choices: the editor shows them. */
@@ -307,7 +345,12 @@ export class BaseHalfMediaEditing extends Disposable {
 			}
 		}));
 		keepKeyboard(revert, () => {
-			if (this.session) {
+			if (!this.session) {
+				return;
+			}
+			if (this.ownSteps) {
+				this.change(this.session.state, {}, '');
+			} else {
 				this.mediaEditService.revertToOriginal(this.file, this.session.state);
 			}
 		});
