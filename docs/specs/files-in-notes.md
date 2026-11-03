@@ -249,15 +249,16 @@ one folder for every note of that folder:
 37. **The scan.** At an open, after the comparison of moved items, at most
     once a day per home and by one window at a time (a lock in `.bh/cache/`
     that goes stale after five minutes), BaseHalf lists the text files of the
-    workspace folder (Markdown, txt, html, json, yaml, csv, xml, org, rst,
-    adoc, tex, ipynb), with the notes in the kept versions and the unsaved
-    text of open notes, and reads each whole.
-38. A stored file counts as mentioned wherever its key occurs in a scanned
-    file, written as it is or percent-encoded, in NFC or NFD. A false match
-    only keeps a file longer.
-39. A file that the system keeps only in the cloud is not read, so nothing
-    is downloaded; what it mentioned when BaseHalf last read it stands in for
-    it, and a run that meets one it never read releases nothing.
+    workspace folder outside `.git` and `node_modules` (Markdown, txt, html,
+    json, yaml, csv, xml, org, rst, adoc, tex, ipynb), with the notes in the
+    kept versions and the text of the notes open in the window, saved or not,
+    and reads each whole. A folder without `.bh/` is not scanned.
+38. A stored file counts as mentioned wherever its key occurs after
+    `attachments/` in a scanned file, written as it is or percent-encoded, in
+    NFC or NFD. A false match only keeps a file longer.
+39. Nothing is downloaded: a workspace folder that the system keeps in the
+    cloud is not scanned, and a run that meets the placeholder of a file the
+    system took off the disk into the cloud releases nothing.
 40. A stored file that nothing mentions gets a note of the time in
     `.bh/cache/note-files.json` (machine-local, ignored by git); a file that is
     mentioned again loses it.
