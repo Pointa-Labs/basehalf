@@ -214,17 +214,21 @@ D85 in [decisions.md](../decisions.md).
   copy BaseHalf made, and the release to the Trash of stored files that no
   text file mentioned for 30 days ([files in notes](../specs/files-in-notes.md)).
   Opening a folder changes nothing that git shows but those corrections and
-  releases, and nothing is written by itself in a marked folder.
+  releases and the files the system makes, which leave what git shows
+  ([files the system makes](../git-scm-github-gitgraph.md#files-the-system-makes)),
+  and nothing is written by itself in a marked folder.
 - BaseHalf assumes users do not read code and never open `.bh/`. No message,
   button, or repair step sends them to a file's source or to a hidden file;
-  repairs are actions in BaseHalf's own interface (D41). Messages give reasons
+  repairs are actions in BaseHalf's own interface (D41). A setting, off by
+  default, shows `.bh` in Files for someone who asks (D116). Messages give reasons
   in plain words: no file-format terms, no path under `.bh/`, and no raw file
   system error text, which goes to the log.
 - BaseHalf writes no agent guides, no `.bh/agent-harness/`, no focus state,
   and no edits of the user's `.gitignore` into workspaces, but the removal of
   the two lines early versions wrote, after the user confirms
-  ([files in notes](../specs/files-in-notes.md), rule 46). Its one ignore
-  file is `.bh/.gitignore`. Agent Area Claude Code sessions
+  ([files in notes](../specs/files-in-notes.md), rule 46). The ignore file it
+  keeps is `.bh/.gitignore`, and it adds the files the system makes to a
+  repository's `info/exclude`, which is in no project (D115). Agent Area Claude Code sessions
   receive BaseHalf context at launch instead, as defined in
   [agent launch context](../specs/agent-launch-context.md).
 - BaseHalf is the container that intelligence flows through, not an

@@ -117,6 +117,8 @@ These services honor the marker:
   `made.yaml`, and no task record, so no draft is created and no card
   generates there ([generation cards](generation-cards.md)).
 - **Legacy record**: BaseHalf writes no `.bh/legacy-references.yaml`.
+- **Git's exclude file**: BaseHalf adds nothing to a repository's `info/exclude`
+  ([files the system makes](../git-scm-github-gitgraph.md#files-the-system-makes)).
 - **Agent launch context**: Agent Area sessions whose workspace has any marked
   folder receive no BaseHalf launch instruction
   ([agent launch context](agent-launch-context.md#scope)).

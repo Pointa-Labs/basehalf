@@ -189,6 +189,16 @@ it over:
 - `src/vs/workbench/contrib/scm/browser/scmViewPane.ts`: a folder named `.bh`
   starts closed (`collapseByDefault`).
 
+## `.bh` in Files by a setting (2026-11-04)
+
+BaseHalf's own change. See public decision D116 and
+`docs/specs/workspace-state-and-legacy-cleanup.md`. An update of the whole tree
+has to carry it over:
+
+- `src/vs/workbench/contrib/files/browser/views/explorerViewer.ts`: with
+  `basehalf.files.showHiddenFolder` on, the filter of Files leaves `**/.bh` out of
+  `files.exclude`, for Files alone.
+
 ## The location in the title bar (2026-07-12, revised 2026-10-24)
 
 BaseHalf's own change. See public decision D73 and

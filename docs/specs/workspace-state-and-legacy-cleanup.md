@@ -67,12 +67,29 @@ In the workspace, under `.bh/`:
 | `.bh/.gitignore` | BaseHalf's own ignore file | hides itself, every `canvas.yaml`, and `.bh/cache/` from git with anchored rules, kept at BaseHalf's own text ([canvas card placement](canvas-card-placement.md#places-stay-out-of-git)) |
 
 BaseHalf does not create or edit the user's `.gitignore`. Lines that earlier
-releases appended there stay unless the user removes them. The one ignore
-file BaseHalf writes is its own, inside `.bh/`. It is written before the
+releases appended there stay unless the user removes them. The ignore file
+BaseHalf keeps is its own, inside `.bh/`. It is written before the
 first layout or working file, and written again when it differs from
 BaseHalf's own text ([files in notes](files-in-notes.md), rule 45). A git
 repository inside the workspace folder gets a `.bh/` of its own when the first
-file is put into one of its notes.
+file is put into one of its notes. Apart from that, BaseHalf adds the files the
+system makes to a repository's `info/exclude`, which is in no project
+([files the system makes](../git-scm-github-gitgraph.md#files-the-system-makes)).
+
+`.bh` is hidden at every depth. The setting `basehalf.files.showHiddenFolder`, off
+by default, shows it in Files, at once and at every depth, and nowhere else: the
+canvas, Search, Quick Open, and the `[[` menu go on leaving it out (D116). With
+the setting on:
+
+- A click on `.bh` or a folder under it only opens it in Files. The canvas
+  stays where it is, and nothing is laid out for such a folder.
+- A click on a file under it opens the file in Card Detail, over the canvas on
+  show, as a note's file ([files in notes](files-in-notes.md), rule 26).
+- What is under it can be renamed, moved, and deleted as anywhere in Files.
+  BaseHalf recovers as from a change made outside it (D40), and a note's link
+  to a file that left its place shows the missing file
+  ([files in notes](files-in-notes.md), rule 25).
+- No message or button of BaseHalf sends anyone there (D41).
 
 Project metadata may be committed, so that descriptions, the upstream lists
 BaseHalf keeps, and the prompts, settings, drafts, and records of generation

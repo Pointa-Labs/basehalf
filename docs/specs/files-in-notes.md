@@ -91,7 +91,9 @@ one folder for every note of that folder:
    Open, and the `[[` menu (`files.exclude` holds `**/.bh`). Putting a file into
    a note adds no card to any canvas. Source Control shows what git sees, with
    `.bh` closed at first
-   ([the Changes view](../git-scm-github-gitgraph.md#the-changes-view)).
+   ([the Changes view](../git-scm-github-gitgraph.md#the-changes-view)). A
+   setting, off by default, shows it in Files and nowhere else
+   ([workspace state](workspace-state-and-legacy-cleanup.md)).
 6. The setting `basehalf.editor.attachmentsDirectory` is gone. A folder named
    `attachments` that a note links into is an ordinary folder of the
    workspace, and its links keep working (pre-launch: nothing is moved).
@@ -206,7 +208,10 @@ one folder for every note of that folder:
     Its name in the header cannot be changed, and Card Detail offers no badge,
     description, connections, Delete, Reveal, or action that makes a
     connected card. Navigation never shows the canvas of a folder under
-    `.bh/`.
+    `.bh/`: such a folder has no canvas, and a file under it that Files opens,
+    where a setting can show it, opens over the canvas on show. The location in
+    the title bar shows the folders of that canvas and the file's name, never
+    a folder under `.bh/`.
 
 ### Editing a note's file
 

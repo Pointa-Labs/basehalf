@@ -51,6 +51,47 @@ Everything else stays VS Code's:
   take the files under it as they take any other, and the count in the header
   counts them.
 
+## Files The System Makes
+
+Systems make files in a folder by themselves: a file manager's `.DS_Store`,
+`._*` on disks of other systems, and `Thumbs.db` and `desktop.ini`.
+Nobody means to commit them, and someone who does not know git would, with
+Stage All Changes (D115).
+
+When Source Control finds a repository, whether made with Initialize
+Repository, cloned, or made in a terminal, BaseHalf adds these lines to that
+repository's `info/exclude`, the file git keeps for rules that are not shared:
+
+```gitignore
+# Files the system makes by itself. Written by BaseHalf.
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+```
+
+- Git then leaves these files out everywhere: Changes, Stage All Changes, and
+  `git add .` in a terminal or from an agent. A file that was in Changes leaves
+  it without a refresh.
+- `info/exclude` is in no project: nothing new shows in Changes, nothing is
+  committed by this, no clone gets the lines, and no other repository of the
+  computer changes.
+- The lines are written once, with no question and no notice. A repository
+  whose `info/exclude` holds the first line gets nothing more, whatever the
+  user changed under it. One that lost the first line gets them again the next
+  time it is found.
+- Git's own rules go on deciding: a file already committed stays tracked and
+  nothing removes it, and a line such as `!.DS_Store` in the repository's
+  `.gitignore` takes the file back.
+- In a linked worktree the file is that of the main repository, as git reads
+  it.
+- Nothing is written when the repository's root, or a workspace folder inside
+  or around it, holds the source-tree marker, or when that cannot be determined
+  ([source-tree contract](specs/spec-driven-development.md)). A file that cannot
+  be read or written is left alone, and the reason goes to the log: Source
+  Control works as before, and the next window tries again.
+- BaseHalf still creates and edits no `.gitignore` (D35, D36).
+
 ## GitGraph Boundary
 
 GitGraph maps to VS Code's Source Control Graph, not to a BaseHalf-specific
@@ -100,6 +141,14 @@ The no-network regression coverage lives in:
   - A new file in a folder stands under that folder, and the folder is open.
   - A new file under `.bh/` shows no row while `.bh` is closed, as it starts,
     and shows after a click on `.bh`.
+- `src/vs/workbench/basehalf/workspace/test/common/basehalfGitExclude.test.ts`
+  - The lines are added once, to an `info/exclude` that is there or not, and
+    to the main repository's from a linked worktree.
+  - A repository with the marker around it, or with the marker unknown, gets
+    nothing; a file that cannot be read is not written over.
+- The smoke step `source-control-leaves-out-system-files`, in a real window
+  - The window adds the lines to the fixture's repository. `.DS_Store` files
+    made after it show neither in `git status` nor in Changes.
 - Checked once in a real window, on a copy of a folder with 40 changes
   (2026-11-04): View & Sort and its choice after a restart; `.bh` after a
   refresh, after another view, and after a restart, with Source Control shown

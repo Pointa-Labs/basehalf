@@ -73,6 +73,7 @@ About:
 | --- | --- |
 | Editor | `basehalf.editor.*` |
 | Canvas | `basehalf.canvas.*` |
+| Files | `basehalf.files.*` |
 | Agent Area | `basehalf.agent.*` and `basehalf.agents.*` |
 | Providers | the page ([providers](providers.md#credentials-regions-and-endpoints)) |
 | About | the page ([app update](app-update.md#where-an-update-shows)) |

@@ -5737,3 +5737,52 @@ and after Escape the note's video stood where the playhead had.
   names the file's version, and one that stands is played anew: a player
   handed from one drawing of a note to the next by its address would keep
   the version it loaded.
+
+## D115 — The files the system makes stay out of git, by a rule only this repository on this computer has (NEW, 2026-11-04)
+
+**Decision.** When Source Control finds a repository, BaseHalf adds
+`.DS_Store`, `._*`, `Thumbs.db`, and `desktop.ini` to its `info/exclude`, once,
+with no question and no notice. See
+[files the system makes](git-scm-github-gitgraph.md#files-the-system-makes).
+
+**Why.** The owner saw `.DS_Store` in Changes and asked whether initializing a
+repository leaves anything out. It did not: Initialize Repository runs
+`git init` and nothing else, so Stage All Changes would have committed the
+file, and most of BaseHalf's users do not know git. Git's own guidance sorts
+rules by who needs them: `.gitignore` for rules everyone shares, `info/exclude`
+for rules that need not be shared. What a system leaves in a folder is of this
+computer.
+
+**Consequences.**
+- D35 and D36 stand: BaseHalf creates and edits no `.gitignore`. `.bh/.gitignore`
+  is no longer the only file with ignore rules that BaseHalf writes.
+- The rule does not travel. A clone on another computer gets it when BaseHalf
+  opens the clone, and someone using other tools can still commit these files.
+- A file already committed stays tracked, and BaseHalf does not remove it.
+
+**What was set aside.** A `.gitignore` written at Initialize Repository: shared
+with everyone, but a file in the project that nobody asked for, against D36, and
+of no use for a repository that was cloned. The user's global ignore file: it
+would change every repository of the computer, also those that have nothing to
+do with BaseHalf.
+
+## D116 — A setting shows `.bh` in Files, and only there (NEW, 2026-11-04)
+
+**Decision.** The setting `basehalf.files.showHiddenFolder`, off by default, shows
+`.bh` in Files. The canvas, Search, Quick Open, and the `[[` menu go on leaving
+it out. A click on `.bh` or a folder under it only opens it in Files, and a file
+under it opens over the canvas on show. See
+[workspace state](specs/workspace-state-and-legacy-cleanup.md).
+
+**Why.** The owner looked for a file put into a note, did not find it in Files,
+and asked for a choice. VS Code's `files.exclude` cannot give it: without its
+`**/.bh`, `.bh` also comes back in Search and Quick Open. Files clicks open
+folders on the canvas, which would have laid out BaseHalf's own folders as
+cards, so a folder under `.bh` now has no canvas at all.
+
+**Consequences.**
+- Refines D41: BaseHalf still assumes users never open `.bh`, and no message or
+  button sends anyone there. Someone who asks can look.
+- What is under `.bh` can then be renamed, moved, and deleted in Files, as it
+  always could in a file manager. BaseHalf recovers as from a change made
+  outside it (D40).
