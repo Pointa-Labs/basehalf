@@ -16,7 +16,7 @@ import '../markdown-rich-src/editor.css';
 import { BlockNoteEditor, type ExtensionFactoryInstance } from '@blocknote/core';
 import { en } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { TextSelection } from '@tiptap/pm/state';
+import { AllSelection, TextSelection } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -81,7 +81,10 @@ async function uploadTestFile(file: File): Promise<IBaseHalfNoteStoredFile> {
 }
 
 /** What the host was asked for items, and what it answers next: none, as for a clipboard of text, until a check sets them. */
-const itemRequests: { readonly source: 'paste' | 'drop'; readonly uris?: readonly string[]; readonly files?: readonly string[] }[] = [];
+const itemRequests: { readonly source: 'paste' | 'drop' | 'rebase'; readonly uris?: readonly string[]; readonly files?: readonly string[] }[] = [];
+
+/** The note the test's editor holds, as editor.tsx knows it, and as Rich's copy names it. */
+const noteNow = { resource: 'file:///workspace/notes/a.md' };
 const itemsAnswer: { next?: IBaseHalfNoteItems; delay?: number } = {};
 
 /**
@@ -92,6 +95,14 @@ const requestTestItems: BaseHalfNoteItemsRequest = async (source, dropped) => {
 	itemRequests.push({ source, ...(dropped && 'uris' in dropped ? { uris: [...dropped.uris] } : {}), ...(dropped && 'files' in dropped ? { files: dropped.files.map(file => file.name) } : {}) });
 	if (itemsAnswer.delay) {
 		await new Promise(resolve => setTimeout(resolve, itemsAnswer.delay));
+	}
+	if (source === 'rebase' && dropped && 'uris' in dropped) {
+		// The host's links from the note now: a stored file of another note cloned into its folder, the rest relative.
+		const folder = noteNow.resource.slice(0, noteNow.resource.lastIndexOf('/') + 1);
+		return {
+			items: dropped.uris.map(uri => ({ kind: 'file', url: uri.includes('/.bh/attachments/') ? `${NOTE_STORE}/${uri.split('/').pop()}` : uri.startsWith(folder) ? uri.slice(folder.length) : `../${uri.slice('file:///workspace/'.length)}`, name: 'x' })),
+			failures: [],
+		};
 	}
 	return itemsAnswer.next;
 };
@@ -165,8 +176,8 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 			undoManager: () => openNow.history?.ensure(),
 			reading: () => openNow.reading,
 		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems })],
-		paste: { handler: makeBaseHalfNotePasteHandler(requestTestItems), install: (editor, api) => installBaseHalfNotePaste(editor, api) },
-		copy: editor => installBaseHalfNoteCopy(editor, document.body),
+		paste: { handler: makeBaseHalfNotePasteHandler(requestTestItems, () => noteNow.resource), install: (editor, api) => installBaseHalfNotePaste(editor, api) },
+		copy: editor => installBaseHalfNoteCopy(editor, document.body, () => noteNow.resource),
 		blockIndex: editor => installBaseHalfNoteBlockIndex(editor),
 	},
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
@@ -1088,7 +1099,27 @@ async function noteItems(t: INoteFormatsTest): Promise<void> {
 	const dropped = { requests: [...itemRequests], saved: await t.save() };
 	itemsAnswer.next = undefined;
 
-	t.check('the clipboard\'s items and the items dragged from Files go in as the host puts them in, in one step of undo; what failed says why; text and a page\'s copy paste as before', {
+	// Blocks copied in a note at the workspace's root, pasted into a note in notes/ (rule 35).
+	noteNow.resource = 'file:///workspace/top.md';
+	await t.load('![a](.bh/attachments/aaaaaaaaaa/a%20b.png)\n\nSee [other](other.md) and [here](#heading).\n');
+	await t.frames();
+	t.editor.prosemirrorView.dispatch(t.editor.prosemirrorView.state.tr.setSelection(new AllSelection(t.editor.prosemirrorView.state.doc)));
+	itemRequests.length = 0;
+	const copied = new DataTransfer();
+	t.editor.domElement?.dispatchEvent(new ClipboardEvent('copy', { clipboardData: copied, bubbles: true, cancelable: true }));
+	await t.frames();
+	noteNow.resource = 'file:///workspace/notes/a.md';
+	await t.load('Start.\n');
+	await t.frames();
+	t.caret('Start.');
+	await t.keyboard.press('Enter');
+	t.editor.domElement?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: copied, bubbles: true, cancelable: true }));
+	await until('the copied blocks are in', () => t.blocks().length > 2);
+	await t.frames(3);
+	const rebased = { source: copied.getData('basehalf/note'), requests: [...itemRequests], saved: await t.save() };
+
+	t.check('the clipboard\'s items and the items dragged from Files go in as the host puts them in, in one step of undo; what failed says why; text and a page\'s copy paste as before; blocks from another note are read from its place', {
+		rebased,
 		pastedItems, undone, text, page, dropped,
 	}, {
 		pastedItems: {
@@ -1103,6 +1134,11 @@ async function noteItems(t: INoteFormatsTest): Promise<void> {
 		dropped: {
 			requests: [{ source: 'drop', uris: ['file:///workspace/docs/pic.png', 'file:///workspace/docs/media'] }],
 			saved: 'Start.\n\nSecond.\n\n![pic.png](../docs/pic.png)\n\n[media](../docs/media)\n',
+		},
+		rebased: {
+			source: 'file:///workspace/top.md',
+			requests: [{ source: 'rebase', uris: ['file:///workspace/.bh/attachments/aaaaaaaaaa/a%20b.png', 'file:///workspace/other.md'] }],
+			saved: `Start.\n\n![a](${NOTE_STORE}/a%20b.png)\n\nSee [other](../other.md) and [here](#heading).\n`,
 		},
 	});
 }

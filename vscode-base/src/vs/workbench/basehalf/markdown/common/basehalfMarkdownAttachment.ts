@@ -59,6 +59,20 @@ export interface IBaseHalfMarkdownAttachmentService {
 	 * block and the words of each that failed.
 	 */
 	items(documentResource: URI, noteText: string, resources: readonly URI[]): Promise<IBaseHalfNoteItems>;
+
+	/**
+	 * The links that a block pasted from another note gives the note
+	 * `documentResource` to what `resources` name (rule 35): each relative to
+	 * this note, and a stored file of another note's folder cloned into this
+	 * note's folder first, with its edit record. A file that cannot be cloned
+	 * stays the other note's, and says why.
+	 */
+	rebase(documentResource: URI, noteText: string, resources: readonly URI[]): Promise<IBaseHalfNoteRebase>;
+}
+
+export interface IBaseHalfNoteRebase {
+	readonly urls: readonly string[];
+	readonly failures: readonly IBaseHalfMarkdownRichNoteItemFailure[];
 }
 
 export interface IBaseHalfNoteItems {
@@ -127,24 +141,62 @@ export class BaseHalfMarkdownAttachmentService implements IBaseHalfMarkdownAttac
 				if (isFolder) {
 					throw new BaseHalfNoteFileError(`Could not add ${name}: a folder from outside the open folder is not put into a note.`);
 				}
-				const stored = await this.inQueue(documentResource, () => this.storeNow(documentResource, noteText, baseHalfNoteFileName(name), async target => {
-					try {
-						// A clone where the disk can make one, which takes no room, a copy where it cannot (rule 12).
-						await this.fileClonesService.clone(resource, target);
-						return true;
-					} catch (error) {
-						if (/EEXIST/.test(error instanceof Error ? `${error.name} ${error.message}` : String(error))) {
-							return false;
-						}
-						throw error;
-					}
-				}));
+				const stored = await this.cloneIn(documentResource, noteText, resource);
 				items.push({ kind: 'file', url: stored.href, name: stored.name });
 			} catch (error) {
 				failures.push({ name, message: baseHalfNoteFileFailure(name, error) });
 			}
 		}
 		return { items, failures };
+	}
+
+	async rebase(documentResource: URI, noteText: string, resources: readonly URI[]): Promise<IBaseHalfNoteRebase> {
+		const urls: string[] = [];
+		const failures: IBaseHalfMarkdownRichNoteItemFailure[] = [];
+		const clones = new ResourceMap<string>();
+		for (const resource of resources) {
+			const known = clones.get(resource);
+			if (known) {
+				urls.push(known);
+			} else if (/\/\.bh\/attachments\/[a-z0-9]{10}\/[^/]+$/.test(resource.path) && !this.isInOwnFolder(documentResource, noteText, resource) && await this.fileService.exists(resource)) {
+				try {
+					const clone = (await this.cloneIn(documentResource, noteText, resource)).href;
+					clones.set(resource, clone);
+					urls.push(clone);
+				} catch (error) {
+					failures.push({ name: basename(resource), message: baseHalfNoteFileFailure(basename(resource), error) });
+					urls.push(baseHalfMarkdownAttachmentHref(documentResource, resource));
+				}
+			} else {
+				urls.push(baseHalfMarkdownAttachmentHref(documentResource, resource));
+			}
+		}
+		return { urls, failures };
+	}
+
+	/**
+	 * Clones the file `resource` into the note's folder, where the disk can
+	 * as a clone that takes no room (rule 12), with its edit record when it is
+	 * another note's file.
+	 */
+	private async cloneIn(documentResource: URI, noteText: string, resource: URI): Promise<IBaseHalfStoredMarkdownAttachment> {
+		const stored = await this.inQueue(documentResource, () => this.storeNow(documentResource, noteText, baseHalfNoteFileName(basename(resource)), async target => {
+			try {
+				await this.fileClonesService.clone(resource, target);
+				return true;
+			} catch (error) {
+				if (/EEXIST/.test(error instanceof Error ? `${error.name} ${error.message}` : String(error))) {
+					return false;
+				}
+				throw error;
+			}
+		}));
+		const workspaceFolder = this.contextService.getWorkspaceFolder(documentResource)?.uri;
+		if (workspaceFolder && resource.path.includes('/.bh/attachments/')) {
+			// The copy keeps Revert to Original; without its record it is a file as it is.
+			await baseHalfCloneNoteFileEditRecord({ fileService: this.fileService, fileClonesService: this.fileClonesService }, workspaceFolder, resource, stored.resource).catch(() => undefined);
+		}
+		return stored;
 	}
 
 	/** Whether `resource` is in a folder of the store that the note's links name, or that this window last put a file of the note into. */
@@ -257,6 +309,37 @@ export class BaseHalfMarkdownAttachmentService implements IBaseHalfMarkdownAttac
 		const stat = await this.fileService.resolve(folder).catch(() => undefined);
 		return new Set((stat?.children ?? []).map(child => child.name.toLowerCase()));
 	}
+}
+
+/**
+ * The edit record of a stored file, its original and `edit.yaml` at the
+ * file's own path in the workspace folder's mirror (rule 27), cloned to the
+ * path of its clone, so that a copy keeps Revert to Original. A file without
+ * a record has nothing to clone.
+ */
+export async function baseHalfCloneNoteFileEditRecord(services: { readonly fileService: IFileService; readonly fileClonesService: IBaseHalfFileClonesService }, workspaceFolder: URI, original: URI, clone: URI): Promise<void> {
+	const { fileService } = services;
+	const from = relativePath(workspaceFolder, original);
+	const to = relativePath(workspaceFolder, clone);
+	if (!from || !to || from.startsWith('../') || to.startsWith('../')) {
+		return;
+	}
+	const record = joinPath(workspaceFolder, '.bh', 'mirror', ...from.split('/'));
+	if (!(await fileService.stat(record).catch(() => undefined))?.isDirectory) {
+		return;
+	}
+	const copyFolder = async (source: URI, target: URI): Promise<void> => {
+		const children = (await fileService.resolve(source)).children ?? [];
+		await fileService.createFolder(target);
+		for (const child of children) {
+			if (child.isDirectory) {
+				await copyFolder(child.resource, joinPath(target, child.name));
+			} else {
+				await services.fileClonesService.clone(child.resource, joinPath(target, child.name));
+			}
+		}
+	};
+	await copyFolder(record, joinPath(workspaceFolder, '.bh', 'mirror', ...to.split('/')));
 }
 
 /**

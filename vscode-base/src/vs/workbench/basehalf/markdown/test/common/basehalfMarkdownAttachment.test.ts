@@ -40,7 +40,9 @@ suite('BaseHalfMarkdownAttachment', () => {
 			service.store(URI.joinPath(WORKSPACE, ...note.split('/')), text, name, mediaType, new TextEncoder().encode(content).buffer as ArrayBuffer, now);
 		const putItems = (note: string, text: string, paths: readonly string[]) =>
 			service.items(URI.joinPath(WORKSPACE, ...note.split('/')), text, paths.map(path => path.startsWith('/') ? URI.file(path) : joinPath(WORKSPACE, ...path.split('/'))));
-		return { fileService, put, putItems, files: () => tree(fileService) };
+		const rebase = (note: string, text: string, paths: readonly string[]) =>
+			service.rebase(URI.joinPath(WORKSPACE, ...note.split('/')), text, paths.map(path => joinPath(WORKSPACE, ...path.split('/'))));
+		return { fileService, put, putItems, rebase, files: () => tree(fileService) };
 	}
 
 	/** Clones as the disk's own clone does: never over a file that is there. */
@@ -242,6 +244,26 @@ suite('BaseHalfMarkdownAttachment', () => {
 				{ name: 'missing.png', message: 'Could not add missing.png: it could not be saved.' },
 			],
 			copied: ['.bh/attachments/<folder>/mine.png', '.bh/attachments/<folder>/report v2.pdf', '.bh/attachments/<folder>/theirs.png'],
+		});
+	});
+
+	test('blocks pasted from another note link from this note; another note\'s stored file is cloned into this note\'s folder with its edit record, once; its own and a missing one are linked', async () => {
+		const workspace = await open({
+			'notes/b.md': '',
+			'other.md': '',
+			'.bh/attachments/aaaaaaaaaa/a b.png': 'theirs',
+			'.bh/mirror/.bh/attachments/aaaaaaaaaa/a b.png/edit.yaml': 'original: original.png\n',
+			'.bh/mirror/.bh/attachments/aaaaaaaaaa/a b.png/original.png': 'first',
+			'.bh/attachments/bbbbbbbbbb/mine.png': 'mine',
+		});
+		const result = await workspace.rebase('notes/b.md', '![](../.bh/attachments/bbbbbbbbbb/mine.png)', ['.bh/attachments/aaaaaaaaaa/a b.png', 'other.md', '.bh/attachments/bbbbbbbbbb/mine.png', '.bh/attachments/aaaaaaaaaa/gone.png', '.bh/attachments/aaaaaaaaaa/a b.png']);
+		const files = await workspace.files();
+		assert.deepStrictEqual({ result, record: Object.keys(files).filter(path => path.startsWith('.bh/mirror/.bh/attachments/bbbbbbbbbb/')).sort() }, {
+			result: {
+				urls: ['../.bh/attachments/bbbbbbbbbb/a%20b.png', '../other.md', '../.bh/attachments/bbbbbbbbbb/mine.png', '../.bh/attachments/aaaaaaaaaa/gone.png', '../.bh/attachments/bbbbbbbbbb/a%20b.png'],
+				failures: [],
+			},
+			record: ['.bh/mirror/.bh/attachments/bbbbbbbbbb/a b.png/edit.yaml', '.bh/mirror/.bh/attachments/bbbbbbbbbb/a b.png/original.png'],
 		});
 	});
 

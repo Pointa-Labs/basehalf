@@ -643,7 +643,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
 	const fileDropExtension = useMemo(() => makeBaseHalfNoteFileDropExtension({ requestItems: (source, dropped) => requestItemsRef.current(source, dropped) }), []);
 	// What is pasted is read as a note's file is read (note formats, rules 72 to 74), and the clipboard's items as the host puts them in (files in notes, rule 15).
-	const pasteHandler = useMemo(() => makeBaseHalfNotePasteHandler((source, dropped) => requestItemsRef.current(source, dropped)), []);
+	const pasteHandler = useMemo(() => makeBaseHalfNotePasteHandler((source, dropped) => requestItemsRef.current(source, dropped), () => session.current.resource || undefined), []);
 	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension({
 		openLink: href => openLinkRef.current(href),
 		undoManager: () => noteUndoRef.current?.ensure(),
@@ -822,7 +822,7 @@ function MarkdownRichEditor(): JSX.Element {
 	useMemo(() => installBaseHalfNotePaste(editor, editorApi), [editor, editorApi]);
 	useMemo(() => installBaseHalfNoteBlockIndex(editor), [editor]);
 	// What a copy, a cut, and a drag carry out of Rich (note formats, rules 75 to 77).
-	useEffect(() => installBaseHalfNoteCopy(editor, document.body), [editor]);
+	useEffect(() => installBaseHalfNoteCopy(editor, document.body, () => session.current.resource || undefined), [editor]);
 	// A picture's edge follows the pointer on a magnified page (note formats, rule 28).
 	useEffect(() => installBaseHalfNoteResizeUnderZoom(window, () => readingAids.current?.zoom.level ?? 1), []);
 

@@ -11,7 +11,7 @@ import { IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/c
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfMarkdownAttachmentHref, baseHalfNoteHome } from './basehalfMarkdownAttachment.js';
+import { baseHalfCloneNoteFileEditRecord, baseHalfMarkdownAttachmentHref, baseHalfNoteHome } from './basehalfMarkdownAttachment.js';
 import { baseHalfNoteLinkDestinationRanges, baseHalfNoteStoreLink } from './basehalfNoteFileLinks.js';
 import { BASEHALF_NO_WORKSPACE_SETUP_MARKER, BASEHALF_NOTE_FILES_STORE_PATH, baseHalfNoteFreeName, newBaseHalfNoteFolderName } from './basehalfNoteFiles.js';
 import { IBaseHalfNoteRouteEdit, baseHalfApplyNoteRouteEdits } from './basehalfNoteFileRoutes.js';
@@ -143,7 +143,7 @@ async function copyNoteFiles(services: IBaseHalfNoteFileCopyServices, from: URI,
 					taken.add(name.toLowerCase());
 					clone = joinPath(folder, name);
 					await services.fileClonesService.clone(original, clone);
-					await cloneEditRecord(services, workspaceFolder, original, clone);
+					await baseHalfCloneNoteFileEditRecord(services, workspaceFolder, original, clone);
 				} catch {
 					clone = null;
 					complete = false;
@@ -176,35 +176,4 @@ async function newFolder(fileService: IFileService, home: URI): Promise<URI> {
 			return folder;
 		}
 	}
-}
-
-/**
- * The edit record of a stored file, its original and `edit.yaml` at the
- * file's own path in the workspace folder's mirror (rule 27), cloned to the
- * clone's path, so that the copy keeps Revert to Original.
- */
-async function cloneEditRecord(services: IBaseHalfNoteFileCopyServices, workspaceFolder: URI, original: URI, clone: URI): Promise<void> {
-	const { fileService } = services;
-	const from = relativePath(workspaceFolder, original);
-	const to = relativePath(workspaceFolder, clone);
-	if (!from || !to || from.startsWith('../') || to.startsWith('../')) {
-		return;
-	}
-	const record = joinPath(workspaceFolder, '.bh', 'mirror', ...from.split('/'));
-	const listing = await fileService.resolve(record).catch(() => undefined);
-	if (!listing?.isDirectory) {
-		return;
-	}
-	const copyFolder = async (source: URI, target: URI): Promise<void> => {
-		const children = (await fileService.resolve(source)).children ?? [];
-		await fileService.createFolder(target);
-		for (const child of children) {
-			if (child.isDirectory) {
-				await copyFolder(child.resource, joinPath(target, child.name));
-			} else {
-				await services.fileClonesService.clone(child.resource, joinPath(target, child.name));
-			}
-		}
-	};
-	await copyFolder(record, joinPath(workspaceFolder, '.bh', 'mirror', ...to.split('/')));
 }

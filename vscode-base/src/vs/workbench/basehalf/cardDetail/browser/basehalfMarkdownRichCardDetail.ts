@@ -1044,7 +1044,14 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	 * the files dragged from another app, all of them or none. With none, the
 	 * page pastes or copies the files as it would.
 	 */
-	private async handleItemsRequest(state: IBaseHalfCardDetailState, requestId: string, source: 'paste' | 'drop', uris: readonly string[] | undefined, files: readonly File[] | undefined): Promise<void> {
+	private async handleItemsRequest(state: IBaseHalfCardDetailState, requestId: string, source: 'paste' | 'drop' | 'rebase', uris: readonly string[] | undefined, files: readonly File[] | undefined): Promise<void> {
+		if (source === 'rebase') {
+			// Blocks copied in another note keep working here (files in notes, rule 35).
+			const resources = (uris ?? []).map(uri => URI.parse(uri));
+			const rebased = this.isEditable() && !this.structuralFrozen ? await this.attachmentService.rebase(state.resource, this.model?.getValue() ?? '', resources) : undefined;
+			await this.bridge?.sendItemsResult(requestId, rebased ? { items: rebased.urls.map((url, index) => ({ kind: 'file', url, name: basename(resources[index]) || url })), failures: rebased.failures } : {});
+			return;
+		}
 		let resources: URI[] = [];
 		if (this.isEditable() && !this.structuralFrozen) {
 			try {

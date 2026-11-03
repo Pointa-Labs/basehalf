@@ -335,7 +335,8 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly type: 'basehalf.markdownRich.itemsRequest';
 		readonly key: string;
 		readonly requestId: string;
-		readonly source: 'paste' | 'drop';
+		/** `rebase`: the links that blocks copied in another note give this note to `uris`, one item each. */
+		readonly source: 'paste' | 'drop' | 'rebase';
 		readonly uris?: readonly string[];
 		/** Files dropped from another app or chosen, whose paths the window reads. */
 		readonly files?: readonly File[];
@@ -531,7 +532,7 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 		case 'basehalf.markdownRich.itemsRequest':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
-				&& (candidate.source === 'paste' || candidate.source === 'drop')
+				&& (candidate.source === 'paste' || candidate.source === 'drop' || candidate.source === 'rebase')
 				&& (candidate.uris === undefined || (Array.isArray(candidate.uris) && candidate.uris.every(uri => typeof uri === 'string' && uri.length > 0)))
 				&& (candidate.files === undefined || (Array.isArray(candidate.files) && candidate.files.every(file => file instanceof File)));
 		case 'basehalf.markdownRich.openResource':

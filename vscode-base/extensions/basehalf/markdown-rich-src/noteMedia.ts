@@ -60,7 +60,7 @@ export interface IBaseHalfNoteItems {
  * another app, by their paths. Undefined when there are none, or when a file
  * of the drop has no path.
  */
-export type BaseHalfNoteItemsRequest = (source: 'paste' | 'drop', dropped?: { readonly uris: readonly string[] } | { readonly files: readonly File[] }) => Promise<IBaseHalfNoteItems | undefined>;
+export type BaseHalfNoteItemsRequest = (source: 'paste' | 'drop' | 'rebase', dropped?: { readonly uris: readonly string[] } | { readonly files: readonly File[] }) => Promise<IBaseHalfNoteItems | undefined>;
 
 /**
  * The kinds of data the editor reads a paste or a drop as, first to last.
@@ -359,6 +359,14 @@ function removePlaceholder(editor: NoteEditor, element: HTMLElement): void {
 	const current = editor.prosemirrorView;
 	if (current && placeholderPosition(current.state, element) !== undefined) {
 		current.dispatch(current.state.tr.setMeta(placeholderKey, { remove: element } satisfies IPlaceholderChange).setMeta('addToHistory', false));
+	}
+}
+
+/** Shows where the caret is, for 3 s, why each of `failures` could not be added. */
+export function showBaseHalfNoteFailures(editor: NoteEditor, failures: readonly IBaseHalfMarkdownRichNoteItemFailure[]): void {
+	const view = editor.prosemirrorView;
+	if (view && failures.length > 0) {
+		showFailures(editor, addPlaceholder(view, view.state.selection.from, ''), failures);
 	}
 }
 
