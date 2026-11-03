@@ -124,8 +124,8 @@ import {
 	setBaseHalfSelectionReveal,
 } from './selectionRevealDecorations.js';
 import { baseHalfEditorLabel, baseHalfNoteSchema, renderedNote } from './noteSchema.js';
-import { baseHalfNoteFileAddressAt, baseHalfNoteMediaElement, makeBaseHalfNoteMediaEditExtension, setBaseHalfNoteMediaEditMark } from './noteMediaEdit.js';
-import { BASEHALF_IMAGE_CROP_MARGIN, BASEHALF_NOTE_PICTURE_EDIT_ROOM } from '../../../src/vs/workbench/basehalf/mediaEdit/common/basehalfNoteMediaEdit.js';
+import { baseHalfNoteFileAddressAt, baseHalfNoteMediaElement, makeBaseHalfNoteMediaEditExtension, setBaseHalfNoteMediaEditMark, showBaseHalfNoteMediaAt } from './noteMediaEdit.js';
+import { baseHalfNoteMediaEditAbove, baseHalfNoteMediaEditRoom } from '../../../src/vs/workbench/basehalf/mediaEdit/common/basehalfNoteMediaEdit.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from './noteUndo.js';
 import {
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
@@ -805,51 +805,63 @@ function MarkdownRichEditor(): JSX.Element {
 	noteUndoRef.current = noteUndo;
 
 	/**
-	 * Edit of a picture's toolbar (D113): the note makes room under the
-	 * picture for the editor's tools and scrolls as little as shows the editor
-	 * whole, and the window draws the editor over the picture.
+	 * Edit of the toolbar of a picture, a video, or a sound (D113, D114): the
+	 * note makes room under the media for the editor's tools and scrolls as
+	 * little as shows the editor whole, a video or a sound pauses, and the
+	 * window draws the editor over the media, a video's and a sound's from
+	 * where it stood.
 	 */
 	const editMedia = useCallback((blockId: string): void => {
 		const state = session.current;
 		const view = editor.prosemirrorView;
 		const block = editor.getBlock(blockId);
 		const scroller = scrollRef.current;
-		const picture = baseHalfNoteMediaElement(editor.domElement, blockId);
-		if (mediaEdit.current || !state.key || !state.ready || !state.editable || state.structuralFrozen || !view || !scroller || !picture
-			|| block?.type !== 'image' || typeof block.props.url !== 'string' || !block.props.url) {
+		const media = baseHalfNoteMediaElement(editor.domElement, blockId);
+		const edited = block && (block.type === 'image' || block.type === 'video' || block.type === 'audio') ? block : undefined;
+		const url = edited && typeof edited.props.url === 'string' ? edited.props.url : '';
+		if (mediaEdit.current || !state.key || !state.ready || !state.editable || state.structuralFrozen || !view || !scroller || !media || !edited || !url) {
 			return;
 		}
-		// The room is the editor's below the picture, in pixels of the screen however large the page is drawn.
-		const room = BASEHALF_NOTE_PICTURE_EDIT_ROOM / (readingAids.current?.zoom.level ?? 1);
-		mediaEdit.current = { blockId, url: block.props.url, room, ending: false };
+		const kind = edited.type;
+		const shown = media.getBoundingClientRect();
+		// The room is the editor's below the media, in pixels of the screen however large the page is drawn.
+		const screenRoom = baseHalfNoteMediaEditRoom(kind, { left: shown.left, top: shown.top, width: shown.width, height: shown.height });
+		const room = screenRoom / (readingAids.current?.zoom.level ?? 1);
+		mediaEdit.current = { blockId, url, room, ending: false };
 		setEditedMedia(blockId);
 		setBaseHalfNoteMediaEditMark(view, { blockId, room, hidden: false });
-		const shown = picture.getBoundingClientRect();
 		const bounds = scroller.getBoundingClientRect();
-		const above = shown.top - BASEHALF_IMAGE_CROP_MARGIN - bounds.top;
-		const below = shown.bottom + BASEHALF_NOTE_PICTURE_EDIT_ROOM - bounds.bottom;
+		const above = shown.top - baseHalfNoteMediaEditAbove(kind) - bounds.top;
+		const below = shown.bottom + screenRoom - bounds.bottom;
 		if (below > 0) {
 			scroller.scrollTop += Math.min(below, Math.max(0, above));
 		} else if (above < 0) {
 			scroller.scrollTop += above;
 		}
-		const box = picture.getBoundingClientRect();
+		let time: number | undefined;
+		if (media instanceof HTMLMediaElement) {
+			media.pause();
+			time = Number.isFinite(media.currentTime) ? media.currentTime : undefined;
+		}
+		const box = media.getBoundingClientRect();
 		vscode.postMessage({
 			type: 'basehalf.markdownRich.editMedia',
 			key: state.key,
 			blockId,
-			kind: 'image',
-			href: block.props.url,
+			kind,
+			href: url,
 			box: { left: box.left, top: box.top, width: box.width, height: box.height },
+			...(time !== undefined ? { time } : {}),
 		});
 	}, [editor, vscode]);
 
 	/**
-	 * The editing ended (D113): the picture shows its file at the version the
-	 * window gave, once loaded, hidden under the editor, which glides to it;
-	 * the room under it closes.
+	 * The editing ended (D113, D114): the media shows its file at the version
+	 * the window gave, once loaded, hidden under the editor, a picture at the
+	 * size its new shape takes, which the editor glides to, a video or a sound
+	 * at `time`, paused; the room under it closes.
 	 */
-	const endMediaEdit = useCallback(async (blockId: string, version: string | undefined): Promise<void> => {
+	const endMediaEdit = useCallback(async (blockId: string, version: string | undefined, time: number | undefined): Promise<void> => {
 		const edit = mediaEdit.current;
 		if (!edit || edit.blockId !== blockId) {
 			return;
@@ -857,6 +869,28 @@ function MarkdownRichEditor(): JSX.Element {
 		edit.ending = true;
 		const address = noteFileAddress(edit.url, session.current.baseUri);
 		const shown = address !== undefined && version ? baseHalfNoteFileAddressAt(address, version) : undefined;
+		const element = baseHalfNoteMediaElement(editor.domElement, blockId);
+		if (element instanceof HTMLMediaElement) {
+			if (address !== undefined && version) {
+				mediaVersions.current.set(address, version);
+			}
+			const source = shown ?? element.getAttribute('src');
+			if (source) {
+				await showBaseHalfNoteMediaAt(element, source, time);
+			}
+			if (mediaEdit.current !== edit) {
+				return;
+			}
+			setBaseHalfNoteMediaEditMark(editor.prosemirrorView, { blockId, room: 0, hidden: true });
+			const box = baseHalfNoteMediaElement(editor.domElement, blockId)?.getBoundingClientRect();
+			vscode.postMessage({
+				type: 'basehalf.markdownRich.mediaLaidOut',
+				key: session.current.key,
+				blockId,
+				...(box && box.width > 0 && box.height > 0 ? { box: { left: box.left, top: box.top, width: box.width, height: box.height } } : {}),
+			});
+			return;
+		}
 		if (address !== undefined && version && shown) {
 			mediaVersions.current.set(address, version);
 			// Loaded before it shows: the note never shows the picture missing.
@@ -879,7 +913,9 @@ function MarkdownRichEditor(): JSX.Element {
 			};
 			hold(from);
 			picture.src = shown;
-			await picture.decode().catch(() => undefined);
+			if (picture instanceof HTMLImageElement) {
+				await picture.decode().catch(() => undefined);
+			}
 			if (mediaEdit.current !== edit) {
 				return;
 			}
@@ -946,7 +982,7 @@ function MarkdownRichEditor(): JSX.Element {
 		return () => edits.unobserve(onChange);
 	}, [vscode, ydoc]);
 
-	/** An undo or a redo set the choices of a picture's file: every picture of that file shows it at its new version. */
+	/** An undo or a redo set the choices of a media file: every picture, video, or sound of that file shows it at its new version. */
 	const showMediaVersion = useCallback((url: string, version: string): void => {
 		const address = noteFileAddress(url, session.current.baseUri);
 		if (address === undefined) {
@@ -954,10 +990,11 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 		mediaVersions.current.set(address, version);
 		const shown = baseHalfNoteFileAddressAt(address, version);
-		for (const content of editor.domElement?.querySelectorAll<HTMLElement>('.bn-block-content[data-content-type="image"]') ?? []) {
-			const picture = content.querySelector('img.bn-visual-media');
-			if (content.dataset.url === url && picture instanceof HTMLImageElement) {
-				picture.src = shown;
+		const contents = '.bn-block-content[data-content-type="image"], .bn-block-content[data-content-type="video"], .bn-block-content[data-content-type="audio"]';
+		for (const content of editor.domElement?.querySelectorAll<HTMLElement>(contents) ?? []) {
+			const media = content.querySelector('img.bn-visual-media, video.bn-visual-media, audio.bn-audio');
+			if (content.dataset.url === url && (media instanceof HTMLImageElement || media instanceof HTMLMediaElement)) {
+				media.src = shown;
 			}
 		}
 	}, [editor]);
@@ -2207,7 +2244,7 @@ function MarkdownRichEditor(): JSX.Element {
 					if (message.step && edited?.blockId === message.blockId) {
 						recordMediaEdit(edited.url, message.step);
 					}
-					void endMediaEdit(message.blockId, message.version).catch(reportError);
+					void endMediaEdit(message.blockId, message.version, message.time).catch(reportError);
 					break;
 				}
 				case 'basehalf.markdownRich.mediaVersion':
@@ -2418,17 +2455,32 @@ function MarkdownRichEditor(): JSX.Element {
 			const canPaste = !!view && state.editable && !state.structuralFrozen && state.conflictDisk === undefined && state.writeError === undefined;
 			const clickedBlockId = (event.target as HTMLElement | null)?.closest?.('[data-id]')?.getAttribute('data-id');
 			const clickedBlock = clickedBlockId ? editor.getBlock(clickedBlockId) : undefined;
-			// A picture, a video, or a sound is edited in place; a file block opens its file (files in notes, rule 22).
+			// A picture, a video, or a sound is edited in place, from Edit first in its menu as in its toolbar: the system's
+			// control of a sound's bar takes its presses, and its menu is where its Edit is (D114). A file block opens its file
+			// (files in notes, rule 22).
 			const clickedFileUrl = clickedBlock?.type === 'file' && typeof clickedBlock.props.url === 'string' && clickedBlock.props.url
 				? clickedBlock.props.url
 				: undefined;
+			const clickedMediaUrl = clickedBlock && (clickedBlock.type === 'image' || clickedBlock.type === 'video' || clickedBlock.type === 'audio')
+				&& typeof clickedBlock.props.url === 'string' ? clickedBlock.props.url : '';
+			// Media on the web is not a file BaseHalf edits.
+			const editableMediaId = clickedBlock && clickedMediaUrl && canPaste && !mediaEdit.current && !/^(?:[a-z][a-z0-9+.-]*:|#)/i.test(clickedMediaUrl)
+				? clickedBlock.id
+				: undefined;
 			// Without a selection the menu still offers Paste at the cursor.
-			if (selected.length === 0 && !canPaste && !clickedFileUrl) {
+			if (selected.length === 0 && !canPaste && !clickedFileUrl && !editableMediaId) {
 				return;
 			}
 
 			const existing = (state.adhd?.highlight_keywords ?? []).find(keyword => keyword.toLowerCase() === selected.toLowerCase());
 			const items: ContextMenuItem[] = [];
+			if (editableMediaId) {
+				items.push({
+					id: 'edit-media',
+					label: baseHalfEditorLabel('Edit', '编辑', '編輯'),
+					run: () => editMedia(editableMediaId),
+				});
+			}
 			if (clickedFileUrl) {
 				items.push({
 					id: 'open-file',
@@ -2505,7 +2557,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 		dom.addEventListener('contextmenu', onContextMenu);
 		return () => dom.removeEventListener('contextmenu', onContextMenu);
-	}, [editor, postAdhdCommand, vscode]);
+	}, [editMedia, editor, postAdhdCommand, vscode]);
 
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;
@@ -3054,15 +3106,16 @@ function BaseHalfFormattingToolbar(): JSX.Element | null {
 	return mediaEdit.hidden ? null : <FormattingToolbar>{[<BaseHalfMediaEditButton key={'mediaEditButton'} />, ...items]}</FormattingToolbar>;
 }
 
-/** Edit for a picture of a file (D113): the window draws the picture's editor over it, in the note. */
+/** Edit for a picture, a video, or a sound of a file (D113, D114): the window draws the editor of the file's card over it, in the note. */
 function BaseHalfMediaEditButton(): JSX.Element | null {
 	const editor = useBlockNoteEditor();
 	const Components = useComponentsContext()!;
 	const mediaEdit = useContext(BaseHalfNoteMediaEditContext);
 	const blocks = useSelectedBlocks(editor);
 	const block = blocks.length === 1 ? blocks[0] : undefined;
-	const url = block?.type === 'image' && typeof block.props.url === 'string' ? block.props.url : '';
-	// A picture on the web is not a file BaseHalf edits.
+	const edited = block?.type === 'image' || block?.type === 'video' || block?.type === 'audio';
+	const url = edited && typeof block.props.url === 'string' ? block.props.url : '';
+	// Media on the web is not a file BaseHalf edits.
 	if (!block || !url || !editor.isEditable || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url)) {
 		return null;
 	}

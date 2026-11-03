@@ -9,10 +9,11 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 
 /**
- * A picture of the note edited where it is (D113): the window draws the
- * editor of the picture over it, and the note makes room under the picture
- * for the editor's tools, and hides its own picture under the editor while the
- * editor glides back to it once the editing ended.
+ * A picture, a video, or a sound of the note edited where it is (D113,
+ * D114): the window draws the editor of the file's card over it, and the note
+ * makes room under the media for the editor's tools, and hides its own media
+ * under the editor while the editor shows and glides back to it once the
+ * editing ended.
  */
 export interface IBaseHalfNoteMediaEditMark {
 	readonly blockId: string;
@@ -21,6 +22,9 @@ export interface IBaseHalfNoteMediaEditMark {
 	/** The note's own picture is hidden under the editor. */
 	readonly hidden: boolean;
 }
+
+/** The blocks whose media is edited where the note shows it. */
+const BASEHALF_NOTE_EDITED_MEDIA = new Set(['image', 'video', 'audio']);
 
 const EDITING_CLASS = 'basehalf-note-media-editing';
 const HIDDEN_CLASS = 'basehalf-note-media-hidden';
@@ -46,7 +50,7 @@ function buildDecorations(doc: PmNode, mark: IBaseHalfNoteMediaEditMark | undefi
 			return true;
 		}
 		const content = node.firstChild;
-		if (content?.type.name === 'image') {
+		if (content && BASEHALF_NOTE_EDITED_MEDIA.has(content.type.name)) {
 			decorations.push(Decoration.node(pos + 1, pos + 1 + content.nodeSize, {
 				class: mark.hidden ? `${EDITING_CLASS} ${HIDDEN_CLASS}` : EDITING_CLASS,
 				style: `--basehalf-note-media-edit-room: ${mark.room}px`,
@@ -98,15 +102,53 @@ export function setBaseHalfNoteMediaEditMark(view: EditorView | undefined, mark:
 	}
 }
 
-/** The element of a picture block's picture, not of a block nested in it. */
-export function baseHalfNoteMediaElement(root: HTMLElement | undefined, blockId: string): HTMLImageElement | undefined {
+/** The element of a picture's, a video's, or a sound's block that shows its media, not of a block nested in it. */
+export function baseHalfNoteMediaElement(root: HTMLElement | undefined, blockId: string): HTMLImageElement | HTMLVideoElement | HTMLAudioElement | undefined {
 	const block = root?.querySelector(`[data-node-type="blockContainer"][data-id="${CSS.escape(blockId)}"]`);
-	for (const picture of block?.querySelectorAll('.bn-block-content[data-content-type="image"] img.bn-visual-media') ?? []) {
-		if (picture instanceof HTMLImageElement && picture.closest('[data-node-type="blockContainer"]') === block) {
-			return picture;
+	const shown = '.bn-block-content[data-content-type="image"] img.bn-visual-media, .bn-block-content[data-content-type="video"] video.bn-visual-media, .bn-block-content[data-content-type="audio"] audio.bn-audio';
+	for (const media of block?.querySelectorAll(shown) ?? []) {
+		if ((media instanceof HTMLImageElement || media instanceof HTMLMediaElement) && media.closest('[data-node-type="blockContainer"]') === block) {
+			return media;
 		}
 	}
 	return undefined;
+}
+
+/**
+ * Shows a video or a sound of the note at a version of its file, from `time`,
+ * paused: resolves once the element has the frame or the data at that time,
+ * or after a second at most, so that the note never waits on a file that does
+ * not load.
+ */
+export async function showBaseHalfNoteMediaAt(media: HTMLMediaElement, address: string, time: number | undefined): Promise<void> {
+	const settle = (events: readonly string[]) => new Promise<void>(resolve => {
+		const done = () => {
+			window.clearTimeout(timer);
+			for (const type of events) {
+				media.removeEventListener(type, done);
+			}
+			resolve();
+		};
+		const timer = window.setTimeout(done, 1000);
+		for (const type of events) {
+			media.addEventListener(type, done);
+		}
+	});
+	media.pause();
+	if (media.getAttribute('src') !== address) {
+		const loaded = settle(['loadeddata', 'error']);
+		media.src = address;
+		media.load();
+		await loaded;
+	}
+	if (time !== undefined && Number.isFinite(media.duration)) {
+		const at = Math.min(Math.max(0, time), media.duration);
+		if (Math.abs(media.currentTime - at) > 0.001) {
+			const seeked = settle(['seeked', 'error']);
+			media.currentTime = at;
+			await seeked;
+		}
+	}
 }
 
 /** The address of a version of a file of the note: the page keeps what it loaded by its address. */
