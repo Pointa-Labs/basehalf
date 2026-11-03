@@ -925,7 +925,7 @@ in Card Detail.
 ## Editing a video or a sound in its note
 
 - **A video and a sound in a note are edited where the note shows them**
-  (D114), with Edit in their toolbars
+  (D114), with Edit in their toolbars and first in their menus
   ([formats of a note](note-formats.md#editing-a-video-or-a-sound-in-its-note)),
   as a picture is ([Editing a picture in its note](#editing-a-picture-in-its-note)):
   the window draws the editor of the file's card over the note's page, at

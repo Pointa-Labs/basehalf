@@ -520,7 +520,11 @@ start).
      to the note at once.
 52g. The menu of a picture has no Open in Card Detail: the picture is
      edited where it is. A video and a sound are edited where they are too
-     (rules 52h to 52k).
+     (rules 52h to 52k). The menu of a picture, a video, or a sound of a
+     file has **Edit** first, as its toolbar has (D114): the system's control
+     of a sound's bar takes every press of the pointer on it, so that a press
+     never selects a sound and shows its toolbar, and its menu is where the
+     pointer finds its Edit.
 
 ### Editing a video or a sound in its note
 
@@ -538,7 +542,8 @@ start).
      then the note's video shows. A video whose editor would not fit the
      view glides as large as fits, as a picture does (rule 52a).
 52i. **A sound is edited where the note shows it** (D114). Edit, first in
-     its toolbar, makes room under the sound's bar, and the editor of the
+     its menu, and in its toolbar when the keyboard has selected it (rule
+     52g), makes room under the sound's bar, and the editor of the
      sound's card stands over the bar, at its place and its width, editing:
      the waveform, 112 px tall, with the trims at its ends outside the
      handles, the handles, the playhead, and a selected stretch with Delete;

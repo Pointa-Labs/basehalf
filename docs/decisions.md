@@ -5611,8 +5611,9 @@ Set aside:
 ## D114 — A video and a sound in a note are edited where the note shows them, with the editors of their cards (NEW, 2026-11-03)
 
 **Decision.** A video and a sound in a note in Card Detail are edited where
-the note shows them, as a picture is (D113). Edit, first in the toolbar of
-the video or the sound, makes room under it, and the window draws the
+the note shows them, as a picture is (D113). Edit, first in the toolbar and
+in the menu of the video or the sound, makes room under it, and the window
+draws the
 editor of the file's card over it, at its place and its width, editing. A
 video's is the player of Card Detail at the video's box, playing the
 original of an edited video from the frame the note showed, its own
@@ -5655,6 +5656,10 @@ the editors of a video's and a sound's card are the ones the user knows.
   phrases at the width of the note.
 - Edit and Done in Card Detail's header for a note's media: the header
   belongs to the note.
+- Edit in the toolbar only, as for a picture: the system's control of a
+  sound's bar takes every press of the pointer, so that a press never
+  selects a sound to show its toolbar; Edit stands first in the menu of a
+  picture, a video, and a sound too, one place for every kind.
 
 **Consequences.**
 - [Formats of a note](specs/note-formats.md): rule 52g, new rules 52h to
