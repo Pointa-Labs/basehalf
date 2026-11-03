@@ -1094,10 +1094,10 @@ function MarkdownRichEditor(): JSX.Element {
 	useMemo(() => installBaseHalfNotePaste(editor, editorApi), [editor, editorApi]);
 	useMemo(() => installBaseHalfNoteBlockIndex(editor), [editor]);
 	// What a copy, a cut, and a drag carry out of Rich (note formats, rules 75 to 77).
-	useEffect(() => installBaseHalfNoteCopy(editor, document.body, () => session.current.resource || undefined, (uris, text) => {
+	useEffect(() => installBaseHalfNoteCopy(editor, document.body, () => session.current.resource || undefined, (uris, text, mark) => {
 		const key = session.current.key;
 		if (key) {
-			vscode.postMessage({ type: 'basehalf.markdownRich.copiedFiles', key, uris, text });
+			vscode.postMessage({ type: 'basehalf.markdownRich.copiedFiles', key, uris, text, mark });
 		}
 	}), [editor]);
 	// A picture's edge follows the pointer on a magnified page (note formats, rule 28).

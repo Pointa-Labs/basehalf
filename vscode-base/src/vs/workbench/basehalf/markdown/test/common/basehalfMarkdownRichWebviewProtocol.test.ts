@@ -315,7 +315,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.attachmentUpload', key: 'workspace\u0000doc.md', requestId: 'attachment-1', name: '', mediaType: '', data: new ArrayBuffer(1) }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openResource', key: 'workspace\u0000doc.md', href: 'attachments/lecture.pdf' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openResource', key: 'workspace\u0000doc.md', href: '' }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.copiedFiles', key: 'workspace\u0000doc.md', uris: ['file:///notes/.bh/attachments/7k3f9q2m1x/clip.mp4'], text: '<video src=".bh/attachments/7k3f9q2m1x/clip.mp4" controls></video>' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.copiedFiles', key: 'workspace\u0000doc.md', uris: ['file:///notes/.bh/attachments/7k3f9q2m1x/clip.mp4'], text: '<video src=".bh/attachments/7k3f9q2m1x/clip.mp4" controls></video>', mark: 'basehalf-copy-1' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.copiedFiles', key: 'workspace\u0000doc.md', uris: ['file:///notes/a.png'], text: '![a](a.png)' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.copiedFiles', key: 'workspace\u0000doc.md', uris: [], text: '' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.copiedFiles', key: 'workspace\u0000doc.md', uris: ['file:///notes/a.png'] }), false);
 		for (const action of ['copy', 'cut', 'paste']) {

@@ -97,9 +97,11 @@ function withPaletteColors(html: string): string {
  * own text after the editor copied. A copy the editor leaves to the page,
  * as within a fixed block, is left as it is. A copy, not a cut, of blocks
  * that are all files hands their files to `onFilesCopied` once the page has
- * written the clipboard (files in notes, rule 35). Returns what removes it.
+ * written the clipboard (files in notes, rule 35), with the mark the copy's
+ * HTML holds, by which the window knows the copy on the clipboard. Returns
+ * what removes it.
  */
-export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLElement, note?: () => string | undefined, onFilesCopied?: (files: readonly string[], text: string) => void): () => void {
+export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLElement, note?: () => string | undefined, onFilesCopied?: (files: readonly string[], text: string, mark: string) => void): () => void {
 	let text: string | undefined;
 	let files: string[] | undefined;
 	const read = (copying: boolean): void => {
@@ -122,13 +124,16 @@ export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLEleme
 				data.setData(BASEHALF_NOTE_COPY_SOURCE, source);
 			}
 			const html = data.getData('text/html');
-			if (html) {
-				data.setData('text/html', withPaletteColors(html));
+			// The window adds the files to this copy, and not to one before it with the same text, which it finds by
+			// this mark: the page's copy can reach the clipboard a moment after the page said it copied.
+			const mark = files && onFilesCopied ? `basehalf-copy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` : undefined;
+			if (html || mark) {
+				data.setData('text/html', `${html ? withPaletteColors(html) : ''}${mark ? `<!--${mark}-->` : ''}`);
 			}
-			if (files && onFilesCopied) {
+			if (files && onFilesCopied && mark) {
 				const copied = { files, text };
 				// Once the page has written the clipboard.
-				setTimeout(() => onFilesCopied(copied.files, copied.text), 0);
+				setTimeout(() => onFilesCopied(copied.files, copied.text, mark), 0);
 			}
 		}
 		text = undefined;

@@ -85,7 +85,7 @@ async function uploadTestFile(file: File): Promise<IBaseHalfNoteStoredFile> {
 const itemRequests: { readonly source: 'paste' | 'drop' | 'rebase'; readonly uris?: readonly string[]; readonly files?: readonly string[] }[] = [];
 
 /** What Rich gave the host to put on the clipboard as files (files in notes, rule 35). */
-const copiedFiles: { readonly files: readonly string[]; readonly text: string }[] = [];
+const copiedFiles: { readonly files: readonly string[]; readonly text: string; readonly mark: string }[] = [];
 
 /** The note the test's editor holds, as editor.tsx knows it, and as Rich's copy names it. */
 const noteNow = { resource: 'file:///workspace/notes/a.md' };
@@ -181,7 +181,7 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 			reading: () => openNow.reading,
 		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems })],
 		paste: { handler: makeBaseHalfNotePasteHandler(requestTestItems, () => noteNow.resource), install: (editor, api) => installBaseHalfNotePaste(editor, api) },
-		copy: editor => installBaseHalfNoteCopy(editor, document.body, () => noteNow.resource, (files, text) => copiedFiles.push({ files: [...files], text })),
+		copy: editor => installBaseHalfNoteCopy(editor, document.body, () => noteNow.resource, (files, text, mark) => copiedFiles.push({ files: [...files], text, mark })),
 		blockIndex: editor => installBaseHalfNoteBlockIndex(editor),
 	},
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
@@ -1176,7 +1176,8 @@ async function noteItems(t: INoteFormatsTest): Promise<void> {
 		const data = new DataTransfer();
 		t.editor.domElement?.dispatchEvent(new ClipboardEvent(action, { clipboardData: data, bubbles: true, cancelable: true }));
 		await new Promise(resolve => setTimeout(resolve, 20));
-		return copiedFiles.map(({ files, text }) => ({ files, sameText: text === data.getData('text/plain') }));
+		// The copy's HTML holds the mark by which the window knows the copy on the clipboard.
+		return copiedFiles.map(({ files, text, mark }) => ({ files, sameText: text === data.getData('text/plain'), marked: data.getData('text/html').endsWith(`<!--${mark}-->`) }));
 	};
 	const files = `![a b](${NOTE_STORE}/a%20b.png)\n\n<video src="${NOTE_STORE}/clip.mp4" controls></video>\n\n[report.pdf](../docs/report.pdf)\n`;
 	const copies = { files: await copyOf(files, 'copy'), cut: await copyOf(files, 'cut'), withText: await copyOf(`Words.\n\n${files}`, 'copy') };
@@ -1193,7 +1194,7 @@ async function noteItems(t: INoteFormatsTest): Promise<void> {
 			},
 		},
 		copies: {
-			files: [{ files: ['file:///workspace/.bh/attachments/7k3f9q2m1x/a%20b.png', 'file:///workspace/.bh/attachments/7k3f9q2m1x/clip.mp4', 'file:///workspace/docs/report.pdf'], sameText: true }],
+			files: [{ files: ['file:///workspace/.bh/attachments/7k3f9q2m1x/a%20b.png', 'file:///workspace/.bh/attachments/7k3f9q2m1x/clip.mp4', 'file:///workspace/docs/report.pdf'], sameText: true, marked: true }],
 			cut: [],
 			withText: [],
 		},

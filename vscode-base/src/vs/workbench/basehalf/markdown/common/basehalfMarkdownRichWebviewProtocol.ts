@@ -408,6 +408,8 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly key: string;
 		readonly uris: readonly string[];
 		readonly text: string;
+		/** The mark in the copy's HTML, by which the window knows the copy once it is on the clipboard. */
+		readonly mark: string;
 	}
 	| {
 		/**
@@ -660,7 +662,9 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return Array.isArray(candidate.uris)
 				&& candidate.uris.length > 0
 				&& candidate.uris.every(uri => typeof uri === 'string' && uri.length > 0)
-				&& typeof candidate.text === 'string';
+				&& typeof candidate.text === 'string'
+				&& typeof candidate.mark === 'string'
+				&& candidate.mark.length > 0;
 		case 'basehalf.markdownRich.clipboard':
 			return candidate.action === 'copy' || candidate.action === 'cut' || candidate.action === 'paste';
 		case 'basehalf.markdownRich.editMedia':

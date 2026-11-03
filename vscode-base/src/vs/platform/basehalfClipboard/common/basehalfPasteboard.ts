@@ -40,10 +40,12 @@ export interface IBaseHalfPasteboardService {
 	/**
 	 * Adds the files at the paths `files` to what the clipboard holds, as a
 	 * file manager writes files it copies, and keeps every form a copy put
-	 * there, when its text is still `text` (files in notes, rule 35).
-	 * Resolves with false where the system has no such write, or when the
-	 * clipboard holds something else by then; nothing is written then.
-	 * `pasteboard` names another clipboard than the system's, for tests.
+	 * there, when its text is `text` and its HTML holds `mark` (files in
+	 * notes, rule 35). A copy that is not on the clipboard yet is waited for,
+	 * two seconds at most. Resolves with false where the system has no such
+	 * write, or when the clipboard holds something else by then; nothing is
+	 * written then. `pasteboard` names another clipboard than the system's,
+	 * for tests.
 	 */
-	addFiles(files: readonly string[], text: string, pasteboard?: string): Promise<boolean>;
+	addFiles(files: readonly string[], text: string, mark: string, pasteboard?: string): Promise<boolean>;
 }

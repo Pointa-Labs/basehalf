@@ -49,11 +49,13 @@ export interface IBaseHalfClipboardService {
 	writeItems(resources: readonly URI[], cut: boolean): Promise<void>;
 	/**
 	 * Adds these files to what a copy just put on the clipboard, whose text
-	 * is `text`, keeping all it wrote, as a file manager writes files it
-	 * copies (files in notes, rule 35). Nothing is written once the
-	 * clipboard holds something else, nor for a file that is not on the disk.
+	 * is `text` and whose HTML holds `mark`, keeping all it wrote, as a file
+	 * manager writes files it copies (files in notes, rule 35). The copy can
+	 * reach the clipboard a moment later: it is waited for, two seconds at most.
+	 * Nothing is written once the clipboard holds something else, nor for a
+	 * file that is not on the disk.
 	 */
-	addFiles(resources: readonly URI[], text: string): Promise<void>;
+	addFiles(resources: readonly URI[], text: string, mark: string): Promise<void>;
 	/** Reads the clipboard as one transfer, or undefined when it holds none. */
 	read(): Promise<BaseHalfTransfer | undefined>;
 	/**

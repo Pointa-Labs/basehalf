@@ -865,7 +865,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				await this.handleOpenResource(state, message.href);
 				break;
 			case 'basehalf.markdownRich.copiedFiles':
-				await this.handleCopiedFiles(state, message.uris, message.text);
+				await this.handleCopiedFiles(state, message.uris, message.text, message.mark);
 				break;
 			case 'basehalf.markdownRich.writeWarning':
 				this.logService.warn(`[basehalf] A block of ${state.resource.toString()} was saved without its formats: ${message.message}`, message.blockId, message.block, message.stack);
@@ -1198,11 +1198,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	 * (files in notes, rule 35): only files of the workspace folder or of a
 	 * store above it, all of them or none.
 	 */
-	private async handleCopiedFiles(state: IBaseHalfCardDetailState, uris: readonly string[], text: string): Promise<void> {
+	private async handleCopiedFiles(state: IBaseHalfCardDetailState, uris: readonly string[], text: string, mark: string): Promise<void> {
 		const places = [state.workspaceFolder, ...baseHalfNoteStoresAbove(state.workspaceFolder)];
 		const resources = uris.map(uri => URI.parse(uri));
 		if (resources.every(resource => resource.scheme === state.workspaceFolder.scheme && places.some(place => isEqualOrParent(resource, place)))) {
-			await this.clipboardService.addFiles(resources, text);
+			await this.clipboardService.addFiles(resources, text, mark);
 		}
 	}
 
