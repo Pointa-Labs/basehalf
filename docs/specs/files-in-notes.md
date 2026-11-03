@@ -304,7 +304,10 @@ one folder for every note of that folder:
     (Markdown, txt, html, json, yaml, csv, xml, org, rst, adoc, tex, ipynb),
     with the notes in the kept versions and the text of the notes open in the
     window, saved or not, and reads each whole. A folder without `.bh/` is not
-    scanned.
+    scanned, and a scan that finds no store and has noted no file writes
+    nothing, so that opening a workspace without files in notes writes only
+    layouts under `.bh/`
+    ([workspace state](workspace-state-and-legacy-cleanup.md), criterion 1).
 38. A stored file counts as mentioned wherever its key occurs after
     `attachments/` in a scanned file, written as it is or percent-encoded, in
     NFC or NFD. A false match only keeps a file longer.
