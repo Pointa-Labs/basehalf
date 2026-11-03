@@ -294,4 +294,55 @@ suite('BaseHalfImageCropView', () => {
 		const shadow = mainWindow.getComputedStyle(element.querySelector('.basehalf-image-crop-frame')!).boxShadow;
 		assert.ok(/rgba\(0, 0, 0, 0\.6/.test(shadow), `the rest of the original shows dimmed while editing: ${shadow}`);
 	});
+
+	test('editing a picture cropped before can glide out to the whole original, the frame on the part kept: one drag of a corner onto the original\'s corner takes it all back (D113)', () => {
+		// A crop of 1320 × 880 at the bottom right of 2400 × 1600.
+		const { crop, clock, changes, view, corner, frame, scale, pointer } = setUp({ crop: { x: 1740, y: 1160, width: 1320, height: 880 } });
+		crop.setEditing(true);
+		const restScale = scale();
+		crop.showWhole();
+		const scales: number[] = [];
+		clock.advance(320, () => scales.push(scale()));
+		const room = { width: view.clientWidth - 48, height: view.clientHeight - 48 };
+		const fit = Math.min(room.width / 2400, room.height / 1600);
+		const middle = { x: view.clientWidth / 2, y: view.clientHeight / 2 };
+		assert.ok(scales.filter(value => value < restScale - 1e-9 && value > fit + 1e-9).length >= 5, 'it glides out through the frames between');
+		assert.ok(Math.abs(scale() - fit) < 1e-9, 'the whole original fits the view');
+		const whole = frame();
+		const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
+		assert.ok(near(whole.width, 1320 * fit) && near(whole.height, 880 * fit), 'the frame stands on the part kept');
+		assert.ok(near((whole.left + whole.right) / 2, middle.x + 540 * fit) && near((whole.top + whole.bottom) / 2, middle.y + 360 * fit), 'where the part is in the original');
+		// The original's top left corner on screen, in reach: nothing follows, and the frame takes in the whole original.
+		const original = { x: middle.x - 1200 * fit, y: middle.y - 800 * fit };
+		pointer('pointerdown', corner('topLeft'), whole.left, whole.top);
+		pointer('pointermove', view, original.x, original.y);
+		clock.advance(200);
+		assert.ok(Math.abs(scale() - fit) < 1e-9, 'the picture does not follow a corner that the whole original holds');
+		pointer('pointerup', view, original.x, original.y);
+		assert.deepStrictEqual({ choices: crop.choices, changes }, { choices: {}, changes: ['crop'] });
+	});
+
+	test('the Straighten dial keeps the frame where it stands, also away from its rest, and the frame then comes to rest as after a drag (D113)', () => {
+		const { crop, clock, changes, element, view, frame } = setUp({ crop: { x: 1740, y: 1160, width: 1320, height: 880 } });
+		crop.setEditing(true);
+		crop.showWhole();
+		clock.advance(320);
+		const whole = frame();
+		const dial = element.querySelector('.basehalf-image-crop-dial') as HTMLElement;
+		const bounds = dial.getBoundingClientRect();
+		const at = (dx: number) => ({ button: 0, pointerId: 1, clientX: bounds.left + 60 + dx, clientY: bounds.top + 5, bubbles: true, cancelable: true });
+		dial.dispatchEvent(new PointerEvent('pointerdown', at(0)));
+		// 30 px of the dial to the left: 5°.
+		dial.dispatchEvent(new PointerEvent('pointermove', at(-30)));
+		const turned = frame();
+		assert.ok(['left', 'top', 'right', 'bottom'].every(side => Math.abs(turned[side as 'left'] - whole[side as 'left']) < 0.01), `the frame keeps its place: ${JSON.stringify({ whole, turned })}`);
+		dial.dispatchEvent(new PointerEvent('pointerup', at(-30)));
+		assert.deepStrictEqual({ straighten: crop.choices.straighten, changes }, { straighten: 5, changes: ['straighten'] });
+		clock.advance(980);
+		assert.deepStrictEqual(frame(), turned, 'it waits a second where it was let go');
+		clock.advance(400);
+		const rested = frame();
+		const room = { width: view.clientWidth - 48, height: view.clientHeight - 48 };
+		assert.ok(Math.abs(rested.width - room.width) < 1 || Math.abs(rested.height - room.height) < 1, 'then it rests as large as fits');
+	});
 });

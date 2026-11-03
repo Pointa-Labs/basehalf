@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCardDetailProjections.css';
-import { $, addDisposableListener, append, clearNode, getActiveElement, getWindow, isHTMLElement } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, getActiveElement, getWindow } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { disposableTimeout, raceTimeout, RunOnceScheduler } from '../../../../base/common/async.js';
 import { safeIntl } from '../../../../base/common/date.js';
@@ -30,7 +30,7 @@ import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, whenBaseHalfCanvasMediaDrawn } 
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfMediaEditing, IBaseHalfMediaEditingSession } from '../../mediaEdit/browser/basehalfMediaEditing.js';
-import { BaseHalfPlayheadMove } from '../../mediaEdit/browser/basehalfMediaEditor.js';
+import { baseHalfMediaKeyAction, baseHalfMediaPressKeepsKeyboard } from './basehalfMediaKeys.js';
 import { baseHalfMediaVersion, IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
 import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
@@ -85,21 +85,6 @@ type BaseHalfWebviewContentKind = Exclude<BaseHalfRenderableContentKind, 'video'
 
 /** What BaseHalf can edit in Card Detail: a video, an image, and a sound (editing media). */
 type BaseHalfEditableContentKind = 'video' | 'image' | 'audio';
-
-/** A field of text, which takes every key and the pointer's press itself. */
-const TEXT_FIELDS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
-/** What takes the arrow keys, Home, and End itself: a field of text, a slider such as a handle of the frame viewer, a menu, a list, or tabs. */
-const OWN_ARROW_KEYS = `${TEXT_FIELDS}, [role="slider"], [role="spinbutton"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="tree"], [role="grid"]`;
-/** What takes Space itself: a button that Tab took the keyboard to presses itself, and a handle plays and pauses. */
-const OWN_SPACE = `${OWN_ARROW_KEYS}, button, [role="button"], [role="checkbox"], [role="switch"], [role="menuitem"], [role="option"], [role="tab"]`;
-/** The controls of the media that a press with the pointer gives no keyboard to: buttons, sliders such as the handles, and the crop frame (D100). */
-const PRESSED_CONTROLS = 'button, [role="button"], [role="slider"], [role="application"]';
-
-/** The nearest element around `target`, up to `within`, that `selector` matches: an element around Card Detail does not count. */
-function closestWithin(target: EventTarget | null, selector: string, within: Element): Element | undefined {
-	const found = isHTMLElement(target) ? target.closest(selector) : null;
-	return found && within.contains(found) ? found : undefined;
-}
 
 export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind | undefined {
 	return baseHalfRenderableContentKind(resource);
@@ -322,7 +307,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		// A press of a control with the pointer leaves the keyboard where it was, on the media, as the system's own buttons do:
 		// only Tab takes it to a control, which then shows its ring (D100).
 		this._register(addDisposableListener(this.root, 'mousedown', event => {
-			if (closestWithin(event.target, PRESSED_CONTROLS, this.root) && !closestWithin(event.target, TEXT_FIELDS, this.root)) {
+			if (baseHalfMediaPressKeepsKeyboard(event.target, this.root)) {
 				event.preventDefault();
 			}
 		}, true));
@@ -336,15 +321,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	 * Home and End move it to the start and the end.
 	 */
 	private onMediaKey(event: KeyboardEvent, detail: Element): void {
-		if (!this.visible || (this.kind !== 'video' && this.kind !== 'audio')
-			|| event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) {
+		if (!this.visible || (this.kind !== 'video' && this.kind !== 'audio')) {
 			return;
 		}
-		const key = event.key;
-		if (key === ' ') {
-			if (event.shiftKey || event.repeat || closestWithin(event.target, OWN_SPACE, detail)) {
-				return;
-			}
+		const action = baseHalfMediaKeyAction(event, detail);
+		if (action === 'play') {
 			// The editor plays the part it keeps; a video or a sound that BaseHalf cannot edit plays in its player.
 			if (!this.editingStore.value?.togglePlay()) {
 				if (!this.player) {
@@ -356,14 +337,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			event.stopPropagation();
 			return;
 		}
-		const move: BaseHalfPlayheadMove | undefined = key === 'ArrowLeft' || key === 'ArrowRight'
-			? { kind: 'step', by: event.shiftKey ? 'frame' : 'second', direction: key === 'ArrowLeft' ? -1 : 1 }
-			: (key === 'Home' || key === 'End') && !event.shiftKey ? { kind: 'jump', to: key === 'Home' ? 'start' : 'end' } : undefined;
-		if (!move || closestWithin(event.target, OWN_ARROW_KEYS, detail)) {
-			return;
-		}
 		// The editor knows the part kept and the frames; a video or a sound that BaseHalf cannot edit moves as its slider does.
-		if (this.editingStore.value?.movePlayhead(move) || this.player?.moveByKey(key)) {
+		if (action && (this.editingStore.value?.movePlayhead(action) || this.player?.moveByKey(event.key))) {
 			event.preventDefault();
 			event.stopPropagation();
 		}

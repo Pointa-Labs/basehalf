@@ -10,6 +10,7 @@ import {
 	type BaseHalfMarkdownFormatCommand,
 	type IBaseHalfMarkdownFormatState,
 } from './basehalfMarkdownFormatting.js';
+import type { BaseHalfNoteMediaKind } from '../../mediaEdit/common/basehalfNoteMediaEdit.js';
 
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX = 'basehalf.markdownRich';
@@ -38,7 +39,7 @@ export interface IBaseHalfMarkdownRichFocusPoint {
  * record), which Rich keeps for the note's undo as the window gave them and
  * gives back as they are (D113).
  */
-export type BaseHalfMarkdownRichPictureChoices = Readonly<Record<string, unknown>>;
+export type BaseHalfMarkdownRichMediaChoices = Readonly<Record<string, unknown>>;
 
 /** Where a picture stands in Rich's page, in the page's pixels of the window, from the top left of its frame. */
 export interface IBaseHalfMarkdownRichBox {
@@ -173,27 +174,36 @@ export type BaseHalfMarkdownRichHostMessage =
 	}
 	| {
 		/**
-		 * The editing of a picture of the note ended (D113): Rich shows the
-		 * picture's file at `version`, a version the window gives it, and
-		 * closes the room it made under the picture.
+		 * The editing of a picture, a video, or a sound of the note ended
+		 * (D113, D114): Rich shows the file at `version`, a version the window
+		 * gives it, a video or a sound at `time`, and closes the room it made
+		 * under the media.
 		 */
-		readonly type: 'basehalf.markdownRich.pictureEditEnded';
+		readonly type: 'basehalf.markdownRich.mediaEditEnded';
 		readonly key: string;
 		readonly blockId: string;
 		readonly version?: string;
 		/** The choices before Edit and after Done, when the edit changed the file: one step of the note's undo. */
-		readonly step?: { readonly before: BaseHalfMarkdownRichPictureChoices; readonly after: BaseHalfMarkdownRichPictureChoices };
+		readonly step?: { readonly before: BaseHalfMarkdownRichMediaChoices; readonly after: BaseHalfMarkdownRichMediaChoices };
+		/** Where the editor's playhead stood, in seconds of the file as it is now. */
+		readonly time?: number;
 	}
 	| {
 		/** An undo or a redo of the note set the choices of the picture file at `href`: Rich shows it at `version` (D113). */
-		readonly type: 'basehalf.markdownRich.pictureVersion';
+		readonly type: 'basehalf.markdownRich.mediaVersion';
 		readonly key: string;
 		readonly href: string;
 		readonly version: string;
 	}
 	| {
+		/** The editor of the picture shows over it: the note's own picture hides under the editor, which may draw it smaller (D113). */
+		readonly type: 'basehalf.markdownRich.hideMedia';
+		readonly key: string;
+		readonly blockId: string;
+	}
+	| {
 		/** The editor of the picture stands where the note shows it now: the note's own picture shows again (D113). */
-		readonly type: 'basehalf.markdownRich.showPicture';
+		readonly type: 'basehalf.markdownRich.showMedia';
 		readonly key: string;
 		readonly blockId: string;
 	}
@@ -420,16 +430,19 @@ export type BaseHalfMarkdownRichWebviewMessage =
 	}
 	| {
 		/**
-		 * Edit of a picture's toolbar (D113): the window draws the picture's
-		 * editor over the picture at `box`, its address in the note `href`.
-		 * Rich has made room under the picture, and the note does not move
-		 * until the editing ends.
+		 * Edit of the toolbar of a picture, a video, or a sound (D113, D114):
+		 * the window draws the editor of the file's card over the media at
+		 * `box`, its address in the note `href`. Rich has made room under the
+		 * media, and the note does not move until the editing ends.
 		 */
-		readonly type: 'basehalf.markdownRich.editPicture';
+		readonly type: 'basehalf.markdownRich.editMedia';
 		readonly key: string;
 		readonly blockId: string;
+		readonly kind: BaseHalfNoteMediaKind;
 		readonly href: string;
 		readonly box: IBaseHalfMarkdownRichBox;
+		/** Where the note's video or sound stood, in seconds of the file. */
+		readonly time?: number;
 	}
 	| {
 		/**
@@ -437,28 +450,28 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		 * the version the window gave, under the editor, which glides there,
 		 * and the room under it closed (D113); no box when it is not there.
 		 */
-		readonly type: 'basehalf.markdownRich.pictureLaidOut';
+		readonly type: 'basehalf.markdownRich.mediaLaidOut';
 		readonly key: string;
 		readonly blockId: string;
 		readonly box?: IBaseHalfMarkdownRichBox;
 	}
 	| {
 		/** The note's own picture is drawn again: the editor over it goes (D113). */
-		readonly type: 'basehalf.markdownRich.pictureShown';
+		readonly type: 'basehalf.markdownRich.mediaShown';
 		readonly key: string;
 		readonly blockId: string;
 	}
 	| {
 		/** A press in the note while a picture is edited, outside its editor: the editing ends (D113). */
-		readonly type: 'basehalf.markdownRich.endPictureEdit';
+		readonly type: 'basehalf.markdownRich.endMediaEdit';
 		readonly key: string;
 	}
 	| {
 		/** The note's undo or redo of the edit of the picture file at `href`: the file gets `choices` (D113). */
-		readonly type: 'basehalf.markdownRich.applyPictureChoices';
+		readonly type: 'basehalf.markdownRich.applyMediaChoices';
 		readonly key: string;
 		readonly href: string;
-		readonly choices: BaseHalfMarkdownRichPictureChoices;
+		readonly choices: BaseHalfMarkdownRichMediaChoices;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.openSource';
@@ -522,14 +535,16 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.revealHeading':
 			return typeof candidate.heading === 'string' && candidate.heading.length > 0;
-		case 'basehalf.markdownRich.pictureEditEnded':
+		case 'basehalf.markdownRich.mediaEditEnded':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
 				&& (candidate.version === undefined || typeof candidate.version === 'string')
-				&& (candidate.step === undefined || isObject(candidate.step) && isObject((candidate.step as { before?: unknown }).before) && isObject((candidate.step as { after?: unknown }).after));
-		case 'basehalf.markdownRich.pictureVersion':
+				&& (candidate.step === undefined || isObject(candidate.step) && isObject((candidate.step as { before?: unknown }).before) && isObject((candidate.step as { after?: unknown }).after))
+				&& isOptionalTime(candidate.time);
+		case 'basehalf.markdownRich.mediaVersion':
 			return typeof candidate.href === 'string' && candidate.href.length > 0
 				&& typeof candidate.version === 'string' && candidate.version.length > 0;
-		case 'basehalf.markdownRich.showPicture':
+		case 'basehalf.markdownRich.hideMedia':
+		case 'basehalf.markdownRich.showMedia':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0;
 		case 'basehalf.markdownRich.focusAtPoint':
 			return isBaseHalfMarkdownRichFocusPoint(candidate.point);
@@ -648,18 +663,20 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 				&& typeof candidate.text === 'string';
 		case 'basehalf.markdownRich.clipboard':
 			return candidate.action === 'copy' || candidate.action === 'cut' || candidate.action === 'paste';
-		case 'basehalf.markdownRich.editPicture':
+		case 'basehalf.markdownRich.editMedia':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
+				&& (candidate.kind === 'image' || candidate.kind === 'video' || candidate.kind === 'audio')
 				&& typeof candidate.href === 'string' && candidate.href.length > 0
-				&& isBaseHalfMarkdownRichBox(candidate.box);
-		case 'basehalf.markdownRich.pictureLaidOut':
+				&& isBaseHalfMarkdownRichBox(candidate.box)
+				&& isOptionalTime(candidate.time);
+		case 'basehalf.markdownRich.mediaLaidOut':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
 				&& (candidate.box === undefined || isBaseHalfMarkdownRichBox(candidate.box));
-		case 'basehalf.markdownRich.pictureShown':
+		case 'basehalf.markdownRich.mediaShown':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0;
-		case 'basehalf.markdownRich.endPictureEdit':
+		case 'basehalf.markdownRich.endMediaEdit':
 			return true;
-		case 'basehalf.markdownRich.applyPictureChoices':
+		case 'basehalf.markdownRich.applyMediaChoices':
 			return typeof candidate.href === 'string' && candidate.href.length > 0 && isObject(candidate.choices);
 		case 'basehalf.markdownRich.writeWarning':
 			return typeof candidate.message === 'string'
@@ -832,6 +849,11 @@ function isBaseHalfMarkdownRichBox(value: unknown): value is IBaseHalfMarkdownRi
 
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** A time of a video or a sound, in seconds, or none. */
+function isOptionalTime(value: unknown): boolean {
+	return value === undefined || isFiniteNumber(value) && value >= 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {

@@ -476,10 +476,27 @@ start).
      tools. The view scrolls as little as shows the editor whole. Nothing of
      the note flashes: the editor shows once its picture is drawn, and the
      note's picture stays until then.
+     - A picture that an edit cropped or straightened is edited from its
+       whole original: once the editor shows, its picture glides out in
+       200 ms until the whole original fits the picture's box, the frame on
+       the part kept and the rest of the original dimmed around it, as the
+       card's editor shows it once a corner pushed to the edge has brought
+       the whole picture in. A change then comes to rest as on the card, the
+       part kept as large as fits the box.
+     - A picture whose editor would not fit the view, with the tools and the
+       line under it, glides in 200 ms once the editor shows to as large as
+       fits between the picture's top, or the frame's margin under the top
+       of the view when the picture's top is above it, and the room above
+       the view's bottom, its middle across where the picture's was: the
+       tools never fall below the view. A cropped one then glides out to its
+       whole original.
 52b. While the picture is edited, the note stays as it is: it does not
      scroll or magnify, it shows no toolbar, and the keyboard is the
      editor's. The margin around the picture, in which the frame rests,
-     shows the note, as the text above the picture.
+     shows the note, as the text above the picture. The note's own picture
+     hides under the editor once the editor shows: where the editor's
+     picture is smaller than the picture's box, the note's background shows,
+     dimmed with the rest.
 52c. **Done, Escape, and a press anywhere else in the note go back to the
      note.** A press does nothing else. The note shows the file as the edit
      made it, at the width the picture had, or as wide as the file when it
@@ -504,7 +521,53 @@ start).
      ([editing media](media-editing.md#non-goals)) or is missing goes back
      to the note at once.
 52g. The menu of a picture has no Open in Card Detail: the picture is
-     edited where it is. Videos and sounds get Edit in a later decision.
+     edited where it is. A video and a sound are edited where they are too
+     (rules 52h to 52k). The menu of a picture, a video, or a sound of a
+     file has **Edit** first, as its toolbar has (D114): the system's control
+     of a sound's bar takes every press of the pointer on it, so that a press
+     never selects a sound and shows its toolbar, and its menu is where the
+     pointer finds its Edit.
+
+### Editing a video or a sound in its note
+
+52h. **A video is edited where the note shows it** (D114). Edit, first in
+     its toolbar, makes room under the video, at once, as tall as the edit
+     bar and the line under it, and the editor of the video's card stands
+     over the video, at its place and its size, editing
+     ([editing media](media-editing.md#editing-a-video-or-a-sound-in-its-note)):
+     the player of Card Detail, playing the original of an edited video from
+     the frame the note's video showed, with its own controls given way to
+     the edit bar under it, Play and the frame viewer of the whole original,
+     the part kept in its yellow frame with its handles, the playhead inside
+     it, and its bubble; the line with Revert to Original; and Done at the
+     end of the line. The editor shows once its player has the frame; until
+     then the note's video shows. A video whose editor would not fit the
+     view glides as large as fits, as a picture does (rule 52a).
+52i. **A sound is edited where the note shows it** (D114). Edit, first in
+     its menu, and in its toolbar when the keyboard has selected it (rule
+     52g), makes room under the sound's bar, and the editor of the
+     sound's card stands over the bar, at its place and its width, editing:
+     the waveform, 112 px tall, with the trims at its ends outside the
+     handles, the handles, the playhead, and a selected stretch with Delete;
+     Play with the time under it, and Done at the end of that row; and the
+     line with Revert to Original. It shows once the waveform is drawn.
+52j. While a video or a sound is edited, the note stays as it is, as for a
+     picture (rule 52b); the note's own video or sound pauses and hides
+     under the editor. With the keyboard in the editor, Space plays and
+     pauses the part kept, Left and Right move the playhead a second, with
+     Shift a frame of a video, and Home and End to the part's ends
+     ([editing media](media-editing.md#the-keyboard)).
+52k. **Done, Escape, and a press anywhere else in the note go back to the
+     note** (rule 52c): the file follows at once, the note shows its new
+     version at the time the editor's playhead stood, counted in the file,
+     and the room closes as the editor goes. The edit is the file's, as a
+     picture's (rule 52d), and its undo is a picture's: one step of the
+     note's undo at Done (rule 52e). One whose file BaseHalf cannot edit, or
+     that is missing, goes back to the note at once (rule 52f). The note's
+     card, the card's editor, and Preview play a file that the edit or its
+     undo changed anew from its new version, by an address that names it,
+     also the players that already stand: none keeps showing what the
+     window loaded of the file before.
 
 ### Links
 
@@ -918,6 +981,40 @@ this specification. Outside changes are merged meanwhile, as always.
 36. In a note whose last blocks are a picture and a file block, Command-A and
     then Command-C put on the clipboard the Markdown of every block of the
     note, the picture's and the file block's links too.
+37. Edit again after that redo, on the picture shown 712 × 733: the
+    editor's picture stands within 1 px of the note's when it shows, and
+    within 400 ms the whole original fits the box the editor draws the
+    picture in, 712 × 445 in a view tall enough for the editor, with the
+    frame on the part kept, 432 × 445; in a shorter view, which the editor
+    first glides into (criterion 38), within 600 ms. On every frame the
+    editor's picture or the note's is drawn. The frame's corner dragged onto
+    the original's corner in one drag takes the whole original back.
+38. Edit on a picture of a note that is taller than the view with the room
+    under it: within 400 ms the editor's picture is as large as fits between
+    the picture's top and the tools, the bottom of the line under the tools
+    at most at the view's bottom, its middle across within 1 px of the
+    picture's; on every frame the editor's picture or the note's is drawn.
+    Done after no change glides it back to within 1 px of the note's
+    picture.
+39. On a note in Card Detail with a 6 s video, Edit shows the editor within
+    100 ms, the text under the video lower by the room in the frame of the
+    press, and the player's picture within 1 px of the note's video; on
+    every frame from the press until the editor shows, the note's video or
+    the editor's player shows a picture. From its first move, the end handle
+    keeps to the pointer within 1 px on every frame.
+40. The end handle of that video dragged to 4 s, and Done: the editor goes
+    within 1 s; the video's file is 4 s long and its card information holds
+    `original.mp4` and `edit.yaml`; the note shows the new file, 4 s long;
+    and the note's file has not changed. Command+Z in the note puts the
+    6 s back in one step, and Shift+Command+Z the trim.
+41. On a note with a 5 s sound, Edit shows the waveform at the sound's place
+    and width within 300 ms, and on every frame the note's sound or the
+    waveform shows; the end handle dragged to 3 s and Done leave the file
+    3 s long with its card information, and Command+Z in the note puts the
+    5 s back.
+42. With a video's editor open, Space plays the part kept and Space again
+    pauses it, and Escape goes back to the note; a press on the note's text
+    goes back to the note too.
 
 ## Verification
 
@@ -966,16 +1063,30 @@ this specification. Outside changes are merged meanwhile, as always.
   and the clicks on a summary, a video, and a sound on a resting card, with
   one player at a time. The steps that write the system's clipboard run in CI,
   or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.
-- The `cardDetail` suite of the smoke runs criteria 31 to 34 on a note of
-  its own, in every frame, on both sides of the page's frame, each frame
-  stamped when it is read (`notePictureEdit.mts`). It logs the times of
-  criteria 31 and 33 and allows 250 ms and 600 ms for them, which a loaded
-  machine needs; on 2026-11-03, at a load of 25, it measured 31 ms, 0 px,
-  0 px over 82 frames, 268 ms, and 0.1 px. Unit tests cover the editor's
-  box, the messages of rules 52a to 52e, and the changes that are no steps
-  of the canvas with their undo (`basehalfNotePictureEdit.test.ts`,
+- The `cardDetail` suite of the smoke runs criteria 31 to 34, 37, and 38 on
+  a note of its own, in every frame, on both sides of the page's frame, each
+  frame stamped when it is read (`notePictureEdit.mts`). It logs the times
+  of criteria 31 and 33 and allows 250 ms and 600 ms for them, which a
+  loaded machine needs; on 2026-11-03, at a load of 25, it measured 31 ms, 0
+  px, 0 px over 82 frames, 268 ms, and 0.1 px. It allows 800 ms for criteria
+  37 and 38, and measured that day 0.01 px and 413 ms, in its view, shorter
+  than the editor of a picture 733 px tall, and for a tall picture the tools
+  in the view after 210 ms, the line ending at the view's bottom, 0.16 px
+  off the middle across, and 0 px at Done. Unit tests cover the editor's box
+  and the box it glides to in a short view, the messages of rules 52a to 52e
+  and 52h to 52k, the whole original that the crop view glides out to, the
+  keys of a video's and a sound's editor, and the changes that are no steps
+  of the canvas with their undo (`basehalfNoteMediaEdit.test.ts`,
   `basehalfMarkdownRichWebviewProtocol.test.ts`,
-  `basehalfMediaEditService.test.ts`).
+  `basehalfImageCropView.test.ts`, `basehalfMediaKeys.test.ts`,
+  `basehalfMediaEditService.test.ts`). The same suite runs criteria 39 to 42
+  on a note of its own with a video and a sound (`noteMediaEdit.mts`), every
+  frame recorded on both sides of the page's frame, Edit of the video from
+  its toolbar and from its menu, and of the sound from its menu; it allows
+  400 ms and 2 s for the times of criteria 39 to 41, and measured on
+  2026-11-03, at a load of 11, 32.7 ms, 0 px, the handle 0.01 px over 56
+  frames, and 57.7 ms at Done for the video, and 38.4 ms, 0 px, 0.01 px over
+  60 frames, and 262 ms for the sound.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criterion 22.

@@ -5612,3 +5612,128 @@ original and the record, and the note's file did not change.
   the note's shared document that is never written to the file; its undo and
   redo set those choices through the media edit service, with no step of the
   canvas.
+
+**Finished (2026-11-03).** A picture that an edit cropped or straightened is
+edited from its whole original: once its editor shows over the note's
+picture, the picture glides out in 200 ms until the whole original fits the
+picture's box, the frame on the part kept and the rest dimmed around it, as
+the editor of its card shows it once a corner pushed to the edge has brought
+the whole picture in (D97). Before, the rest stood in the margin around the
+box, where the note shows, so what a crop had left out could not be seen. A
+change then comes to rest as on the card, the part kept as large as fits the
+box. The note's own picture hides under the editor once the editor shows, so
+that where the editor's picture is smaller than the box the note's background
+shows, dimmed with the rest. A picture whose editor would not fit the view,
+the tools and the line under it, glides at Edit to as large as fits between
+the top of the view and the room above its bottom, so that the tools never
+fall below the view, which does not scroll while the editor is open; Done
+glides it back to the note's picture. Measured that day in a development
+window at a load of 30, on the crop that keeps 971 × 1000: the editor showed
+73 ms after Edit, its part kept 0.3 px from the note's picture, and the whole
+original fit the box 263 ms after Edit, 712 × 445 with the frame 432 × 445,
+on no frame neither picture drawn; one drag onto the original's corner took
+the whole 1600 × 1000 back. A picture 712 × 1112 in a view 655 px tall
+glided in 190 ms to 335 × 523, the line under the tools ending at the view's
+bottom and the picture 0.13 px off its middle across, and Done glided it
+back to 0 px.
+
+Set aside:
+- Fitting the whole original into the box from the first frame: the picture
+  would jump at Edit.
+- Drawing the rest of the original around the box, over the note, at the
+  scale of the part kept, as an editor of documents shows a picture's crop:
+  the rest of a picture cropped to a tenth would cover the note many times
+  over, the frame would need room in the note that the note does not give,
+  and the note's text would hide under it.
+- Keeping the whole original at rest while editing: the card's frame comes to
+  rest as large as fits, and its drag inside the frame, its dial, and its
+  pinch work from there.
+- Letting the tools of a tall picture float over its lower part, the picture
+  at its size: the frame's lower handles would stay out of the view.
+
+## D114 — A video and a sound in a note are edited where the note shows them, with the editors of their cards (NEW, 2026-11-03)
+
+**Decision.** A video and a sound in a note in Card Detail are edited where
+the note shows them, as a picture is (D113). Edit, first in the toolbar and
+in the menu of the video or the sound, makes room under it, and the window
+draws the
+editor of the file's card over it, at its place and its width, editing. A
+video's is the player of Card Detail at the video's box, playing the
+original of an edited video from the frame the note showed, its own
+controls given way to the edit bar under it: Play and the frame viewer of
+the whole original, the part kept in its yellow frame with its handles, and
+the playhead inside it (D99, D102, D103); the line with Revert to Original;
+and Done at the end of the line. A sound's is its card's waveform at the
+sound's place and width, 112 px tall, with the trims at its ends outside the
+handles, the playhead, and a selected stretch with Delete; Play with the
+time under it and Done at the end of that row; and the line. Space, the
+arrow keys, Home, and End play and move the playhead as in Card Detail.
+Done, Escape, and a press elsewhere in the note go back to the note, which
+shows the file as edited at the time the editor's playhead stood, and the
+room closes as the editor goes. The edit is the file's, kept as a card's
+edit is kept: for a file the note keeps (D111), its original and record are
+the stored file's card information. The note's text does not change. While
+the editor is open its changes are steps of its own; at Done the whole edit
+is one step of the note's undo. The menu of a video and a sound has no Open
+in Card Detail, as D111 left it. See
+[formats of a note](specs/note-formats.md#editing-a-video-or-a-sound-in-its-note)
+and [editing media](specs/media-editing.md#editing-a-video-or-a-sound-in-its-note).
+
+**Why.** On 2026-11-03 D111 took Open in Card Detail from the menus of a
+note's pictures, videos, and sounds, and D113 gave a picture Edit in place
+with "Videos and sounds follow in a later decision": a video or a sound in a
+note could no longer be trimmed at all, while the code of Rich's menu said
+that they were edited in place. The user's rule for the picture was editing
+where it is, not in a view of its own ("应该直接支持原地编辑就行了呀"), and
+the editors of a video's and a sound's card are the ones the user knows.
+
+**What was set aside.**
+- Open in Card Detail for a video and a sound: D113's reasons.
+- Drawing the editors in Rich's page: D113's reasons, and a video's frames
+  are read and encoded by the window.
+- A video that glides smaller to make room above its edit bar, as in Card
+  Detail (D102): in a note the room opens under the video, which keeps its
+  place and its size, as a picture does.
+- A waveform as tall as in Card Detail, 30% of the view: a note's sound
+  shows as a bar, and the least height of the waveform, 112 px, shows its
+  phrases at the width of the note.
+- Edit and Done in Card Detail's header for a note's media: the header
+  belongs to the note.
+- Edit in the toolbar only, as for a picture: the system's control of a
+  sound's bar takes every press of the pointer, so that a press never
+  selects a sound to show its toolbar; Edit stands first in the menu of a
+  picture, a video, and a sound too, one place for every kind.
+
+**Measured** that day in a development window at a load of 14, on a note
+with a 6 s video of 1280 × 720 shown 712 × 400.5 and a 5 s sound: the
+video's editor showed 49.5 ms after Edit, its picture 0 px from the note's,
+the text under it 100 px lower in the frame of the press, and on no frame
+was neither the note's video nor the editor's drawn; the end handle, once
+past the frame viewer's threshold of a drag, kept to the pointer on every
+frame, 0.01 px; Done took the editor away 73 ms later, the file 4.07 s
+long with `original.mp4` and `edit.yaml`, and the note showed the new
+version; one undo of the note put back the 6 s. The sound's editor showed
+in 36.8 ms at its bar's place, 0 px, the text under it 142 px lower, and
+Done took 258 ms as the editor closed over the bar, the file 3.05 s long.
+Space played and paused the part kept, Right moved the playhead a second,
+and after Escape the note's video stood where the playhead had.
+
+**Consequences.**
+- [Formats of a note](specs/note-formats.md): rule 52g, new rules 52h to
+  52k, new criteria 39 to 42, and Verification.
+  [Editing media](specs/media-editing.md): the new section "Editing a video
+  or a sound in its note", new criterion 40, and Where this lands.
+- The editing of a picture in its note becomes the editing of a note's
+  media: the messages of D113 become `editMedia` with the kind of the media
+  and the time its element stands at, `mediaEditEnded` with the time of the
+  playhead, `mediaLaidOut`, `hideMedia`, `showMedia`, `mediaShown`,
+  `endMediaEdit`, `applyMediaChoices`, and `mediaVersion`; the note's map of
+  edits for its undo holds the choices of any media file.
+- The waveform of a sound says when its bars are drawn, as the picture of
+  the crop view does, so that the editor over a note's sound shows once it
+  is drawn.
+- A note's player on the card, in the card's editor, and in Preview plays a
+  file that an edit in the note or its undo changed from an address that
+  names the file's version, and one that stands is played anew: a player
+  handed from one drawing of a note to the next by its address would keep
+  the version it loaded.

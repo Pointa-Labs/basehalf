@@ -74,7 +74,8 @@ import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlain
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
-import { applyBaseHalfNotePictureChoices, BaseHalfNotePictureEditing } from './basehalfNotePictureEditing.js';
+import { applyBaseHalfNoteMediaChoices, BaseHalfNoteMediaEditing } from './basehalfNoteMediaEditing.js';
+import type { BaseHalfNoteMediaKind } from '../../mediaEdit/common/basehalfNoteMediaEdit.js';
 import { IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
 import { baseHalfDragHoldsFilesItems, baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
 import { WebviewWindowDragMonitor } from '../../../contrib/webview/browser/webviewWindowDragMonitor.js';
@@ -272,8 +273,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private liveDocument: IBaseHalfMarkdownRichLiveDocumentHandle | undefined;
 	private bridge: BaseHalfMarkdownRichWebviewBridge | undefined;
 	/** The picture of the note whose editor stands over it, while it is edited (D113), and the layer it is drawn in. */
-	private readonly pictureEditing = this._register(new MutableDisposable<BaseHalfNotePictureEditing>());
-	private notePictureLayer: HTMLElement | undefined;
+	private readonly mediaEditing = this._register(new MutableDisposable<BaseHalfNoteMediaEditing>());
+	private noteMediaLayer: HTMLElement | undefined;
 	private webview: IWebviewElement | undefined;
 	/** Where a drag that the window holds is over the page, and the frame that tells the page. */
 	private dragPoint: IBaseHalfMarkdownRichFocusPoint | undefined;
@@ -339,7 +340,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 					return;
 				}
 				// While a picture is edited the note keeps its size: a pinch over the picture is the editor's.
-				if (this.pictureEditing.value) {
+				if (this.mediaEditing.value) {
 					event.preventDefault();
 					return;
 				}
@@ -873,33 +874,33 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				// The same as the keys: the page's own copy, cut, or paste, with all that the clipboard holds.
 				this.webview?.[message.action]();
 				break;
-			case 'basehalf.markdownRich.editPicture':
-				await this.editPicture(state, message.blockId, message.href, message.box);
+			case 'basehalf.markdownRich.editMedia':
+				await this.editMedia(state, message);
 				break;
-			case 'basehalf.markdownRich.pictureLaidOut':
-				if (this.pictureEditing.value?.target.blockId === message.blockId) {
-					this.pictureEditing.value.laidOut(message.box && this.pictureBoxInLayer(message.box));
+			case 'basehalf.markdownRich.mediaLaidOut':
+				if (this.mediaEditing.value?.target.blockId === message.blockId) {
+					this.mediaEditing.value.laidOut(message.box && this.boxInLayer(message.box));
 				}
 				break;
-			case 'basehalf.markdownRich.pictureShown':
+			case 'basehalf.markdownRich.mediaShown':
 				// The note shows the picture again: its editor goes, and the keyboard it had goes back to the note.
-				if (this.pictureEditing.value?.target.blockId === message.blockId) {
+				if (this.mediaEditing.value?.target.blockId === message.blockId) {
 					const active = this.webviewHost.ownerDocument.activeElement;
-					const hadKeyboard = !active || active === this.webviewHost.ownerDocument.body || !!active.closest('.basehalf-note-picture-stage');
-					this.pictureEditing.clear();
+					const hadKeyboard = !active || active === this.webviewHost.ownerDocument.body || !!active.closest('.basehalf-note-media-stage');
+					this.mediaEditing.clear();
 					if (hadKeyboard) {
 						this.focus();
 					}
 				}
 				break;
-			case 'basehalf.markdownRich.endPictureEdit':
-				await this.pictureEditing.value?.end();
+			case 'basehalf.markdownRich.endMediaEdit':
+				await this.mediaEditing.value?.end();
 				break;
-			case 'basehalf.markdownRich.applyPictureChoices': {
+			case 'basehalf.markdownRich.applyMediaChoices': {
 				// The note's undo or redo of an edit of a picture: the file gets the choices, and Rich shows its version.
-				const version = await this.instantiationService.invokeFunction(accessor => applyBaseHalfNotePictureChoices(accessor, state.resource, message.href, message.choices));
+				const version = await this.instantiationService.invokeFunction(accessor => applyBaseHalfNoteMediaChoices(accessor, state.resource, message.href, message.choices));
 				if (version) {
-					void this.bridge?.sendPictureVersion(message.href, version);
+					void this.bridge?.sendMediaVersion(message.href, version);
 				}
 				break;
 			}
@@ -1728,7 +1729,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private disposeWebviewGeneration(): void {
 		this.restoreGuardedQuickInput();
 		// The page that showed the picture goes: its editor goes with it, and the file follows at once.
-		this.pictureEditing.clear();
+		this.mediaEditing.clear();
 		const generation = this.webviewGeneration;
 		this.webviewGeneration = undefined;
 		this.webview = undefined;
@@ -1743,37 +1744,41 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	 * picture, in a layer over Rich's page. A picture that BaseHalf cannot edit
 	 * ends at once, and Rich closes the room it made.
 	 */
-	private async editPicture(state: IBaseHalfCardDetailState, blockId: string, href: string, box: IBaseHalfMarkdownRichBox): Promise<void> {
-		await this.pictureEditing.value?.end();
-		const editing = this.instantiationService.createInstance(BaseHalfNotePictureEditing, {
+	private async editMedia(state: IBaseHalfCardDetailState, message: { readonly blockId: string; readonly kind: BaseHalfNoteMediaKind; readonly href: string; readonly box: IBaseHalfMarkdownRichBox; readonly time?: number }): Promise<void> {
+		await this.mediaEditing.value?.end();
+		const { blockId, kind, href, box, time } = message;
+		const editing = this.instantiationService.createInstance(BaseHalfNoteMediaEditing, {
 			note: state.resource,
 			blockId,
+			kind,
 			href,
-			box: this.pictureBoxInLayer(box),
+			box: this.boxInLayer(box),
+			...(time !== undefined ? { time } : {}),
 		}, {
-			layer: this.pictureLayer(),
-			ended: (ended, version, step) => void this.bridge?.sendPictureEditEnded(ended, version, step && { before: { ...step.before }, after: { ...step.after } }),
-			show: shown => void this.bridge?.sendShowPicture(shown),
+			layer: this.mediaLayer(),
+			ended: (ended, version, step, at) => void this.bridge?.sendMediaEditEnded(ended, version, step && { before: { ...step.before }, after: { ...step.after } }, at),
+			hide: hidden => void this.bridge?.sendHideMedia(hidden),
+			show: shown => void this.bridge?.sendShowMedia(shown),
 		});
-		this.pictureEditing.value = editing;
-		if (!await editing.start() && this.pictureEditing.value === editing) {
-			this.pictureEditing.clear();
-			void this.bridge?.sendPictureEditEnded(blockId, undefined);
+		this.mediaEditing.value = editing;
+		if (!await editing.start() && this.mediaEditing.value === editing) {
+			this.mediaEditing.clear();
+			void this.bridge?.sendMediaEditEnded(blockId, undefined);
 		}
 	}
 
-	/** The layer over Rich's page in which the editor of a picture is drawn. */
-	private pictureLayer(): HTMLElement {
-		if (!this.notePictureLayer || this.notePictureLayer.parentElement !== this.webviewHost) {
-			this.notePictureLayer = append(this.webviewHost, $('.basehalf-card-detail-note-picture-layer'));
+	/** The layer over Rich's page in which the editor of a picture, a video, or a sound of the note is drawn. */
+	private mediaLayer(): HTMLElement {
+		if (!this.noteMediaLayer || this.noteMediaLayer.parentElement !== this.webviewHost) {
+			this.noteMediaLayer = append(this.webviewHost, $('.basehalf-card-detail-note-media-layer'));
 		}
-		return this.notePictureLayer;
+		return this.noteMediaLayer;
 	}
 
 	/** A box that Rich measured in the frame of its page, in the layer over the page. */
-	private pictureBoxInLayer(box: IBaseHalfMarkdownRichBox): IBaseHalfMarkdownRichBox {
+	private boxInLayer(box: IBaseHalfMarkdownRichBox): IBaseHalfMarkdownRichBox {
 		const frame = [...this.webviewHost.children].find(child => child.tagName === 'IFRAME')?.getBoundingClientRect();
-		const origin = this.pictureLayer().getBoundingClientRect();
+		const origin = this.mediaLayer().getBoundingClientRect();
 		const shift = frame ? { x: frame.left - origin.left, y: frame.top - origin.top } : { x: 0, y: 0 };
 		return { left: box.left + shift.x, top: box.top + shift.y, width: box.width, height: box.height };
 	}

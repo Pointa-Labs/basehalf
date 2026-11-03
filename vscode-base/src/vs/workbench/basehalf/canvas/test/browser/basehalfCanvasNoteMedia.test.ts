@@ -9,7 +9,7 @@ import { IDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { renderBaseHalfCanvasStoredMarkdown } from '../../browser/basehalfCanvasMarkdownInlineEditor.js';
-import { IBaseHalfNoteMediaDrawing, playBaseHalfNoteMedia, releaseWaitingBaseHalfNoteMedia } from '../../browser/basehalfCanvasNoteMedia.js';
+import { IBaseHalfNoteMediaDrawing, noteBaseHalfNoteMediaVersion, playBaseHalfNoteMedia, releaseWaitingBaseHalfNoteMedia } from '../../browser/basehalfCanvasNoteMedia.js';
 
 suite('BaseHalfCanvasNoteMedia', () => {
 	const frames: HTMLElement[] = [];
@@ -150,5 +150,45 @@ suite('BaseHalfCanvasNoteMedia', () => {
 			inOther: playersIn(other).includes(player),
 			stillWaiting: player.isConnected,
 		}, { inPreview: false, inOther: false, stillWaiting: true });
+	});
+
+	test('a video of a note that an edit in the note changed plays anew from its file\'s new version, by an address of its own, and a drawing after takes over no player of the version before (D114)', () => {
+		const edited = URI.file('/notes/edited.md');
+		const lines = ['<video src="trimmed.mp4" controls></video>', '', '<audio src="other.wav" controls></audio>'];
+		const sources = (container: HTMLElement) => playersIn(container).map(player => decodeURIComponent(player.querySelector('video')!.getAttribute('src')!.replace(/#.*$/, '').replace(/^.*\//, '')));
+		const first = drawNote(lines, true, edited);
+		const shown = play(first, { note: edited, surface: 'rest' });
+		const before = sources(first);
+		const [video, sound] = playersIn(first);
+		noteBaseHalfNoteMediaVersion(URI.file('/notes/trimmed.mp4'), '1793707530681-1723642');
+		const after = sources(first);
+		const [edit] = playersIn(first);
+		shown.dispose();
+		first.replaceChildren();
+		const second = drawNote(lines, true, edited);
+		const next = play(second, { note: edited, surface: 'rest' });
+		const [takenVideo, takenSound] = playersIn(second);
+		// A version that comes while the players wait: the drawing after plays it, and takes no player of the version before.
+		next.dispose();
+		second.replaceChildren();
+		noteBaseHalfNoteMediaVersion(URI.file('/notes/trimmed.mp4'), '1793707600000-1500000');
+		const third = drawNote(lines, true, edited);
+		play(third, { note: edited, surface: 'rest' });
+		const [thirdVideo] = playersIn(third);
+		assert.deepStrictEqual({
+			before,
+			after,
+			oldVideoGone: !video.isConnected,
+			soundKept: playersIn(first).length === 0 && takenSound === sound,
+			editedTaken: takenVideo === edit,
+			afterWaiting: [thirdVideo === edit, sources(third)],
+		}, {
+			before: ['trimmed.mp4', 'other.wav'],
+			after: ['trimmed.mp4?basehalfCanvasVersion=1793707530681-1723642', 'other.wav'],
+			oldVideoGone: true,
+			soundKept: true,
+			editedTaken: true,
+			afterWaiting: [false, ['trimmed.mp4?basehalfCanvasVersion=1793707600000-1500000', 'other.wav']],
+		});
 	});
 });

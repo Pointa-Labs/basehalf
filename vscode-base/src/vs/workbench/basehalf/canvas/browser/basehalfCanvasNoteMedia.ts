@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { getActiveElement, getWindow, isHTMLElement } from '../../../../base/browser/dom.js';
+import { Emitter } from '../../../../base/common/event.js';
 import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -20,11 +21,46 @@ export interface IBaseHalfNoteMediaDrawing {
 	readonly surface: 'rest' | 'editor' | 'preview';
 }
 
+/**
+ * The version of each video and sound file of a note that an edit where the
+ * note shows it changed (D114), by file: a note's player loads that version by
+ * an address of its own, as the canvas loads every version of a media file,
+ * so that the window does not show what it loaded of the file before.
+ */
+const editedVersions = new Map<string, string>();
+const onDidEditVersion = new Emitter<string>();
+
+function fileKey(resource: URI): string {
+	return resource.with({ query: '', fragment: '' }).toString();
+}
+
+/**
+ * A video or a sound of a note was edited where the note shows it, and its
+ * file is now at `version` (`baseHalfCanvasMediaVersion`): every note's player
+ * of the file loads that version, at once and in every drawing after (D114).
+ */
+export function noteBaseHalfNoteMediaVersion(resource: URI, version: string): void {
+	const key = fileKey(resource);
+	if (editedVersions.get(key) !== version) {
+		editedVersions.set(key, version);
+		onDidEditVersion.fire(key);
+	}
+}
+
+/** The source a note's player plays for the file at `src`: at the version an edit of it left, by the query that names it. */
+function noteMediaSource(src: string): URI {
+	const file = FileAccess.uriToFileUri(URI.parse(src));
+	const version = editedVersions.get(fileKey(file));
+	return version ? file.with({ query: `basehalfCanvasVersion=${version}` }) : file;
+}
+
 /** A player of a note's video or sound, and what it stands for. */
 interface INoteMediaPlayer {
 	readonly player: IBaseHalfCanvasCardVideoPlayer;
 	/** The address the note's renderer gave the video or the sound, by which the next drawing finds its player. */
 	readonly src: string;
+	/** The version of the file the player plays: a drawing takes over only a player of the file's version now (D114). */
+	readonly source: string;
 	/** The element the renderer drew, shown in the player's place when its file cannot be played. */
 	media: HTMLMediaElement;
 	/** The drawing that shows it; none while it waits for the next drawing. */
@@ -52,7 +88,9 @@ let drawingCount = 0;
  * player of a video's card (note formats, rule 52): on the note's card and in
  * the card's editor the picture is the card's, and in Preview a click on it
  * plays and pauses it. A video keeps the width the note gives it. One that
- * cannot be played is shown again as the note's renderer drew it.
+ * cannot be played is shown again as the note's renderer drew it. One whose
+ * file an edit in the note changed plays anew from the file's new version
+ * (D114).
  *
  * A note drawn again keeps its players (note rendering, rule 4b): when this
  * drawing goes, the next drawing of the same note and place takes over its
@@ -81,6 +119,7 @@ export function releaseWaitingBaseHalfNoteMedia(): void {
 class NoteMediaDrawing implements IDisposable {
 	private readonly order = drawingCount++;
 	private readonly players: INoteMediaPlayer[] = [];
+	private readonly versions = onDidEditVersion.event(key => this.playEdited(key));
 	private disposed = false;
 
 	constructor(
@@ -112,11 +151,12 @@ class NoteMediaDrawing implements IDisposable {
 		shown.add(this);
 	}
 
-	private create(media: HTMLMediaElement, src: string, standIn: boolean): INoteMediaPlayer {
+	private create(media: HTMLMediaElement, src: string, standIn: boolean, parent: HTMLElement = media.parentElement!, before: Node | null = media): INoteMediaPlayer {
+		// The renderer gives the element the address the window loads; the player asks for the file by its own, at its version.
+		const source = noteMediaSource(src);
 		const entry: INoteMediaPlayer = {
-			player: createBaseHalfCanvasCardVideoPlayer(media.parentElement!, media, {
-				// The renderer gives the element the address the window loads; the player asks for the file by its own.
-				source: FileAccess.uriToFileUri(URI.parse(src)),
+			player: createBaseHalfCanvasCardVideoPlayer(parent, before, {
+				source,
 				videoClasses: [],
 				sound: media.tagName === 'AUDIO',
 				note: this.where,
@@ -124,6 +164,7 @@ class NoteMediaDrawing implements IDisposable {
 				onError: () => entry.drawing?.fail(entry),
 			}),
 			src,
+			source: source.toString(),
 			media,
 			drawing: this,
 			standIn,
@@ -182,6 +223,19 @@ class NoteMediaDrawing implements IDisposable {
 		});
 	}
 
+	/** The file of `key` was edited: a player of its new version takes the place of each player of it here (D114). */
+	private playEdited(key: string): void {
+		this.players.forEach((entry, index) => {
+			const place = entry.player.element;
+			if (entry.drawing !== this || !place.parentElement || fileKey(FileAccess.uriToFileUri(URI.parse(entry.src))) !== key || entry.source === noteMediaSource(entry.src).toString()) {
+				return;
+			}
+			this.players[index] = this.create(entry.media, entry.src, false, place.parentElement, place);
+			entry.drawing = undefined;
+			entry.player.discard();
+		});
+	}
+
 	/** The file of `entry` cannot be played: the element the note's renderer drew stands in its place. */
 	fail(entry: INoteMediaPlayer): void {
 		const index = this.players.indexOf(entry);
@@ -200,6 +254,7 @@ class NoteMediaDrawing implements IDisposable {
 			return;
 		}
 		this.disposed = true;
+		this.versions.dispose();
 		const shown = drawings.get(this.key);
 		shown?.delete(this);
 		if (shown?.size === 0) {
@@ -233,10 +288,11 @@ class NoteMediaDrawing implements IDisposable {
 	}
 }
 
-/** The first player that waits for the next drawing of `key` and plays `src`, taken out of the queue. */
+/** The first player that waits for the next drawing of `key` and plays `src` at the file's version now, taken out of the queue. */
 function takeWaiting(key: string, src: string): INoteMediaPlayer | undefined {
 	const queue = waiting.get(key);
-	const index = queue ? queue.findIndex(entry => entry.src === src) : -1;
+	const source = noteMediaSource(src).toString();
+	const index = queue ? queue.findIndex(entry => entry.src === src && entry.source === source) : -1;
 	if (!queue || index === -1) {
 		return undefined;
 	}

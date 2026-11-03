@@ -124,8 +124,8 @@ import {
 	setBaseHalfSelectionReveal,
 } from './selectionRevealDecorations.js';
 import { baseHalfEditorLabel, baseHalfNoteSchema, setRenderedNoteBase } from './noteSchema.js';
-import { baseHalfNoteFileAddressAt, baseHalfNotePictureElement, makeBaseHalfNotePictureEditExtension, setBaseHalfNotePictureEditMark } from './notePictureEdit.js';
-import { BASEHALF_IMAGE_CROP_MARGIN, BASEHALF_NOTE_PICTURE_EDIT_ROOM } from '../../../src/vs/workbench/basehalf/mediaEdit/common/basehalfNotePictureEdit.js';
+import { baseHalfNoteFileAddressAt, baseHalfNoteMediaElement, makeBaseHalfNoteMediaEditExtension, setBaseHalfNoteMediaEditMark, showBaseHalfNoteMediaAt } from './noteMediaEdit.js';
+import { baseHalfNoteMediaEditAbove, baseHalfNoteMediaEditRoom } from '../../../src/vs/workbench/basehalf/mediaEdit/common/basehalfNoteMediaEdit.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from './noteUndo.js';
 import {
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
@@ -609,9 +609,9 @@ function BaseHalfSideMenuController({ portalElement }: { readonly portalElement:
 }
 
 /** The note's map of picture edits (D113): the choices of each picture file's edit that the note's undo holds, never written to the file. */
-const BASEHALF_NOTE_PICTURE_EDITS = 'basehalfNotePictureEdits';
+const BASEHALF_NOTE_MEDIA_EDITS = 'basehalfNoteMediaEdits';
 /** The origin of what an undo of a picture's edit goes back to, which no undo tracks. */
-const BASEHALF_NOTE_PICTURE_EDIT_BASE = 'basehalf.notePictureEdit.base';
+const BASEHALF_NOTE_MEDIA_EDIT_BASE = 'basehalf.noteMediaEdit.base';
 
 function MarkdownRichEditor(): JSX.Element {
 	const vscode = useMemo(() => acquireVsCodeApi(), []);
@@ -650,13 +650,13 @@ function MarkdownRichEditor(): JSX.Element {
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
 	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
-	const notePictureEditExtension = useMemo(() => makeBaseHalfNotePictureEditExtension(), []);
+	const noteMediaEditExtension = useMemo(() => makeBaseHalfNoteMediaEditExtension(), []);
 	// The picture whose editor the window draws over it (D113), and the version of each file it edited, by address.
-	const pictureEdit = useRef<{ readonly blockId: string; readonly url: string; ending: boolean } | undefined>(undefined);
-	const [editedPicture, setEditedPicture] = useState<string | undefined>(undefined);
+	const mediaEdit = useRef<{ readonly blockId: string; readonly url: string; readonly room: number; ending: boolean } | undefined>(undefined);
+	const [editedMedia, setEditedMedia] = useState<string | undefined>(undefined);
 	// After the editing, the toolbar waits for the pointer or a key: the page still takes the pointer to be where it pressed Edit.
 	const [toolbarWaits, setToolbarWaits] = useState(false);
-	const pictureVersions = useRef(new Map<string, string>());
+	const mediaVersions = useRef(new Map<string, string>());
 	const fileDropExtension = useMemo(() => makeBaseHalfNoteFileDropExtension({ requestItems: (source, dropped) => requestItemsRef.current(source, dropped) }), []);
 	// What is pasted is read as a note's file is read (note formats, rules 72 to 74), and the clipboard's items as the host puts them in (files in notes, rule 15).
 	const pasteHandler = useMemo(() => makeBaseHalfNotePasteHandler((source, dropped) => requestItemsRef.current(source, dropped), () => session.current.resource || undefined), []);
@@ -740,7 +740,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 	const resolveFileUrl = useCallback(async (url: string): Promise<string> => {
 		const address = noteFileAddress(url, session.current.baseUri);
-		const version = address !== undefined ? pictureVersions.current.get(address) : undefined;
+		const version = address !== undefined ? mediaVersions.current.get(address) : undefined;
 		return address === undefined ? url : version ? baseHalfNoteFileAddressAt(address, version) : address;
 	}, []);
 
@@ -772,7 +772,7 @@ function MarkdownRichEditor(): JSX.Element {
 				return true;
 			},
 		},
-		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension, notePictureEditExtension, fileDropExtension],
+		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension, noteMediaEditExtension, fileDropExtension],
 		dropCursor: baseHalfNoteDropCursor,
 		pasteHandler,
 		collaboration: {
@@ -805,68 +805,104 @@ function MarkdownRichEditor(): JSX.Element {
 	noteUndoRef.current = noteUndo;
 
 	/**
-	 * Edit of a picture's toolbar (D113): the note makes room under the
-	 * picture for the editor's tools and scrolls as little as shows the editor
-	 * whole, and the window draws the editor over the picture.
+	 * Edit of the toolbar of a picture, a video, or a sound (D113, D114): the
+	 * note makes room under the media for the editor's tools and scrolls as
+	 * little as shows the editor whole, a video or a sound pauses, and the
+	 * window draws the editor over the media, a video's and a sound's from
+	 * where it stood.
 	 */
-	const editPicture = useCallback((blockId: string): void => {
+	const editMedia = useCallback((blockId: string): void => {
 		const state = session.current;
 		const view = editor.prosemirrorView;
 		const block = editor.getBlock(blockId);
 		const scroller = scrollRef.current;
-		const picture = baseHalfNotePictureElement(editor.domElement, blockId);
-		if (pictureEdit.current || !state.key || !state.ready || !state.editable || state.structuralFrozen || !view || !scroller || !picture
-			|| block?.type !== 'image' || typeof block.props.url !== 'string' || !block.props.url) {
+		const media = baseHalfNoteMediaElement(editor.domElement, blockId);
+		const edited = block && (block.type === 'image' || block.type === 'video' || block.type === 'audio') ? block : undefined;
+		const url = edited && typeof edited.props.url === 'string' ? edited.props.url : '';
+		if (mediaEdit.current || !state.key || !state.ready || !state.editable || state.structuralFrozen || !view || !scroller || !media || !edited || !url) {
 			return;
 		}
-		pictureEdit.current = { blockId, url: block.props.url, ending: false };
-		setEditedPicture(blockId);
-		// The room is the editor's below the picture, in pixels of the screen however large the page is drawn.
-		setBaseHalfNotePictureEditMark(view, { blockId, room: BASEHALF_NOTE_PICTURE_EDIT_ROOM / (readingAids.current?.zoom.level ?? 1), hidden: false });
-		const shown = picture.getBoundingClientRect();
+		const kind = edited.type;
+		const shown = media.getBoundingClientRect();
+		// The room is the editor's below the media, in pixels of the screen however large the page is drawn.
+		const screenRoom = baseHalfNoteMediaEditRoom(kind, { left: shown.left, top: shown.top, width: shown.width, height: shown.height });
+		const room = screenRoom / (readingAids.current?.zoom.level ?? 1);
+		mediaEdit.current = { blockId, url, room, ending: false };
+		setEditedMedia(blockId);
+		setBaseHalfNoteMediaEditMark(view, { blockId, room, hidden: false });
 		const bounds = scroller.getBoundingClientRect();
-		const above = shown.top - BASEHALF_IMAGE_CROP_MARGIN - bounds.top;
-		const below = shown.bottom + BASEHALF_NOTE_PICTURE_EDIT_ROOM - bounds.bottom;
+		const above = shown.top - baseHalfNoteMediaEditAbove(kind) - bounds.top;
+		const below = shown.bottom + screenRoom - bounds.bottom;
 		if (below > 0) {
 			scroller.scrollTop += Math.min(below, Math.max(0, above));
 		} else if (above < 0) {
 			scroller.scrollTop += above;
 		}
-		const box = picture.getBoundingClientRect();
+		let time: number | undefined;
+		if (media instanceof HTMLMediaElement) {
+			media.pause();
+			time = Number.isFinite(media.currentTime) ? media.currentTime : undefined;
+		}
+		const box = media.getBoundingClientRect();
 		vscode.postMessage({
-			type: 'basehalf.markdownRich.editPicture',
+			type: 'basehalf.markdownRich.editMedia',
 			key: state.key,
 			blockId,
-			href: block.props.url,
+			kind,
+			href: url,
 			box: { left: box.left, top: box.top, width: box.width, height: box.height },
+			...(time !== undefined ? { time } : {}),
 		});
 	}, [editor, vscode]);
 
 	/**
-	 * The editing ended (D113): the picture shows its file at the version the
-	 * window gave, once loaded, hidden under the editor, which glides to it;
-	 * the room under it closes.
+	 * The editing ended (D113, D114): the media shows its file at the version
+	 * the window gave, once loaded, hidden under the editor, a picture at the
+	 * size its new shape takes, which the editor glides to, a video or a sound
+	 * at `time`, paused; the room under it closes.
 	 */
-	const endPictureEdit = useCallback(async (blockId: string, version: string | undefined): Promise<void> => {
-		const edit = pictureEdit.current;
+	const endMediaEdit = useCallback(async (blockId: string, version: string | undefined, time: number | undefined): Promise<void> => {
+		const edit = mediaEdit.current;
 		if (!edit || edit.blockId !== blockId) {
 			return;
 		}
 		edit.ending = true;
 		const address = noteFileAddress(edit.url, session.current.baseUri);
 		const shown = address !== undefined && version ? baseHalfNoteFileAddressAt(address, version) : undefined;
+		const element = baseHalfNoteMediaElement(editor.domElement, blockId);
+		if (element instanceof HTMLMediaElement) {
+			if (address !== undefined && version) {
+				mediaVersions.current.set(address, version);
+			}
+			const source = shown ?? element.getAttribute('src');
+			if (source) {
+				await showBaseHalfNoteMediaAt(element, source, time);
+			}
+			if (mediaEdit.current !== edit) {
+				return;
+			}
+			setBaseHalfNoteMediaEditMark(editor.prosemirrorView, { blockId, room: 0, hidden: true });
+			const box = baseHalfNoteMediaElement(editor.domElement, blockId)?.getBoundingClientRect();
+			vscode.postMessage({
+				type: 'basehalf.markdownRich.mediaLaidOut',
+				key: session.current.key,
+				blockId,
+				...(box && box.width > 0 && box.height > 0 ? { box: { left: box.left, top: box.top, width: box.width, height: box.height } } : {}),
+			});
+			return;
+		}
 		if (address !== undefined && version && shown) {
-			pictureVersions.current.set(address, version);
+			mediaVersions.current.set(address, version);
 			// Loaded before it shows: the note never shows the picture missing.
 			const loaded = new Image();
 			loaded.src = shown;
 			await loaded.decode().catch(() => undefined);
 		}
-		if (pictureEdit.current !== edit) {
+		if (mediaEdit.current !== edit) {
 			return;
 		}
-		setBaseHalfNotePictureEditMark(editor.prosemirrorView, { blockId, room: 0, hidden: true });
-		const picture = baseHalfNotePictureElement(editor.domElement, blockId);
+		setBaseHalfNoteMediaEditMark(editor.prosemirrorView, { blockId, room: 0, hidden: true });
+		const picture = baseHalfNoteMediaElement(editor.domElement, blockId);
 		let size: { readonly width: number; readonly height: number } | undefined;
 		if (picture && shown && picture.getAttribute('src') !== shown) {
 			// The picture glides from its size to the size the note gives its new shape, with the editor, as the room closes.
@@ -877,8 +913,10 @@ function MarkdownRichEditor(): JSX.Element {
 			};
 			hold(from);
 			picture.src = shown;
-			await picture.decode().catch(() => undefined);
-			if (pictureEdit.current !== edit) {
+			if (picture instanceof HTMLImageElement) {
+				await picture.decode().catch(() => undefined);
+			}
+			if (mediaEdit.current !== edit) {
 				return;
 			}
 			picture.style.removeProperty('width');
@@ -891,15 +929,15 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 			hold(size);
 		}
-		if (pictureEdit.current !== edit) {
+		if (mediaEdit.current !== edit) {
 			return;
 		}
-		const shownPicture = baseHalfNotePictureElement(editor.domElement, blockId);
+		const shownPicture = baseHalfNoteMediaElement(editor.domElement, blockId);
 		const box = shownPicture?.getBoundingClientRect();
 		// Where it stands once the glide ends, in pixels of the screen however large the page is drawn.
 		const scale = box && shownPicture && shownPicture.offsetWidth > 0 ? box.width / shownPicture.offsetWidth : 1;
 		vscode.postMessage({
-			type: 'basehalf.markdownRich.pictureLaidOut',
+			type: 'basehalf.markdownRich.mediaLaidOut',
 			key: session.current.key,
 			blockId,
 			...(box && box.width > 0 && box.height > 0 ? { box: { left: box.left, top: box.top, width: size ? size.width * scale : box.width, height: size ? size.height * scale : box.height } } : {}),
@@ -912,23 +950,23 @@ function MarkdownRichEditor(): JSX.Element {
 	 * written to the file. Its undo and redo give the window the choices
 	 * before or after, which the picture's file gets.
 	 */
-	const recordPictureEdit = useCallback((url: string, step: { readonly before: object; readonly after: object }): void => {
+	const recordMediaEdit = useCallback((url: string, step: { readonly before: object; readonly after: object }): void => {
 		const manager = noteUndo.ensure();
 		if (!manager) {
 			return;
 		}
-		const edits = ydoc.getMap<string>(BASEHALF_NOTE_PICTURE_EDITS);
+		const edits = ydoc.getMap<string>(BASEHALF_NOTE_MEDIA_EDITS);
 		if (!manager.scope.includes(edits)) {
 			manager.addToScope(edits);
 		}
 		// What the step undoes to, set where no undo sees it.
-		ydoc.transact(() => edits.set(url, JSON.stringify(step.before)), BASEHALF_NOTE_PICTURE_EDIT_BASE);
+		ydoc.transact(() => edits.set(url, JSON.stringify(step.before)), BASEHALF_NOTE_MEDIA_EDIT_BASE);
 		manager.stopCapturing();
 		ydoc.transact(() => edits.set(url, JSON.stringify(step.after)), ySyncPluginKey);
 		manager.stopCapturing();
 	}, [noteUndo, ydoc]);
 	useEffect(() => {
-		const edits = ydoc.getMap<string>(BASEHALF_NOTE_PICTURE_EDITS);
+		const edits = ydoc.getMap<string>(BASEHALF_NOTE_MEDIA_EDITS);
 		const onChange = (event: YMapEvent<string>, transaction: YTransaction): void => {
 			if (!(transaction.origin instanceof UndoManager)) {
 				return;
@@ -936,7 +974,7 @@ function MarkdownRichEditor(): JSX.Element {
 			for (const url of event.keysChanged) {
 				const value = edits.get(url);
 				if (value !== undefined) {
-					vscode.postMessage({ type: 'basehalf.markdownRich.applyPictureChoices', key: session.current.key, href: url, choices: JSON.parse(value) });
+					vscode.postMessage({ type: 'basehalf.markdownRich.applyMediaChoices', key: session.current.key, href: url, choices: JSON.parse(value) });
 				}
 			}
 		};
@@ -944,52 +982,53 @@ function MarkdownRichEditor(): JSX.Element {
 		return () => edits.unobserve(onChange);
 	}, [vscode, ydoc]);
 
-	/** An undo or a redo set the choices of a picture's file: every picture of that file shows it at its new version. */
-	const showPictureVersion = useCallback((url: string, version: string): void => {
+	/** An undo or a redo set the choices of a media file: every picture, video, or sound of that file shows it at its new version. */
+	const showMediaVersion = useCallback((url: string, version: string): void => {
 		const address = noteFileAddress(url, session.current.baseUri);
 		if (address === undefined) {
 			return;
 		}
-		pictureVersions.current.set(address, version);
+		mediaVersions.current.set(address, version);
 		const shown = baseHalfNoteFileAddressAt(address, version);
-		for (const content of editor.domElement?.querySelectorAll<HTMLElement>('.bn-block-content[data-content-type="image"]') ?? []) {
-			const picture = content.querySelector('img.bn-visual-media');
-			if (content.dataset.url === url && picture instanceof HTMLImageElement) {
-				picture.src = shown;
+		const contents = '.bn-block-content[data-content-type="image"], .bn-block-content[data-content-type="video"], .bn-block-content[data-content-type="audio"]';
+		for (const content of editor.domElement?.querySelectorAll<HTMLElement>(contents) ?? []) {
+			const media = content.querySelector('img.bn-visual-media, video.bn-visual-media, audio.bn-audio');
+			if (content.dataset.url === url && (media instanceof HTMLImageElement || media instanceof HTMLMediaElement)) {
+				media.src = shown;
 			}
 		}
 	}, [editor]);
 
 	/** The editor stands where the picture is: the note shows it again, and once it is drawn the editor goes (D113). */
-	const showEditedPicture = useCallback((blockId: string): void => {
-		if (pictureEdit.current?.blockId !== blockId) {
+	const showEditedMedia = useCallback((blockId: string): void => {
+		if (mediaEdit.current?.blockId !== blockId) {
 			return;
 		}
-		pictureEdit.current = undefined;
+		mediaEdit.current = undefined;
 		setToolbarWaits(true);
-		setEditedPicture(undefined);
-		setBaseHalfNotePictureEditMark(editor.prosemirrorView, undefined);
-		const picture = baseHalfNotePictureElement(editor.domElement, blockId);
+		setEditedMedia(undefined);
+		setBaseHalfNoteMediaEditMark(editor.prosemirrorView, undefined);
+		const picture = baseHalfNoteMediaElement(editor.domElement, blockId);
 		for (const property of ['width', 'height', 'transition']) {
 			picture?.style.removeProperty(property);
 		}
 		// The keyboard comes back to the note, on the picture.
 		editor.focus();
 		window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-			vscode.postMessage({ type: 'basehalf.markdownRich.pictureShown', key: session.current.key, blockId });
+			vscode.postMessage({ type: 'basehalf.markdownRich.mediaShown', key: session.current.key, blockId });
 		}));
 	}, [editor, vscode]);
 
 	// While a picture is edited the note stays as it is: a press in it ends the editing, and the wheel neither scrolls nor zooms it (D113).
 	useEffect(() => {
-		if (!editedPicture) {
+		if (!editedMedia) {
 			return;
 		}
 		const onPress = (event: Event): void => {
 			event.preventDefault();
 			event.stopPropagation();
-			if (event.type === 'pointerdown' && pictureEdit.current && !pictureEdit.current.ending) {
-				vscode.postMessage({ type: 'basehalf.markdownRich.endPictureEdit', key: session.current.key });
+			if (event.type === 'pointerdown' && mediaEdit.current && !mediaEdit.current.ending) {
+				vscode.postMessage({ type: 'basehalf.markdownRich.endMediaEdit', key: session.current.key });
 			}
 		};
 		const onWheel = (event: WheelEvent): void => {
@@ -1004,7 +1043,7 @@ function MarkdownRichEditor(): JSX.Element {
 			window.removeEventListener('mousedown', onPress, true);
 			window.removeEventListener('wheel', onWheel, { capture: true });
 		};
-	}, [editedPicture, vscode]);
+	}, [editedMedia, vscode]);
 	// The page learns where the pointer is from its next move, and the toolbar shows again then, or at a key or a press.
 	useEffect(() => {
 		if (!toolbarWaits) {
@@ -1021,7 +1060,7 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 		};
 	}, [toolbarWaits]);
-	const notePictureEdit = useMemo(() => ({ edit: editPicture, editing: editedPicture, hidden: !!editedPicture || toolbarWaits }), [editPicture, editedPicture, toolbarWaits]);
+	const noteMediaEdit = useMemo(() => ({ edit: editMedia, editing: editedMedia, hidden: !!editedMedia || toolbarWaits }), [editMedia, editedMedia, toolbarWaits]);
 	const slashMenuItems = useCallback(async (query: string) => filterSuggestionItems(baseHalfSlashMenuItems(editor), query), [editor]);
 	const ensureLiveUndoManager = noteUndo.ensure;
 
@@ -2029,7 +2068,7 @@ function MarkdownRichEditor(): JSX.Element {
 	useEffect(() => {
 		const onWheel = (event: WheelEvent): void => {
 			const aids = readingAids.current;
-			if (!aids || pictureEdit.current || !isBaseHalfZoomWheel(event, macintosh)) {
+			if (!aids || mediaEdit.current || !isBaseHalfZoomWheel(event, macintosh)) {
 				return;
 			}
 			event.preventDefault();
@@ -2226,19 +2265,27 @@ function MarkdownRichEditor(): JSX.Element {
 				case 'basehalf.markdownRich.revealHeading':
 					readingAids.current?.outline.revealHeading(message.heading);
 					break;
-				case 'basehalf.markdownRich.pictureEditEnded': {
-					const edited = pictureEdit.current;
+				case 'basehalf.markdownRich.mediaEditEnded': {
+					const edited = mediaEdit.current;
 					if (message.step && edited?.blockId === message.blockId) {
-						recordPictureEdit(edited.url, message.step);
+						recordMediaEdit(edited.url, message.step);
 					}
-					void endPictureEdit(message.blockId, message.version).catch(reportError);
+					void endMediaEdit(message.blockId, message.version, message.time).catch(reportError);
 					break;
 				}
-				case 'basehalf.markdownRich.pictureVersion':
-					showPictureVersion(message.href, message.version);
+				case 'basehalf.markdownRich.mediaVersion':
+					showMediaVersion(message.href, message.version);
 					break;
-				case 'basehalf.markdownRich.showPicture':
-					showEditedPicture(message.blockId);
+				case 'basehalf.markdownRich.hideMedia': {
+					// The editor shows over the picture, and may draw it smaller: the note's own hides under it (D113).
+					const edit = mediaEdit.current;
+					if (edit?.blockId === message.blockId && !edit.ending) {
+						setBaseHalfNoteMediaEditMark(editor.prosemirrorView, { blockId: edit.blockId, room: edit.room, hidden: true });
+					}
+					break;
+				}
+				case 'basehalf.markdownRich.showMedia':
+					showEditedMedia(message.blockId);
 					break;
 				case 'basehalf.markdownRich.focusAtPoint':
 					focusAtPoint(message.point);
@@ -2339,7 +2386,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [adoptDiskFrontmatter, applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, endPictureEdit, flushPendingEditorCommands, focusAtPoint, notifyDirty, recordPictureEdit, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, showEditedPicture, showPictureVersion, vscode, waitForCompositionSettled, ydoc]);
+	}, [adoptDiskFrontmatter, applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, endMediaEdit, flushPendingEditorCommands, focusAtPoint, notifyDirty, recordMediaEdit, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, showEditedMedia, showMediaVersion, vscode, waitForCompositionSettled, ydoc]);
 
 	useEffect(() => {
 		postFormatState();
@@ -2434,17 +2481,32 @@ function MarkdownRichEditor(): JSX.Element {
 			const canPaste = !!view && state.editable && !state.structuralFrozen && state.conflictDisk === undefined && state.writeError === undefined;
 			const clickedBlockId = (event.target as HTMLElement | null)?.closest?.('[data-id]')?.getAttribute('data-id');
 			const clickedBlock = clickedBlockId ? editor.getBlock(clickedBlockId) : undefined;
-			// A picture, a video, or a sound is edited in place; a file block opens its file (files in notes, rule 22).
+			// A picture, a video, or a sound is edited in place, from Edit first in its menu as in its toolbar: the system's
+			// control of a sound's bar takes its presses, and its menu is where its Edit is (D114). A file block opens its file
+			// (files in notes, rule 22).
 			const clickedFileUrl = clickedBlock?.type === 'file' && typeof clickedBlock.props.url === 'string' && clickedBlock.props.url
 				? clickedBlock.props.url
 				: undefined;
+			const clickedMediaUrl = clickedBlock && (clickedBlock.type === 'image' || clickedBlock.type === 'video' || clickedBlock.type === 'audio')
+				&& typeof clickedBlock.props.url === 'string' ? clickedBlock.props.url : '';
+			// Media on the web is not a file BaseHalf edits.
+			const editableMediaId = clickedBlock && clickedMediaUrl && canPaste && !mediaEdit.current && !/^(?:[a-z][a-z0-9+.-]*:|#)/i.test(clickedMediaUrl)
+				? clickedBlock.id
+				: undefined;
 			// Without a selection the menu still offers Paste at the cursor.
-			if (selected.length === 0 && !canPaste && !clickedFileUrl) {
+			if (selected.length === 0 && !canPaste && !clickedFileUrl && !editableMediaId) {
 				return;
 			}
 
 			const existing = (state.adhd?.highlight_keywords ?? []).find(keyword => keyword.toLowerCase() === selected.toLowerCase());
 			const items: ContextMenuItem[] = [];
+			if (editableMediaId) {
+				items.push({
+					id: 'edit-media',
+					label: baseHalfEditorLabel('Edit', '编辑', '編輯'),
+					run: () => editMedia(editableMediaId),
+				});
+			}
 			if (clickedFileUrl) {
 				items.push({
 					id: 'open-file',
@@ -2521,7 +2583,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 		dom.addEventListener('contextmenu', onContextMenu);
 		return () => dom.removeEventListener('contextmenu', onContextMenu);
-	}, [editor, postAdhdCommand, vscode]);
+	}, [editMedia, editor, postAdhdCommand, vscode]);
 
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;
@@ -2996,9 +3058,9 @@ function MarkdownRichEditor(): JSX.Element {
 						portalElements={usesEmbeddedControls ? portalElements : undefined}
 					>
 						{usesEmbeddedControls && (
-							<BaseHalfNotePictureEditContext.Provider value={notePictureEdit}>
+							<BaseHalfNoteMediaEditContext.Provider value={noteMediaEdit}>
 								<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
-							</BaseHalfNotePictureEditContext.Provider>
+							</BaseHalfNoteMediaEditContext.Provider>
 						)}
 						{usesEmbeddedControls && <BaseHalfSideMenuController portalElement={portalElement} />}
 						{usesEmbeddedControls && <LinkToolbarController linkToolbar={linkToolbar} portalElement={portalElement} />}
@@ -3064,32 +3126,33 @@ function stopUsedKeys(event: ReactKeyboardEvent): void {
 }
 
 /** What Edit of a picture's toolbar does, and the picture whose editor stands over it (D113). */
-const BaseHalfNotePictureEditContext = createContext<{ readonly edit: (blockId: string) => void; readonly editing: string | undefined; readonly hidden: boolean }>({ edit: () => undefined, editing: undefined, hidden: false });
+const BaseHalfNoteMediaEditContext = createContext<{ readonly edit: (blockId: string) => void; readonly editing: string | undefined; readonly hidden: boolean }>({ edit: () => undefined, editing: undefined, hidden: false });
 
 function BaseHalfFormattingToolbar(): JSX.Element | null {
-	const pictureEdit = useContext(BaseHalfNotePictureEditContext);
+	const mediaEdit = useContext(BaseHalfNoteMediaEditContext);
 	const items = getFormattingToolbarItems()
 		.filter(item => !baseHalfRemovedToolbarItems.has(String(item.key)))
 		.map(item => item.key === 'replaceFileButton' ? <BaseHalfFileReplaceButton key={'replaceFileButton'} /> : item);
 	// While a picture is edited, its editor has the tools; after it, the toolbar waits for the pointer.
-	return pictureEdit.hidden ? null : <FormattingToolbar>{[<BaseHalfPictureEditButton key={'pictureEditButton'} />, ...items]}</FormattingToolbar>;
+	return mediaEdit.hidden ? null : <FormattingToolbar>{[<BaseHalfMediaEditButton key={'mediaEditButton'} />, ...items]}</FormattingToolbar>;
 }
 
-/** Edit for a picture of a file (D113): the window draws the picture's editor over it, in the note. */
-function BaseHalfPictureEditButton(): JSX.Element | null {
+/** Edit for a picture, a video, or a sound of a file (D113, D114): the window draws the editor of the file's card over it, in the note. */
+function BaseHalfMediaEditButton(): JSX.Element | null {
 	const editor = useBlockNoteEditor();
 	const Components = useComponentsContext()!;
-	const pictureEdit = useContext(BaseHalfNotePictureEditContext);
+	const mediaEdit = useContext(BaseHalfNoteMediaEditContext);
 	const blocks = useSelectedBlocks(editor);
 	const block = blocks.length === 1 ? blocks[0] : undefined;
-	const url = block?.type === 'image' && typeof block.props.url === 'string' ? block.props.url : '';
-	// A picture on the web is not a file BaseHalf edits.
+	const edited = block?.type === 'image' || block?.type === 'video' || block?.type === 'audio';
+	const url = edited && typeof block.props.url === 'string' ? block.props.url : '';
+	// Media on the web is not a file BaseHalf edits.
 	if (!block || !url || !editor.isEditable || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url)) {
 		return null;
 	}
 	const label = baseHalfEditorLabel('Edit', '编辑', '編輯');
 	return (
-		<Components.FormattingToolbar.Button className={'bn-button'} mainTooltip={label} label={label} onClick={() => pictureEdit.edit(block.id)}>
+		<Components.FormattingToolbar.Button className={'bn-button'} mainTooltip={label} label={label} onClick={() => mediaEdit.edit(block.id)}>
 			{label}
 		</Components.FormattingToolbar.Button>
 	);

@@ -1,0 +1,172 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * A picture, a video, or a sound edited in its note (D113, D114): the layer
+ * over Rich's page, which takes no press but on the editor, and the editor of
+ * the file's card drawn in it over the media, with its tools and the line
+ * under it, and Done in the yellow of Card Detail's Done.
+ */
+.monaco-workbench .basehalf-card-detail-note-media-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-note-media-stage {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	pointer-events: auto;
+}
+
+/*
+ * The editor draws in the picture's box only, with its corners: the margin
+ * around it, in which the frame rests and a held corner follows, shows the
+ * note, as the text above the picture.
+ */
+.monaco-workbench .basehalf-note-media-stage .basehalf-image-crop-view {
+	clip-path: inset(24px round 4px);
+}
+
+/* Until the picture is drawn in the editor, the note's own picture shows. */
+.monaco-workbench .basehalf-note-media-stage.drawing {
+	visibility: hidden;
+}
+
+/* Once the editing ended, the line and Done go while the editor glides to the media's place in the note. */
+.monaco-workbench .basehalf-note-media-stage.ending > .basehalf-media-edit-line,
+.monaco-workbench .basehalf-note-media-stage.ending > .basehalf-note-media-room > .basehalf-media-edit-line,
+.monaco-workbench .basehalf-note-media-stage.ending > .basehalf-note-media-done {
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+}
+
+/*
+ * A video's editor (D114): the player of Card Detail at the video's box, the
+ * picture filling it as the note's does, without the player's own controls,
+ * which give way to the edit bar; the edit bar 12 px under the picture, as
+ * wide as it, and the line under the bar, in the room the note made, with
+ * Done at the end of the line.
+ */
+.monaco-workbench .basehalf-note-media-stage.video > .basehalf-note-media-player {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.monaco-workbench .basehalf-note-media-stage.video .basehalf-canvas-video-player.detail {
+	width: 100%;
+	height: 100%;
+	aspect-ratio: auto;
+	border-radius: 0;
+}
+
+.monaco-workbench .basehalf-note-media-stage.video .basehalf-canvas-video-player-top,
+.monaco-workbench .basehalf-note-media-stage.video .basehalf-canvas-video-player-bar {
+	display: none;
+}
+
+.monaco-workbench .basehalf-note-media-room {
+	position: relative;
+	flex: none;
+	/* BASEHALF_NOTE_VIDEO_EDIT_ROOM: the gap, the bar, the gap, and the line on its foot. */
+	height: 100px;
+}
+
+.monaco-workbench .basehalf-note-media-room > .basehalf-video-frames {
+	position: absolute;
+	top: 12px;
+	right: 0;
+	left: 0;
+}
+
+/* The line keeps clear of Done at its end. */
+.monaco-workbench .basehalf-note-media-room > .basehalf-media-edit-line {
+	position: absolute;
+	top: 72px;
+	right: 0;
+	left: 0;
+	padding: 0 80px;
+}
+
+/* In the middle of the line. */
+.monaco-workbench .basehalf-note-media-stage.video > .basehalf-note-media-done {
+	bottom: 7px;
+}
+
+/*
+ * A sound's editor (D114): the waveform at the sound's bar, as wide, 112 px
+ * tall, the row of Play and the time under it, with Done at its end, and the
+ * line, on the note's background, so that the note's text that moves up as
+ * the room closes at Done stays under it.
+ */
+.monaco-workbench .basehalf-note-media-stage.audio {
+	gap: 12px;
+	overflow: hidden;
+	background: var(--vscode-editor-background);
+}
+
+.monaco-workbench .basehalf-note-media-stage.audio > .basehalf-video-frames.basehalf-sound-waveform {
+	width: 100%;
+	flex: none;
+}
+
+.monaco-workbench .basehalf-note-media-stage.audio .basehalf-video-frames-strip.basehalf-sound-waveform-strip {
+	/* BASEHALF_NOTE_SOUND_WAVEFORM_HEIGHT. */
+	height: 112px;
+}
+
+/* The line stands on its foot, as under the editor of a picture's card. */
+.monaco-workbench .basehalf-note-media-stage > .basehalf-media-edit-line {
+	padding-bottom: 10px;
+}
+
+.monaco-workbench .basehalf-note-media-done {
+	--basehalf-note-media-done-yellow: #f5c400;
+	position: absolute;
+	right: 16px;
+	/* In the middle of the row of tools, which stands over the line. */
+	bottom: 44px;
+	height: 24px;
+	min-width: 48px;
+	padding: 0 10px;
+	box-sizing: border-box;
+	color: #1c1c1e;
+	background: var(--basehalf-note-media-done-yellow);
+	border: 0;
+	border-radius: 12px;
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 24px;
+	cursor: pointer;
+}
+
+.monaco-workbench.vs-dark .basehalf-note-media-done,
+.monaco-workbench.hc-black .basehalf-note-media-done {
+	--basehalf-note-media-done-yellow: #ffd60a;
+}
+
+.monaco-workbench .basehalf-note-media-done:hover {
+	background: color-mix(in srgb, var(--basehalf-note-media-done-yellow) 88%, #fff);
+}
+
+.monaco-workbench .basehalf-note-media-done:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-note-media-done:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-note-media-done {
+		border: 1px solid ButtonText;
+	}
+}

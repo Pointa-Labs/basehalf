@@ -209,6 +209,12 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this._register(toDisposable(() => window.clearTimeout(timer)));
 	}
 
+	fileTime(): number {
+		// The file holds the part kept, from its start: the playhead stays inside it (D103).
+		const playhead = this.options.player.currentTime ?? this.range.start;
+		return Math.min(Math.max(playhead - this.range.start, 0), this.range.end - this.range.start);
+	}
+
 	get choices(): IBaseHalfMediaChoices {
 		return this.timeline.isWhole(this.range) ? {} : { keep: [{ start: this.range.start, end: this.range.end }] };
 	}

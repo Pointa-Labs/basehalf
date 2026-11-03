@@ -852,24 +852,26 @@ body,
  * and the picture stays hidden under the editor until the editor stands
  * where it is.
  */
-.basehalf-markdown-rich .basehalf-note-picture-editing {
-	margin-bottom: var(--basehalf-note-picture-edit-room, 0px);
+.basehalf-markdown-rich .basehalf-note-media-editing {
+	margin-bottom: var(--basehalf-note-media-edit-room, 0px);
 }
 
-.basehalf-markdown-rich .basehalf-note-picture-hidden {
+.basehalf-markdown-rich .basehalf-note-media-hidden {
 	transition: margin-bottom 200ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-.basehalf-markdown-rich .basehalf-note-picture-hidden .bn-visual-media {
+.basehalf-markdown-rich .basehalf-note-media-hidden .bn-visual-media,
+.basehalf-markdown-rich .basehalf-note-media-hidden .bn-audio {
 	visibility: hidden;
 }
 
-.basehalf-markdown-rich .basehalf-note-picture-editing .bn-resize-handle {
-	display: none;
+/* The editor's library shows the picture's resize handles by an inline style while the pointer is over it: they never show around an editor that draws the picture smaller. */
+.basehalf-markdown-rich .basehalf-note-media-editing .bn-resize-handle {
+	display: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.basehalf-markdown-rich .basehalf-note-picture-hidden {
+	.basehalf-markdown-rich .basehalf-note-media-hidden {
 		transition: none;
 	}
 }

@@ -7,14 +7,14 @@ import * as assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { baseHalfMirrorResource } from '../../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfNotePictureFile } from '../../browser/basehalfNotePictureEditing.js';
+import { baseHalfNoteMediaFile } from '../../browser/basehalfNoteMediaEditing.js';
 
-suite('BaseHalfNotePictureEditing', () => {
+suite('BaseHalfNoteMediaEditing', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('a picture of a note is edited as a file of its workspace folder, or of the store above a subfolder\'s window, with its record in that store\'s home (files in notes, rule 48)', () => {
 		const shown = (folders: readonly URI[], note: URI, href: string) => {
-			const file = baseHalfNotePictureFile(folders, note, href);
+			const file = baseHalfNoteMediaFile(folders, note, href);
 			return file && {
 				resource: file.resource.path,
 				folder: file.workspaceFolder.path,

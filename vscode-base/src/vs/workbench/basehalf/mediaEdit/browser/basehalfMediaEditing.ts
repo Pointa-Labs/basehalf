@@ -172,7 +172,9 @@ export class BaseHalfMediaEditing extends Disposable {
 			drawn = crop.drawn;
 			editor = crop;
 		} else if (state.sound) {
-			editor = store.add(this.instantiationService.createInstance(BaseHalfSoundWaveform, host, { source: session.source, info: state.sound, choices }));
+			const waveform = store.add(this.instantiationService.createInstance(BaseHalfSoundWaveform, host, { source: session.source, info: state.sound, choices }));
+			drawn = waveform.drawn;
+			editor = waveform;
 		} else {
 			return undefined;
 		}
@@ -249,6 +251,18 @@ export class BaseHalfMediaEditing extends Disposable {
 	/** Puts the keyboard on the media (D100). */
 	focus(): void {
 		this.editor?.focus();
+	}
+
+	/** Where the playhead of the editor's video or sound stands, counted in the file as its choices make it; none for an image. */
+	fileTime(): number | undefined {
+		return this.editor?.fileTime?.();
+	}
+
+	/** While editing, shows the whole original, the part kept framed in it, as the editor of a picture of a note starts from (D113). */
+	showWhole(): void {
+		if (this.isEditing) {
+			this.editor?.showWhole?.();
+		}
 	}
 
 	/**
