@@ -58,6 +58,16 @@
 	cursor: text;
 }
 
+/* A note's own file: its name, which cannot be changed, where the button would be (files in notes, rule 26). */
+.monaco-workbench .basehalf-card-detail-title-text {
+	min-width: 0;
+	max-width: 100%;
+	padding: 2px 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .monaco-workbench .basehalf-card-detail-title-button:hover {
 	background-color: var(--vscode-toolbar-hoverBackground);
 }

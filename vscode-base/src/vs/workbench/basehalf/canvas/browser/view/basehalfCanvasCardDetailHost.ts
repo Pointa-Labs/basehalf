@@ -334,7 +334,10 @@ export class BaseHalfCanvasCardDetailHost {
 			this.view.detailResourceMutationStamp = this.view.workspaceMutationCoordinator.captureResource(cardDetail.workspaceFolder, cardDetail.relativePath);
 			this.view.detailBadgeOpen = false;
 		}
-		void this.view.badgeEditor.renderDetailBadge(cardDetail);
+		// A note's own file has no badge, description, or connections (files in notes, rule 26).
+		if (!isNoteFile(cardDetail.relativePath)) {
+			void this.view.badgeEditor.renderDetailBadge(cardDetail);
+		}
 
 		this.renderDetailSurface(cardDetail);
 		this.focusPendingDetailEditor(cardDetail);
@@ -378,6 +381,11 @@ export class BaseHalfCanvasCardDetailHost {
 		this.detailTitleDisposables.clear();
 		clearNode(this.view.detailTitle);
 		const resourceKey = cardDetail.resource.toString();
+		if (isNoteFile(cardDetail.relativePath)) {
+			// A note's own file keeps its name: the note links it by it (files in notes, rule 26).
+			append(this.view.detailTitle, $('span.basehalf-card-detail-title-text')).textContent = baseHalfItemDisplayName(basename(cardDetail.resource), false);
+			return;
+		}
 		if (this.pendingDetailNameEditResourceKey !== resourceKey) {
 			const button = append(this.view.detailTitle, $('button.basehalf-card-detail-title-button')) as HTMLButtonElement;
 			button.type = 'button';
@@ -796,4 +804,9 @@ export class BaseHalfCanvasCardDetailHost {
 
 		return `L${selection.startLineNumber}:${selection.startColumn}`;
 	}
+}
+
+/** Whether a path of the workspace is of a note's own file, in a store of files in notes. */
+function isNoteFile(relativePath: string): boolean {
+	return relativePath.split('/').includes('.bh');
 }
