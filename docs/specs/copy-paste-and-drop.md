@@ -133,7 +133,16 @@ place that should take something needed code of its own, and most had none.
 - The write is done only once the system clipboard holds every file it
   wrote. The system drops the files of a writer that ends as soon as it has
   written, so the writer reads the clipboard back before it ends, and writes
-  again, once, when a file is missing.
+  again, once, when a file is missing. A busy system can still drop them a
+  moment later: 0.3 s after the write another process looks at the
+  clipboard, and while it still holds the copy, without its files, they are
+  written again, twice at most. What another copy put there meanwhile is
+  never written over.
+- The files of a copy in a note join the page's own copy once it is on the
+  clipboard, which can come a moment after the page has copied: the page
+  marks its copy with a mark of its own, and the window waits for the copy
+  with that mark, two seconds at most, so that a copy of the same block a
+  second time does not take the first copy for it.
 - The window copies only where text is selected, unless the place says
   beforehand that it has something to copy: the canvas says so while cards
   are selected, and Card Detail while it shows a file that is not edited as
@@ -357,6 +366,11 @@ once after writing. A private clipboard of its own lost nothing, so the unit
 test cannot show it. With the clipboard read back before the writer ends,
 24 of 24 writes of one or two files and 30 of 30 copies of a picture held
 every file.
+
+On a busy machine (a load of 10 to 14), the smoke's twelve copies of a file
+block lost the file once in about thirty copies although the writer had read
+it back: the clipboard held the copy, with its mark, and no file. The look
+from another process 0.3 s later puts the files back.
 
 The smoke's copy of a file block in a note, right after the note came back
 from a PDF's Card Detail, copied nothing at all: the page had the keyboard,
