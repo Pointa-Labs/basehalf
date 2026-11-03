@@ -738,6 +738,50 @@ export async function assertMarkdownRichFileAttachment(page) {
 	await frame.locator('.bn-file-name-with-icon', { hasText: 'handout.pdf' }).last().waitFor({ state: 'visible', timeout: 15_000 });
 }
 
+/**
+ * Files in notes, rule 35: each copy of a file block puts its file on the
+ * system clipboard too, and a cut does not. The system dropped the file of a
+ * writer that ended at once in 6 of 24 copies, so the step copies twelve
+ * times. It writes the clipboard, so it runs only where the clipboard is the
+ * run's (lib/clipboard.mts).
+ */
+export async function assertMarkdownRichFileCopyHoldsTheFile(page) {
+	await withTheRunsClipboard('readme rich file copy holds the file', async () => {
+		const readmePath = path.join(workspacePath, 'README.md');
+		const folder = /\[handout\.pdf\]\(\.bh\/attachments\/([a-z0-9]{10})\/handout\.pdf\)/.exec(fs.readFileSync(readmePath, 'utf8'))?.[1];
+		if (!folder) {
+			throw new Error('README.md must link handout.pdf in its folder in the store');
+		}
+		const stored = `/.bh/attachments/${folder}/handout.pdf`;
+		const frame = await activeMarkdownRichFrame(page);
+		const block = frame.locator('.bn-file-name-with-icon', { hasText: 'handout.pdf' }).last();
+		const readFile = () => app.evaluate(({ clipboard }) => clipboard.read('public.file-url'));
+		for (let copy = 1; copy <= 12; copy++) {
+			await app.evaluate(({ clipboard }) => clipboard.writeText('before the copy'));
+			await block.click();
+			await page.keyboard.press('Meta+C');
+			const file = await waitForReading(readFile, read => read !== '', `copy ${copy} of twelve of the file block to put handout.pdf on the clipboard`, 5_000);
+			if (!decodeURIComponent(file).endsWith(stored)) {
+				throw new Error(`A copy of a file block must put its stored file on the clipboard: ${file}`);
+			}
+		}
+
+		const before = fs.readFileSync(readmePath, 'utf8');
+		await app.evaluate(({ clipboard }) => clipboard.writeText('before the cut'));
+		await block.click();
+		await page.keyboard.press('Meta+X');
+		await waitForReading(() => app.evaluate(({ clipboard }) => clipboard.readText()), text => text.includes('handout.pdf'), 'the cut to put the block\'s Markdown on the clipboard', 5_000);
+		// A copy's file joins about 0.1 s after the page wrote the clipboard.
+		await page.waitForTimeout(1000);
+		if (await readFile() !== '') {
+			throw new Error('A cut of a file block must not put its file on the clipboard');
+		}
+		await page.keyboard.press('Meta+Z');
+		await frame.locator('.bn-file-name-with-icon', { hasText: 'handout.pdf' }).last().waitFor({ state: 'visible', timeout: 10_000 });
+		await waitUntil(() => fs.readFileSync(readmePath, 'utf8') === before, 'one undo to put the cut file block back into README.md', 15_000);
+	});
+}
+
 export async function assertMarkdownRichPassthroughEditInSource(page) {
 	const frame = await activeMarkdownRichFrame(page);
 	const island = frame.locator('.basehalf-raw-passthrough', { hasText: 'raw html island' }).first();

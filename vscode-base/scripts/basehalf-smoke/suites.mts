@@ -62,6 +62,7 @@ import {
 	assertMarkdownRichEditorEditsAndSaves,
 	assertMarkdownRichExternalMergePreservesCursor,
 	assertMarkdownRichFileAttachment,
+	assertMarkdownRichFileCopyHoldsTheFile,
 	assertMarkdownRichFileLinkAutocomplete,
 	assertMarkdownRichHandlesFollowZoom,
 	assertMarkdownRichMenuUndoRoutesToEditor,
@@ -240,6 +241,7 @@ async function runCardDetailSuite(page) {
 	await step('readme-rich-composition-queues-single-undo', () => assertMarkdownRichCompositionQueuesSingleUndo(page));
 	await step('readme-rich-file-link-autocomplete', () => assertMarkdownRichFileLinkAutocomplete(page));
 	await step('readme-rich-file-attachment', () => assertMarkdownRichFileAttachment(page));
+	await step('readme-rich-file-copy-holds-the-file', () => assertMarkdownRichFileCopyHoldsTheFile(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 	await step('workspace-open-installs-nothing', () => assertWorkspaceOpenInstallsNothing());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));

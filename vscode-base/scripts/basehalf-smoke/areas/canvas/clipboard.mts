@@ -16,8 +16,8 @@ import { waitForReading, waitUntil } from '../../lib/steps.mts';
 /**
  * Criteria 1, 3, 6, and 14 of copy, paste, and drop: Command-C on a selected
  * card, a folder's here, writes it as a file, its path as text, and
- * BaseHalf's record in one write; Command-V on the canvas makes a copy, and
- * one undo takes it away; text
+ * BaseHalf's record in one write, and each copy of two cards holds both
+ * files; Command-V on the canvas makes a copy, and one undo takes it away; text
  * pasted on the canvas becomes a note; Command-C in a field copies text, not
  * the card. The step writes the system clipboard, so it runs only while the
  * clipboard holds text alone, which it puts back, or where the clipboard is
@@ -62,6 +62,20 @@ export async function assertCanvasCopyPasteKeys(page) {
 		await waitForCanvasCardSelection(page, 'src copy');
 		await page.keyboard.press(undo);
 		await waitUntil(() => !exists('src copy'), 'one undo to take the pasted copy away', 15_000);
+
+		// Criterion 3: each copy of two cards holds both files once it is written; the system dropped the second
+		// file of a writer that ended at once in 10 of 16 writes.
+		await folder.click();
+		await waitForCanvasCardSelection(page, 'src');
+		await readme.click({ modifiers: ['Shift'] });
+		await waitForCanvasCardSelection(page, 'README.md');
+		const readFiles = () => app.evaluate(({ clipboard }) => clipboard.read('NSFilenamesPboardType'));
+		for (let copy = 1; copy <= 5; copy++) {
+			await app.evaluate(({ clipboard }) => clipboard.writeText('before the copy'));
+			await page.keyboard.press('Meta+C');
+			await waitForReading(readFiles, files => /\/src<\/string>/.test(files) && /\/README\.md<\/string>/.test(files), `copy ${copy} of five of the cards of src and README.md to hold both files`, 10_000);
+		}
+		await page.keyboard.press('Escape');
 
 		const words = `Pasted by the smoke ${Date.now()}`;
 		await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), words);
