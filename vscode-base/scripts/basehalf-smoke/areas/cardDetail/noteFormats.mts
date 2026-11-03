@@ -1016,8 +1016,9 @@ export async function assertNoteFormatsMenuPaste(page) {
 		const screenshot = createSolidPng(40, 30, [200, 60, 60]).toString('base64');
 		await app.evaluate(({ clipboard, nativeImage }, base64) => clipboard.writeImage(nativeImage.createFromBuffer(Buffer.from(base64, 'base64'))), screenshot);
 		const pasted = description => waitForReading(() => readFormatsNote(), text => text !== original && /\.png\b/.test(text), description, 15_000);
-		// The file a picture is copied into is named by the copy: only the name may differ.
-		const shape = text => text.replace(/[^\s"()[\]/]+\.png\b/g, 'picture.png');
+		// The file a picture is copied into is named by the time and numbered when the name is taken (files in notes,
+		// rules 10 and 11): only the name and its link may differ.
+		const shape = text => text.replace(/!\[[^\]]*\]\([^)]*\.png\)/g, '![picture](picture.png)');
 
 		await clickLine(frame, 'Paste a picture here.', 'end');
 		await page.keyboard.press(`${COMMAND}+v`);
