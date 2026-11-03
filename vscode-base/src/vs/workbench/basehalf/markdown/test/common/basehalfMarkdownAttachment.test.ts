@@ -14,6 +14,7 @@ import { FileService } from '../../../../../platform/files/common/fileService.js
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { IBaseHalfFileClonesService } from '../../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../../workspace/common/basehalfMirrorIgnore.js';
 import { BaseHalfMarkdownAttachmentService, baseHalfMarkdownAttachmentHref, BaseHalfNoteFileError, baseHalfNoteFileFailure } from '../../common/basehalfMarkdownAttachment.js';
@@ -34,10 +35,25 @@ suite('BaseHalfMarkdownAttachment', () => {
 			await fileService.writeFile(joinPath(WORKSPACE, ...path.split('/')), VSBuffer.fromString(content));
 		}
 		const contextService = { getWorkspaceFolder: (resource: URI) => isEqualOrParent(resource, WORKSPACE) ? { uri: WORKSPACE } : null } as unknown as IWorkspaceContextService;
-		const service = new BaseHalfMarkdownAttachmentService(fileService, contextService);
+		const service = new BaseHalfMarkdownAttachmentService(fileService, contextService, clonesOn(fileService));
 		const put = (note: string, text: string, name: string, mediaType = '', content = name, now?: Date) =>
 			service.store(URI.joinPath(WORKSPACE, ...note.split('/')), text, name, mediaType, new TextEncoder().encode(content).buffer as ArrayBuffer, now);
-		return { fileService, put, files: () => tree(fileService) };
+		const putItems = (note: string, text: string, paths: readonly string[]) =>
+			service.items(URI.joinPath(WORKSPACE, ...note.split('/')), text, paths.map(path => path.startsWith('/') ? URI.file(path) : joinPath(WORKSPACE, ...path.split('/'))));
+		return { fileService, put, putItems, files: () => tree(fileService) };
+	}
+
+	/** Clones as the disk's own clone does: never over a file that is there. */
+	function clonesOn(fileService: IFileService): IBaseHalfFileClonesService {
+		return {
+			_serviceBrand: undefined,
+			clone: async (source: URI, target: URI) => {
+				if (await fileService.exists(target)) {
+					throw new Error('EEXIST: file already exists');
+				}
+				await fileService.copy(source, target, false);
+			},
+		} as unknown as IBaseHalfFileClonesService;
 	}
 
 	/** Every file of the workspace with its text. */
@@ -178,7 +194,7 @@ suite('BaseHalfMarkdownAttachment', () => {
 			await marked.put('a.md', '', 'x.png', 'image/png').then(() => 'stored', reason),
 			await marked.put('../elsewhere/b.md', '', 'x.png', 'image/png').then(() => 'stored', reason),
 		];
-		const service = new BaseHalfMarkdownAttachmentService(marked.fileService, { getWorkspaceFolder: () => ({ uri: WORKSPACE }) } as unknown as IWorkspaceContextService);
+		const service = new BaseHalfMarkdownAttachmentService(marked.fileService, { getWorkspaceFolder: () => ({ uri: WORKSPACE }) } as unknown as IWorkspaceContextService, clonesOn(marked.fileService));
 		reasons.push(await service.store(joinPath(WORKSPACE, 'a.md'), '', 'clip.mp4', 'video/mp4', { byteLength: 100 * 1024 * 1024 + 1 } as ArrayBuffer).then(() => 'stored', reason));
 
 		assert.deepStrictEqual({ reasons, files: Object.keys(await marked.files()).sort() }, {
@@ -188,6 +204,44 @@ suite('BaseHalfMarkdownAttachment', () => {
 				'Could not add clip.mp4: a note takes files of at most 100 MB.'
 			],
 			files: ['.basehalf-no-workspace-setup', 'a.md']
+		});
+	});
+
+	test('items of the workspace are linked where they are; a file from elsewhere or of another note is cloned into the note\'s folder, its own file not; a folder from elsewhere is refused and the rest go in', async () => {
+		const workspace = await open({
+			'docs/pic.png': 'pic',
+			'docs/other.md': '# Other',
+			'docs/media/clip.mp4': 'clip',
+			'.bh/attachments/aaaaaaaaaa/theirs.png': 'theirs',
+			'.bh/attachments/bbbbbbbbbb/mine.png': 'mine',
+			'notes/a.md': '',
+		});
+		await workspace.fileService.writeFile(URI.file('/elsewhere/report v2.pdf'), VSBuffer.fromString('report'));
+		await workspace.fileService.writeFile(URI.file('/elsewhere/folder/inside.txt'), VSBuffer.fromString('inside'));
+		const result = await workspace.putItems('notes/a.md', '![](../.bh/attachments/bbbbbbbbbb/mine.png)', ['docs/pic.png', 'docs/other.md', 'docs/media', '/elsewhere/report v2.pdf', '.bh/attachments/aaaaaaaaaa/theirs.png', '.bh/attachments/bbbbbbbbbb/mine.png', '/elsewhere/folder', '/elsewhere/missing.png']);
+		const stored = result.items.filter(item => item.url.includes('.bh/attachments/'));
+		const folders = new Set(stored.map(item => folderOf(item.url)));
+		const files = await workspace.files();
+		assert.deepStrictEqual({
+			items: result.items.map(item => ({ ...item, url: item.url.replace(/attachments\/[a-z0-9]{10}\//, 'attachments/<folder>/') })),
+			oneFolder: folders.size,
+			failures: result.failures,
+			copied: Object.keys(files).filter(path => path.startsWith('.bh/attachments/') && !path.includes('aaaaaaaaaa')).map(path => path.replace(/attachments\/[a-z0-9]{10}\//, 'attachments/<folder>/')).sort(),
+		}, {
+			items: [
+				{ kind: 'file', url: '../docs/pic.png', name: 'pic.png' },
+				{ kind: 'link', url: '../docs/other.md', name: 'other.md' },
+				{ kind: 'link', url: '../docs/media', name: 'media' },
+				{ kind: 'file', url: '../.bh/attachments/<folder>/report%20v2.pdf', name: 'report v2.pdf' },
+				{ kind: 'file', url: '../.bh/attachments/<folder>/theirs.png', name: 'theirs.png' },
+				{ kind: 'file', url: '../.bh/attachments/<folder>/mine.png', name: 'mine.png' },
+			],
+			oneFolder: 1,
+			failures: [
+				{ name: 'folder', message: 'Could not add folder: a folder from outside the open folder is not put into a note.' },
+				{ name: 'missing.png', message: 'Could not add missing.png: it could not be saved.' },
+			],
+			copied: ['.bh/attachments/<folder>/mine.png', '.bh/attachments/<folder>/report v2.pdf', '.bh/attachments/<folder>/theirs.png'],
 		});
 	});
 

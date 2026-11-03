@@ -94,10 +94,10 @@ import {
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { createBaseHalfNoteEditorApi, type IBaseHalfNoteWriteWarning } from './noteConversions.js';
 import { installBaseHalfNoteCopy } from './noteCopy.js';
-import { chooseBaseHalfNoteMedia, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type BaseHalfNoteMediaChoice, type IBaseHalfNoteStoredFile } from './noteMedia.js';
+import { addBaseHalfNoteItems, baseHalfNoteDropCursor, chooseBaseHalfNoteMedia, showBaseHalfNoteDropPoint, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type BaseHalfNoteItemsRequest, type BaseHalfNoteMediaChoice, type IBaseHalfNoteItems, type IBaseHalfNoteStoredFile } from './noteMedia.js';
 import { baseHalfNoteLinkPath } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteFileLinks.js';
 import { installBaseHalfNoteBlockIndex } from './noteBlockIndex.js';
-import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from './notePaste.js';
+import { installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from './notePaste.js';
 import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
@@ -628,6 +628,11 @@ function MarkdownRichEditor(): JSX.Element {
 		readonly reject: (error: Error) => void;
 		readonly timer: number;
 	}>());
+	const pendingItemRequests = useRef(new Map<string, {
+		readonly resolve: (items: IBaseHalfNoteItems | undefined) => void;
+		readonly timer: number;
+	}>());
+	const requestItemsRef = useRef<BaseHalfNoteItemsRequest>(async () => undefined);
 	const pointFocusTimer = useRef<number | undefined>(undefined);
 	const pointFocusFrame = useRef<number | undefined>(undefined);
 	const yTransactionRevision = useRef(0);
@@ -636,7 +641,9 @@ function MarkdownRichEditor(): JSX.Element {
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
 	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
-	const fileDropExtension = useMemo(() => makeBaseHalfNoteFileDropExtension(), []);
+	const fileDropExtension = useMemo(() => makeBaseHalfNoteFileDropExtension({ requestItems: (source, dropped) => requestItemsRef.current(source, dropped) }), []);
+	// What is pasted is read as a note's file is read (note formats, rules 72 to 74), and the clipboard's items as the host puts them in (files in notes, rule 15).
+	const pasteHandler = useMemo(() => makeBaseHalfNotePasteHandler((source, dropped) => requestItemsRef.current(source, dropped)), []);
 	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension({
 		openLink: href => openLinkRef.current(href),
 		undoManager: () => noteUndoRef.current?.ensure(),
@@ -694,6 +701,27 @@ function MarkdownRichEditor(): JSX.Element {
 		});
 	}), [asyncMutationBarrier, vscode]);
 
+	// Items that come with their paths, which the page cannot read, are put in
+	// by the host: an item of the workspace linked where it is, a file from
+	// elsewhere cloned into the note's folder (files in notes, rules 12 and 15).
+	const requestItems = useCallback<BaseHalfNoteItemsRequest>((source, dropped) => asyncMutationBarrier.run(async () => {
+		const state = session.current;
+		if (!state.key || !state.ready || !state.editable || state.structuralFrozen) {
+			return undefined;
+		}
+		const requestId = `items-${nextRequestId()}`;
+		return new Promise<IBaseHalfNoteItems | undefined>(resolve => {
+			// A clone takes no time, but a copy from another disk can take long.
+			const timer = window.setTimeout(() => {
+				pendingItemRequests.current.delete(requestId);
+				resolve({ items: [], failures: [{ name: '', message: 'Could not add the files: it took too long.' }] });
+			}, 600_000);
+			pendingItemRequests.current.set(requestId, { resolve, timer });
+			vscode.postMessage({ type: 'basehalf.markdownRich.itemsRequest', key: state.key, requestId, source, ...dropped });
+		});
+	}), [asyncMutationBarrier, vscode]);
+	requestItemsRef.current = requestItems;
+
 	const resolveFileUrl = useCallback(async (url: string): Promise<string> => {
 		if (!url || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url)) {
 			return url;
@@ -731,8 +759,8 @@ function MarkdownRichEditor(): JSX.Element {
 			},
 		},
 		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension, fileDropExtension],
-		// What is pasted is read as a note's file is read (note formats, rules 72 to 74).
-		pasteHandler: baseHalfNotePasteHandler,
+		dropCursor: baseHalfNoteDropCursor,
+		pasteHandler,
 		collaboration: {
 			fragment: fragment as XmlFragment,
 			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
@@ -1964,6 +1992,24 @@ function MarkdownRichEditor(): JSX.Element {
 					}
 					break;
 				}
+				case 'basehalf.markdownRich.itemsResult': {
+					const pending = pendingItemRequests.current.get(message.requestId);
+					pendingItemRequests.current.delete(message.requestId);
+					if (pending) {
+						window.clearTimeout(pending.timer);
+						pending.resolve(message.items || message.failures ? { items: message.items ?? [], failures: message.failures ?? [] } : undefined);
+					}
+					break;
+				}
+				case 'basehalf.markdownRich.dragPoint':
+					showBaseHalfNoteDropPoint(editor, message.point);
+					break;
+				case 'basehalf.markdownRich.dropItems':
+					// Files dragged from another app, which the window read with their paths, go in where they were let go.
+					if (editor.isEditable) {
+						void addBaseHalfNoteItems(editor, () => requestItemsRef.current('drop', { uris: message.uris }), message.point);
+					}
+					break;
 				case 'basehalf.markdownRich.save':
 					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite, message.structural, message.handoff);
 					break;
@@ -2083,6 +2129,11 @@ function MarkdownRichEditor(): JSX.Element {
 			pending.reject(new Error('The note was closed before the file was added.'));
 		}
 		pendingAttachmentUploads.current.clear();
+		for (const pending of pendingItemRequests.current.values()) {
+			window.clearTimeout(pending.timer);
+			pending.resolve(undefined);
+		}
+		pendingItemRequests.current.clear();
 	}, []);
 
 	useEffect(() => {

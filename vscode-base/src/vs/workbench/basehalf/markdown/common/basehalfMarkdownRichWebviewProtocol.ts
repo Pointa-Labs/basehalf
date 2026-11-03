@@ -34,6 +34,26 @@ export interface IBaseHalfMarkdownRichFocusPoint {
 }
 
 /**
+ * A file or a folder that a paste or a drop puts into a note, as the host
+ * stored or linked it (files in notes, rules 12 and 15): a file's block, a
+ * picture, a video, or a sound by the one list of media files, or a link to
+ * a note or a folder.
+ */
+export interface IBaseHalfMarkdownRichNoteItem {
+	readonly kind: 'file' | 'link';
+	/** The note's link to it, relative to the note's folder, in the one encoding. */
+	readonly url: string;
+	/** The name its block or its link shows. */
+	readonly name: string;
+}
+
+/** An item that could not be put into a note, and why, in plain words with no path under `.bh` (files in notes, rule 49). */
+export interface IBaseHalfMarkdownRichNoteItemFailure {
+	readonly name: string;
+	readonly message: string;
+}
+
+/**
  * A wheel event of a pinch that the window took over the page. The browser
  * hands a pinch of the trackpad to the window, not to the page that draws the
  * note, so the window passes it on (zoom and outline of a note). The point is
@@ -166,6 +186,39 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly error?: string;
 	}
 	| {
+		/**
+		 * What the host made of the items a paste or a drop brought: none when
+		 * the clipboard holds no items, so that the paste goes on as the
+		 * editor's own; else each item's block and each failure's words.
+		 */
+		readonly type: 'basehalf.markdownRich.itemsResult';
+		readonly key: string;
+		readonly requestId: string;
+		readonly items?: readonly IBaseHalfMarkdownRichNoteItem[];
+		readonly failures?: readonly IBaseHalfMarkdownRichNoteItemFailure[];
+	}
+	| {
+		/**
+		 * Files dropped from another app on Rich, which the window read with
+		 * their paths while the page let the drag through: they go in at
+		 * `point` of the page as items dragged from Files do.
+		 */
+		readonly type: 'basehalf.markdownRich.dropItems';
+		readonly key: string;
+		readonly point: IBaseHalfMarkdownRichFocusPoint;
+		readonly uris: readonly string[];
+	}
+	| {
+		/**
+		 * Where a drag that the window holds, as one from Files, is over the
+		 * page, so that the page shows where its items would go; none when it
+		 * left the page or was let go.
+		 */
+		readonly type: 'basehalf.markdownRich.dragPoint';
+		readonly key: string;
+		readonly point?: IBaseHalfMarkdownRichFocusPoint;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.save';
 		readonly key: string;
 		readonly requestId: string;
@@ -272,6 +325,22 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly data: ArrayBuffer;
 	}
 	| {
+		/**
+		 * The items a paste or a drop brings that the page cannot read with
+		 * their paths (files in notes, rules 12, 14, and 15): the clipboard's
+		 * items for a paste, read by the host; for a drop, the items dragged
+		 * from Files, as file addresses, or the files dragged from another app
+		 * or chosen in the system's file chooser.
+		 */
+		readonly type: 'basehalf.markdownRich.itemsRequest';
+		readonly key: string;
+		readonly requestId: string;
+		readonly source: 'paste' | 'drop';
+		readonly uris?: readonly string[];
+		/** Files dropped from another app or chosen, whose paths the window reads. */
+		readonly files?: readonly File[];
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.openResource';
 		readonly key: string;
 		readonly href: string;
@@ -368,6 +437,18 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& candidate.requestId.length > 0
 				&& Array.isArray(candidate.files)
 				&& candidate.files.every(isBaseHalfMarkdownRichFileLink);
+		case 'basehalf.markdownRich.itemsResult':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& (candidate.items === undefined || (Array.isArray(candidate.items) && candidate.items.every(isBaseHalfMarkdownRichNoteItem)))
+				&& (candidate.failures === undefined || (Array.isArray(candidate.failures) && candidate.failures.every(isBaseHalfMarkdownRichNoteItemFailure)));
+		case 'basehalf.markdownRich.dragPoint':
+			return candidate.point === undefined || isBaseHalfMarkdownRichFocusPoint(candidate.point);
+		case 'basehalf.markdownRich.dropItems':
+			return isBaseHalfMarkdownRichFocusPoint(candidate.point)
+				&& Array.isArray(candidate.uris)
+				&& candidate.uris.length > 0
+				&& candidate.uris.every(uri => typeof uri === 'string' && uri.length > 0);
 		case 'basehalf.markdownRich.attachmentResult':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -447,6 +528,12 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 				&& candidate.name.length > 0
 				&& typeof candidate.mediaType === 'string'
 				&& candidate.data instanceof ArrayBuffer;
+		case 'basehalf.markdownRich.itemsRequest':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& (candidate.source === 'paste' || candidate.source === 'drop')
+				&& (candidate.uris === undefined || (Array.isArray(candidate.uris) && candidate.uris.every(uri => typeof uri === 'string' && uri.length > 0)))
+				&& (candidate.files === undefined || (Array.isArray(candidate.files) && candidate.files.every(file => file instanceof File)));
 		case 'basehalf.markdownRich.openResource':
 			return typeof candidate.href === 'string' && candidate.href.length > 0;
 		case 'basehalf.markdownRich.clipboard':
@@ -564,6 +651,26 @@ function isBaseHalfMarkdownRichAdhdCommand(value: unknown): value is IBaseHalfAd
 	}
 
 	return false;
+}
+
+function isBaseHalfMarkdownRichNoteItem(value: unknown): value is IBaseHalfMarkdownRichNoteItem {
+	if (!isObject(value)) {
+		return false;
+	}
+	const item = value as Partial<IBaseHalfMarkdownRichNoteItem>;
+	return (item.kind === 'file' || item.kind === 'link')
+		&& typeof item.url === 'string'
+		&& item.url.length > 0
+		&& typeof item.name === 'string'
+		&& item.name.length > 0;
+}
+
+function isBaseHalfMarkdownRichNoteItemFailure(value: unknown): value is IBaseHalfMarkdownRichNoteItemFailure {
+	if (!isObject(value)) {
+		return false;
+	}
+	const failure = value as Partial<IBaseHalfMarkdownRichNoteItemFailure>;
+	return typeof failure.name === 'string' && typeof failure.message === 'string' && failure.message.length > 0;
 }
 
 function isBaseHalfMarkdownRichFileLink(value: unknown): value is IBaseHalfMarkdownRichFileLink {

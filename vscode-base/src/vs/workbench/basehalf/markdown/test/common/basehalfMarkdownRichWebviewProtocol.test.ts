@@ -175,6 +175,23 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1', url: '.bh/attachments/7k3f9q2m1x/file.pdf', name: '' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1', error: 'Write failed' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.attachmentResult', key: 'workspace\u0000doc.md', requestId: 'attachment-1' }), false);
+		// The items a paste or a drop brought, as the host stored or linked them (files in notes, rules 12 and 15).
+		const item = { kind: 'file', url: '../.bh/attachments/7k3f9q2m1x/clip.mp4', name: 'clip.mp4' };
+		assert.deepStrictEqual([
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.itemsResult', key: 'workspace\u0000doc.md', requestId: 'items-1' }),
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.itemsResult', key: 'workspace\u0000doc.md', requestId: 'items-1', items: [item, { kind: 'link', url: 'docs', name: 'docs' }], failures: [{ name: 'x', message: 'Could not add x: it could not be saved.' }] }),
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.itemsResult', key: 'workspace\u0000doc.md', requestId: 'items-1', items: [{ ...item, kind: 'picture' }] }),
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.itemsResult', key: 'workspace\u0000doc.md', requestId: 'items-1', failures: ['Could not add x: it could not be saved.'] }),
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.dropItems', key: 'workspace\u0000doc.md', point: { x: 10, y: 20 }, uris: ['file:///elsewhere/clip.mp4'] }),
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.dropItems', key: 'workspace\u0000doc.md', point: { x: 10, y: 20 }, uris: [] }),
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.dragPoint', key: 'workspace\u0000doc.md', point: { x: 10, y: 20 } }),
+			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.dragPoint', key: 'workspace\u0000doc.md' }),
+			isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.itemsRequest', key: 'workspace\u0000doc.md', requestId: 'items-1', source: 'paste' }),
+			isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.itemsRequest', key: 'workspace\u0000doc.md', requestId: 'items-1', source: 'drop', uris: ['file:///workspace/docs/pic.png'] }),
+			isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.itemsRequest', key: 'workspace\u0000doc.md', requestId: 'items-1', source: 'cut' }),
+			isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.itemsRequest', key: 'workspace\u0000doc.md', requestId: 'items-1', source: 'drop', files: [new File(['v'], 'clip.mp4')] }),
+			isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.itemsRequest', key: 'workspace\u0000doc.md', requestId: 'items-1', source: 'drop', files: ['/elsewhere/clip.mp4'] }),
+		], [true, true, false, false, true, false, true, true, true, true, false, true, false]);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.setStructuralFreeze', key: 'workspace\u0000doc.md', requestId: '', frozen: true }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true, forceWrite: false }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'maybe' }), false);

@@ -37,11 +37,11 @@ import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDe
 import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
 import { createCanvasMarkdownInlineEditor } from '../canvas-markdown-inline-src/canvasMarkdownInline.js';
 import { installBaseHalfNoteCopy } from '../markdown-rich-src/noteCopy.js';
-import { addBaseHalfNoteFile, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type IBaseHalfNoteStoredFile } from '../markdown-rich-src/noteMedia.js';
+import { addBaseHalfNoteFile, installBaseHalfNoteResizeUnderZoom, makeBaseHalfNoteFileDropExtension, type BaseHalfNoteItemsRequest, type IBaseHalfNoteItems, type IBaseHalfNoteStoredFile } from '../markdown-rich-src/noteMedia.js';
 import { baseHalfMarkdownPathHref } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownText.js';
 import { normalizeBaseHalfNote } from '../markdown-rich-src/noteNormalizer.js';
 import { installBaseHalfNoteBlockIndex } from '../markdown-rich-src/noteBlockIndex.js';
-import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from '../markdown-rich-src/notePaste.js';
+import { baseHalfNotePasteHandler, installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from '../markdown-rich-src/notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
@@ -79,6 +79,22 @@ async function uploadTestFile(file: File): Promise<IBaseHalfNoteStoredFile> {
 	const name = file.name === 'image.png' && file.type === 'image/png' ? 'untitled 2026-11-03 15.30.12.png' : file.name;
 	return { props: { url: `${NOTE_STORE}/${baseHalfMarkdownPathHref(name)}`, name } };
 }
+
+/** What the host was asked for items, and what it answers next: none, as for a clipboard of text, until a check sets them. */
+const itemRequests: { readonly source: 'paste' | 'drop'; readonly uris?: readonly string[]; readonly files?: readonly string[] }[] = [];
+const itemsAnswer: { next?: IBaseHalfNoteItems; delay?: number } = {};
+
+/**
+ * The host's answer to a paste or a drop of items (files in notes, rules 12
+ * and 15), as the card's host gives it after it linked or cloned them.
+ */
+const requestTestItems: BaseHalfNoteItemsRequest = async (source, dropped) => {
+	itemRequests.push({ source, ...(dropped && 'uris' in dropped ? { uris: [...dropped.uris] } : {}), ...(dropped && 'files' in dropped ? { files: dropped.files.map(file => file.name) } : {}) });
+	if (itemsAnswer.delay) {
+		await new Promise(resolve => setTimeout(resolve, itemsAnswer.delay));
+	}
+	return itemsAnswer.next;
+};
 
 /** The folder of the note the test opens. Nothing is served there, so a picture of a note loads nothing. */
 const NOTE_FOLDER = `${location.origin}/notes/`;
@@ -148,8 +164,8 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 			openLink: href => openedLinks.push(href),
 			undoManager: () => openNow.history?.ensure(),
 			reading: () => openNow.reading,
-		}), makeBaseHalfNoteFileDropExtension()],
-		paste: { handler: baseHalfNotePasteHandler, install: (editor, api) => installBaseHalfNotePaste(editor, api) },
+		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems })],
+		paste: { handler: makeBaseHalfNotePasteHandler(requestTestItems), install: (editor, api) => installBaseHalfNotePaste(editor, api) },
 		copy: editor => installBaseHalfNoteCopy(editor, document.body),
 		blockIndex: editor => installBaseHalfNoteBlockIndex(editor),
 	},
@@ -1007,6 +1023,91 @@ function transferOf(files: readonly File[], data: Readonly<Record<string, string
 }
 
 /**
+ * Items that come with their paths (D111, rules 12, 14 to 17): the host is
+ * asked for the clipboard's items before a paste is read, and for the items
+ * dragged from Files before a drop; each item goes in as its block, a note or
+ * a folder as a line with its link, all in one step of undo, and what failed
+ * says why. A clipboard of text the host has no items for pastes as before,
+ * and a paste of what an editor or a page copied asks nothing.
+ */
+async function noteItems(t: INoteFormatsTest): Promise<void> {
+	const answer: IBaseHalfNoteItems = {
+		items: [
+			{ kind: 'file', url: '../docs/pic.png', name: 'pic.png' },
+			{ kind: 'link', url: '../docs/other.md', name: 'other.md' },
+			{ kind: 'file', url: `${NOTE_STORE}/report%20v2.pdf`, name: 'report v2.pdf' },
+		],
+		failures: [{ name: 'missing.png', message: 'Could not add missing.png: it could not be saved.' }],
+	};
+	const placeholder = () => t.editor.domElement?.querySelector<HTMLElement>('.basehalf-note-media-placeholder');
+	const paste = async (data: Readonly<Record<string, string>>, next: IBaseHalfNoteItems | undefined, delay = 0) => {
+		await t.load('Start.\n');
+		await t.frames();
+		t.caret('Start.');
+		await t.keyboard.press('Enter');
+		itemRequests.length = 0;
+		itemsAnswer.next = next;
+		itemsAnswer.delay = delay;
+		t.editor.domElement?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transferOf([], data), bubbles: true, cancelable: true }));
+	};
+	await paste({ 'text/plain': '/elsewhere/report v2.pdf' }, answer, 300);
+	await new Promise(resolve => setTimeout(resolve, 250));
+	const adding = { shown: !!placeholder() && !placeholder()?.hidden, text: placeholder()?.textContent ?? null };
+	await until('the items are in', () => t.blocks().length > 2);
+	await t.frames(3);
+	const failed = placeholder()?.textContent ?? null;
+	const pastedItems = { requests: [...itemRequests], adding, failed, saved: await t.save() };
+	t.command('undo');
+	await t.frames(3);
+	const undone = await t.save();
+	await until('the failure is gone', () => !placeholder(), 5000);
+
+	await paste({ 'text/plain': 'plain words' }, undefined);
+	await until('the text is in', () => t.blocks().some(block => block.text === 'plain words'));
+	await t.frames(3);
+	const text = { requests: [...itemRequests], placeholder: !!placeholder(), saved: await t.save() };
+	await paste({ 'text/html': '<p>From a <b>page</b></p>', 'text/plain': 'From a page' }, answer);
+	await until('the page\'s text is in', () => t.blocks().some(block => block.text === 'From a page'));
+	await t.frames(3);
+	const page = { requests: [...itemRequests], saved: await t.save() };
+
+	await t.load('Start.\n\nSecond.\n');
+	await t.frames();
+	const second = [...t.editor.domElement?.querySelectorAll<HTMLElement>('.bn-inline-content') ?? []].find(element => element.textContent === 'Second.');
+	const box = second?.getBoundingClientRect();
+	itemRequests.length = 0;
+	itemsAnswer.next = { items: [{ kind: 'file', url: '../docs/pic.png', name: 'pic.png' }, { kind: 'link', url: '../docs/media', name: 'media' }], failures: [] };
+	itemsAnswer.delay = 0;
+	// What Files puts into a drag of its items: their addresses, their paths, and the paths as text.
+	t.editor.domElement?.querySelector('.bn-inline-content')?.dispatchEvent(new DragEvent('drop', {
+		dataTransfer: transferOf([], { ResourceURLs: JSON.stringify(['file:///workspace/docs/pic.png', 'file:///workspace/docs/media']), CodeFiles: JSON.stringify(['/workspace/docs/pic.png', '/workspace/docs/media']), 'text/plain': '~/workspace/docs/pic.png\n~/workspace/docs/media' }),
+		clientX: (box?.left ?? 0) + 2, clientY: (box?.top ?? 0) + (box?.height ?? 0) / 2, bubbles: true, cancelable: true,
+	}));
+	await until('the dropped items are in', () => t.blocks().length > 3);
+	await t.frames(3);
+	const dropped = { requests: [...itemRequests], saved: await t.save() };
+	itemsAnswer.next = undefined;
+
+	t.check('the clipboard\'s items and the items dragged from Files go in as the host puts them in, in one step of undo; what failed says why; text and a page\'s copy paste as before', {
+		pastedItems, undone, text, page, dropped,
+	}, {
+		pastedItems: {
+			requests: [{ source: 'paste' }],
+			adding: { shown: true, text: 'Adding…' },
+			failed: 'Could not add missing.png: it could not be saved.',
+			saved: `Start.\n\n![pic.png](../docs/pic.png)\n\n[other.md](../docs/other.md)\n\n[report v2.pdf](${NOTE_STORE}/report%20v2.pdf)\n`,
+		},
+		undone: 'Start.\n',
+		text: { requests: [{ source: 'paste' }], placeholder: false, saved: 'Start.\n\nplain words\n' },
+		page: { requests: [], saved: 'Start.\n\nFrom a **page**\n' },
+		dropped: {
+			requests: [{ source: 'drop', uris: ['file:///workspace/docs/pic.png', 'file:///workspace/docs/media'] }],
+			saved: 'Start.\n\nSecond.\n\n![pic.png](../docs/pic.png)\n\n[media](../docs/media)\n',
+		},
+	});
+}
+
+/**
  * Part q, files in notes (D111, rules 12 to 21): a pasted screenshot, the
  * picture a page copies, files dropped at a point, and a link into the note's
  * store read back as its block whatever its name; a paste that is text with a
@@ -1061,6 +1162,8 @@ async function noteFiles(t: INoteFormatsTest): Promise<void> {
 		dropped: { uploads: ['clip.mp4', 'voice.m4a'], saved: `Start.\n\nSecond.\n\n<video src="${NOTE_STORE}/clip.mp4" controls></video>\n\n<audio src="${NOTE_STORE}/voice.m4a" controls></audio>\n\nThird.\n` },
 		failed: { placeholder: 'Could not add fail.mov: the disk is full.', saved: `Start.\n\nSecond.\n\n<video src="${NOTE_STORE}/clip.mp4" controls></video>\n\n<audio src="${NOTE_STORE}/voice.m4a" controls></audio>\n\nThird.\n` },
 	});
+
+	await noteItems(t);
 
 	const stored = `[notes.md](${NOTE_STORE}/notes.md)\n\n[README](${NOTE_STORE}/README)\n\n[guide.md](guide.md)\n`;
 	await t.load(stored);

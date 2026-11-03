@@ -73,6 +73,10 @@ import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlain
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
+import { IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
+import { baseHalfDragHoldsFilesItems, baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
+import { WebviewWindowDragMonitor } from '../../../contrib/webview/browser/webviewWindowDragMonitor.js';
+import { getPathForFile } from '../../../../platform/dnd/browser/dnd.js';
 import { baseHalfMarkdownPathHref } from '../../markdown/common/basehalfNoteMarkdownText.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
@@ -266,6 +270,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private liveDocument: IBaseHalfMarkdownRichLiveDocumentHandle | undefined;
 	private bridge: BaseHalfMarkdownRichWebviewBridge | undefined;
 	private webview: IWebviewElement | undefined;
+	/** Where a drag that the window holds is over the page, and the frame that tells the page. */
+	private dragPoint: IBaseHalfMarkdownRichFocusPoint | undefined;
+	private dragPointFrame: number | undefined;
 	private dirty = false;
 	private lastSentContent: string | undefined;
 	private lastAcceptedEditorContent: string | undefined;
@@ -310,7 +317,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfMarkdownAttachmentService private readonly attachmentService: IBaseHalfMarkdownAttachmentService,
 		@ILogService private readonly logService: ILogService,
-		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
+		@IBaseHalfClipboardService private readonly clipboardService: IBaseHalfClipboardService
 	) {
 		super();
 		this.canvasAuthoring = this.surface !== 'canvas' || this.options.canvasAuthoring === true;
@@ -336,6 +344,34 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				void this.bridge?.sendZoomGesture({ deltaY: event.deltaY, deltaMode: event.deltaMode, x: event.clientX - box.left, y: event.clientY - box.top });
 			}, { passive: false }));
 		}
+		// A drag that starts in the window, as from Files, reaches the page's
+		// element and not the page, as a drag of files from another app that the
+		// page lets through: the window reads them with their paths, links the
+		// items of the workspace where they are, and clones the files from
+		// elsewhere into the note's folder (files in notes, rules 12, 14, and 15).
+		this._register(new WebviewWindowDragMonitor(mainWindow, () => this.webview));
+		this._register(addDisposableListener(this.webviewHost, EventType.DRAG_OVER, (event: DragEvent) => {
+			if (this.takesDrag(event)) {
+				event.preventDefault();
+				event.stopPropagation();
+				event.dataTransfer!.dropEffect = baseHalfDragHoldsFilesItems(event.dataTransfer) ? 'link' : 'copy';
+				// The page shows where they would go, as it does for a drag it holds itself.
+				this.showDragPoint(this.pagePoint(event.clientX, event.clientY));
+			}
+		}));
+		this._register(addDisposableListener(this.webviewHost, EventType.DRAG_LEAVE, (event: DragEvent) => {
+			if (!(event.relatedTarget instanceof Node && this.webviewHost.contains(event.relatedTarget))) {
+				this.showDragPoint(undefined);
+			}
+		}));
+		this._register(addDisposableListener(this.webviewHost, EventType.DROP, (event: DragEvent) => {
+			if (this.takesDrag(event)) {
+				event.preventDefault();
+				event.stopPropagation();
+				this.showDragPoint(undefined);
+				void this.handleDrop(event.dataTransfer!, event.clientX, event.clientY);
+			}
+		}));
 		applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'booting');
 		this.setSaveStatus('saving');
 		this._register(this.quickInputService.onShow(() => {
@@ -809,6 +845,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.attachmentUpload':
 				await this.handleAttachmentUpload(state, message.requestId, message.name, message.mediaType, message.data);
 				break;
+			case 'basehalf.markdownRich.itemsRequest':
+				await this.handleItemsRequest(state, message.requestId, message.source, message.uris, message.files);
+				break;
 			case 'basehalf.markdownRich.openResource':
 				await this.handleOpenResource(state, message.href);
 				break;
@@ -994,6 +1033,106 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this.logService.error('[BaseHalf] a file could not be put into the note', error);
 			await this.bridge?.sendAttachmentResult(requestId, { error: baseHalfNoteFileFailure(name, error) });
 		}
+	}
+
+	/**
+	 * Items that a paste or a drop brought with their paths go into the note
+	 * as the input row of a draft takes them (files in notes, rules 12, 14,
+	 * and 15): an item of the workspace is linked where it is, a file from
+	 * elsewhere is cloned into the note's folder. A paste reads the
+	 * clipboard's items; a drop, the items dragged from Files, or the paths of
+	 * the files dragged from another app, all of them or none. With none, the
+	 * page pastes or copies the files as it would.
+	 */
+	private async handleItemsRequest(state: IBaseHalfCardDetailState, requestId: string, source: 'paste' | 'drop', uris: readonly string[] | undefined, files: readonly File[] | undefined): Promise<void> {
+		let resources: URI[] = [];
+		if (this.isEditable() && !this.structuralFrozen) {
+			try {
+				if (source === 'paste') {
+					// A draft has no file to link; nothing is moved, also when the items were cut.
+					resources = ((await this.clipboardService.readItems())?.items ?? []).filter(item => !item.draft).map(item => item.resource);
+				} else if (files) {
+					const paths = files.map(file => getPathForFile(file));
+					resources = paths.every(path => !!path) ? paths.map(path => URI.file(path!)) : [];
+				} else {
+					resources = (uris ?? []).map(uri => URI.parse(uri));
+				}
+			} catch (error) {
+				this.logService.error('[BaseHalf] the items of a paste or a drop could not be read', error);
+			}
+		}
+		if (resources.length === 0) {
+			await this.bridge?.sendItemsResult(requestId, {});
+			return;
+		}
+		const result = await this.attachmentService.items(state.resource, this.model?.getValue() ?? '', resources);
+		await this.bridge?.sendItemsResult(requestId, result);
+	}
+
+	/**
+	 * A point of the window in the page's measure. The page's frame fills its
+	 * element from the top left; the element can be scrolled a few pixels as
+	 * focus moves in it, and the frame with it.
+	 */
+	private pagePoint(clientX: number, clientY: number): IBaseHalfMarkdownRichFocusPoint {
+		const box = this.webviewHost.getBoundingClientRect();
+		return { x: clientX - box.left + this.webviewHost.scrollLeft, y: clientY - box.top + this.webviewHost.scrollTop };
+	}
+
+	/** Tells the page where a drag the window holds is, once a frame, or that it is gone. */
+	private showDragPoint(point: IBaseHalfMarkdownRichFocusPoint | undefined): void {
+		const shown = this.dragPoint;
+		this.dragPoint = point;
+		if (!point) {
+			if (shown) {
+				void this.bridge?.sendDragPoint(undefined);
+			}
+			return;
+		}
+		if (shown && shown.x === point.x && shown.y === point.y || this.dragPointFrame !== undefined) {
+			return;
+		}
+		this.dragPointFrame = mainWindow.requestAnimationFrame(() => {
+			this.dragPointFrame = undefined;
+			if (this.dragPoint) {
+				void this.bridge?.sendDragPoint(this.dragPoint);
+			}
+		});
+	}
+
+	/** Whether a drag over the page's element holds items of Files or files of another app, and the note takes them. */
+	private takesDrag(event: DragEvent): boolean {
+		return (baseHalfDragHoldsFilesItems(event.dataTransfer) || [...event.dataTransfer?.types ?? []].some(type => type.toLowerCase() === 'files'))
+			&& this.isEditable() && !this.structuralFrozen;
+	}
+
+	/**
+	 * Items of Files and files of another app dropped on the note go in
+	 * where they were let go; a picture with no file is first kept in the
+	 * note's folder (files in notes, rules 12 to 15).
+	 */
+	private async handleDrop(dataTransfer: DataTransfer, clientX: number, clientY: number): Promise<void> {
+		const state = this.state;
+		const point = this.pagePoint(clientX, clientY);
+		const transfer = await baseHalfTransferFromDrop(dataTransfer);
+		if (!state || !transfer || transfer.kind === 'text') {
+			return;
+		}
+		let uris: string[];
+		if (transfer.kind === 'items') {
+			uris = transfer.items.map(item => item.resource.toString());
+		} else {
+			const name = transfer.name ?? `image.${transfer.extension}`;
+			const bytes = transfer.data.buffer;
+			try {
+				const stored = await this.attachmentService.store(state.resource, this.model?.getValue() ?? '', name, `image/${transfer.extension === 'jpg' ? 'jpeg' : transfer.extension}`, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+				uris = [stored.resource.toString()];
+			} catch (error) {
+				this.logService.error('[BaseHalf] a dropped picture could not be put into the note', error);
+				return;
+			}
+		}
+		await this.bridge?.sendDropItems(point, uris);
 	}
 
 	/**

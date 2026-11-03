@@ -9,7 +9,7 @@ import { buildBaseHalfMarkdownLoadProjection, type IBaseHalfMarkdownEditorApi } 
 import { repairBaseHalfNoteHtml, tidyBaseHalfNoteHtml } from '../../../src/vs/workbench/basehalf/markdown/browser/basehalfNoteHtmlRepair.js';
 import { baseHalfNoteBlockChildren, isBaseHalfNoteRecord } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteBlocks.js';
 import { postProcessBaseHalfNoteBlocks, stripBaseHalfNoteReadHints, type BaseHalfNoteReadMode } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteStructure.js';
-import { addBaseHalfNoteFiles, baseHalfNoteTransferFiles } from './noteMedia.js';
+import { addBaseHalfNoteFiles, addBaseHalfNoteItems, baseHalfNoteTransferFiles, type BaseHalfNoteItemsRequest } from './noteMedia.js';
 
 // Rich's paste (note formats, rules 72 to 74): HTML from another application
 // and Markdown are read as a note's file is read, so what comes in is what
@@ -113,6 +113,59 @@ function vscodeEditorMode(data: DataTransfer): string | undefined {
 	}
 }
 
+/** Whether the caret is in a block of code, where a paste is text. */
+function inCode(editor: BlockNoteEditor<any, any, any>): boolean {
+	return editor.transact(transaction => !!transaction.selection.$from.parent.type.spec.code);
+}
+
+/** What an editor or a page copies: a clipboard that holds one of them holds no items. */
+const notItems = ['vscode-editor-data', 'blocknote/html', 'text/markdown', 'text/html'];
+
+/** A copy of what a paste holds, which can still be read once the paste is over. */
+function copyOfTransfer(data: DataTransfer): DataTransfer {
+	const copy = new DataTransfer();
+	for (const type of data.types) {
+		if (type !== 'Files') {
+			copy.setData(type, data.getData(type));
+		}
+	}
+	for (const file of Array.from(data.files)) {
+		copy.items.add(file);
+	}
+	return copy;
+}
+
+/**
+ * The editor's paste handler with the clipboard's items (files in notes,
+ * rules 12, 14, and 15): files that BaseHalf or a file manager copied and
+ * cards copied on the canvas or in Files come with their paths, which only
+ * the host can read, so the host is asked for them first, and puts them in
+ * as their blocks. When the clipboard holds no items, the paste goes on as
+ * `baseHalfNotePasteHandler` reads it, from a copy of what it held. A paste
+ * of what an editor or a page copied, and a paste into code, are read at once.
+ */
+export function makeBaseHalfNotePasteHandler(requestItems: BaseHalfNoteItemsRequest): (paste: IBaseHalfNotePasteEvent) => boolean {
+	const replays = new WeakSet<Event>();
+	return paste => {
+		const { event, editor } = paste;
+		const data = event.clipboardData;
+		const view = editor.prosemirrorView;
+		if (replays.has(event) || !data || !view || data.types.length === 0 || data.types.some(type => notItems.includes(type)) || inCode(editor)) {
+			return baseHalfNotePasteHandler(paste);
+		}
+		const copy = copyOfTransfer(data);
+		void addBaseHalfNoteItems(editor, () => requestItems('paste')).then(added => {
+			if (added || view.isDestroyed) {
+				return;
+			}
+			const replay = new ClipboardEvent('paste', { clipboardData: copy, bubbles: true, cancelable: true });
+			replays.add(replay);
+			view.dom.dispatchEvent(replay);
+		});
+		return true;
+	};
+}
+
 /**
  * The editor's paste handler (rules 72 to 74): text that reads as Markdown is
  * Markdown, other text is text as typed, and Markdown copied from Source or
@@ -123,13 +176,12 @@ function vscodeEditorMode(data: DataTransfer): string | undefined {
  */
 export function baseHalfNotePasteHandler({ event, editor, defaultPasteHandler }: IBaseHalfNotePasteEvent): boolean {
 	const data = event.clipboardData;
-	const inCode = editor.transact(transaction => !!transaction.selection.$from.parent.type.spec.code);
 	const files = data ? baseHalfNoteTransferFiles(data) : [];
 	if (files.length > 0) {
 		void addBaseHalfNoteFiles(editor, files);
 		return true;
 	}
-	const mode = data && !inCode && data.types.includes('vscode-editor-data') ? vscodeEditorMode(data) : undefined;
+	const mode = data && !inCode(editor) && data.types.includes('vscode-editor-data') ? vscodeEditorMode(data) : undefined;
 	const text = mode ? data?.getData('text/plain') : undefined;
 	if (mode && text) {
 		if (mode === 'markdown') {

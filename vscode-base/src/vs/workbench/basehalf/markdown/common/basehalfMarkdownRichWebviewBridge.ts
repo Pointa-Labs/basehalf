@@ -13,6 +13,8 @@ import {
 	BaseHalfMarkdownRichWebviewMessage,
 	IBaseHalfMarkdownRichFileLink,
 	IBaseHalfMarkdownRichFocusPoint,
+	IBaseHalfMarkdownRichNoteItem,
+	IBaseHalfMarkdownRichNoteItemFailure,
 	IBaseHalfMarkdownRichTextSelection,
 	IBaseHalfMarkdownRichZoomGesture,
 	baseHalfMarkdownRichUpdateFromPayload,
@@ -147,6 +149,24 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			...(result.name ? { name: result.name } : {}),
 			...(result.error ? { error: result.error } : {})
 		});
+	}
+
+	sendItemsResult(requestId: string, result: { readonly items?: readonly IBaseHalfMarkdownRichNoteItem[]; readonly failures?: readonly IBaseHalfMarkdownRichNoteItemFailure[] }): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.itemsResult',
+			key: this.key,
+			requestId,
+			...(result.items ? { items: result.items } : {}),
+			...(result.failures && result.failures.length > 0 ? { failures: result.failures } : {})
+		});
+	}
+
+	sendDragPoint(point: IBaseHalfMarkdownRichFocusPoint | undefined): Promise<boolean> {
+		return this.transport.postMessage({ type: 'basehalf.markdownRich.dragPoint', key: this.key, ...(point ? { point } : {}) });
+	}
+
+	sendDropItems(point: IBaseHalfMarkdownRichFocusPoint, uris: readonly string[]): Promise<boolean> {
+		return this.transport.postMessage({ type: 'basehalf.markdownRich.dropItems', key: this.key, point, uris });
 	}
 
 	sendSave(requestId: string, options: { readonly forceSerialize: boolean; readonly forceWrite: boolean; readonly structural: boolean; readonly handoff: boolean }): Promise<boolean> {
