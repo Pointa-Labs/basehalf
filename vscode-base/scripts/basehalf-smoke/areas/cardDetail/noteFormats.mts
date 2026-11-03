@@ -539,6 +539,26 @@ export async function assertNoteFormatsCopyCarriesMarkdown(page) {
 }
 
 /**
+ * Note formats, criterion 36: Command-A selects every block of the note, also the picture and the file block at
+ * its end, and Command-C carries them all (rule 71a). The window's own Select All selected the page's text, which
+ * reached only to the end of the last line of text.
+ */
+export async function assertNoteFormatsSelectAllTakesEveryBlock(page) {
+	await withTheRunsClipboard('note formats select all', async () => {
+		const lines = ['# Select all', '', 'Text.', '', '![concept](concept.svg)', '', '[concept.svg](concept.svg)', ''];
+		const frame = await showNote(page, lines, 'Text.');
+		// A click puts the keys in Rich: a step before may have left them on a control of the window.
+		await clickLine(frame, 'Text.', 'end');
+		await page.keyboard.press(`${COMMAND}+a`);
+		await page.keyboard.press(`${COMMAND}+c`);
+		const expected = lines.join('\n').trimEnd();
+		await waitForReading(readClipboardText, text => text === expected, 'Command-A and Command-C to put every block of the note on the clipboard', 10_000).catch(async () => {
+			throw new Error(`Command-A and Command-C put another text on the clipboard: ${JSON.stringify(await readClipboardText())}`);
+		});
+	});
+}
+
+/**
  * Note formats, plans R8 and R9: Command-X and Command-V in Rich take a word away and put it back, and what
  * Command-C in Rich copies, Command-V in Source pastes as exactly the Markdown the note stores.
  */

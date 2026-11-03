@@ -43,7 +43,7 @@ import {
 	assertSourceCardSaveActionHidden,
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
-import { assertNoteFormatsCopyCarriesMarkdown, assertNoteFormatsCopyIntoSource, assertNoteFormatsInlineFormatsStored, assertNoteFormatsInputMethod, assertNoteFormatsMenuPaste, assertNoteFormatsOutlineFollowsToggles, assertNoteFormatsPaletteInBothAppearances, assertNoteFormatsPasteFromAPage, assertNoteFormatsKeepTypedLetters, assertNoteFormatsKeysStayInRich, assertNoteFormatsLinksOpenTheirTargets, assertNoteFormatsMediaFromTheMenu, assertNoteFormatsOfferOnlyWhatTheFileKeeps, assertNoteFormatsToggleStored, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
+import { assertNoteFormatsCopyCarriesMarkdown, assertNoteFormatsCopyIntoSource, assertNoteFormatsSelectAllTakesEveryBlock, assertNoteFormatsInlineFormatsStored, assertNoteFormatsInputMethod, assertNoteFormatsMenuPaste, assertNoteFormatsOutlineFollowsToggles, assertNoteFormatsPaletteInBothAppearances, assertNoteFormatsPasteFromAPage, assertNoteFormatsKeepTypedLetters, assertNoteFormatsKeysStayInRich, assertNoteFormatsLinksOpenTheirTargets, assertNoteFormatsMediaFromTheMenu, assertNoteFormatsOfferOnlyWhatTheFileKeeps, assertNoteFormatsToggleStored, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
 import { assertNoteFormatsMediaAsksForNoRefusedAddress, assertPreviewNoteMediaPlaysOnWhenDrawnAgain } from './areas/cardDetail/noteMediaDrawnAgain.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import { assertCardDetailEditShowsOnItsCard } from './areas/cardDetail/editOnCard.mts';
@@ -295,6 +295,7 @@ async function runCardDetailSuite(page) {
 	await step('note-formats-outline-follows-toggles', () => assertNoteFormatsOutlineFollowsToggles(page));
 	await step('note-formats-palette-in-both-appearances', () => assertNoteFormatsPaletteInBothAppearances(page));
 	await step('note-formats-copy-carries-markdown', () => assertNoteFormatsCopyCarriesMarkdown(page));
+	await step('note-formats-select-all-takes-every-block', () => assertNoteFormatsSelectAllTakesEveryBlock(page));
 	await step('note-formats-paste-from-a-page', () => assertNoteFormatsPasteFromAPage(page));
 	await step('note-formats-copy-into-source', () => assertNoteFormatsCopyIntoSource(page));
 	await step('note-formats-menu-paste', () => assertNoteFormatsMenuPaste(page));
