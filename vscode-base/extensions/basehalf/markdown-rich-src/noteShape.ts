@@ -54,8 +54,39 @@ export function makeBaseHalfNoteShapeExtension(options: IBaseHalfNoteShapeOption
 				key: new PluginKey('baseHalfNoteTypedLetters'),
 				props: { handleKeyDown: keepTypedLetters },
 			}),
+			new Plugin({
+				key: new PluginKey('baseHalfNoteCaretBeforeKeys'),
+				view: view => {
+					// In the capture phase: ahead of the editor's own key handling.
+					const listener = (event: KeyboardEvent) => readCaretBeforeKey(view, event);
+					view.dom.addEventListener('keydown', listener, true);
+					return { destroy: () => view.dom.removeEventListener('keydown', listener, true) };
+				},
+			}),
 		],
 	});
+}
+
+interface IDomObserver {
+	forceFlush(): void;
+	flush(): void;
+}
+
+/**
+ * A key acts at the caret the note shows (rule 71). A click moves the page's
+ * caret at once, but the editor learns of it only when the page reports that
+ * the selection changed, and a busy page can hand it keys typed after the
+ * click before that report: → beside a fixed block then moved from where the
+ * caret was before the click, and the letter after it went elsewhere. Before
+ * each key, the editor reads the page's caret, as that report would.
+ */
+function readCaretBeforeKey(view: EditorView, event: KeyboardEvent): void {
+	if (event.isComposing || event.keyCode === 229 || view.composing || !view.hasFocus()) {
+		return;
+	}
+	const observer = (view as unknown as { readonly domObserver?: IDomObserver }).domObserver;
+	observer?.forceFlush();
+	observer?.flush();
 }
 
 /** A toolbar or the file panel is open: Tab goes into it, as in the editor. */

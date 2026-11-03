@@ -528,8 +528,9 @@ async function testBed(t: INoteFormatsTest): Promise<void> {
  * presses: Tab and Shift-Tab nest only where a block may hold another and
  * keep the keyboard in the note; Tab moves through a table and adds a row at
  * its end; Enter in a toggle's title keeps its blocks; Mod-Enter folds a
- * toggle, checks a check item, and opens a link (rule 54); and letters typed after Command-→ at a line
- * before a fixed block go into that line.
+ * toggle, checks a check item, and opens a link (rule 54); letters typed
+ * after Command-→ at a line before a fixed block go into that line; and a
+ * key that arrives on a busy page acts at the caret the page shows.
  */
 async function keys(t: INoteFormatsTest): Promise<void> {
 	const focused = () => document.activeElement === t.editor.domElement;
@@ -642,6 +643,33 @@ async function keys(t: INoteFormatsTest): Promise<void> {
 	await t.keyboard.type('z');
 	await t.frames();
 	t.check('letters typed after Command-→ at a line before a fixed block, and after Command-← at one after it, go into that line', await t.save(), 'Line before.xy\n\n<div>fixed</div>\n\nzLine after.\n');
+
+	// A busy page can give the editor a key before it tells the editor that a
+	// click moved the caret: the key acts at the caret the page shows.
+	await t.load('Line before.\n\n<div>fixed</div>\n\nLine after.\n');
+	await t.frames();
+	t.caret('Line after.');
+	await t.frames();
+	const shownText = (text: string): Text => {
+		const walker = document.createTreeWalker(t.editor.domElement ?? document.body, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (node.textContent?.includes(text)) {
+				return node as Text;
+			}
+		}
+		throw new Error(`The note shows no text "${text}".`);
+	};
+	const before = shownText('Line before.');
+	document.getSelection()?.collapse(before, before.length);
+	const pressed = t.keyboard.press('ArrowRight');
+	const busyUntil = performance.now() + 300;
+	while (performance.now() < busyUntil) {
+		// The page is busy while the key arrives.
+	}
+	await pressed;
+	await t.keyboard.type('c');
+	await t.frames();
+	t.check('a key that arrives before the page reports a moved caret acts at the moved caret', await t.save(), 'Line before.\n\n<div>fixed</div>\n\nc\n\nLine after.\n');
 }
 
 /**

@@ -543,7 +543,8 @@ start).
     start of a line after one, and after a click just left of a line's text
     go into that line. A letter typed while a fixed block is selected, as
     after → at the end of the line before it, starts a paragraph after the
-    block.
+    block. A key acts at the caret the note shows, also when it arrives on a
+    busy page before the page has reported the click that moved the caret.
 
 ### Paste and drop
 
@@ -767,7 +768,9 @@ this specification. Outside changes are merged meanwhile, as always.
 20. Letters typed after Command-→ at the end of a line before a fixed block,
     after Command-← at the start of a line after one, after → before one,
     and after a click 3 pixels left of a line's first letter are saved, in
-    each of 10 tries of each.
+    each of 10 tries of each. → pressed while the page is busy, after the
+    caret was put at the end of the line before a fixed block, selects that
+    block, and a letter then starts a paragraph after it.
 21. A red word is drawn rgb(232, 112, 107) in Rich, on the card, and in
     Preview, with the system in light and in dark appearance.
 22. On a note of 2,000 blocks (about 200 KB: paragraphs with formats, lists,
