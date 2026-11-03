@@ -126,24 +126,39 @@ one folder for every note of that folder:
     where the volume can, as a clone that takes no room, and goes in as one
     block: a picture, a video, or a sound by the one list of media files, any
     other file as a file block. Its block's name is the stored file's name.
+    A file that comes with its path (chosen, dragged from another app, or
+    copied in BaseHalf or a file manager) is cloned by BaseHalf from where it
+    is, whatever its size, its bytes never through the editor; only a file
+    without a path (a picture with no file, a file a page gives) goes through
+    the editor, at most 100 MiB.
 13. **A picture with no file** (a screenshot, a picture copied from a page or
     an app, a picture dragged from a page) is saved into the note's folder by
     rule 10, at most 100 MiB, PNG and JPEG as they are and any other picture as
     PNG.
 14. **Several files** at once each become their own block, in the order they
-    came, one after another from the caret or the point of release. One that
-    fails is left out with its reason, and the rest go in.
+    came, one after another after the block of the caret or of the point of
+    release (an empty line takes the first one's place). One that fails is
+    left out with its reason, and the rest go in. While a drag of files or of
+    items is over the note, the editor's mark of a drop is a line under the
+    block they would follow.
 15. **Items of the workspace are linked where they are**, as the input row of
     a draft connects them ([copy, paste, and drop](copy-paste-and-drop.md)):
-    a picture, a video, or a sound of the workspace is its block, linked
-    where it is; a note or a folder is a link; any other file is a file block.
-    Nothing is copied or moved, also when the cards were cut. A file under
-    `.bh/`, as another note's file, counts as a file from elsewhere and is
-    copied into this note's folder.
+    cards copied on the canvas, items copied in Files, files a file manager
+    copied, and items dragged from Files. A picture, a video, or a sound of
+    the workspace is its block, linked where it is; a note or a folder is a
+    line of its own with its link, which shows its name; any other file is a
+    file block. Nothing is copied or moved, also when the cards were cut, and
+    the clipboard stays as it is. A draft has no file and is left out. A file
+    under `.bh/`, as another note's file, counts as a file from elsewhere and
+    is copied into this note's folder; a file already in this note's folder
+    is linked where it is. Text that reads as a path, without BaseHalf's
+    record or a file manager's files, is text.
 16. While a file is copied, its place in the note shows that it is being
-    added (formats of a note, rule 49). A file that cannot be stored adds
-    nothing and says why in plain words, with no path under `.bh`. A read-only
-    note, or one in a marked folder, takes nothing.
+    added (formats of a note, rule 49), at once for a file that goes through
+    the editor and after a moment (0.2 s) for one BaseHalf clones. A file
+    that cannot be stored adds nothing and says why in plain words, with no
+    path under `.bh`. A read-only note, or one in a marked folder, takes
+    nothing.
 17. A file put in and its link are one step of undo. Undo takes the block
     away; the file stays under rule 43, so redo finds it.
 
@@ -377,4 +392,11 @@ one folder for every note of that folder:
   with its link in the one encoding; Rich's menu of a picture and of a file
   block.
 - The smoke's `cardDetail` suite: criteria 1, 3, 5; `canvas`: criterion 2.
-- Stages 3 to 7 add their own checks as they are built.
+- Stage 3: the Rich bundle test's items part (a paste of the clipboard's
+  items, a paste of text the host has no items for, a page's copy that asks
+  nothing, a drop from Files, one step of undo, the failure's words, the
+  0.2 s placeholder); `basehalfMarkdownAttachment.test.ts` (items linked,
+  cloned, refused); in the real window, a drop from another app through the
+  browser's drag with paths (a 120 MB file cloned), a drop of Files items on
+  the page's element with the drop mark, and the chooser with paths.
+- Stages 4 to 7 add their own checks as they are built.

@@ -565,6 +565,7 @@ start).
     | Markdown that Rich cannot edit | a fixed block holding the pasted text |
     | a paragraph that is one link to a file of the note's folder, or one link into the store of files in notes, without formats, at any depth | a file block |
     | a file from outside the workspace, or a picture with no file | kept in the note's own folder ([files in notes](files-in-notes.md), rules 12 and 13) |
+    | cards copied on the canvas, items copied in Files or dragged from it | linked where they are, a note or a folder as a line with its link ([files in notes](files-in-notes.md), rule 15) |
     | a line break in a caption | a space |
     | text that reads as Markdown | Markdown; other text as typed |
     | a table with merged cells, a header column, or cell colors | a table as rule 60 says |
@@ -658,10 +659,9 @@ start).
 - L7. A video or a sound in a note plays in the system's controls, whose
   pause cannot fade, until files in notes bring BaseHalf's player there
   (D111). Their names are not stored.
-- L8. A file put into a note by a paste or a drop keeps the editor's own
-  upload until D111: while it uploads Rich shows an empty block that the
-  file does not hold, an undo right after it can show that block again, and
-  a failed upload leaves it until the note opens again.
+- L8. A file that comes without a path, as a screenshot or a picture a page
+  gives, goes through the editor, at most 100 MiB; files with paths are
+  cloned by BaseHalf whatever their size (D111).
 - L9. A paste stores toggles closed, drops colors outside the palette and the
   widths of other applications, and turns the alignment of cells into the
   alignment of their column. Markdown that Rich cannot edit, pasted into the
