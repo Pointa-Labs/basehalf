@@ -476,7 +476,8 @@ start).
      made it, at the width the picture had, or as wide as the file when it
      is narrower now; the editor glides to it, in 200 ms, as the room
      closes, and goes once the note's picture is drawn under it. Escape
-     during a drag only ends the drag, as in Card Detail.
+     during a drag only ends the drag, as in Card Detail. The picture's
+     toolbar shows again at the next move of the pointer or key.
 52d. **The edit is the file's.** Edit edits the picture file the note links,
      as its card would: the file holds the edit, and its card information
      keeps the original and the record
@@ -907,10 +908,15 @@ this specification. Outside changes are merged meanwhile, as always.
   player at a time. The steps that write the system's clipboard run in CI,
   or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.
 - The `cardDetail` suite of the smoke runs criteria 30 to 33 on a note of
-  its own, in every frame, on both sides of the page's frame
-  (`notePictureEdit.mts`); unit tests cover the editor's box and the
-  messages of rules 52a to 52e (`basehalfNotePictureEdit.test.ts`,
-  `basehalfMarkdownRichWebviewProtocol.test.ts`).
+  its own, in every frame, on both sides of the page's frame, each frame
+  stamped when it is read (`notePictureEdit.mts`). It logs the times of
+  criteria 30 and 32 and allows 250 ms and 600 ms for them, which a loaded
+  machine needs; on 2026-11-03, at a load of 25, it measured 31 ms, 0 px,
+  0 px over 82 frames, 268 ms, and 0.1 px. Unit tests cover the editor's
+  box, the messages of rules 52a to 52e, and the changes that are no steps
+  of the canvas with their undo (`basehalfNotePictureEdit.test.ts`,
+  `basehalfMarkdownRichWebviewProtocol.test.ts`,
+  `basehalfMediaEditService.test.ts`).
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criterion 22.

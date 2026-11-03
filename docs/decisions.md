@@ -5395,7 +5395,9 @@ the picture in the note, Done back to the note, and one step of undo
 development window of `2583c6805` with the change, on a 1600 × 1000 picture
 shown 712 × 445 in a note: the room opened in the frame of the press, 4 to
 8 ms after it; the editor showed 18 to 27 ms after the press, in the second
-or third frame, its picture 0 px from the note's; a corner dragged over 82
+or third frame, its picture 0 px from the note's (31 ms in the smoke at a
+load of 25, with one frame more in which the editor lays out its picture
+hidden); a corner dragged over 82
 frames stayed under the pointer on every frame, 0 px off; and on no frame of
 Edit or Done was neither picture drawn. Done after a crop of the same shape
 left the editor 52 ms later; after a crop to 971 × 1000 the editor glided from
