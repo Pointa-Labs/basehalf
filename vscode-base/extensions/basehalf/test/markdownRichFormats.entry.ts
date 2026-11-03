@@ -976,61 +976,67 @@ async function media(t: INoteFormatsTest): Promise<void> {
 const WIDE_PICTURE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAABQCAIAAADTD63nAAAA6UlEQVR4nO3SQQkAIADAQNMZzEwGtIRDkIMLsMfGXBuuG88L+JKxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi8QB5TvLZS9xqhUAAAAASUVORK5CYII=';
 
 /**
- * Part i, a picture's edge on a magnified page (note formats, rule 28,
- * criterion 10): with the page drawn at 200%, the edge the pointer drags
- * stays within 1 pixel of the pointer, and the width is stored as a whole
- * number of pixels.
+ * Part i, a picture's edge on a magnified page (note formats, rule 8,
+ * criterion 10): with the page drawn at 200% and at 400%, the edge the
+ * pointer drags stays within 1 pixel of the pointer, and the width is stored
+ * as a whole number of pixels.
  */
 async function magnifiedResize(t: INoteFormatsTest): Promise<void> {
-	await t.load('Resize below.\n');
-	await t.frames();
-	const [first] = t.editor.document;
-	t.editor.insertBlocks([{ type: 'image', props: { url: WIDE_PICTURE } }] as Parameters<typeof t.editor.insertBlocks>[0], first, 'after');
-	await until('the picture loads', () => (t.editor.domElement?.querySelector('img') as HTMLImageElement | null)?.naturalWidth === 200);
-	// As Card Detail magnifies a note (zoom and outline of a note): the page drawn larger, nothing laid out anew.
-	const notePage = document.querySelector<HTMLElement>('.basehalf-markdown-rich-page');
-	if (!notePage) {
-		throw new Error('The test bed has no page.');
-	}
-	// A level a pinch leaves is a fraction past 2, as Card Detail's zoom draws it.
-	const level = 2.0000008;
-	notePage.style.transformOrigin = '0 0';
-	notePage.style.transform = `scale(${level})`;
-	const removeZoom = installBaseHalfNoteResizeUnderZoom(window, () => level);
-	try {
-		await t.frames(4);
-		const picture = t.editor.domElement?.querySelector('img')?.getBoundingClientRect();
-		if (!picture) {
-			throw new Error('The picture is not shown.');
-		}
-		await t.mouse.move(picture.left + picture.width / 2, picture.top + picture.height / 2);
-		await t.frames(4);
-		const rightHandle = () => [...document.querySelectorAll('.bn-resize-handle')].map(handle => handle.getBoundingClientRect()).sort((a, b) => b.left - a.left)[0];
-		const handle = rightHandle();
-		const x = handle.left + handle.width / 2;
-		const y = handle.top + handle.height / 2;
-		await t.mouse.move(x, y);
-		await t.mouse.down();
-		const drift: number[] = [];
-		for (let step = 1; step <= 4; step++) {
-			await t.mouse.move(x + step * 10, y);
-			await t.frames(2);
-			const now = rightHandle();
-			drift.push(Math.round(now.left + now.width / 2 - (x + step * 10)));
-		}
-		await t.mouse.up();
+	// A level a pinch leaves is a fraction past a whole number, as Card Detail's zoom draws it; at 400% a step of
+	// 10 pixels on the screen is 2.5 pixels of the page.
+	for (const [level, width] of [[2.0000008, 220], [4, 210]]) {
+		await t.load('Resize below.\n');
 		await t.frames();
-		t.check('at 200% the dragged edge of a picture stays under the pointer, and its width is stored as a whole number', {
-			drift,
-			saved: await t.save(),
-		}, {
-			drift: [0, 0, 0, 0],
-			saved: `Resize below.\n\n<img src="${WIDE_PICTURE}" width="220">\n`,
-		});
-	} finally {
-		removeZoom();
-		notePage.style.transform = '';
-		notePage.style.transformOrigin = '';
+		const [first] = t.editor.document;
+		t.editor.insertBlocks([{ type: 'image', props: { url: WIDE_PICTURE } }] as Parameters<typeof t.editor.insertBlocks>[0], first, 'after');
+		await until('the picture loads', () => (t.editor.domElement?.querySelector('img') as HTMLImageElement | null)?.naturalWidth === 200);
+		// As Card Detail magnifies a note (zoom and outline of a note): the page drawn larger, nothing laid out anew.
+		const notePage = document.querySelector<HTMLElement>('.basehalf-markdown-rich-page');
+		if (!notePage) {
+			throw new Error('The test bed has no page.');
+		}
+		// Magnified about the picture's corner, as a pinch there does: at 400% the picture still fits the window.
+		const corner = t.editor.domElement?.querySelector('img')?.getBoundingClientRect();
+		const origin = notePage.getBoundingClientRect();
+		notePage.style.transformOrigin = corner ? `${corner.left - origin.left}px ${corner.top - origin.top}px` : '0 0';
+		notePage.style.transform = `scale(${level})`;
+		const removeZoom = installBaseHalfNoteResizeUnderZoom(window, () => level);
+		try {
+			await t.frames(4);
+			const picture = t.editor.domElement?.querySelector('img')?.getBoundingClientRect();
+			if (!picture) {
+				throw new Error('The picture is not shown.');
+			}
+			await t.mouse.move(picture.left + picture.width / 2, picture.top + picture.height / 2);
+			await t.frames(4);
+			const rightHandle = () => [...document.querySelectorAll('.bn-resize-handle')].map(handle => handle.getBoundingClientRect()).sort((a, b) => b.left - a.left)[0];
+			const handle = rightHandle();
+			const x = handle.left + handle.width / 2;
+			const y = handle.top + handle.height / 2;
+			await t.mouse.move(x, y);
+			await t.mouse.down();
+			const drift: number[] = [];
+			for (let step = 1; step <= 4; step++) {
+				await t.mouse.move(x + step * 10, y);
+				await t.frames(2);
+				const now = rightHandle();
+				// Within half a pixel is none; -0 is 0.
+				drift.push(Math.round(now.left + now.width / 2 - (x + step * 10)) || 0);
+			}
+			await t.mouse.up();
+			await t.frames();
+			t.check(`at ${Math.round(level * 100)}% the dragged edge of a picture stays under the pointer, and its width is stored as a whole number`, {
+				drift,
+				saved: await t.save(),
+			}, {
+				drift: [0, 0, 0, 0],
+				saved: `Resize below.\n\n<img src="${WIDE_PICTURE}" width="${width}">\n`,
+			});
+		} finally {
+			removeZoom();
+			notePage.style.transform = '';
+			notePage.style.transformOrigin = '';
+		}
 	}
 }
 

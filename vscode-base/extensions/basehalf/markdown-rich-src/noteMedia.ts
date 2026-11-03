@@ -164,7 +164,7 @@ export function chooseBaseHalfNoteMedia(editor: NoteEditor, kind: BaseHalfNoteMe
 
 /**
  * The edge of a picture or a video that the pointer drags stays under the
- * pointer while the note is magnified (note formats, rule 28): the editor
+ * pointer while the note is magnified (note formats, rule 8): the editor
  * gives the block the pointer's movement on the screen as its width at
  * 100%, so on a page drawn `scale()` times larger each movement is divided
  * by that before the editor sees it. Returns what removes it.
@@ -181,11 +181,12 @@ export function installBaseHalfNoteResizeUnderZoom(page: Window, scale: () => nu
 		}
 		// The editor's own listener on the page takes the movement in the page's measure instead.
 		event.stopImmediatePropagation();
-		event.target.dispatchEvent(new MouseEvent('mousemove', {
+		// A pointer's event keeps the fraction of a pixel that a mouse's event cuts off, which at 400% is up to 4
+		// pixels on the screen: the edge stays under the pointer, and the width is stored whole once the drag ends.
+		event.target.dispatchEvent(new PointerEvent('mousemove', {
 			bubbles: true,
 			cancelable: true,
-			// Whole pixels: the event keeps a whole number, and cutting a level's last fraction off would lose a pixel.
-			clientX: Math.round(start + (event.clientX - start) / level),
+			clientX: start + (event.clientX - start) / level,
 			clientY: event.clientY,
 			screenX: event.screenX,
 			screenY: event.screenY,
