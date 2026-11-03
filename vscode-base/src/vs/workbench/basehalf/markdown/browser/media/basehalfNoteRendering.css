@@ -1,0 +1,32 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* A paragraph that Rich shows as a file block is drawn as Rich draws one, on
+ * the card, in the card's editor, and in Preview: the file's icon and its
+ * name in a box across the line (note formats, rule 81). It stays a link. */
+.monaco-workbench a.bh-md-file {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	box-sizing: border-box;
+	min-height: 48px;
+	padding: 8px 10px;
+	border-radius: 4px;
+	box-shadow: 0 0 0 1px var(--vscode-widget-border);
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 72%, transparent);
+	color: var(--vscode-textLink-foreground);
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	text-decoration: none;
+}
+
+.monaco-workbench a.bh-md-file > .bh-md-file-icon {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	color: var(--vscode-icon-foreground);
+}

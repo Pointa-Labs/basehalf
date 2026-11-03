@@ -30,6 +30,7 @@ import {
 } from '../../common/basehalfCanvasPreview.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { applyBaseHalfCanvasMarkdownSidewaysScroll, BaseHalfCanvasMarkdownInlineEditor, BaseHalfCanvasMarkdownRequiresRichEditorError, IBaseHalfCanvasMarkdownInlineSelection, readBaseHalfCanvasMarkdownSidewaysScroll } from '../basehalfCanvasMarkdownInlineEditor.js';
+import { pauseBaseHalfNoteMedia } from '../basehalfCanvasNoteMedia.js';
 import { buildAllBaseHalfCanvasNoteParts, buildBaseHalfCanvasNotePartsTo } from '../basehalfCanvasNoteParts.js';
 import {
 	BaseHalfCanvasNoteBackground,
@@ -1193,6 +1194,8 @@ export class BaseHalfCanvasNoteEditing {
 		buildAllBaseHalfCanvasNoteParts(mount.fallback);
 		const fallbackScrollTop = mount.fallback.scrollTop;
 		mount.fallback.classList.add('basehalf-canvas-note-editor-fallback');
+		// What plays at rest stops under the editor, which shows the note's videos and sounds in players of its own.
+		pauseBaseHalfNoteMedia(mount.fallback);
 		const host = append(mount.container, $('.basehalf-canvas-note-editor.basehalf-canvas-note-inline-editor.nodrag.nopan.nowheel'));
 		host.setAttribute('data-testid', `canvas-note-editor-${path}`);
 		const mountDisposables = new DisposableStore();

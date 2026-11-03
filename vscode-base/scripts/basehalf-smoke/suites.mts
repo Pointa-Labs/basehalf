@@ -24,7 +24,7 @@ import { assertCanvasInlineRename } from './areas/canvas/names.mts';
 import { assertCanvasNoteInlineWysiwygEditor } from './areas/canvas/noteEditor.mts';
 import { assertCanvasNoteResizeWhileEditing } from './areas/canvas/noteResize.mts';
 import { assertCanvasNoteUndoAsksNothing } from './areas/canvas/noteUndo.mts';
-import { assertCanvasNoteLinksOpenTheirTargets, assertCanvasNoteMediaReactAtRest, assertCanvasNotePaletteInBothAppearances, assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
+import { assertCanvasNoteLinksOpenTheirTargets, assertCanvasNoteMediaReactAtRest, assertCanvasNotePaletteInBothAppearances, assertCanvasNotePictureEditsOnTheCard, assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
 import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
 import { assertCanvasSnapGuides, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
 import {
@@ -185,6 +185,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-note-renders-markdown', () => assertCanvasNoteRendersMarkdown(page));
 	await step('canvas-note-links-open-their-targets', () => assertCanvasNoteLinksOpenTheirTargets(page));
 	await step('canvas-note-media-react-at-rest', () => assertCanvasNoteMediaReactAtRest(page));
+	await step('canvas-note-picture-edits-on-the-card', () => assertCanvasNotePictureEditsOnTheCard(page));
 	await step('canvas-note-palette-in-both-appearances', () => assertCanvasNotePaletteInBothAppearances(page));
 	await step('agent-creates-card', () => assertAgentCreatesCard(page));
 	await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));

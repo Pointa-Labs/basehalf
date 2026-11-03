@@ -5,7 +5,7 @@
 
 import './canvasMarkdownInline.css';
 
-import { baseKeymap, joinBackward, joinForward, setBlockType, toggleMark } from '@tiptap/pm/commands';
+import { baseKeymap, chainCommands, joinBackward, joinForward, setBlockType, toggleMark } from '@tiptap/pm/commands';
 import { keymap } from '@tiptap/pm/keymap';
 import {
 	defaultMarkdownParser,
@@ -16,7 +16,7 @@ import {
 } from '@tiptap/pm/markdown';
 import { DOMParser as ProseMirrorDOMParser, Fragment, Node as ProseMirrorNode, Schema, type MarkType, type NodeType, type ResolvedPos } from '@tiptap/pm/model';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from '@tiptap/pm/schema-list';
-import { EditorState, Plugin, PluginKey, Selection, TextSelection, type Command, type Transaction } from '@tiptap/pm/state';
+import { EditorState, NodeSelection, Plugin, PluginKey, Selection, TextSelection, type Command, type Transaction } from '@tiptap/pm/state';
 import { canJoin, canSplit } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet, EditorView } from '@tiptap/pm/view';
 import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownFormatting.js';
@@ -61,7 +61,16 @@ export interface CanvasMarkdownInlineUnit {
 	readonly editable: boolean;
 	/** Sanitized resting projection used only by a non-editable atom. */
 	readonly element: HTMLElement;
+	/**
+	 * An empty line after the last block of a note that has no block the
+	 * editor can edit (note formats, rule 82a): it writes a blank line and what
+	 * it holds once it holds something, and nothing before.
+	 */
+	readonly appended?: boolean;
 }
+
+/** The clipboard type of a copy of the card's editor, its blocks' Markdown, which a paste into it puts back whole (note formats, rule 82). */
+export const CANVAS_MARKDOWN_BLOCKS_TYPE = 'application/x-basehalf-note-blocks';
 
 export interface CanvasMarkdownInlineEditorOptions {
 	readonly markdown: string;
@@ -79,7 +88,8 @@ export interface CanvasMarkdownInlineEditorOptions {
 	readonly selectionDocument?: unknown;
 	/** Draw the selection as not active from the start: focus is elsewhere in the window. */
 	readonly inactive?: boolean;
-	readonly onMarkdownChange?: (markdown: string) => void;
+	/** The note's Markdown changed; `ownStep` when the change added or removed a fixed block, which is one step of undo (note formats, rule 82). */
+	readonly onMarkdownChange?: (markdown: string, ownStep?: boolean) => void;
 	readonly onCompositionChange?: (composing: boolean) => void;
 	readonly onUndoRequest?: () => void;
 	readonly onRedoRequest?: () => void;
@@ -88,10 +98,19 @@ export interface CanvasMarkdownInlineEditorOptions {
 	readonly onFormatStateChange?: (state: CanvasMarkdownInlineFormatState) => void;
 	/** The selection or the document changed. Read `getSelectedSource()` when it is needed. */
 	readonly onSelectionChange?: () => void;
+	/**
+	 * A paste of blocks that this editor copied, a fixed block among them
+	 * (note formats, rule 82): their Markdown goes into the note at `offset`
+	 * of `getMarkdown()`, the end of the block that holds the selection, and
+	 * the editor is drawn again with the blocks.
+	 */
+	readonly onPasteBlocksRequest?: (markdown: string, offset: number) => void;
 }
 
 export interface CanvasMarkdownInlineEditorRuntime {
 	focusAtPoint(clientX: number, clientY: number): boolean;
+	/** Puts the caret at the start or at the end of the unit `unitId` and focuses the editor (note formats, rule 82a). */
+	focusAtUnitEdge(unitId: string, edge: 'start' | 'end'): boolean;
 	focus(): void;
 	setReadOnly(readOnly: boolean): void;
 	getSelection(): CanvasMarkdownInlineSelection;
@@ -567,6 +586,8 @@ interface CanvasMarkdownRuntimeUnit {
 	readonly input: CanvasMarkdownInlineUnit;
 	readonly initialNode: ProseMirrorNode;
 	readonly staticElement: HTMLElement;
+	/** The text the block shows, as it was drawn: what a selection over it holds, without the text of the controls a host adds. */
+	readonly text: string;
 }
 
 function canvasMarkdownProjectionIsEquivalent(renderedDocument: ProseMirrorNode, sourceDocument: ProseMirrorNode): boolean {
@@ -649,7 +670,7 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
 		} else {
 			node = canvasSchema.nodes.unsupported_markdown.create({ unitId: unit.id });
 		}
-		records.set(unit.id, { input: unit, initialNode: node, staticElement });
+		records.set(unit.id, { input: unit, initialNode: node, staticElement, text: staticElement.textContent ?? '' });
 		nodes.push(node);
 	}
 	return {
@@ -686,9 +707,29 @@ function canvasMarkdownDocumentSource(
 ): CanvasMarkdownDocumentSource {
 	let markdown = '';
 	const units: { start: number; end: number }[] = [];
+	// A block that is no unit of the note's file, typed after a fixed block or into
+	// the appended line, goes before the white space that ends what is written so
+	// far, a blank line after the block before it.
+	const addBlock = (source: string): void => {
+		const trailing = /\s*$/.exec(markdown)?.[0] ?? '';
+		markdown = markdown.slice(0, markdown.length - trailing.length);
+		const gap = markdown.length > 0 ? documentLineEnding.repeat(2) : '';
+		const start = markdown.length + gap.length;
+		units.push({ start, end: start + source.length });
+		markdown += `${gap}${source}${trailing}`;
+	};
 	document.forEach(node => {
 		const unitId = typeof node.attrs.unitId === 'string' ? node.attrs.unitId : undefined;
 		const record = unitId ? records.get(unitId) : undefined;
+		if (record?.input.appended) {
+			const source = node.type === canvasSchema.nodes.markdown_unit ? serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node.content)) : '';
+			if (source.trim() === '') {
+				units.push({ start: markdown.length, end: markdown.length });
+			} else {
+				addBlock(documentLineEnding === '\r\n' ? source.replace(/\n/g, '\r\n') : source);
+			}
+			return;
+		}
 		if (record) {
 			let source = record.input.markdown;
 			if (node.type === canvasSchema.nodes.markdown_unit && !node.content.eq(record.initialNode.content)) {
@@ -702,12 +743,16 @@ function canvasMarkdownDocumentSource(
 			markdown += `${record.input.prefix}${source}${record.input.separator}`;
 			return;
 		}
-		// Unit wrappers are document-only schema nodes. Preserve user content
-		// defensively if a future command introduces a bare top-level block.
-		const source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node));
-		markdown += markdown.length > 0 ? '\n\n' : '';
-		units.push({ start: markdown.length, end: markdown.length + source.length });
-		markdown += source;
+		// A unit the editor added, as a paragraph started after a fixed block,
+		// or a bare top-level block, which no command makes today.
+		const content = node.type === canvasSchema.nodes.markdown_unit ? node.content : Fragment.from(node);
+		const source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, content));
+		// An empty paragraph started after a fixed block writes nothing until it holds something.
+		if (source.trim() === '') {
+			units.push({ start: markdown.length, end: markdown.length });
+			return;
+		}
+		addBlock(documentLineEnding === '\r\n' ? source.replace(/\n/g, '\r\n') : source);
 	});
 	return { markdown, units };
 }
@@ -736,7 +781,7 @@ function selectedCanvasMarkdownSource(
 		}
 		if (leaf.type === canvasSchema.nodes.unsupported_markdown) {
 			const unitId = typeof leaf.attrs.unitId === 'string' ? leaf.attrs.unitId : '';
-			return records.get(unitId)?.staticElement.textContent ?? '';
+			return records.get(unitId)?.text ?? '';
 		}
 		return '';
 	});
@@ -1688,6 +1733,89 @@ function joinAcrossMarkdownUnit(direction: -1 | 1): Command {
 	};
 }
 
+/** Whether the selection is one fixed block of the note, which the editor holds whole (note formats, rule 82). */
+function selectedFixedUnit(state: EditorState): NodeSelection | undefined {
+	const { selection } = state;
+	return selection instanceof NodeSelection && selection.node.type === canvasSchema.nodes.unsupported_markdown ? selection : undefined;
+}
+
+let addedUnits = 0;
+
+/**
+ * A letter or Enter typed while a fixed block is selected starts a paragraph
+ * after it, holding `text` (note formats, rule 82): the block stays, where
+ * the editor would put the letter in its place.
+ */
+function startParagraphAfterFixedUnit(text?: string): Command {
+	return (state, dispatch) => {
+		const fixed = selectedFixedUnit(state);
+		if (!fixed) {
+			return false;
+		}
+		if (!dispatch) {
+			return true;
+		}
+		const paragraph = canvasSchema.nodes.paragraph.create(null, text ? canvasSchema.text(text) : undefined);
+		const unit = canvasSchema.nodes.markdown_unit.create({ unitId: `added-${++addedUnits}` }, paragraph);
+		const transaction = state.tr.insert(fixed.to, unit);
+		// Into the unit and its paragraph, after the text.
+		transaction.setSelection(TextSelection.create(transaction.doc, fixed.to + 2 + (text?.length ?? 0)));
+		dispatch(transaction.scrollIntoView());
+		return true;
+	};
+}
+
+/** How many fixed blocks a document holds. */
+function fixedUnitCount(document: ProseMirrorNode): number {
+	let count = 0;
+	document.forEach(node => {
+		count += node.type === canvasSchema.nodes.unsupported_markdown ? 1 : 0;
+	});
+	return count;
+}
+
+/**
+ * The place to type nearest to the fixed block at `index` of the document
+ * (note formats, rule 82a): the end of the nearest unit the editor edits
+ * before it, or else the start of the nearest one after it.
+ */
+function editablePlaceNear(document: ProseMirrorNode, index: number): Selection | undefined {
+	const offsets: number[] = [];
+	document.forEach((_node, offset) => offsets.push(offset));
+	for (let at = index - 1; at >= 0; at--) {
+		const node = document.child(at);
+		if (node.type === canvasSchema.nodes.markdown_unit) {
+			return Selection.findFrom(document.resolve(offsets[at] + node.nodeSize - 1), -1, true) ?? undefined;
+		}
+	}
+	for (let at = index + 1; at < document.childCount; at++) {
+		if (document.child(at).type === canvasSchema.nodes.markdown_unit) {
+			return Selection.findFrom(document.resolve(offsets[at] + 1), 1, true) ?? undefined;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * The Markdown of what a selection covers when it holds a fixed block (note
+ * formats, rule 82): each fixed block as the note has it, and the text around
+ * it as the editor writes it; undefined for a selection without one.
+ */
+function markdownOfSelectedBlocks(selection: Selection, records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>): string | undefined {
+	const { content } = selection.content();
+	let fixed = false;
+	const parts: string[] = [];
+	content.forEach(node => {
+		if (node.type === canvasSchema.nodes.unsupported_markdown) {
+			fixed = true;
+			parts.push(records.get(String(node.attrs.unitId))?.input.markdown ?? '');
+		} else {
+			parts.push(serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node.type === canvasSchema.nodes.markdown_unit ? node.content : Fragment.from(node))));
+		}
+	});
+	return fixed ? parts.filter(part => part.trim() !== '').join('\n\n') : undefined;
+}
+
 export function createCanvasMarkdownInlineEditor(
 	host: HTMLElement,
 	options: CanvasMarkdownInlineEditorOptions,
@@ -1717,7 +1845,7 @@ export function createCanvasMarkdownInlineEditor(
 			Delete: whenEditable(joinAcrossMarkdownUnit(1)),
 		}),
 		keymap({
-			Enter: whenEditable(splitListItem(listItem)),
+			Enter: whenEditable(chainCommands(startParagraphAfterFixedUnit(), splitListItem(listItem))),
 			Tab: whenEditable(sinkListItem(listItem)),
 			'Shift-Tab': whenEditable(liftListItem(listItem)),
 			'Shift-Enter': whenEditable(insertSoftBreak),
@@ -1743,14 +1871,17 @@ export function createCanvasMarkdownInlineEditor(
 		plugins,
 	});
 
+	let pendingOwnStep = false;
 	const emitMarkdownChange = (): void => {
 		pendingMarkdownChange = false;
+		const ownStep = pendingOwnStep;
+		pendingOwnStep = false;
 		const markdown = serializeCanvasMarkdownDocument(view.state.doc, records, documentLineEnding);
 		if (markdown === lastReportedMarkdown) {
 			return;
 		}
 		lastReportedMarkdown = markdown;
-		options.onMarkdownChange?.(markdown);
+		options.onMarkdownChange?.(markdown, ownStep);
 	};
 	const requestHistoryAction = (event: Event, redo: boolean): boolean => {
 		event.preventDefault();
@@ -1772,6 +1903,25 @@ export function createCanvasMarkdownInlineEditor(
 	};
 
 	host.replaceChildren();
+	/**
+	 * Copy and Cut of a selection that holds a fixed block put the Markdown
+	 * of what it covers on the clipboard, the fixed block as the note has it
+	 * (note formats, rule 82); a selection of text alone is the editor's own.
+	 */
+	const copyBlocks = (event: ClipboardEvent, cut: boolean): boolean => {
+		const markdown = event.clipboardData ? markdownOfSelectedBlocks(view.state.selection, records) : undefined;
+		if (!event.clipboardData || markdown === undefined) {
+			return false;
+		}
+		event.preventDefault();
+		event.clipboardData.setData('text/plain', markdown);
+		event.clipboardData.setData(CANVAS_MARKDOWN_BLOCKS_TYPE, markdown);
+		if (cut) {
+			view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+		}
+		return true;
+	};
+
 	const view = new EditorView(host, {
 		state: initialState,
 		editable: () => !readOnly,
@@ -1783,7 +1933,12 @@ export function createCanvasMarkdownInlineEditor(
 				dom.classList.add('basehalf-canvas-markdown-inline-unit', 'unsupported');
 				dom.dataset.basehalfMarkdownUnit = unitId;
 				dom.contentEditable = 'false';
-				return { dom };
+				// A press or a key on a control in the block, as a player's, is the control's, not the editor's (note formats, rule 52).
+				const onControl = (event: Event) => {
+					const target = event.target as Element | null;
+					return typeof target?.closest === 'function' && target.closest('button, [role="slider"]') !== null;
+				};
+				return { dom, stopEvent: onControl };
 			},
 		},
 		dispatchTransaction(transaction) {
@@ -1797,6 +1952,7 @@ export function createCanvasMarkdownInlineEditor(
 			if (!transaction.docChanged) {
 				return;
 			}
+			pendingOwnStep ||= fixedUnitCount(transaction.before) !== fixedUnitCount(transaction.doc);
 			if (compositionActive || view.composing) {
 				pendingMarkdownChange = true;
 				return;
@@ -1804,6 +1960,11 @@ export function createCanvasMarkdownInlineEditor(
 			emitMarkdownChange();
 		},
 		handleKeyDown(_view, event) {
+			// An input method's first key while a fixed block is selected: its text goes into a paragraph after the block.
+			if (event.keyCode === 229 && !readOnly && selectedFixedUnit(view.state)) {
+				startParagraphAfterFixedUnit()(view.state, view.dispatch);
+				return false;
+			}
 			const modifier = event.metaKey || event.ctrlKey;
 			if (modifier && !event.altKey && event.key.toLowerCase() === 'z') {
 				return requestHistoryAction(event, event.shiftKey);
@@ -1825,7 +1986,31 @@ export function createCanvasMarkdownInlineEditor(
 			}
 			return false;
 		},
+		handleTextInput(_view, _from, _to, text) {
+			return !readOnly && startParagraphAfterFixedUnit(text)(view.state, view.dispatch);
+		},
+		handlePaste(_view, event) {
+			const blocks = event.clipboardData?.getData(CANVAS_MARKDOWN_BLOCKS_TYPE);
+			if (!blocks || readOnly || !options.onPasteBlocksRequest) {
+				return false;
+			}
+			event.preventDefault();
+			if (!view.state.selection.empty) {
+				view.dispatch(view.state.tr.deleteSelection());
+			}
+			// After the block that holds the selection, as the note's Markdown has it.
+			const { units } = canvasMarkdownDocumentSource(view.state.doc, records, documentLineEnding);
+			const index = Math.min(units.length - 1, view.state.selection.$to.index(0));
+			options.onPasteBlocksRequest(blocks, index >= 0 ? units[index].end : 0);
+			return true;
+		},
 		handleDOMEvents: {
+			copy(_view, event) {
+				return copyBlocks(event as ClipboardEvent, false);
+			},
+			cut(_view, event) {
+				return !readOnly && copyBlocks(event as ClipboardEvent, true);
+			},
 			beforeinput(_view, event) {
 				const inputType = (event as InputEvent).inputType;
 				if (inputType === 'historyUndo') {
@@ -1875,9 +2060,34 @@ export function createCanvasMarkdownInlineEditor(
 				emitFormatState();
 				return false;
 			}
+			// On a fixed block there is no place to type: the nearest one beside it (note formats, rule 82a).
+			const inside = result.inside >= 0 ? view.state.doc.nodeAt(result.inside) : null;
+			const beside = inside?.type === canvasSchema.nodes.unsupported_markdown
+				? editablePlaceNear(view.state.doc, view.state.doc.resolve(result.inside).index(0))
+				: undefined;
 			const position = Math.max(0, Math.min(view.state.doc.content.size, result.pos));
-			const selection = TextSelection.between(view.state.doc.resolve(position), view.state.doc.resolve(position));
+			const selection = beside ?? TextSelection.between(view.state.doc.resolve(position), view.state.doc.resolve(position));
 			view.dispatch(view.state.tr.setSelection(selection));
+			view.focus();
+			emitFormatState();
+			return true;
+		},
+		focusAtUnitEdge(unitId, edge) {
+			let found: { readonly node: ProseMirrorNode; readonly position: number } | undefined;
+			view.state.doc.forEach((node, offset) => {
+				found ??= node.type === canvasSchema.nodes.markdown_unit && node.attrs.unitId === unitId ? { node, position: offset } : undefined;
+			});
+			if (!found) {
+				return false;
+			}
+			const { doc } = view.state;
+			const selection = edge === 'start'
+				? Selection.findFrom(doc.resolve(found.position + 1), 1, true)
+				: Selection.findFrom(doc.resolve(found.position + found.node.nodeSize - 1), -1, true);
+			if (!selection) {
+				return false;
+			}
+			view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
 			view.focus();
 			emitFormatState();
 			return true;

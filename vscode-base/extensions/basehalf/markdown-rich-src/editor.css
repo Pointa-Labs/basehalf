@@ -263,10 +263,46 @@ body,
 	background: color-mix(in srgb, var(--vscode-editorWidget-background) 72%, transparent);
 }
 
+/* The editor's own file block carries no mark of a file block, which leaves
+ * it without the editor's layout of one: its icon beside its name, across the
+ * line, as the card and Preview draw it (note formats, rule 81). */
+.basehalf-markdown-rich [data-content-type="file"] > .bn-file-block-content-wrapper {
+	width: 100%;
+}
+
 .basehalf-markdown-rich .bn-file-name-with-icon {
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	min-height: 48px;
 	padding: 8px 10px;
 	cursor: pointer;
+}
+
+/* A paragraph that is one link to a file, in a block Rich cannot edit, is drawn as Rich's file block (note formats, rule 81). */
+.basehalf-markdown-rich .basehalf-raw-passthrough-rendered a.bh-md-file {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	box-sizing: border-box;
+	min-height: 48px;
+	padding: 8px 10px;
+	border-radius: 4px;
+	box-shadow: 0 0 0 1px var(--vscode-widget-border);
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 72%, transparent);
+	color: var(--vscode-textLink-foreground);
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	text-decoration: none;
+}
+
+.basehalf-markdown-rich .basehalf-raw-passthrough-rendered a.bh-md-file > .bh-md-file-icon {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	color: var(--vscode-icon-foreground);
 }
 
 .basehalf-markdown-rich .bn-file-name {
@@ -276,6 +312,10 @@ body,
 }
 
 .basehalf-markdown-rich .bn-file-icon {
+	display: flex;
+	flex: none;
+	width: 24px;
+	height: 24px;
 	color: var(--vscode-icon-foreground);
 }
 

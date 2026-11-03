@@ -123,8 +123,10 @@ Not in scope, and unchanged:
    that runs. A `<span>` keeps a text and a background color written as
    `color:#rrggbb;background-color:#rrggbb;`, and any other `style` is not
    drawn. A `<details>` with `open` shows open. A `<video>` and an `<audio>`
-   keep `src`, `width`, and `controls`, and play in their own controls
-   ([formats of a note](note-formats.md#pictures-videos-and-sounds)). A link
+   keep `src`, `width`, and `controls`, and play in BaseHalf's own player
+   ([formats of a note](note-formats.md#pictures-videos-and-sounds), rule 52).
+   A paragraph that is one link to a file shows as a file block, the file's
+   icon and its name ([formats of a note](note-formats.md), rule 81). A link
    and a picture show no system tooltip: their `title` is dropped when they
    are drawn.
 5. Rendering does not run code and does not follow a command link. The note
@@ -173,8 +175,9 @@ Not in scope, and unchanged:
 9. A task list item shows its box in place of the list bullet.
 10. Headings of level 4 to 6 are bold and not smaller than body text.
 11. The resting projection keeps what it had before: a press anywhere on
-    it drags the card, also on a task box, and a wheel gesture scrolls it as
-    [canvas wheel gestures](canvas-wheel-gestures.md) requires.
+    it drags the card, also on a task box, a file block, and the picture of
+    a video, and only the bar of a player takes presses; a wheel gesture
+    scrolls it as [canvas wheel gestures](canvas-wheel-gestures.md) requires.
 12. A fixed block has the same size and the same line breaks while the card
     is edited as it has at rest.
 
@@ -247,10 +250,11 @@ HTML has no form in it. Read and written back, it would lose:
 24. A note of up to 1 MiB (1,048,576 bytes of its file in UTF-8, front
     matter included) is shown on its card by the rules above. That is about
     350,000 Chinese characters (`BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES`).
-25. A double click edits a note of up to 128 KiB (131,072 bytes, about
-    43,000 Chinese characters) on its card
-    (`BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES`). A double click on a larger
-    note opens it in Card Detail.
+25. A double click anywhere on a note of up to 128 KiB (131,072 bytes,
+    about 43,000 Chinese characters) edits it on its card
+    (`BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES`), also on a block that the
+    card's editor cannot edit ([formats of a note](note-formats.md), rule
+    82a). A double click on a larger note opens it in Card Detail.
 26. A note above 1 MiB shows only the label "This Markdown file is too large
     for quick edit. Double-click to open the full editor.", and a double
     click opens it in Card Detail. A card shows the whole note or the label:

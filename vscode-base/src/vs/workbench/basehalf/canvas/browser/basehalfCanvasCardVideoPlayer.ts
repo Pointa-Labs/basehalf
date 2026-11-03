@@ -12,6 +12,7 @@ import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
 import { baseHalfCanvasMediaUrl, baseHalfKnownVideoAspect, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, rememberBaseHalfVideoAspect } from './basehalfCanvasCardMedia.js';
 import { BaseHalfCanvasVideoSound, BaseHalfVideoSoundGraph } from './basehalfCanvasVideoSound.js';
@@ -65,6 +66,13 @@ export interface IBaseHalfCanvasCardVideoPlayerOptions {
 	 * Screen.
 	 */
 	readonly sound?: boolean;
+	/**
+	 * A video or a sound in a note, not a card's (note formats, rule 52): its
+	 * bar shows always, without Open, its play plays it with its sound, and
+	 * the pointer plays nothing. On the note's card (`'card'`) the picture is
+	 * the card's; in Preview (`'page'`) a click on it plays and pauses it.
+	 */
+	readonly note?: 'card' | 'page';
 	/** Where it starts, in seconds, as for a file that was replaced; by default where its card or its last player stood. */
 	readonly start?: number;
 	/**
@@ -136,7 +144,8 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
  * controls drawn here, not the system's, show while the pointer is on the card
  * or the card is selected. A press on the controls never reaches the card.
  * Its sound never starts or stops at once. With `detail`, it is the player of
- * Card Detail; with `sound`, it plays a sound file the same way.
+ * Card Detail; with `note`, of a video or a sound in a note; with `sound`, it
+ * plays a sound file the same way.
  */
 export function createBaseHalfCanvasCardVideoPlayer(container: HTMLElement, before: Node | null, options: IBaseHalfCanvasCardVideoPlayerOptions): IBaseHalfCanvasCardVideoPlayer {
 	return new BaseHalfCanvasCardVideoPlayer(container, before, options);
@@ -163,7 +172,7 @@ const livePlayers = new Set<BaseHalfCanvasCardVideoPlayer>();
 /** The player of a card that shows the file of `source`, the one Card Detail starts from. */
 function cardPlayerOf(source: URI): BaseHalfCanvasCardVideoPlayer | undefined {
 	for (const player of livePlayers) {
-		if (!player.detail && isSameVideoFile(player.source, source)) {
+		if (!player.detail && !player.inNote && isSameVideoFile(player.source, source)) {
 			return player;
 		}
 	}
@@ -254,6 +263,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		const isSound = options.sound === true;
 		this.element.classList.toggle('detail', detail);
 		this.element.classList.toggle('sound', isSound);
+		this.element.classList.toggle('note', options.note !== undefined);
+		this.element.classList.toggle('page', options.note === 'page');
 		if (detail) {
 			// In Card Detail the keyboard is the player's own, not its buttons' (D100): Card Detail opens with it here,
 			// a press on the picture puts it here, and it shows no ring here.
@@ -266,7 +277,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 			this.video.tabIndex = -1;
 		}
 		// On a card the picture is the card's: a press on it selects, moves, and opens the card.
-		if (!detail) {
+		if (!detail && options.note !== 'page') {
 			this.video.style.pointerEvents = 'none';
 		}
 		// Card Detail draws its player in the video's shape from its first frame, never a box of another shape (D98):
@@ -284,7 +295,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		const last = lastPlayed.get(this.file);
 		const fileTime = detail ? cardPlayerOf(this.file)?.currentTime ?? last?.time : last?.time;
 		const time = options.start ?? (fileTime !== undefined ? fileTime + (options.offset ?? 0) : undefined);
-		this.muted = detail || isSound ? false : last?.muted ?? true;
+		this.muted = detail || isSound || options.note ? false : last?.muted ?? true;
 		// The version in the query is loaded, not one the window loaded before (canvas card placement, "Each version is loaded by an address of its own").
 		this.video.src = `${baseHalfCanvasMediaUrl(options.source)}#t=${time !== undefined && time > 0 ? time : 0.001}`;
 		this.sound = this._register(new BaseHalfCanvasVideoSound(this.video, options.soundGraph));
@@ -311,15 +322,15 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		for (const button of [this.soundButton, this.playButton, this.openButton]) {
 			button.type = 'button';
 		}
-		if (detail && isSound) {
-			// A sound has nothing to fill the screen with.
+		if (detail && isSound || options.note) {
+			// A sound has nothing to fill the screen with, and a note's player opens nothing: the note is what a double click opens.
 			this.openButton.hidden = true;
 		} else if (detail) {
 			this.openButton.classList.add('full-screen');
 			this.updateFullScreenButton();
 		} else {
 			this.openButton.append(playerIcon(OPEN_PATH));
-			this.openButton.setAttribute('aria-label', localize('basehalf.canvas.videoPlayer.open', "Open"));
+			this.label(this.openButton, localize('basehalf.canvas.videoPlayer.open', "Open"));
 		}
 		this.slider.setAttribute('role', 'slider');
 		this.slider.setAttribute('aria-label', localize('basehalf.canvas.videoPlayer.position', "Position"));
@@ -363,6 +374,11 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 
 	get detail(): boolean {
 		return this.options.detail === true;
+	}
+
+	/** A player of a video or a sound in a note. */
+	get inNote(): boolean {
+		return this.options.note !== undefined;
 	}
 
 	pause(): void {
@@ -461,7 +477,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 
 	/** The controls follow the size of the picture on screen, which the canvas zoom and a resize change. */
 	layout(): void {
-		if (this.hovered || this.selected || this.detail) {
+		if (this.hovered || this.selected || this.detail || this.inNote) {
 			this.updateControls();
 		}
 	}
@@ -474,8 +490,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	private rememberWhereItStands(): void {
 		// A time of the file: the source may be its original, of which the file holds a part.
 		const time = Math.max(0, this.video.currentTime - (this.options.offset ?? 0));
-		// The sound of Card Detail is its own: the card keeps whether it has sound.
-		const muted = this.detail ? lastPlayed.get(this.file)?.muted ?? true : this.muted;
+		// The sound of Card Detail and of a note is their own: the card keeps whether it has sound.
+		const muted = this.detail || this.inNote ? lastPlayed.get(this.file)?.muted ?? true : this.muted;
 		lastPlayed.delete(this.file);
 		if (this.detail && Number.isFinite(time)) {
 			// Closing Card Detail leaves its card at the frame where it stopped, unless the card shows a version before an edit.
@@ -561,6 +577,11 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 				}));
 			}
 			this._register(toDisposable(() => this.clearWakeTimer()));
+		} else if (this.inNote) {
+			// In a note the pointer plays nothing (note formats, rule 52). In Preview the picture is the player's: a click plays or pauses it.
+			if (this.options.note === 'page') {
+				this._register(addDisposableListener(this.picture ?? video, 'click', () => this.togglePlay()));
+			}
 		} else {
 			// The pointer plays the video, also on a selected card; it plays no sound, which has no picture to show.
 			this._register(addDisposableListener(element, 'pointerenter', event => {
@@ -755,7 +776,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		const full = this.element.ownerDocument.fullscreenElement === this.element;
 		clearNode(this.openButton);
 		this.openButton.append(playerIcon(full ? EXIT_FULL_SCREEN_PATH : OPEN_PATH));
-		this.openButton.setAttribute('aria-label', full
+		this.label(this.openButton, full
 			? localize('basehalf.canvas.videoPlayer.exitFullScreen', "Exit Full Screen")
 			: localize('basehalf.canvas.videoPlayer.fullScreen', "Full Screen"));
 	}
@@ -803,7 +824,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		clearNode(this.playButton);
 		this.playButton.append(playerIcon(playing ? PAUSE_PATH : PLAY_PATH));
 		this.playButton.dataset.state = playing ? 'playing' : 'paused';
-		this.playButton.setAttribute('aria-label', playing
+		this.label(this.playButton, playing
 			? localize('basehalf.canvas.videoPlayer.pause', "Pause")
 			: localize('basehalf.canvas.videoPlayer.play', "Play"));
 	}
@@ -812,9 +833,17 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		clearNode(this.soundButton);
 		this.soundButton.append(playerIcon(this.muted ? MUTED_PATH : SOUND_PATH));
 		this.soundButton.dataset.state = this.muted ? 'muted' : 'sound';
-		this.soundButton.setAttribute('aria-label', this.muted
+		this.label(this.soundButton, this.muted
 			? localize('basehalf.canvas.videoPlayer.unmute', "Unmute")
 			: localize('basehalf.canvas.videoPlayer.mute', "Mute"));
+	}
+
+	/** Names a button, for a screen reader, and for the window's own hover of BaseHalf where no hover service draws one. */
+	private label(button: HTMLElement, text: string): void {
+		button.setAttribute('aria-label', text);
+		if (!this.options.hoverService) {
+			setBaseHalfHover(button, text);
+		}
 	}
 
 	/** In Card Detail: the pointer moved or a key was pressed; the controls show, and fade once that long has passed. */
@@ -845,12 +874,12 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	}
 
 	/**
-	 * On a card the controls show while the pointer is on it or it is selected.
-	 * In Card Detail they show as a player's do (D98): while the video is
-	 * paused, the pointer moved a moment ago or rests on a control, or the
-	 * keyboard is in them; while it plays they otherwise fade, and stay where
-	 * the keyboard and the pointer can reach them. Either way only on a picture
-	 * wide enough on screen.
+	 * On a card the controls show while the pointer is on it or it is
+	 * selected, and in a note always. In Card Detail they show as a player's
+	 * do (D98): while the video is paused, the pointer moved a moment ago or
+	 * rests on a control, or the keyboard is in them; while it plays they
+	 * otherwise fade, and stay where the keyboard and the pointer can reach
+	 * them. Either way only on a picture wide enough on screen.
 	 */
 	private updateControls(): void {
 		const wide = this.element.getBoundingClientRect().width >= BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH;
@@ -860,6 +889,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		} else if (this.detail) {
 			const playing = !this.video.paused && !this.video.ended;
 			state = !playing || this.woken || this.pointerOnControls || this.keyboardInControls || this.scrubbing !== undefined ? 'shown' : 'faded';
+		} else if (this.inNote) {
+			state = 'shown';
 		} else {
 			state = this.hovered || this.selected ? 'shown' : 'hidden';
 		}

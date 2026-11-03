@@ -154,6 +154,36 @@ export function exerciseSelectedSource(units: readonly { readonly markdown: stri
 	const state = EditorState.create({ doc: document, selection: TextSelection.between(document.resolve(textPosition(document, anchorText, false)), document.resolve(textPosition(document, headText, true))) });
 	return selectedCanvasMarkdownSource(state, records, '\\n');
 }
+
+type FixedTestUnit = { readonly markdown: string; readonly prefix: string; readonly separator: string; readonly editable: boolean; readonly appended?: boolean };
+export function exerciseFixedUnits(units: readonly FixedTestUnit[], action: { readonly select: number; readonly letter?: string; readonly enter?: boolean; readonly remove?: boolean; readonly typeIn?: { readonly unit: number; readonly text: string } }) {
+	const records = new Map<string, CanvasMarkdownRuntimeUnit>();
+	const nodes = units.map((unit, index) => {
+		const id = 'unit-' + index;
+		const initialNode = unit.editable
+			? canvasSchema.nodes.markdown_unit.create({ unitId: id }, parseMarkdown(unit.markdown).childCount > 0 ? parseMarkdown(unit.markdown).content : canvasSchema.nodes.paragraph.create())
+			: canvasSchema.nodes.unsupported_markdown.create({ unitId: id });
+		records.set(id, { input: { id, element: undefined as unknown as HTMLElement, ...unit }, initialNode, staticElement: { textContent: unit.markdown } as unknown as HTMLElement });
+		return initialNode;
+	});
+	const document = canvasSchema.nodes.doc.create(null, nodes);
+	let offset = 0;
+	const offsets = nodes.map(node => { const at = offset; offset += node.nodeSize; return at; });
+	let state = EditorState.create({ doc: document, selection: units[action.select].editable ? TextSelection.near(document.resolve(offsets[action.select] + 1)) : NodeSelection.create(document, offsets[action.select]) });
+	const dispatch = (transaction: Transaction) => { state = state.apply(transaction); };
+	const copied = markdownOfSelectedBlocks(state.selection, records);
+	if (action.letter !== undefined || action.enter) {
+		startParagraphAfterFixedUnit(action.letter)(state, dispatch);
+	}
+	if (action.remove) {
+		dispatch(state.tr.deleteSelection());
+	}
+	if (action.typeIn) {
+		dispatch(state.tr.insertText(action.typeIn.text, offsets[action.typeIn.unit] + 2));
+	}
+	const near = units.map((unit, index) => unit.editable ? undefined : editablePlaceNear(document, index)?.from);
+	return { markdown: serializeCanvasMarkdownDocument(state.doc, records, '\\n'), copied, near, offsets };
+}
 `;
 
 const result = await build({
@@ -190,6 +220,7 @@ const testModule = await import(`data:text/javascript;base64,${Buffer.from(modul
 	};
 	readonly exerciseSelectionAcrossDocuments: (before: readonly string[], after: readonly string[], anchorText: string, headText: string) => string | undefined;
 	readonly exerciseTypedText: (source: string, afterText: string, typed: string) => string;
+	readonly exerciseFixedUnits: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string; readonly editable: boolean; readonly appended?: boolean }[], action: { readonly select: number; readonly letter?: string; readonly enter?: boolean; readonly remove?: boolean; readonly typeIn?: { readonly unit: number; readonly text: string } }) => { readonly markdown: string; readonly copied: string | undefined; readonly near: readonly (number | undefined)[]; readonly offsets: readonly number[] };
 	readonly canEditCanvasMarkdownUnit: (markdown: string) => boolean;
 	readonly exerciseSelectedSource: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string }[], anchorText: string, headText: string) => { readonly text: string; readonly start: number; readonly end: number; readonly firstEnd: number; readonly lastStart: number } | undefined;
 	readonly exerciseCanvasProjectionPersistence: (
@@ -361,5 +392,40 @@ assert.deepEqual([
 	'a <b>x</b>',
 	'<details>\n<summary>Title</summary>\n\nchild\n\n</details>',
 ].map(source => testModule.canEditCanvasMarkdownUnit(source)), [false, false, false, false, false], 'other HTML, other colors, and tags that do not close keep their unit as it is');
+
+// A fixed block is one unit of the card's editor (note formats, rules 82 and 82a).
+const picture = { markdown: '![](a.png)', prefix: '\n\n', separator: '', editable: false };
+const before = { markdown: 'Before.', prefix: '', separator: '', editable: true };
+const after = { markdown: 'After.', prefix: '\n\n', separator: '\n', editable: true };
+const middle = testModule.exerciseFixedUnits([before, picture, after], { select: 1, letter: 'x' });
+const last = testModule.exerciseFixedUnits([before, { ...picture, separator: '\n' }], { select: 1, letter: 'x' });
+const entered = testModule.exerciseFixedUnits([before, { ...picture, separator: '\n' }], { select: 1, enter: true });
+const removed = testModule.exerciseFixedUnits([before, picture, after], { select: 1, remove: true });
+const alone = { markdown: '![](a.png)', prefix: '', separator: '\n', editable: false };
+const appended = { markdown: '', prefix: '', separator: '', editable: true, appended: true };
+const untouched = testModule.exerciseFixedUnits([alone, appended], { select: 0 });
+const typedBelow = testModule.exerciseFixedUnits([alone, appended], { select: 0, typeIn: { unit: 1, text: 'below' } });
+const leading = testModule.exerciseFixedUnits([{ ...picture, prefix: '' }, after], { select: 0 });
+assert.deepEqual({
+	middle: middle.markdown,
+	last: last.markdown,
+	entered: entered.markdown,
+	removed: removed.markdown,
+	copied: middle.copied,
+	untouched: untouched.markdown,
+	typedBelow: typedBelow.markdown,
+	nearBefore: middle.near[1] === middle.offsets[1] - 2,
+	nearAfter: leading.near[0] === leading.offsets[1] + 2,
+}, {
+	middle: 'Before.\n\n![](a.png)\n\nx\n\nAfter.\n',
+	last: 'Before.\n\n![](a.png)\n\nx\n',
+	entered: 'Before.\n\n![](a.png)\n',
+	removed: 'Before.\n\nAfter.\n',
+	copied: '![](a.png)',
+	untouched: '![](a.png)\n',
+	typedBelow: '![](a.png)\n\nbelow\n',
+	nearBefore: true,
+	nearAfter: true,
+}, 'a fixed block is one unit: a letter after it starts a paragraph, Delete removes it, Copy takes its Markdown, and the line after a note of fixed blocks writes nothing until it holds text');
 
 console.log('Canvas Markdown inline command tests passed.');

@@ -28,7 +28,9 @@ import { segmentBaseHalfMarkdownTopLevelBodyWithToggles, splitBaseHalfMarkdownFr
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelectionLines.js';
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
-import { baseHalfNoteRenderOptions, removeBaseHalfNoteLinkTitles } from '../../markdown/browser/basehalfNoteRenderOptions.js';
+import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
+import { baseHalfNoteFileLinks } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
+import { playBaseHalfNoteMedia } from './basehalfCanvasNoteMedia.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { restoreBaseHalfSidewaysScroll } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 
@@ -46,6 +48,7 @@ export interface IBaseHalfCanvasMarkdownInlineSelection {
 
 interface IBaseHalfCanvasMarkdownInlineRuntime {
 	focusAtPoint(clientX: number, clientY: number): boolean;
+	focusAtUnitEdge(unitId: string, edge: 'start' | 'end'): boolean;
 	focus(): void;
 	setReadOnly(readOnly: boolean): void;
 	getSelection(): IBaseHalfCanvasMarkdownInlineSelection;
@@ -69,13 +72,14 @@ interface IBaseHalfCanvasMarkdownInlineVendor {
 			readonly separator: string;
 			readonly editable: boolean;
 			readonly element: HTMLElement;
+			readonly appended?: boolean;
 		}[];
 		readonly requiredEditableUnitId?: string;
 		readonly readOnly?: boolean;
 		readonly selection?: IBaseHalfCanvasMarkdownInlineSelection;
 		readonly selectionDocument?: unknown;
 		readonly inactive?: boolean;
-		readonly onMarkdownChange?: (markdown: string) => void;
+		readonly onMarkdownChange?: (markdown: string, ownStep?: boolean) => void;
 		readonly onCompositionChange?: (composing: boolean) => void;
 		readonly onUndoRequest?: () => void;
 		readonly onRedoRequest?: () => void;
@@ -83,6 +87,7 @@ interface IBaseHalfCanvasMarkdownInlineVendor {
 		readonly onToolbarRequest?: () => void;
 		readonly onFormatStateChange?: (state: IBaseHalfCanvasNoteFormatState) => void;
 		readonly onSelectionChange?: () => void;
+		readonly onPasteBlocksRequest?: (markdown: string, offset: number) => void;
 	}): IBaseHalfCanvasMarkdownInlineRuntime;
 }
 
@@ -92,6 +97,8 @@ interface IBaseHalfCanvasMarkdownRenderedUnit {
 	readonly markdown: string;
 	readonly prefix: string;
 	readonly separator: string;
+	/** The empty line after the last block of a note without a block the editor edits (note formats, rule 82a). */
+	readonly appended?: boolean;
 }
 
 export interface IBaseHalfCanvasMarkdownTextEdit {
@@ -209,7 +216,7 @@ export function renderBaseHalfCanvasStoredMarkdown(
 	const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: true });
 	markdown.baseUri = resource;
 	const rendered = renderMarkdown(markdown, baseHalfNoteRenderOptions({ note: resource, actionHandler: onOpenLink }), container);
-	removeBaseHalfNoteLinkTitles(rendered.element);
+	finishBaseHalfNoteRendering(rendered.element);
 	// A task item shows its box in place of the list bullet. The class is set
 	// here because a `:has()` rule on the canvas slows every card render.
 	// eslint-disable-next-line no-restricted-syntax
@@ -222,6 +229,16 @@ export function renderBaseHalfCanvasStoredMarkdown(
 		box.classList.add(BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS);
 	}
 	return rendered;
+}
+
+/**
+ * Whether a block of a note holds a paragraph that Rich shows as a file
+ * block, read with the note's reference definitions. Such a paragraph holds
+ * a link, Markdown or HTML.
+ */
+function holdsFileBlock(source: string, referenceDefinitions: string): boolean {
+	return (source.includes('[') || /<a\s/i.test(source))
+		&& baseHalfNoteFileLinks(referenceDefinitions ? `${source}\n\n${referenceDefinitions}` : source).length > 0;
 }
 
 /**
@@ -709,7 +726,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				: `${sourceSegments[index - 1].sep}${segment.prefix}`;
 			const separator = index === sourceSegments.length - 1 ? segment.sep : '';
 			const element = append(this.root, $('.basehalf-canvas-markdown-inline-unit'));
-			const supported = vendor.canEditCanvasMarkdownUnit(segment.source);
+			// A file block is one unit, as a picture is (note formats, rule 82).
+			const supported = vendor.canEditCanvasMarkdownUnit(segment.source) && !holdsFileBlock(segment.source, referenceDefinitions);
 			const unit: IBaseHalfCanvasMarkdownRenderedUnit = {
 				element,
 				supported,
@@ -726,11 +744,19 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		}
 
 		const clientPoint = options.clientPoint ?? (options.point ? this.toClientPoint(options.point) : undefined);
-		const target = clientPoint
+		let target = clientPoint
 			? resolveBaseHalfCanvasMarkdownInlineUnitAtPoint(this.root, units, clientPoint.x, clientPoint.y, scrollTop)
 			: units.find(unit => unit.supported);
-		if (!target || !target.supported) {
-			return false;
+		// A double click on a block the editor cannot edit edits the note all the same, beside the block
+		// (note formats, rule 82a): the nearest block it edits before it, or else after it.
+		if (target && !target.supported) {
+			const index = units.indexOf(target);
+			target = units.slice(0, index).reverse().find(unit => unit.supported) ?? units.slice(index + 1).find(unit => unit.supported);
+		}
+		if (!target) {
+			// No block the editor edits: an empty line after the last one, which writes nothing until it holds something.
+			target = { element: append(this.root, $('.basehalf-canvas-markdown-inline-unit')), supported: true, markdown: '', prefix: '', separator: '', appended: true };
+			units.push(target);
 		}
 		const targetIndex = units.indexOf(target);
 		let runtime: IBaseHalfCanvasMarkdownInlineRuntime;
@@ -743,7 +769,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 					prefix: unit.prefix,
 					separator: unit.separator,
 					editable: unit.supported,
-					element: unit.element
+					element: unit.element,
+					appended: unit.appended
 				})),
 				requiredEditableUnitId: String(targetIndex),
 				readOnly: this.isReadOnly(),
@@ -752,7 +779,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				// Without focus, the selection is drawn as not active, as the
 				// editor it replaces drew it while the user was elsewhere.
 				inactive: !options.focus,
-				onMarkdownChange: markdown => this.applyDocumentMarkdown(markdown),
+				onMarkdownChange: (markdown, ownStep) => this.applyDocumentMarkdown(markdown, ownStep),
+				onPasteBlocksRequest: (markdown, offset) => this.pasteBlocks(markdown, offset),
 				onCompositionChange: composing => this.handleCompositionChange(composing),
 				onUndoRequest: () => void this.undo(),
 				onRedoRequest: () => void this.redo(),
@@ -772,10 +800,16 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		renderStore.add(toDisposable(() => runtime.destroy()));
 		const editable = this.root.querySelector<HTMLElement>(':scope > .ProseMirror');
 		editable?.setAttribute('aria-label', `Edit ${state.relativePath}`);
+		if (editable) {
+			// The editor shows copies of the blocks drawn above: their videos and sounds play in BaseHalf's player there (note formats, rule 52).
+			renderStore.add(playBaseHalfNoteMedia(editable, 'card'));
+		}
 		this.root.scrollTop = scrollTop;
 		if (options.focus) {
 			if (clientPoint && this.runtime) {
 				this.runtime.focusAtPoint(clientPoint.x, clientPoint.y);
+			} else if (target.appended && this.runtime) {
+				this.runtime.focusAtUnitEdge(String(targetIndex), 'start');
 			} else {
 				this.focus();
 			}
@@ -805,7 +839,30 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		));
 	}
 
-	private applyDocumentMarkdown(markdown: string): void {
+	/**
+	 * Blocks copied in this editor, a fixed block among them, pasted at
+	 * `offset` of the note's body (note formats, rule 82): written into the
+	 * note as one step of undo, and the editor drawn again with them.
+	 */
+	private pasteBlocks(markdown: string, offset: number): void {
+		const runtime = this.runtime;
+		if (!runtime || !this.model || this.isReadOnly()) {
+			return;
+		}
+		const body = runtime.getMarkdown();
+		const lineEnding = body.includes('\r\n') ? '\r\n' : '\n';
+		const head = body.slice(0, offset);
+		const tail = body.slice(offset);
+		const blocks = markdown.replace(/\r?\n/g, lineEnding);
+		const next = `${head}${head.length > 0 ? lineEnding.repeat(2) : ''}${blocks}${tail.length > 0 && !/^\s/.test(tail) ? lineEnding.repeat(2) : ''}${tail}`;
+		const selection = runtime.getSelection();
+		const selectionDocument = runtime.getDocument();
+		this.applyDocumentMarkdown(next, true);
+		this.renderDocument({ selection, selectionDocument, focus: true });
+		this.updateStatus();
+	}
+
+	private applyDocumentMarkdown(markdown: string, ownStep = false): void {
 		const model = this.model;
 		const finishingComposition = this.composing;
 		if (!model || (this.isReadOnly() && !finishingComposition)) {
@@ -823,6 +880,10 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		const edit = computeBaseHalfCanvasMarkdownTextEdit(current, markdown);
 		if (!edit) {
 			return;
+		}
+		// A fixed block added or removed is a step of its own, apart from the letters around it.
+		if (ownStep) {
+			this.finishEditGroup();
 		}
 		if (!this.editGroupOpen) {
 			model.pushStackElement();
@@ -844,7 +905,11 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		}
 		this.bodyMarkdown = markdown;
 		this.bodyEnd += delta;
-		this.scheduleEditGroupEnd();
+		if (ownStep) {
+			this.finishEditGroup();
+		} else {
+			this.scheduleEditGroupEnd();
+		}
 		this.updateStatus();
 	}
 
@@ -948,7 +1013,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			return;
 		}
 		const anchor = event.target.closest<HTMLAnchorElement>('.ProseMirror a[href]');
-		const href = anchor?.getAttribute('href');
+		// A link of a block drawn as at rest, a file block among them, holds its address as the renderer resolved it.
+		const href = anchor?.getAttribute('href') || anchor?.dataset.href;
 		if (!anchor || !href || !this.root.contains(anchor)) {
 			return;
 		}

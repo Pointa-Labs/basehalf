@@ -33,6 +33,7 @@ import {
 	type IBaseHalfMarkdownReuseEntry,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
+import { baseHalfNoteFileLinks } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownHtml.js';
 import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDecorations.js';
 import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
 import { createCanvasMarkdownInlineEditor } from '../canvas-markdown-inline-src/canvasMarkdownInline.js';
@@ -1403,6 +1404,62 @@ async function fixedBlocks(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
+ * Part q, file blocks (note formats, rules 12 and 81; criterion 30): the
+ * paragraphs that the card and Preview draw as file blocks are the ones Rich
+ * reads as file blocks, with the same names and files, and a fixed block
+ * draws one as a file block too.
+ */
+async function fileBlocks(t: INoteFormatsTest): Promise<void> {
+	const note = [
+		'Start.',
+		'[handout.pdf](handout.pdf)',
+		'[](empty.pdf)',
+		'[**bold**](bold.pdf)',
+		'[titled](titled.pdf "Title")',
+		'[a note](note.md)',
+		'[web](https://example.com/web.pdf)',
+		'[absolute](/abs/absolute.pdf)',
+		'[anchor](#part)',
+		'[no extension](folder/readme)',
+		'See [inline.pdf](inline.pdf) here.',
+		'[one.pdf](one.pdf) [two.pdf](two.pdf)',
+		'[referenced][r]',
+		'[r]: referenced.pdf',
+		'- item\n\n  [nested.pdf](nested.pdf)\n\n- [own.pdf](own.pdf)',
+		'> [quoted.pdf](quoted.pdf)',
+		'<details>\n<summary>Toggle</summary>\n\n[toggled.pdf](toggled.pdf)\n\n</details>',
+		'[a\\_b.pdf](a_b.pdf)',
+		'[笔记.pdf](%E7%AC%94%E8%AE%B0.pdf)',
+		'<a href="html.pdf">html.pdf</a>',
+		'[UPPER.PDF](UPPER.PDF)',
+		'[query.pdf](query.pdf?page=2)',
+		'[spaced name.pdf](<spaced name.pdf>)',
+		'[a &amp; b.pdf](a&amp;b.pdf)',
+	].join('\n\n') + '\n';
+	await t.load(note);
+	await t.frames();
+	const files: { readonly name: string; readonly href: string }[] = [];
+	const collect = (blocks: typeof t.editor.document): void => {
+		for (const block of blocks) {
+			if (block.type === 'file') {
+				files.push({ name: block.props.name, href: block.props.url });
+			}
+			collect(block.children);
+		}
+	};
+	collect(t.editor.document);
+	t.check('the card draws a paragraph as a file block where Rich reads a file block, with its name and its file', baseHalfNoteFileLinks(note), files);
+	// A paragraph that is one link to a file, in a block Rich cannot edit, shows as a file block there too: an item
+	// Rich keeps fixed holds one.
+	await t.load('- item <mark>kept</mark>\n\n  [nested.pdf](nested.pdf)\n');
+	await t.frames();
+	const drawn = [...(t.editor.domElement?.querySelectorAll<HTMLElement>('.basehalf-raw-passthrough-rendered a.bh-md-file') ?? [])];
+	t.check('a fixed block draws a paragraph that is one link to a file as a file block, which keeps its address and shows no title',
+		drawn.map(link => ({ name: link.textContent, href: link.getAttribute('href'), icon: link.firstElementChild?.getAttribute('class'), title: link.hasAttribute('title') })),
+		[{ name: 'nested.pdf', href: 'nested.pdf', icon: 'bh-md-file-icon', title: false }]);
+}
+
+/**
  * The parts of the test, by name. Each runs on a note of its own and records
  * its checks with `t.check`. Parts a to i of D110 join here.
  */
@@ -1419,6 +1476,7 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	p: longNote,
 	k: fixedBlocks,
 	n: shape,
+	q: fileBlocks,
 };
 
 // As editor.tsx does before the first note is drawn.

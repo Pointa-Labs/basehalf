@@ -7,12 +7,13 @@
 
 import fs from 'fs';
 import path from 'path';
+import process from 'process';
 import { closeCanvasBadgeFace, openCanvasBadgeFace } from './badges.mts';
 import { frameCanvasCardsForConnection } from './connections.mts';
 import { centerCanvasCards } from './creation.mts';
 import { waitForViewTransitions } from '../../app.mts';
 import { root, workspacePath } from '../../context.mts';
-import { createSilentWav } from '../../fixture.mts';
+import { createMinimalPdfFixture, createSilentWav, createSolidPng } from '../../fixture.mts';
 import { restoreSystemAppearance, showSystemAppearance } from '../../lib/appearance.mts';
 import {
 	assertCanvasEdgeVisible,
@@ -24,7 +25,7 @@ import {
 	waitForCanvasNoteInlineEditor,
 	zoomCanvas
 } from '../../lib/canvas.mts';
-import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
+import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
 import { withTheSystemBrowserStoodIn } from '../../lib/opener.mts';
 import { drawnColor } from '../../lib/png.mts';
@@ -403,7 +404,11 @@ export async function assertCanvasNoteLinksOpenTheirTargets(page) {
 		if (!await editor.editable.isVisible().catch(() => false)) {
 			// While Card Detail goes back into its card, the window's root takes every click.
 			await waitForViewTransitions(page);
-			await card.locator('.bh-md-preview p', { hasText: 'See' }).first().dblclick({ position: { x: 4, y: 6 } });
+			// The first word of the line, where the card shows it: after Card Detail the note can stand scrolled a little,
+			// and a press at the card's very edge is the edge's.
+			const line = await card.locator('.bh-md-preview p', { hasText: 'See' }).first().boundingBox();
+			const cardBox = await card.boundingBox();
+			await page.mouse.dblclick(line.x + 4, Math.min(Math.max(line.y, cardBox.y + 12) + 6, line.y + line.height - 4));
 			await waitForCanvasNoteInlineEditor(page, notePath);
 		}
 		return editor.editable.locator('a', { hasText: name }).first();
@@ -506,11 +511,14 @@ async function removeFolder(page, folderName) {
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
-// Note formats, plans R10 and R12: on a note's card at rest, a click on a
-// toggle's title opens it, a click on a video plays it, and a click on a
-// sound's play plays it, and none of the clicks moves the card. One video or
-// sound plays at a time: the note's sound pauses when a video's card starts
-// under the pointer, and the video when the sound starts.
+// Note formats, plans R10 and R12, and criterion 30: on a note's card at rest,
+// a click on a toggle's title opens it, a video shows its first frame and a
+// sound its glyph with BaseHalf's bar, whose play plays them with their sound,
+// the pointer plays neither, a paragraph that is one link to a file is a file
+// block that opens the file, and none of the clicks moves the card; a press on
+// the video's picture does. One video or sound plays at a time: the note's
+// sound pauses when a video's card starts under the pointer, and the video
+// when the sound starts. Preview plays the note's video by a click on it.
 export async function assertCanvasNoteMediaReactAtRest(page) {
 	const folderName = 'media-on-cards';
 	const notePath = `${folderName}/media.md`;
@@ -522,8 +530,9 @@ export async function assertCanvasNoteMediaReactAtRest(page) {
 	fs.writeFileSync(path.join(workspacePath, folderName, 'clip.mp4'), video);
 	fs.writeFileSync(path.join(workspacePath, reelPath), video);
 	fs.writeFileSync(path.join(workspacePath, folderName, 'tone.wav'), createSilentWav(6));
-	fs.writeFileSync(path.join(workspacePath, notePath), ['<details>', '<summary>More</summary>', '', 'Inside the toggle.', '', '</details>', '', '![clip](clip.mp4)', '', '<audio src="tone.wav" controls></audio>', ''].join('\n'), 'utf8');
-	// The note tall enough to show its sound, beside the cards of the files.
+	fs.writeFileSync(path.join(workspacePath, folderName, 'handout.pdf'), createMinimalPdfFixture());
+	fs.writeFileSync(path.join(workspacePath, notePath), ['<details>', '<summary>More</summary>', '', 'Inside the toggle.', '', '</details>', '', '![clip](clip.mp4)', '', '<audio src="tone.wav" controls></audio>', '', '[handout.pdf](handout.pdf)', ''].join('\n'), 'utf8');
+	// The note tall enough to show its sound and its file, beside the cards of the files.
 	const mirror = path.join(workspacePath, '.bh', 'mirror', folderName);
 	fs.mkdirSync(mirror, { recursive: true });
 	fs.writeFileSync(path.join(mirror, 'canvas.yaml'), [
@@ -532,7 +541,7 @@ export async function assertCanvasNoteMediaReactAtRest(page) {
 		'  width: 2400',
 		'  height: 1600',
 		'cards:',
-		...[[notePath, 0, 0, 340, 560], [reelPath, 400, 0, 300, 220], [`${folderName}/clip.mp4`, 400, 300, 300, 220], [`${folderName}/tone.wav`, 760, 0, 300, 220]].flatMap(([cardPath, x, y, width, height]) => [
+		...[[notePath, 0, 0, 340, 560], [reelPath, 400, 0, 300, 220], [`${folderName}/clip.mp4`, 400, 300, 300, 220], [`${folderName}/tone.wav`, 760, 0, 300, 220], [`${folderName}/handout.pdf`, 760, 300, 240, 320]].flatMap(([cardPath, x, y, width, height]) => [
 			`  - path: "${cardPath}"`,
 			'    kind: file',
 			`    x: ${x}`,
@@ -544,41 +553,225 @@ export async function assertCanvasNoteMediaReactAtRest(page) {
 		''
 	].join('\n'), 'utf8');
 	await openNewFolder(page, folderName, [card, reel]);
-	const sound = card.locator('.bh-md-preview audio').first();
-	const noteVideo = card.locator('.bh-md-preview video').first();
-	await waitForReading(() => sound.evaluate(element => element.readyState), ready => ready >= 1, 'the note\'s sound to load', 10_000);
-	await waitForReading(() => noteVideo.evaluate(element => element.readyState), ready => ready >= 1, 'the note\'s video to load', 10_000);
+	const players = noteMediaPlayers(card.locator('.bh-md-preview'));
+	await waitForReading(() => players.sound.media.evaluate(element => element.readyState), ready => ready >= 1, 'the note\'s sound to load', 10_000);
+	await waitForReading(() => players.video.media.evaluate(element => element.readyState), ready => ready >= 1, 'the note\'s video to load', 10_000);
 	const before = await card.boundingBox();
+	const shown = {
+		bars: await card.locator('.bh-md-preview .basehalf-canvas-video-player[data-controls="shown"]').count(),
+		systemControls: await card.locator('.bh-md-preview video[controls], .bh-md-preview audio').count(),
+		soundGlyph: await players.sound.player.locator('.basehalf-canvas-video-player-picture svg').count(),
+		fileBlock: await card.locator('.bh-md-preview a.bh-md-file', { hasText: 'handout.pdf' }).locator('svg.bh-md-file-icon').count(),
+	};
+	if (shown.bars !== 2 || shown.systemControls !== 0 || shown.soundGlyph !== 1 || shown.fileBlock !== 1) {
+		throw new Error(`A note's video and sound should show BaseHalf's bar and its file a file block on the card at rest: ${JSON.stringify(shown)}`);
+	}
 
 	const reacted = {};
 	await card.locator('.bh-md-preview summary').first().click();
 	reacted.toggle = await waitForReading(() => card.evaluate(element => element.querySelector('.bh-md-preview details')?.open === true), open => open, 'a click on a toggle\'s title to open it', 2_000).catch(() => false);
-	const videoBox = await noteVideo.boundingBox();
-	await page.mouse.click(videoBox.x + videoBox.width / 2, videoBox.y + videoBox.height / 2);
-	reacted.video = await waitForReading(() => noteVideo.evaluate(element => !element.paused), playing => playing, 'a click on a video to play it', 2_000).catch(() => false);
-	await noteVideo.evaluate(element => element.pause());
-	const soundBox = await sound.boundingBox();
-	// The play button begins the sound's own controls.
-	await page.mouse.click(soundBox.x + 20, soundBox.y + soundBox.height / 2);
-	reacted.sound = await waitForReading(() => sound.evaluate(element => !element.paused), playing => playing, 'a click on a sound\'s play to play it', 2_000).catch(() => false);
+	// The pointer on the picture plays nothing.
+	const videoBox = await players.video.player.boundingBox();
+	await page.mouse.move(videoBox.x + videoBox.width / 2, videoBox.y + videoBox.height / 3, { steps: 4 });
+	await page.waitForTimeout(600);
+	reacted.pointerPlayedNothing = await players.video.media.evaluate(element => element.paused);
+	await players.video.play.click();
+	reacted.video = await waitForReading(() => players.video.media.evaluate(element => !element.paused && !element.muted), playing => playing, 'the play of the bar of a note\'s video to play it with its sound', 2_000).catch(() => false);
+	// The sound that starts pauses the video: its sound goes down first.
+	await players.sound.play.click();
+	reacted.sound = await waitForReading(() => players.sound.media.evaluate(element => !element.paused && !element.muted), playing => playing, 'the play of the bar of a note\'s sound to play it', 2_000).catch(() => false);
+	reacted.videoPausedForTheSound = await waitForReading(() => players.video.media.evaluate(element => element.paused), paused => paused, 'the note\'s video to pause when its sound starts', 2_000).catch(() => false);
+	await players.sound.play.click();
+	await waitForReading(() => players.sound.media.evaluate(element => element.paused), paused => paused, 'the pause of the bar of a note\'s sound to pause it', 2_000);
 	const after = await card.boundingBox();
 	const moved = { x: Math.round(after.x - before.x), y: Math.round(after.y - before.y) };
-	if (!reacted.toggle || !reacted.video || !reacted.sound || moved.x !== 0 || moved.y !== 0) {
-		throw new Error(`Clicks on a note's card at rest should open its toggle and play its video and its sound, and move nothing: ${JSON.stringify({ reacted, moved })}`);
+	if (!reacted.toggle || !reacted.pointerPlayedNothing || !reacted.video || !reacted.sound || !reacted.videoPausedForTheSound || moved.x !== 0 || moved.y !== 0) {
+		throw new Error(`Clicks on a note's card at rest should open its toggle and play its video and its sound by their bars, one at a time, the pointer should play nothing, and nothing should move: ${JSON.stringify({ reacted, moved })}`);
+	}
+
+	// A press on the video's picture moves the card, as on a video's card.
+	const picture = await players.video.player.boundingBox();
+	const from = { x: picture.x + picture.width / 2, y: picture.y + picture.height / 3 };
+	await page.mouse.move(from.x, from.y);
+	await page.mouse.down();
+	await page.mouse.move(from.x + 30, from.y + 20, { steps: 6 });
+	await page.mouse.move(from.x + 60, from.y + 40, { steps: 6 });
+	await page.mouse.up();
+	const dragged = await card.boundingBox();
+	const draggedBy = { x: Math.round(dragged.x - after.x), y: Math.round(dragged.y - after.y) };
+	if (Math.abs(draggedBy.x - 60) > 4 || Math.abs(draggedBy.y - 40) > 4) {
+		throw new Error(`A press on the picture of a note's video should move its card: it moved by ${JSON.stringify(draggedBy)} for a drag of (60, 40)`);
 	}
 
 	// The video's card starts under the pointer, and the note's sound pauses; the sound starts again, and the video pauses.
 	const reelVideo = reel.locator('.basehalf-canvas-video-player video').first();
+	await players.sound.play.click();
+	await waitForReading(() => players.sound.media.evaluate(element => !element.paused), playing => playing, 'the note\'s sound to play again', 2_000);
 	const reelBox = await reel.boundingBox();
 	await page.mouse.move(reelBox.x + reelBox.width / 2, reelBox.y + reelBox.height / 2, { steps: 4 });
 	const oneAtATime = {};
 	oneAtATime.videoStarted = await waitForReading(() => reelVideo.evaluate(element => !element.paused), playing => playing, 'the video\'s card under the pointer to play', 3_000).catch(() => false);
-	oneAtATime.soundPaused = await waitForReading(() => sound.evaluate(element => element.paused), paused => paused, 'the note\'s sound to pause', 2_000).catch(() => false);
-	await sound.evaluate(element => element.play());
+	oneAtATime.soundPaused = await waitForReading(() => players.sound.media.evaluate(element => element.paused), paused => paused, 'the note\'s sound to pause', 2_000).catch(() => false);
+	await players.sound.play.click();
 	oneAtATime.videoPaused = await waitForReading(() => reelVideo.evaluate(element => element.paused), paused => paused, 'the video to pause when the note\'s sound starts', 2_000).catch(() => false);
-	await sound.evaluate(element => element.pause());
+	await players.sound.play.click();
 	if (!oneAtATime.videoStarted || !oneAtATime.soundPaused || !oneAtATime.videoPaused) {
 		throw new Error(`One video or sound on the canvas should play at a time, a sound in a note too: ${JSON.stringify(oneAtATime)}`);
+	}
+
+	// The file block opens the file, as the link does.
+	await card.locator('.bh-md-preview a.bh-md-file', { hasText: 'handout.pdf' }).click();
+	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title', { hasText: 'handout' }).waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {
+		throw new Error('A click on the file block of a note at rest did not open its file in Card Detail');
+	});
+	await closeCardDetailIfOpen(page);
+
+	// Preview: the same player, whose picture plays and pauses the video on a click, and the same file block.
+	// Card Detail opens from the card's Expand (note formats, rule 82a).
+	await waitForViewTransitions(page);
+	const cardBox = await card.boundingBox();
+	await page.mouse.click(cardBox.x + 24, cardBox.y + cardBox.height - 24);
+	const toolbar = page.getByRole('toolbar', { name: `Actions for ${notePath}`, exact: true });
+	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	await toolbar.getByRole('button', { name: `Expand ${notePath}`, exact: true }).click();
+	await assertCardDetail(page, 'media.md');
+	const projection = page.locator('.basehalf-card-detail.visible .basehalf-card-detail-projection[aria-label="Preview"]');
+	await projection.click();
+	const preview = page.locator('.basehalf-card-detail.visible .basehalf-card-detail-markdown-preview-content');
+	const inPreview = noteMediaPlayers(preview);
+	await inPreview.video.player.waitFor({ state: 'visible', timeout: 10_000 });
+	const pictureInPreview = await inPreview.video.player.boundingBox();
+	await page.mouse.click(pictureInPreview.x + pictureInPreview.width / 2, pictureInPreview.y + pictureInPreview.height / 3);
+	const previewPlays = await waitForReading(() => inPreview.video.media.evaluate(element => !element.paused && !element.muted), playing => playing, 'a click on the picture of a note\'s video in Preview to play it with its sound', 2_000).catch(() => false);
+	await page.mouse.click(pictureInPreview.x + pictureInPreview.width / 2, pictureInPreview.y + pictureInPreview.height / 3);
+	const previewPauses = await waitForReading(() => inPreview.video.media.evaluate(element => element.paused), paused => paused, 'a second click on it to pause it', 2_000).catch(() => false);
+	const previewShows = {
+		bars: await preview.locator('.basehalf-canvas-video-player[data-controls="shown"]').count(),
+		fileBlock: await preview.locator('a.bh-md-file', { hasText: 'handout.pdf' }).count(),
+	};
+	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-projection[aria-label="Rich"]').click().catch(() => undefined);
+	await closeCardDetailIfOpen(page);
+	if (!previewPlays || !previewPauses || previewShows.bars !== 2 || previewShows.fileBlock !== 1) {
+		throw new Error(`In Preview a note's video and sound should show BaseHalf's bar, a click on the video should play and pause it, and the file should be a file block: ${JSON.stringify({ previewPlays, previewPauses, previewShows })}`);
+	}
+	await removeFolder(page, folderName);
+}
+
+/** The players of the video and the sound of a rendered note: the player, its media element, and the play of its bar. */
+function noteMediaPlayers(note) {
+	const of = player => ({ player, media: player.locator('video').first(), play: player.locator('.basehalf-canvas-video-player-button.play').first() });
+	return {
+		video: of(note.locator('.basehalf-canvas-video-player.note:not(.sound)').first()),
+		sound: of(note.locator('.basehalf-canvas-video-player.note.sound').first()),
+	};
+}
+
+const UNDO = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
+
+// Note formats, criterion 23: a double click on a picture in a note opens the
+// card's editor with the caret at the end of the line before the picture, and
+// no Card Detail. A click selects the picture, Delete removes it, and one undo
+// brings it back. A letter typed while it is selected starts a paragraph after
+// it, and the file holds the picture and the letter, nothing else changed. A
+// note that holds only a picture opens the card's editor and writes nothing.
+export async function assertCanvasNotePictureEditsOnTheCard(page) {
+	const folderName = 'picture-on-cards';
+	const notePath = `${folderName}/picture.md`;
+	const onlyPath = `${folderName}/only.md`;
+	const NOTE = 'Before the picture.\n\n![pic](pic.png)\n\nAfter the picture.\n';
+	const ONLY = '![pic](pic.png)\n';
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${notePath}"]`);
+	const only = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${onlyPath}"]`);
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.writeFileSync(path.join(workspacePath, folderName, 'pic.png'), createSolidPng(160, 90, [64, 140, 220]));
+	fs.writeFileSync(path.join(workspacePath, notePath), NOTE, 'utf8');
+	fs.writeFileSync(path.join(workspacePath, onlyPath), ONLY, 'utf8');
+	const mirror = path.join(workspacePath, '.bh', 'mirror', folderName);
+	fs.mkdirSync(mirror, { recursive: true });
+	fs.writeFileSync(path.join(mirror, 'canvas.yaml'), [
+		`path: "${folderName}"`,
+		'size:',
+		'  width: 2400',
+		'  height: 1600',
+		'cards:',
+		...[[notePath, 0, 0, 320, 300], [onlyPath, 380, 0, 320, 300], [`${folderName}/pic.png`, 760, 0, 240, 180]].flatMap(([cardPath, x, y, width, height]) => [
+			`  - path: "${cardPath}"`,
+			'    kind: file',
+			`    x: ${x}`,
+			`    y: ${y}`,
+			`    width: ${width}`,
+			`    height: ${height}`
+		]),
+		'edges: []',
+		''
+	].join('\n'), 'utf8');
+	await openNewFolder(page, folderName, [card, only]);
+	const note = () => fs.readFileSync(path.join(workspacePath, notePath), 'utf8');
+	const editor = canvasNoteInlineEditor(page, notePath);
+	const openOnThePicture = async (target, targetPath) => {
+		const picture = target.locator('.bh-md-preview img').first();
+		await picture.waitFor({ state: 'visible', timeout: 10_000 });
+		await waitForViewTransitions(page);
+		await picture.dblclick();
+		await waitForCanvasNoteInlineEditor(page, targetPath);
+		if (await page.locator('.basehalf-card-detail.visible').count()) {
+			throw new Error(`A double click on the picture of ${targetPath} opened Card Detail instead of the card's editor`);
+		}
+	};
+	const close = async (targetPath = notePath) => {
+		await page.keyboard.press('Escape');
+		await canvasNoteInlineEditor(page, targetPath).host.waitFor({ state: 'detached', timeout: 10_000 });
+	};
+	const fixedPicture = () => editor.editable.locator('.basehalf-canvas-markdown-inline-unit.unsupported', { has: page.locator('img') }).first();
+	const seen = {};
+
+	// The caret at the end of the line before the picture: a letter typed goes there.
+	await openOnThePicture(card, notePath);
+	await page.keyboard.type('Q');
+	await page.waitForFunction(() => document.activeElement?.closest('.ProseMirror')?.textContent?.includes('Before the picture.Q'), undefined, { timeout: 5_000 }).then(() => {
+		seen.caretBeforeThePicture = true;
+	}, () => {
+		seen.caretBeforeThePicture = false;
+	});
+	await page.keyboard.press(UNDO);
+	await close();
+	seen.undoneLetter = note() === NOTE;
+
+	// A click selects the picture, Delete removes it, and one undo brings it back.
+	await openOnThePicture(card, notePath);
+	await fixedPicture().click();
+	await page.waitForFunction(() => document.querySelector('.ProseMirror .basehalf-canvas-markdown-inline-unit.unsupported.ProseMirror-selectednode img') !== null, undefined, { timeout: 5_000 });
+	await page.keyboard.press('Delete');
+	await editor.editable.locator('img').waitFor({ state: 'detached', timeout: 5_000 });
+	seen.textKept = await editor.editable.locator('p').allTextContents();
+	await page.keyboard.press(UNDO);
+	await editor.editable.locator('img').waitFor({ state: 'attached', timeout: 5_000 });
+	await close();
+	seen.pictureBack = note() === NOTE;
+
+	// A letter typed while the picture is selected starts a paragraph after it.
+	await openOnThePicture(card, notePath);
+	await fixedPicture().click();
+	await page.waitForFunction(() => document.querySelector('.ProseMirror .basehalf-canvas-markdown-inline-unit.unsupported.ProseMirror-selectednode img') !== null, undefined, { timeout: 5_000 });
+	await page.keyboard.type('x');
+	await close();
+	seen.letterAfter = note();
+
+	// A note that holds only a picture: the card's editor opens beside it, and nothing is written.
+	await openOnThePicture(only, onlyPath);
+	await close(onlyPath);
+	seen.onlyUnchanged = fs.readFileSync(path.join(workspacePath, onlyPath), 'utf8') === ONLY;
+
+	const expected = {
+		caretBeforeThePicture: true,
+		undoneLetter: true,
+		textKept: ['Before the picture.', 'After the picture.'],
+		pictureBack: true,
+		letterAfter: 'Before the picture.\n\n![pic](pic.png)\n\nx\n\nAfter the picture.\n',
+		onlyUnchanged: true,
+	};
+	if (JSON.stringify(seen) !== JSON.stringify(expected)) {
+		throw new Error(`A picture in a note should be edited on the card as one unit: ${JSON.stringify(seen)}, expected ${JSON.stringify(expected)}`);
 	}
 	await removeFolder(page, folderName);
 }

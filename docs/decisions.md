@@ -5367,3 +5367,52 @@ answer that keeps Markdown and adds a tag only where Markdown has no syntax
   placeholders of media from the slash menu; the editor's Markdown writer and
   reader in Rich; the mark that carried line breaks of table cells through
   that writer.
+
+## D112 — A double click edits a note on its card wherever it lands, and a note's videos, sounds, and files look on the card as BaseHalf shows them (NEW, 2026-11-03)
+
+**Decision.** A double click anywhere on a note's card edits the note on the
+card, for a note of up to 128 KiB. On a block that the card's editor cannot
+edit, a picture, a video, a sound, a table, code, a toggle, or any other fixed
+block, the caret goes to the end of the nearest block it can edit before the
+block, or else to the start of the nearest one after it, and a note without
+such a block gets an empty line after its last block that the file keeps only
+once something is typed into it. Card Detail opens from the card's Expand, and
+for a larger note. In the card's editor a fixed block is one unit: a click
+selects it, Delete or Backspace removes it as one step of undo, Copy and Cut
+take its Markdown, a paste of it puts the same block back, and a letter typed
+while it is selected starts a paragraph after it. Its size, its caption, its
+file, and a toggle's children stay Card Detail's. On the card, in the card's
+editor, and in Preview, a video of a note shows its first frame and a sound
+its glyph with BaseHalf's own bar, the bar of a video's card, played with its
+sound by the bar's play and never by the pointer; a paragraph that is one link
+to a file shows as Rich's file block, the file's icon beside its name, and
+opens the file on a click. Rich's own file block gets that layout back: the
+editor's file block carries no mark of a file block, so its icon stood above
+its name in a box as wide as the name. A press on a resting note still moves
+its card, also on a video's picture; only a player's bar takes presses. See
+[formats of a note](specs/note-formats.md), rules 52, 81, 82, and 82a, and
+[note rendering](specs/note-rendering.md), rules 4a, 11, and 25.
+
+**Why.** On 2026-11-03 the user reported that a double click on the card of a
+note with a picture made the note large instead of editing it ("如果我在笔记里面
+插入了图片，双击画布上的笔记卡片时会直接放大，而不是进入编辑状态"), and asked how a
+note's pictures, videos, and other files should show on its card and be
+edited there ("在画布上面的预览显示逻辑应该是怎样的？", "预览的编辑逻辑应该是怎样的？").
+The card's editor refused to open on a block it could not edit, and then
+opened Card Detail, by the rule that D110 had written for a toggle; on the
+card a note's video and sound played in the system's controls, unlike every
+video and sound card, and a file was a line of link text where Rich shows a
+file block. The user approved the answer: a double click always edits on the
+card, a fixed block is one unit there, and the card draws a note's media as
+BaseHalf draws them ("没问题，你可以开启多 agent 去并行完成这些任务，越快越好").
+
+**What was set aside.**
+- Opening Card Detail on a double click of a fixed block (D110, criterion 23):
+  the card is where a double click edits, whatever block it lands on.
+- Putting the caret at the point of the double click: on a fixed block there
+  is no place to type, and the editor would select or replace the block.
+- A video that plays under the pointer inside a note, as a video's card does:
+  a note is read, and a picture that starts as the pointer crosses it would
+  move under the reader's eyes and pause others.
+- The system's own controls for a note's video and sound: they differ from
+  every other player of the canvas, and their presses never reach the card.

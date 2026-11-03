@@ -4,9 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Lexer, Marked, type MarkedExtension, type RendererObject, type Token, type Tokens } from '../../../../base/common/marked/marked.js';
-import type { IBaseHalfNoteLinkDefinition } from './basehalfNoteInline.js';
+import { parseBaseHalfHtmlTag, type IBaseHalfNoteLinkDefinition } from './basehalfNoteInline.js';
 import { baseHalfMarkdownDestination, decodeBaseHalfSmallCharacterReferences } from './basehalfNoteMarkdownText.js';
 import { baseHalfNoteMediaKind } from './basehalfNoteMediaKind.js';
+import { isBaseHalfNoteFileAddress } from './basehalfNoteStructure.js';
 
 // This module is also compiled into the rich editor's webview, whose type
 // check follows every import. Beside the Markdown parser it imports only
@@ -136,6 +137,95 @@ function linkToAddressAsRead(token: Token, decode: (text: string) => string): vo
 	}
 }
 
+/**
+ * The title the note's extension gives a link that Rich shows as a file
+ * block, for the place that draws the note to draw the block (note formats,
+ * rule 81). It never shows: where a note is drawn, every title of a link is
+ * dropped (rule 57).
+ */
+export const BASEHALF_NOTE_FILE_LINK_TITLE = 'basehalf-file-block';
+
+/** The icon of Rich's file block, from the icons of its editor, at 24 by 24: the card, Preview, and a fixed block draw it too. */
+export const BASEHALF_NOTE_FILE_ICON_PATH = 'M3 8L9.00319 2H19.9978C20.5513 2 21 2.45531 21 2.9918V21.0082C21 21.556 20.5551 22 20.0066 22H3.9934C3.44476 22 3 21.5501 3 20.9932V8ZM10 4V9H5V20H19V4H10Z';
+
+/** A paragraph that Rich shows as a file block: the name the block shows and the address of its file as the note has it. */
+export interface IBaseHalfNoteFileLink {
+	readonly name: string;
+	readonly href: string;
+}
+
+interface IBaseHalfNoteFileParagraph extends IBaseHalfNoteFileLink {
+	/** Gives the paragraph's link the title {@link BASEHALF_NOTE_FILE_LINK_TITLE}. */
+	mark(): void;
+}
+
+/**
+ * Finds, as `marked` walks a note's tokens, a parent before its children,
+ * each paragraph that Rich shows as a file block (note formats, rules 12 and
+ * 81): a paragraph at any depth that is one link to a file of the note's
+ * folder, a Markdown link or `<a>` with an address alone (rule 37), with a
+ * name, without a title and without a format, and nothing but white space
+ * around it. The first lines of a list item are the item's own text, and
+ * the paragraphs of a quote are the quote's: neither is a paragraph of its
+ * own.
+ */
+function fileParagraphFinder(decode: (text: string) => string): (token: Token) => IBaseHalfNoteFileParagraph | undefined {
+	const notParagraphs = new WeakSet<Token>();
+	const addAll = (tokens: readonly Token[] | undefined): void => {
+		for (const token of tokens ?? []) {
+			notParagraphs.add(token);
+			addAll(token.type === 'list' ? (token as Tokens.List).items : (token as Tokens.Generic).tokens);
+		}
+	};
+	const isSpace = (token: Token) => token.type === 'br' || (token.type === 'text' && decode((token as Tokens.Text).text).trim() === '');
+	// A name without a format: text, and characters written with a backslash.
+	const nameOf = (tokens: readonly Token[]) => tokens.length > 0 && tokens.every(token => token.type === 'text' || token.type === 'escape')
+		? tokens.map(token => token.type === 'text' ? decode((token as Tokens.Text).text) : (token as Tokens.Escape).text).join('')
+		: undefined;
+	return token => {
+		if (token.type === 'list_item') {
+			const first = (token as Tokens.ListItem).tokens[0];
+			if (first) {
+				notParagraphs.add(first);
+			}
+			return undefined;
+		}
+		if (token.type === 'blockquote') {
+			addAll((token as Tokens.Blockquote).tokens);
+			return undefined;
+		}
+		// A paragraph, or the text of a list item after its first lines: `marked` reads a list item's paragraphs as text that holds its inline tokens.
+		const inline = (token.type === 'paragraph' || token.type === 'text') && !notParagraphs.has(token) ? (token as Tokens.Paragraph).tokens : undefined;
+		if (!Array.isArray(inline)) {
+			return undefined;
+		}
+		let first = 0;
+		let last = inline.length - 1;
+		while (first <= last && isSpace(inline[first])) {
+			first++;
+		}
+		while (last >= first && isSpace(inline[last])) {
+			last--;
+		}
+		const shown = inline.slice(first, last + 1);
+		if (shown.length === 1 && shown[0].type === 'link') {
+			const link = shown[0] as Tokens.Link;
+			const name = link.title ? undefined : nameOf(link.tokens);
+			const href = decode(link.href);
+			return name !== undefined && isBaseHalfNoteFileAddress(href) ? { name, href, mark: () => { link.title = BASEHALF_NOTE_FILE_LINK_TITLE; } } : undefined;
+		}
+		const open = shown.length > 2 && shown[0].type === 'html' ? parseBaseHalfHtmlTag(shown[0].raw) : undefined;
+		const close = open && shown[shown.length - 1].type === 'html' ? parseBaseHalfHtmlTag(shown[shown.length - 1].raw) : undefined;
+		if (open?.kind !== 'start' || open.name !== 'a' || open.selfClosing || open.attributes.length !== 1 || open.attributes[0][0] !== 'href' || close?.kind !== 'end' || close.name !== 'a') {
+			return undefined;
+		}
+		const name = nameOf(shown.slice(1, -1));
+		const href = decode(open.attributes[0][1] ?? '');
+		const html = shown[0] as Tokens.HTML;
+		return name !== undefined && isBaseHalfNoteFileAddress(href) ? { name, href, mark: () => { html.text = html.text.replace(/^<a\b/i, `<a title="${BASEHALF_NOTE_FILE_LINK_TITLE}"`); } } : undefined;
+	};
+}
+
 export interface IBaseHalfNoteMarkedExtensionOptions {
 	/** Decodes character references once, as a page does: the page's own decoding where there is one. Default: every numeric reference and a few named ones. */
 	readonly decodeCharacterReferences?: (text: string) => string;
@@ -147,16 +237,19 @@ export interface IBaseHalfNoteMarkedExtensionOptions {
  * The note's one extension of `marked` (note formats, rules 26 and 81), for
  * every place a note is rendered: a Markdown picture of a sound or a video
  * becomes the `<audio>` or `<video>` element, HTML that a note does not show
- * as elements becomes text, shown as the author wrote it, and a Markdown
- * link goes to its address as Rich reads it. It works on tokens only: a
- * renderer of an extension would lose to the base renderer's own `link` and
- * `image`.
+ * as elements becomes text, shown as the author wrote it, a Markdown link
+ * goes to its address as Rich reads it, and the link of a paragraph that
+ * Rich shows as a file block has {@link BASEHALF_NOTE_FILE_LINK_TITLE} as
+ * its title. It works on tokens only: a renderer of an extension would lose
+ * to the base renderer's own `link` and `image`.
  */
 export function baseHalfNoteMarkedExtension(options: IBaseHalfNoteMarkedExtensionOptions = {}): MarkedExtension {
 	const decode = options.decodeCharacterReferences ?? decodeBaseHalfSmallCharacterReferences;
 	const resolve = options.resolveLink;
+	const findFileParagraph = fileParagraphFinder(decode);
 	return {
 		walkTokens: token => {
+			findFileParagraph(token)?.mark();
 			walkNoteTokens(token);
 			linkToAddressAsRead(token, decode);
 			if (resolve) {
@@ -254,4 +347,20 @@ export function baseHalfNoteMarkdownToHtml(source: string, options: IBaseHalfNot
 		linkToAddressAsRead(token, decode);
 	});
 	return marked.parser(tokens);
+}
+
+/**
+ * The paragraphs of a note's Markdown that Rich shows as file blocks (note
+ * formats, rules 12 and 81), in the order of the note.
+ */
+export function baseHalfNoteFileLinks(markdown: string, decode: (text: string) => string = decodeBaseHalfSmallCharacterReferences): IBaseHalfNoteFileLink[] {
+	const find = fileParagraphFinder(decode);
+	const links: IBaseHalfNoteFileLink[] = [];
+	shownMarked.walkTokens(new Lexer({ gfm: true, breaks: true }).lex(markdown), token => {
+		const paragraph = find(token);
+		if (paragraph) {
+			links.push({ name: paragraph.name, href: paragraph.href });
+		}
+	});
+	return links;
 }
