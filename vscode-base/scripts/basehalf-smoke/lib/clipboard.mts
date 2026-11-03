@@ -15,6 +15,11 @@ function clipboardIsTheRuns(): boolean {
 	return process.env.CI === 'true' || process.env.CI === '1' || process.env.BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE === '1';
 }
 
+/** Whether the run leaves the clipboard alone whatever it holds (BASEHALF_SMOKE_KEEP_CLIPBOARD=1), as a run beside the user's own work does. */
+export function baseHalfSmokeKeepsClipboard(): boolean {
+	return process.env.BASEHALF_SMOKE_KEEP_CLIPBOARD === '1';
+}
+
 /**
  * Runs `body`, which writes the system's clipboard, and puts the text the
  * clipboard held back after it. While the clipboard holds more than text, and
@@ -22,6 +27,10 @@ function clipboardIsTheRuns(): boolean {
  * so with `name`.
  */
 export async function withTheRunsClipboard(name: string, body: () => Promise<void>): Promise<void> {
+	if (baseHalfSmokeKeepsClipboard()) {
+		console.error(`[basehalf-smoke] skip ${name}: the clipboard is kept as it is`);
+		return;
+	}
 	const state = await app.evaluate(({ clipboard }, overwrite) => {
 		const textOnly = clipboard.availableFormats().every(format => format.toLowerCase().startsWith('text/plain'));
 		return textOnly || overwrite ? { exercised: true, previousText: clipboard.readText() } : { exercised: false, previousText: '' };

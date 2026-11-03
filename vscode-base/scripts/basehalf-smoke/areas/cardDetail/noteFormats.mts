@@ -312,11 +312,11 @@ export async function assertNoteFormatsMediaFromTheMenu(page) {
 	}
 	// A video of the note is edited in place: its menu opens it nowhere else and names no Card Detail (rule 22).
 	await frame.locator('video').first().click({ button: 'right' });
-	const menu = frame.locator('.basehalf-markdown-rich-context-menu').first();
-	const menuText = await menu.count() > 0 ? await menu.textContent({ timeout: 2_000 }) : '';
+	await page.waitForTimeout(300);
+	const items = await frame.locator('.basehalf-markdown-rich-context-menu button').allTextContents();
 	await page.keyboard.press('Escape');
-	if (/\bOpen\b|Card Detail/.test(menuText ?? '')) {
-		throw new Error(`The menu of a video in a note offered to open it elsewhere: ${JSON.stringify(menuText)}`);
+	if (items.some(item => item === 'Open' || /Card Detail/.test(item))) {
+		throw new Error(`The menu of a video in a note offered to open it elsewhere: ${JSON.stringify(items)}`);
 	}
 	await page.keyboard.press(`${COMMAND}+z`);
 	await waitUntil(() => readFormatsNote() === 'Media here.\n', 'one Undo to take the added video away', 10_000).catch(() => {

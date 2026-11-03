@@ -10,6 +10,7 @@ import path from 'path';
 import process from 'process';
 import { app, workspacePath } from '../../context.mts';
 import { waitForCanvasCardSelection } from '../../lib/canvas.mts';
+import { baseHalfSmokeKeepsClipboard } from '../../lib/clipboard.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 /**
@@ -23,6 +24,10 @@ import { waitForReading, waitUntil } from '../../lib/steps.mts';
  * the run's own (CI, or BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1).
  */
 export async function assertCanvasCopyPasteKeys(page) {
+	if (baseHalfSmokeKeepsClipboard()) {
+		console.error('[basehalf-smoke] skip canvas copy and paste keys: the clipboard is kept as it is');
+		return;
+	}
 	const allowOverwrite = process.env.CI === 'true' || process.env.CI === '1' || process.env.BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE === '1';
 	const state = await app.evaluate(({ clipboard }, allowOverwrite) => {
 		const textOnly = clipboard.availableFormats().every(format => format.toLowerCase().startsWith('text/plain'));

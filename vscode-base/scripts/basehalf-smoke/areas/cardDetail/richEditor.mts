@@ -704,10 +704,12 @@ export async function assertMarkdownRichFileAttachment(page) {
 	}
 	// The file block's menu has Open, and no label names Card Detail (rule 22).
 	await attachment.click({ button: 'right' });
-	const menuText = await frame.locator('.basehalf-markdown-rich-context-menu').first().textContent({ timeout: 5_000 });
+	const menuItems = frame.locator('.basehalf-markdown-rich-context-menu button');
+	await menuItems.first().waitFor({ state: 'visible', timeout: 5_000 });
+	const items = await menuItems.allTextContents();
 	await page.keyboard.press('Escape');
-	if (!/\bOpen\b/.test(menuText ?? '') || /Card Detail/.test(menuText ?? '')) {
-		throw new Error(`The menu of a file block must offer Open and name no Card Detail: ${JSON.stringify(menuText)}`);
+	if (!items.includes('Open') || items.some(item => /Card Detail/.test(item))) {
+		throw new Error(`The menu of a file block must offer Open and name no Card Detail: ${JSON.stringify(items)}`);
 	}
 	// Replace on a file block offers a file from the disk only: the note stores the block as a link (note formats, rule 50).
 	const replace = frame.locator('.basehalf-markdown-rich-portal .bn-formatting-toolbar button[aria-label="Replace file"]').first();
