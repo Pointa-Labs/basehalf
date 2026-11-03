@@ -1121,6 +1121,24 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			}
 			this.updateStatus();
 		}
+		await this.readWritesMadeDuringSave(model.uri);
+	}
+
+	/**
+	 * Reads the note's file again once a save of Rich's has ended. The text
+	 * model reads no change of the file that comes while a save makes it
+	 * dirty or runs, and a save takes the file's state after its write as
+	 * its own, also when another write came between: a change written
+	 * outside in that moment would not reach Rich, which would go on showing
+	 * the note as it was, and the next save would write over it. The file's
+	 * text is read whatever its state says.
+	 */
+	private async readWritesMadeDuringSave(resource: URI): Promise<void> {
+		try {
+			await this.textFileService.files.get(resource)?.resolve({ forceReadFromFile: true });
+		} catch (error) {
+			this.logService.warn('[BaseHalf] rich Markdown could not read the note again after a save', error);
+		}
 	}
 
 	/**
@@ -1183,8 +1201,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return Promise.resolve(false);
 		}
 		const record: IBaseHalfMarkdownRichProjectionSave = { promise: Promise.resolve(false) };
-		record.promise = this.textFileService.save(model.uri, { ignoreErrorHandler: true }).then(() => {
+		record.promise = this.textFileService.save(model.uri, { ignoreErrorHandler: true }).then(async () => {
 			const saved = !this.textFileService.isDirty(model.uri);
+			if (saved) {
+				await this.readWritesMadeDuringSave(model.uri);
+			}
 			if (!saved) {
 				record.error = 'Changes could not be saved to disk.';
 			}

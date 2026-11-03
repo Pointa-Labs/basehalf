@@ -146,7 +146,9 @@ D85 in [decisions.md](../decisions.md).
   verbatim on disk. It reads a note as the card reads it, offers only formats
   the Markdown file keeps, and writes each in one spelling, so what it shows
   comes back as it was shown ([formats of a note](../specs/note-formats.md),
-  D110).
+  D110). A change written to the file from outside reaches it also when it
+  lands while the rich projection saves: after each of its saves the file's
+  text is read again, whatever the file's state says.
 - An explicit reference `A → B` means A's context flows into B. The graph is
   directed, many-to-many, cyclic when useful, and never self-referential.
   Markdown links navigate but do not create reference edges. Edges carry no
