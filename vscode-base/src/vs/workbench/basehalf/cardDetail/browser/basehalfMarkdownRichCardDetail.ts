@@ -9,7 +9,7 @@ import { mainWindow } from '../../../../base/browser/window.js';
 import { DeferredPromise } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { toErrorMessage } from '../../../../base/common/errorMessage.js';
-import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
 import { isMacintosh, language } from '../../../../base/common/platform.js';
@@ -54,6 +54,7 @@ import {
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichSurface,
 	BaseHalfMarkdownRichWorkbenchCommand,
+	IBaseHalfMarkdownRichBox,
 	IBaseHalfMarkdownRichFormatState,
 	IBaseHalfMarkdownRichFocusPoint,
 	isBaseHalfMarkdownRichWebviewMessage
@@ -74,6 +75,7 @@ import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlain
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
+import { BaseHalfNotePictureEditing } from './basehalfNotePictureEditing.js';
 import { baseHalfMarkdownPathHref } from '../../markdown/common/basehalfNoteMarkdownText.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
@@ -266,6 +268,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private documentKey: string | undefined;
 	private liveDocument: IBaseHalfMarkdownRichLiveDocumentHandle | undefined;
 	private bridge: BaseHalfMarkdownRichWebviewBridge | undefined;
+	/** The picture of the note whose editor stands over it, while it is edited (D113), and the layer it is drawn in. */
+	private readonly pictureEditing = this._register(new MutableDisposable<BaseHalfNotePictureEditing>());
+	private notePictureLayer: HTMLElement | undefined;
 	private webview: IWebviewElement | undefined;
 	private dirty = false;
 	private lastSentContent: string | undefined;
@@ -324,6 +329,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			// passes it on (zoom and outline of a note, rule 1).
 			this._register(addDisposableListener(this.webviewHost, EventType.MOUSE_WHEEL, (event: WheelEvent) => {
 				if (!isBaseHalfZoomWheel(event, isMacintosh)) {
+					return;
+				}
+				// While a picture is edited the note keeps its size: a pinch over the picture is the editor's.
+				if (this.pictureEditing.value) {
+					event.preventDefault();
 					return;
 				}
 				event.preventDefault();
@@ -819,6 +829,28 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.clipboard':
 				// The same as the keys: the page's own copy, cut, or paste, with all that the clipboard holds.
 				this.webview?.[message.action]();
+				break;
+			case 'basehalf.markdownRich.editPicture':
+				await this.editPicture(state, message.blockId, message.href, message.box);
+				break;
+			case 'basehalf.markdownRich.pictureLaidOut':
+				if (this.pictureEditing.value?.target.blockId === message.blockId) {
+					this.pictureEditing.value.laidOut(message.box && this.pictureBoxInLayer(message.box));
+				}
+				break;
+			case 'basehalf.markdownRich.pictureShown':
+				// The note shows the picture again: its editor goes, and the keyboard it had goes back to the note.
+				if (this.pictureEditing.value?.target.blockId === message.blockId) {
+					const active = this.webviewHost.ownerDocument.activeElement;
+					const hadKeyboard = !active || active === this.webviewHost.ownerDocument.body || !!active.closest('.basehalf-note-picture-stage');
+					this.pictureEditing.clear();
+					if (hadKeyboard) {
+						this.focus();
+					}
+				}
+				break;
+			case 'basehalf.markdownRich.endPictureEdit':
+				await this.pictureEditing.value?.end();
 				break;
 			case 'basehalf.markdownRich.openSource':
 				// The escape hatch for passthrough blocks: reopen this card in
@@ -1524,6 +1556,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private disposeWebviewGeneration(): void {
 		this.restoreGuardedQuickInput();
+		// The page that showed the picture goes: its editor goes with it, and the file follows at once.
+		this.pictureEditing.clear();
 		const generation = this.webviewGeneration;
 		this.webviewGeneration = undefined;
 		this.webview = undefined;
@@ -1531,6 +1565,46 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		// Any acknowledgement belonged to the disposed iframe generation. A
 		// replacement replays the current freeze state with a fresh request id.
 		this.settleStructuralFreeze(false);
+	}
+
+	/**
+	 * Edit of a picture's toolbar (D113): the picture's editor over the
+	 * picture, in a layer over Rich's page. A picture that BaseHalf cannot edit
+	 * ends at once, and Rich closes the room it made.
+	 */
+	private async editPicture(state: IBaseHalfCardDetailState, blockId: string, href: string, box: IBaseHalfMarkdownRichBox): Promise<void> {
+		await this.pictureEditing.value?.end();
+		const editing = this.instantiationService.createInstance(BaseHalfNotePictureEditing, {
+			note: state.resource,
+			blockId,
+			href,
+			box: this.pictureBoxInLayer(box),
+		}, {
+			layer: this.pictureLayer(),
+			ended: (ended, version) => void this.bridge?.sendPictureEditEnded(ended, version),
+			show: shown => void this.bridge?.sendShowPicture(shown),
+		});
+		this.pictureEditing.value = editing;
+		if (!await editing.start() && this.pictureEditing.value === editing) {
+			this.pictureEditing.clear();
+			void this.bridge?.sendPictureEditEnded(blockId, undefined);
+		}
+	}
+
+	/** The layer over Rich's page in which the editor of a picture is drawn. */
+	private pictureLayer(): HTMLElement {
+		if (!this.notePictureLayer || this.notePictureLayer.parentElement !== this.webviewHost) {
+			this.notePictureLayer = append(this.webviewHost, $('.basehalf-card-detail-note-picture-layer'));
+		}
+		return this.notePictureLayer;
+	}
+
+	/** A box that Rich measured in the frame of its page, in the layer over the page. */
+	private pictureBoxInLayer(box: IBaseHalfMarkdownRichBox): IBaseHalfMarkdownRichBox {
+		const frame = [...this.webviewHost.children].find(child => child.tagName === 'IFRAME')?.getBoundingClientRect();
+		const origin = this.pictureLayer().getBoundingClientRect();
+		const shift = frame ? { x: frame.left - origin.left, y: frame.top - origin.top } : { x: 0, y: 0 };
+		return { left: box.left + shift.x, top: box.top + shift.y, width: box.width, height: box.height };
 	}
 
 	private renderNotice(message: string): void {

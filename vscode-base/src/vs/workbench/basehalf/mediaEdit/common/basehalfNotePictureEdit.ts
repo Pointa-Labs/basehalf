@@ -1,0 +1,44 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+// A picture edited in its note (D113): the editor of the picture's card,
+// drawn by the window over the picture where the note shows it, with room
+// that the note makes under the picture for the tools. Rich's page imports
+// this module: it imports nothing.
+
+/** The margin in which the crop view's frame rests inside its view (`BASEHALF_EDGE_FOLLOW_MARGIN` in basehalfMediaZoom.ts). */
+export const BASEHALF_IMAGE_CROP_MARGIN = 24;
+
+/** The height of the crop view's row of tools (`.basehalf-image-crop-tools` in basehalfImageCropView.css). */
+export const BASEHALF_IMAGE_CROP_TOOLS_HEIGHT = 56;
+
+/** The height of the line under the editor of a picture, with its foot (basehalfMediaEditing.css and basehalfNotePictureEditing.css). */
+export const BASEHALF_MEDIA_EDIT_LINE_HEIGHT = 28;
+
+/** The room a note makes under a picture while it is edited: the part of the editor below the picture. */
+export const BASEHALF_NOTE_PICTURE_EDIT_ROOM = BASEHALF_IMAGE_CROP_MARGIN + BASEHALF_IMAGE_CROP_TOOLS_HEIGHT + BASEHALF_MEDIA_EDIT_LINE_HEIGHT;
+
+export interface IBaseHalfNotePictureBox {
+	readonly left: number;
+	readonly top: number;
+	readonly width: number;
+	readonly height: number;
+}
+
+/**
+ * Where the editor of a picture of a note stands, for the picture's box in
+ * the note: the box with the crop frame's margin around it, and the tools and
+ * the line under it. The crop view fits the part kept into its view less that
+ * margin, so the picture of the editor stands where the note shows the
+ * picture, and nothing moves when the editor comes.
+ */
+export function baseHalfNotePictureEditorBox(picture: IBaseHalfNotePictureBox): IBaseHalfNotePictureBox {
+	return {
+		left: picture.left - BASEHALF_IMAGE_CROP_MARGIN,
+		top: picture.top - BASEHALF_IMAGE_CROP_MARGIN,
+		width: picture.width + 2 * BASEHALF_IMAGE_CROP_MARGIN,
+		height: picture.height + BASEHALF_IMAGE_CROP_MARGIN + BASEHALF_NOTE_PICTURE_EDIT_ROOM,
+	};
+}

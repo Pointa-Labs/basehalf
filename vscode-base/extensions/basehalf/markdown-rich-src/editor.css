@@ -804,3 +804,32 @@ body,
 	outline-offset: 2px;
 	border-radius: 3px;
 }
+
+/*
+ * A picture edited in its note (D113): the window draws the picture's editor
+ * over it, and the note makes room under it for the editor's tools. Once the
+ * editing ended, the room closes as the editor glides back to the picture,
+ * and the picture stays hidden under the editor until the editor stands
+ * where it is.
+ */
+.basehalf-markdown-rich .basehalf-note-picture-editing {
+	margin-bottom: var(--basehalf-note-picture-edit-room, 0px);
+}
+
+.basehalf-markdown-rich .basehalf-note-picture-hidden {
+	transition: margin-bottom 200ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.basehalf-markdown-rich .basehalf-note-picture-hidden .bn-visual-media {
+	visibility: hidden;
+}
+
+.basehalf-markdown-rich .basehalf-note-picture-editing .bn-resize-handle {
+	display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.basehalf-markdown-rich .basehalf-note-picture-hidden {
+		transition: none;
+	}
+}

@@ -417,6 +417,28 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		}), false);
 	});
 
+	test('carries the editing of a picture of the note both ways, with boxes of real sizes only (D113)', () => {
+		const key = 'workspace\u0000doc.md';
+		const box = { left: 200, top: 254.5, width: 712, height: 445 };
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editPicture', key, blockId: 'b1', href: 'pictures/photo.png', box }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editPicture', key, blockId: 'b1', href: '', box }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editPicture', key, blockId: '', href: 'a.png', box }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editPicture', key, blockId: 'b1', href: 'a.png', box: { ...box, width: 0 } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editPicture', key, blockId: 'b1', href: 'a.png', box: { ...box, top: Number.NaN } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editPicture', key, blockId: 'b1', href: 'a.png' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.pictureLaidOut', key, blockId: 'b1', box }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.pictureLaidOut', key, blockId: 'b1' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.pictureLaidOut', key, blockId: 'b1', box: { ...box, height: -1 } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.pictureShown', key, blockId: 'b1' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.pictureShown', key, blockId: '' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.endPictureEdit', key }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.pictureEditEnded', key, blockId: 'b1', version: '1793691962158-206445' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.pictureEditEnded', key, blockId: 'b1' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.pictureEditEnded', key, blockId: 'b1', version: 7 }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.showPicture', key, blockId: 'b1' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.showPicture', key }), false);
+	});
+
 	test('rejects the retired focus mirror message from webviews', () => {
 		// The focus mirror is gone (D35). A stale webview bundle that still
 		// posts focus fields is dropped as an unknown message.

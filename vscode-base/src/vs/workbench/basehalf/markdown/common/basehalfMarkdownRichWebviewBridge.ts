@@ -106,6 +106,25 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
+	/** The editing of a picture ended: Rich shows its file at `version`, and closes the room under it (D113). */
+	sendPictureEditEnded(blockId: string, version: string | undefined): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.pictureEditEnded',
+			key: this.key,
+			blockId,
+			...(version !== undefined ? { version } : {})
+		});
+	}
+
+	/** The editor of a picture stands where the note shows it now: Rich shows its own picture again (D113). */
+	sendShowPicture(blockId: string): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.showPicture',
+			key: this.key,
+			blockId
+		});
+	}
+
 	sendFocusAtPoint(point: IBaseHalfMarkdownRichFocusPoint): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.focusAtPoint',
