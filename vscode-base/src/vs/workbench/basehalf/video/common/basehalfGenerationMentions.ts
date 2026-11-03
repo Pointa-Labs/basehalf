@@ -5,7 +5,7 @@
 
 import { isHighSurrogate } from '../../../../base/common/strings.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
-import { baseHalfSpokenNoteText, isBaseHalfMarkdownNotePath } from './basehalfGenerationSpokenText.js';
+import { baseHalfPromptNoteText, baseHalfSpokenNoteText, isBaseHalfMarkdownNotePath } from './basehalfGenerationSpokenText.js';
 import { BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, BaseHalfVideoPromptPart, IBaseHalfVideoInputPlanItem, IBaseHalfVideoPromptInput } from './basehalfVideoCatalog.js';
 
 /**
@@ -301,7 +301,10 @@ export function buildBaseHalfPromptParts(
 		let text = noteTexts.get(index);
 		if (text === undefined) {
 			const head = textHead(textOf(plan[index], index) ?? '', BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH);
-			text = (spokenOrSung && isBaseHalfMarkdownNotePath(plan[index].path) ? textHead(baseHalfSpokenNoteText(head), BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH) : head).trim();
+			// A Markdown note says no tags of the HTML it shows (note formats, rule 85).
+			text = (isBaseHalfMarkdownNotePath(plan[index].path)
+				? textHead(spokenOrSung ? baseHalfSpokenNoteText(head) : baseHalfPromptNoteText(head), BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH)
+				: head).trim();
 			noteTexts.set(index, text);
 		}
 		return text;

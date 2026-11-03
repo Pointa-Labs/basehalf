@@ -8,6 +8,7 @@ import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { BaseHalfFileLinkEntry } from '../../../../platform/basehalfFiles/common/basehalfFileLinks.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../markdown/common/basehalfNotePalette.js';
 import { BASEHALF_AGENT_SHARED_SECTIONS } from './basehalfAgentLaunchInstructions.js';
 
 /** The name of the agent skill, and of its folder. */
@@ -16,7 +17,7 @@ export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** A whole number that grows whenever the skill text changes. BaseHalf's own
  * copy never takes the text of a lower version (agent skill, "Keeping it
  * current"). */
-export const BASEHALF_AGENT_SKILL_VERSION = '10';
+export const BASEHALF_AGENT_SKILL_VERSION = '11';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -60,6 +61,35 @@ export const BASEHALF_AGENT_OWN_IMAGE_SECTION: readonly string[] = [
 ];
 
 /**
+ * The formats a note keeps (agent skill, "The skill", item 6; note formats,
+ * rule 86): the spellings in which a note holds what Markdown has no syntax
+ * for, each as BaseHalf's writer writes it, which its editor edits.
+ */
+export const BASEHALF_AGENT_NOTE_FORMATS_SECTION: readonly string[] = [
+	'## The formats a note keeps',
+	'',
+	'A note is Markdown. Where Markdown has no syntax for a format, the note holds a small HTML tag. BaseHalf\'s editor edits a block when its tags are spelled exactly as below, and keeps any other spelling as written: shown, but not edited there. Write these spellings, and keep them as they are when you edit around them.',
+	'',
+	'- Underline: `<u>underlined words</u>`.',
+	'- A color of the text, of the background behind it, or of both, `color:` first: `<span style="color:#e8706b;">red words</span>`, `<span style="background-color:#4a401d;">words on yellow</span>`, `<span style="color:#e8706b;background-color:#4a401d;">both</span>`. The nine colors, each as text and as background: ' + BASEHALF_NOTE_PALETTE_COLORS.map(color => `${color} \`${BASEHALF_NOTE_PALETTE[color].text}\` and \`${BASEHALF_NOTE_PALETTE[color].background}\``).join(', ') + '.',
+	'- The width of a picture: `<img alt="Diagram" src="diagram.png" width="320">`.',
+	'- A caption: `<figure><img alt="Photo" src="photo.png"><figcaption>A caption</figcaption></figure>`.',
+	'- A video and a sound: `<video src="clip.mp4" controls></video>` and `<audio src="talk.mp3" controls></audio>`.',
+	'- A link to a file whose name has a space: `[my file](my%20file.md)`.',
+	'',
+	'A toggle, a blank line after its summary and before its end; `<details open>` for one that shows open:',
+	'',
+	'```',
+	'<details>',
+	'<summary>Title</summary>',
+	'',
+	'The blocks it holds.',
+	'',
+	'</details>',
+	'```'
+];
+
+/**
  * The text of the skill's `SKILL.md` (agent skill, "The skill"). It is part
  * of the application bundle. It says where a card's badge is and what it
  * means, and never what to read or in what order.
@@ -98,6 +128,8 @@ export const BASEHALF_AGENT_SKILL_MARKDOWN = [
 	...BASEHALF_AGENT_SHARED_SECTIONS,
 	'',
 	...BASEHALF_AGENT_OWN_IMAGE_SECTION,
+	'',
+	...BASEHALF_AGENT_NOTE_FORMATS_SECTION,
 	''
 ].join('\n');
 

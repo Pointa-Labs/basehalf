@@ -7,8 +7,10 @@ import * as assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { parse as parseYaml } from '../../../../../base/common/yaml.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { writeBaseHalfNoteBlock } from '../../../markdown/common/basehalfNoteWriter.js';
 import { BASEHALF_AGENT_SHARED_SECTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
 import {
+	BASEHALF_AGENT_NOTE_FORMATS_SECTION,
 	BASEHALF_AGENT_OWN_IMAGE_SECTION,
 	BASEHALF_AGENT_SKILL_COPY_SEGMENTS,
 	BASEHALF_AGENT_SKILL_DESCRIPTION,
@@ -97,10 +99,10 @@ suite('BaseHalfAgentSkill', () => {
 			version: BASEHALF_AGENT_SKILL_VERSION,
 			inBody: body.includes(section),
 			afterShared: body.indexOf(section) > body.indexOf(BASEHALF_AGENT_SHARED_SECTIONS.join('\n')),
-			last: body.trimEnd().endsWith(section),
+			beforeTheFormats: body.indexOf(section) < body.indexOf(BASEHALF_AGENT_NOTE_FORMATS_SECTION.join('\n')),
 			missing: ['a tool of your own', 'the folder of the canvas the user works on', '`.bh/cache/selection.yaml`', '`folder`', 'ask the user'].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('image you make')
-		}, { version: '10', inBody: true, afterShared: true, last: true, missing: [], inLaunchInstruction: false });
+		}, { version: '11', inBody: true, afterShared: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('describes the record of what the user selected, and names the request it answers', () => {
@@ -121,7 +123,35 @@ suite('BaseHalfAgentSkill', () => {
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '10', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '11', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+	});
+
+	test('tells agents the formats a note keeps, each spelled as BaseHalf\'s writer writes it, last and outside the launch instruction (note formats, rule 86)', () => {
+		const body = BASEHALF_AGENT_SKILL_MARKDOWN.slice(BASEHALF_AGENT_SKILL_MARKDOWN.indexOf('\n---\n') + 5);
+		const section = BASEHALF_AGENT_NOTE_FORMATS_SECTION.join('\n');
+		const text = (value: string, styles: object = {}) => ({ type: 'text', text: value, styles });
+		const paragraph = (...content: unknown[]) => ({ type: 'paragraph', props: {}, content, children: [] });
+		const forms = [
+			paragraph(text('underlined words', { underline: true })),
+			paragraph(text('red words', { textColor: 'red' })),
+			paragraph(text('words on yellow', { backgroundColor: 'yellow' })),
+			paragraph(text('both', { textColor: 'red', backgroundColor: 'yellow' })),
+			{ type: 'image', props: { url: 'diagram.png', name: 'Diagram', caption: '', showPreview: true, previewWidth: 320 }, children: [] },
+			{ type: 'image', props: { url: 'photo.png', name: 'Photo', caption: 'A caption', showPreview: true }, children: [] },
+			{ type: 'video', props: { url: 'clip.mp4', name: 'clip.mp4', caption: '', showPreview: true }, children: [] },
+			{ type: 'audio', props: { url: 'talk.mp3', name: 'talk.mp3', caption: '', showPreview: true }, children: [] },
+			paragraph({ type: 'link', href: 'my%20file.md', content: [text('my file')] })
+		].map(block => `\`${writeBaseHalfNoteBlock(block)}\``);
+		const toggle = writeBaseHalfNoteBlock({ type: 'toggleListItem', props: {}, content: [text('Title')], children: [paragraph(text('The blocks it holds.'))] });
+		assert.deepStrictEqual({
+			version: BASEHALF_AGENT_SKILL_VERSION,
+			last: body.trimEnd().endsWith(section),
+			notWritten: forms.filter(form => !section.includes(form)),
+			toggle: section.includes(`\`\`\`\n${toggle}\n\`\`\``),
+			palette: ['gray `#9b9a97` and `#3f3e3b`', 'pink `#e36aaf` and `#62294b`'].filter(color => !section.includes(color)),
+			keepsOthers: section.includes('keeps any other spelling as written'),
+			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('<u>')
+		}, { version: '11', last: true, notWritten: [], toggle: true, palette: [], keepsOthers: true, inLaunchInstruction: false });
 	});
 
 	test('links Claude Code\'s folder and the shared one to BaseHalf\'s own copy, and is offered until one of them is linked', () => {

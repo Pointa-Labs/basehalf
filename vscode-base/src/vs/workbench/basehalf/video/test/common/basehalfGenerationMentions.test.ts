@@ -165,6 +165,39 @@ suite('BaseHalf generation mentions (D74)', () => {
 		});
 	});
 
+	test('a Markdown note in a prompt says no tags of the HTML it shows: in a prompt that no voice says its Markdown stays, and a spoken one says no sound (note formats, rule 85)', () => {
+		const plan = planBaseHalfVideoInputs({ ...REFERENCES, images: { min: 0, max: 0 }, videos: { min: 0, max: 0 } }, [
+			source('notes/formats.md', 'text'),
+			source('notes/listen.md', 'text')
+		]);
+		const texts = new Map([
+			['notes/formats.md', [
+				'A <u>word</u> in <span style="color:#e8706b;">red</span> and **bold**.',
+				'',
+				'<details>',
+				'<summary>More</summary>',
+				'',
+				'Inside.',
+				'',
+				'</details>',
+				'',
+				'`<u>code</u>` stays, and <x-tag>this</x-tag> too.',
+				'',
+				'<video src="clip.mp4" controls></video>',
+				''
+			].join('\n')],
+			['notes/listen.md', 'Listen.\n\n<audio src="talk.mp3" controls></audio>\n']
+		]);
+		const textOf = (item: { readonly path: string }) => texts.get(item.path);
+		assert.deepStrictEqual({
+			described: buildBaseHalfPromptParts('@[notes/formats.md]', plan, textOf).parts,
+			spoken: buildBaseHalfPromptParts('@[notes/listen.md]', plan, textOf, { spokenOrSung: true }).parts
+		}, {
+			described: ['"formats"\n\nformats:\nA word in red and **bold**.\n\nMore\n\nInside.\n\n\n`<u>code</u>` stays, and <x-tag>this</x-tag> too.\n\nlisten:\nListen.'],
+			spoken: ['Listen.\n\nA word in red and bold.\n\nMore\n\nInside.\n\n<u>code</u> stays, and <x-tag>this</x-tag> too.']
+		});
+	});
+
 	test('in a prompt that is spoken or sung, a Markdown note joins as its plain text, as a reader of its card says it; a song\'s [Verse], a text note, and the card\'s own prompt stay as written (D78)', () => {
 		const speech = planBaseHalfVideoInputs({ ...REFERENCES, images: { min: 0, max: 0 }, videos: { min: 0, max: 0 } }, [
 			source('notes/script.md', 'text'),
@@ -209,9 +242,13 @@ suite('BaseHalf generation mentions (D74)', () => {
 			['notes/plain.txt', '# Not a heading, **as written**']
 		]);
 		const textOf = (item: { readonly path: string }) => texts.get(item.path);
+		// Without the tags of the HTML a note shows, a line break kept; other HTML as written.
+		const scriptWithoutNoteTags = script
+			.replace('It&#39;s <b>bold</b>, and a<br>line <!-- a note to myself -->of its own.', 'It&#39;s bold, and a\nline of its own.')
+			.replace('<div align="center">\nCentered <i>words</i>\n</div>', 'Centered words');
 		assert.deepStrictEqual({
 			spoken: buildBaseHalfPromptParts('Read **this**: @[notes/script.md]', speech, textOf, { spokenOrSung: true }).parts,
-			// The same notes in a prompt that no voice says keep their Markdown under their names.
+			// The same notes in a prompt that no voice says keep their Markdown under their names, without the tags of the HTML a note shows (note formats, rule 85).
 			described: buildBaseHalfPromptParts('@[notes/lyrics.markdown]', speech, textOf).parts
 		}, {
 			spoken: [[
@@ -247,7 +284,7 @@ suite('BaseHalf generation mentions (D74)', () => {
 				'',
 				'# Not a heading, **as written**'
 			].join('\n')],
-			described: [`"lyrics"\n\nscript:\n${script}\n\nlyrics:\n[Verse]\nTide comes *in*\nTide goes out\n\n[Chorus]\nSing \\*now\\*\n\nplain.txt:\n# Not a heading, **as written**`]
+			described: [`"lyrics"\n\nscript:\n${scriptWithoutNoteTags}\n\nlyrics:\n[Verse]\nTide comes *in*\nTide goes out\n\n[Chorus]\nSing \\*now\\*\n\nplain.txt:\n# Not a heading, **as written**`]
 		});
 	});
 

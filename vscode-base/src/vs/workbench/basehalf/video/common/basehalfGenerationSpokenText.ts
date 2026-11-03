@@ -52,6 +52,61 @@ export function baseHalfSpokenNoteText(markdown: string): string {
 	return text.split('\n').map(line => line.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * The text of a Markdown note in a prompt that is not spoken or sung (note
+ * formats, rule 85; generation cards, "Inputs"): the note as written, its
+ * Markdown kept, without the tags of the HTML elements a note shows, whose
+ * text stays. HTML that a note shows as written stays as written, and so
+ * does code.
+ */
+export function baseHalfPromptNoteText(markdown: string): string {
+	return lexer(markdown, { gfm: true, breaks: true }).map(promptText).join('');
+}
+
+/** A token as written, its HTML without the tags of the elements a note shows. */
+function promptText(token: Token): string {
+	if (token.type === 'html') {
+		return withoutNoteTags(token.raw);
+	}
+	const parts: readonly Token[] | undefined = token.type === 'list'
+		? (token as Tokens.List).items
+		: token.type === 'code' || token.type === 'codespan' || token.type === 'table' ? undefined : (token as { readonly tokens?: readonly Token[] }).tokens;
+	if (!parts || parts.length === 0) {
+		return token.raw;
+	}
+	// Each part is written in its place in the token's text, which holds them in order.
+	let written = '';
+	let at = 0;
+	for (const part of parts) {
+		const index = token.raw.indexOf(part.raw, at);
+		if (index < 0) {
+			return token.raw;
+		}
+		written += token.raw.slice(at, index) + promptText(part);
+		at = index + part.raw.length;
+	}
+	return written + token.raw.slice(at);
+}
+
+/**
+ * HTML of a note without its comments and the tags of the elements a note
+ * shows, `<br>` a line break, and without the lines that held nothing else;
+ * HTML a note shows as written stays as written.
+ */
+function withoutNoteTags(raw: string): string {
+	const withoutComments = raw.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+	const names = [...withoutComments.matchAll(/<\/?([A-Za-z][A-Za-z0-9-]*)/g)].map(match => match[1].toLowerCase());
+	if (names.some(name => !NOTE_TAGS.has(name))) {
+		return raw;
+	}
+	const tag = /<\/?[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g;
+	// A line break stays a line break.
+	return withoutComments.replace(/<br\b[^>]*>/gi, '\n').split('\n')
+		.filter(line => !(line.search(tag) >= 0 && line.replace(tag, '').trim() === ''))
+		.map(line => line.replace(tag, ''))
+		.join('\n');
+}
+
 function blocksText(tokens: readonly Token[], separator: string): string {
 	return tokens.map(blockText).filter(text => text.trim().length > 0).join(separator);
 }
