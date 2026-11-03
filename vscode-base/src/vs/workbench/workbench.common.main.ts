@@ -495,6 +495,7 @@ import './basehalf/workspace/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/workspace/browser/basehalfKeptVersions.contribution.js';
 import './basehalf/markdown/browser/basehalfNoteFileRetention.contribution.js';
 import './basehalf/markdown/browser/basehalfNoteFileRoutes.contribution.js';
+import './basehalf/markdown/browser/basehalfNoteFileGit.contribution.js';
 import './basehalf/markdown/browser/basehalfNoteFileCopies.contribution.js';
 import './basehalf/video/browser/basehalfGenerationCardCopy.contribution.js';
 import './basehalf/video/browser/basehalfGenerationMentionFollower.contribution.js';
