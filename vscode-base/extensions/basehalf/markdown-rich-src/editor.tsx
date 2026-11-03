@@ -88,7 +88,7 @@ import {
 import { createBaseHalfNoteEditorApi } from './noteConversions.js';
 import { makeBaseHalfNoteShapeExtension } from './noteShape.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
-import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from './noteToggleState.js';
+import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
 import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteZoom } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoom.js';
@@ -110,7 +110,7 @@ import {
 	setBaseHalfSelectionReveal,
 } from './selectionRevealDecorations.js';
 import { baseHalfEditorLabel, baseHalfNoteSchema, renderedNote } from './noteSchema.js';
-import { createBaseHalfNoteUndo } from './noteUndo.js';
+import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from './noteUndo.js';
 import {
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	isBaseHalfMarkdownRichHostMessage,
@@ -620,7 +620,12 @@ function MarkdownRichEditor(): JSX.Element {
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
-	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension({ openLink: href => openLinkRef.current(href) }), []);
+	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
+	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension({
+		openLink: href => openLinkRef.current(href),
+		undoManager: () => noteUndoRef.current?.ensure(),
+		reading: () => session.current.loading,
+	}), []);
 	// The link toolbar opens a link with the note's link router, not in the page.
 	const linkToolbar = useMemo(() => function BaseHalfLinkToolbar(props: LinkToolbarProps): JSX.Element {
 		return (
@@ -735,6 +740,7 @@ function MarkdownRichEditor(): JSX.Element {
 	// Rich owns its collaboration undo manager, so that undo outlives the
 	// plugin-view teardowns of this webview's startup (noteUndo.ts).
 	const noteUndo = useMemo(() => createBaseHalfNoteUndo(editor), [editor]);
+	noteUndoRef.current = noteUndo;
 	const ensureLiveUndoManager = noteUndo.ensure;
 
 	// Rich reads a note as its card does and writes it with BaseHalf's writer
@@ -829,6 +835,9 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 			discardSelectionForNextSharedTransaction();
 			editor.replaceBlocks(editor.document, blocks as Parameters<typeof editor.replaceBlocks>[1]);
+		} else if (editor.domElement) {
+			// The blocks were drawn before the state had their toggles.
+			openBaseHalfNoteStoredOpenToggles(editor.domElement);
 		}
 		// Loading or adopting a projection must not become an undoable edit.
 		// Otherwise undo could walk past the load and blank the document. The

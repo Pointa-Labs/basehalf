@@ -20,6 +20,19 @@ export interface IBaseHalfNoteToggleState {
 export const baseHalfNoteToggleState: IBaseHalfNoteToggleState = { initiallyOpen: new Set(), folds: new Map() };
 
 /**
+ * Opens, through its own button, each toggle the file stores open that the
+ * editor shows closed: a note read into blocks the editor already held was
+ * drawn before the state had its toggles (rule 40).
+ */
+export function openBaseHalfNoteStoredOpenToggles(root: ParentNode): void {
+	for (const id of baseHalfNoteToggleState.initiallyOpen) {
+		if (!baseHalfNoteToggleState.folds.has(id)) {
+			root.querySelector<HTMLButtonElement>(`[data-node-type="blockContainer"][data-id="${CSS.escape(id)}"] > .bn-block-content .bn-toggle-wrapper[data-show-children="false"] > .bn-toggle-button`)?.click();
+		}
+	}
+}
+
+/**
  * Makes the editor's toggles ask Rich's state instead of the browser's
  * storage. The editor reads the state when it draws a toggle, so a load
  * gives the state its toggles before it gives the editor its blocks. It

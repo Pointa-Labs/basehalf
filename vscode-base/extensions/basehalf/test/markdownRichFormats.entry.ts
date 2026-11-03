@@ -100,8 +100,18 @@ interface INoteFormatsModeSetup {
 /** The addresses of the links that the note's keys opened, in order. */
 const openedLinks: string[] = [];
 
+/** Rich's undo of the note open now, and whether a load reads it: the shape extension asks for them as editor.tsx's does. */
+const openNow: { history?: IBaseHalfNoteUndo; reading: boolean } = { reading: false };
+
 const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
-	basehalf: { editorApi: editor => createBaseHalfNoteEditorApi(editor), extensions: () => [makeBaseHalfNoteShapeExtension({ openLink: href => openedLinks.push(href) })] },
+	basehalf: {
+		editorApi: editor => createBaseHalfNoteEditorApi(editor),
+		extensions: () => [makeBaseHalfNoteShapeExtension({
+			openLink: href => openedLinks.push(href),
+			undoManager: () => openNow.history?.ensure(),
+			reading: () => openNow.reading,
+		})],
+	},
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
 };
 
@@ -238,6 +248,7 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 	const editor = createNoteEditor(fragment, setup.extensions(), async file => `attachments/${file.name}`);
 	const api = setup.editorApi(editor);
 	const history = createBaseHalfNoteUndo(editor);
+	openNow.history = history;
 	// As editor.tsx's change listener, which keeps the undo manager live first.
 	const offChange = editor.onChange(() => {
 		history.ensure();
@@ -300,11 +311,16 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult): 
 			const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
 			const { blocks, byId, note: projected } = await buildBaseHalfMarkdownLoadProjection(api, body, content);
 			const view = editor.prosemirrorView;
-			view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)));
-			history.discardSelectionForNextSharedTransaction();
-			baseHalfNoteToggleState.initiallyOpen = projected.open;
-			baseHalfNoteToggleState.folds.clear();
-			editor.replaceBlocks(editor.document, blocks as Parameters<typeof editor.replaceBlocks>[1]);
+			openNow.reading = true;
+			try {
+				view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)));
+				history.discardSelectionForNextSharedTransaction();
+				baseHalfNoteToggleState.initiallyOpen = projected.open;
+				baseHalfNoteToggleState.folds.clear();
+				editor.replaceBlocks(editor.document, blocks as Parameters<typeof editor.replaceBlocks>[1]);
+			} finally {
+				openNow.reading = false;
+			}
 			(history.ensure() ?? history.current)?.clear();
 			note.frontmatter = frontmatter;
 			note.byId = byId;
@@ -670,6 +686,164 @@ async function keys(t: INoteFormatsTest): Promise<void> {
 	await t.keyboard.type('c');
 	await t.frames();
 	t.check('a key that arrives before the page reports a moved caret acts at the moved caret', await t.save(), 'Line before.\n\n<div>fixed</div>\n\nc\n\nLine after.\n');
+
+	const toggle = '<details open>\n<summary>Title</summary>\n\nfirst\n\nsecond\n\n</details>\n';
+	await t.load(toggle);
+	await t.frames();
+	t.caret('first', 'start');
+	await t.keyboard.press('Backspace');
+	await t.frames();
+	const joinedToTitle = t.blocks();
+	await t.load(toggle);
+	await t.frames();
+	t.caret('Title');
+	await t.keyboard.press('Enter');
+	await t.keyboard.press('Backspace');
+	await t.keyboard.type('!');
+	await t.frames();
+	const emptyDeleted = t.blocks();
+	await t.load('- item\n\n  first\n\n  second\n\n  third\n');
+	await t.frames();
+	t.caret('second', 'start');
+	await t.keyboard.press('Backspace');
+	await t.frames();
+	t.check('Backspace at the start of a block inside another joins it to the line above, deletes it when empty, and leaves the blocks after it where they are', {
+		joinedToTitle,
+		emptyDeleted,
+		joinedToSibling: t.blocks(),
+	}, {
+		joinedToTitle: [{ type: 'toggleListItem', text: 'Titlefirst', children: [{ type: 'paragraph', text: 'second' }] }],
+		emptyDeleted: [{ type: 'toggleListItem', text: 'Title!', children: [{ type: 'paragraph', text: 'first' }, { type: 'paragraph', text: 'second' }] }],
+		joinedToSibling: [{ type: 'bulletListItem', text: 'item', children: [{ type: 'paragraph', text: 'firstsecond' }, { type: 'paragraph', text: 'third' }] }],
+	});
+}
+
+/** Selects the first text that matches, and gives the editor the keyboard. */
+function selectText(t: INoteFormatsTest, text: string): void {
+	const view = t.editor.prosemirrorView;
+	let at: number | undefined;
+	view.state.doc.descendants((node, position) => {
+		const offset = at === undefined && node.isText ? (node.text ?? '').indexOf(text) : -1;
+		if (offset >= 0) {
+			at = position + offset;
+		}
+		return at === undefined;
+	});
+	if (at === undefined) {
+		throw new Error(`The note has no text "${text}".`);
+	}
+	view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at, at + text.length)));
+	t.editor.focus();
+}
+
+/**
+ * Part n, what Rich adjusts after a change and the steps of undo (note
+ * formats, rules 28, 29, 58 to 60, 66, and 78): a change that leaves the
+ * note in a shape its file cannot store is followed by the least that gives
+ * it that shape, in the same step of undo; a format, a nest, a move, a
+ * paste, and a change of a block's kind are a step each, and the letters of
+ * one caption are one step.
+ */
+async function shape(t: INoteFormatsTest): Promise<void> {
+	// A list item that becomes a paragraph gives its blocks to the note.
+	await t.load('- item\n  - sub\n');
+	await t.frames();
+	t.caret('item', 'start');
+	await t.keyboard.press('Backspace');
+	await t.frames();
+	const madeParagraph = { shown: t.blocks(), saved: await t.save() };
+	t.command('undo');
+	await t.frames();
+	t.check('a block that may not hold blocks gives them to the note after it, in the same step of undo', { madeParagraph, undone: await t.save() }, {
+		madeParagraph: { shown: [{ type: 'paragraph', text: 'item' }, { type: 'bulletListItem', text: 'sub' }], saved: 'item\n\n- sub\n' },
+		undone: '- item\n  - sub\n',
+	});
+
+	await t.load('Some red text.\n');
+	await t.frames();
+	selectText(t, 'red');
+	t.editor.addStyles({ textColor: 'rgb(232, 112, 107)' });
+	selectText(t, 'text');
+	t.editor.addStyles({ textColor: '#123456' });
+	await t.frames();
+	t.check('a color of text is a palette color, the one it stands for, or none', await t.save(), 'Some <span style="color:#e8706b;">red</span> text.\n');
+
+	await t.load('Before.\n');
+	await t.frames();
+	const [before] = t.editor.document;
+	t.editor.insertBlocks([
+		{ type: 'table', content: { type: 'tableContent', rows: [{ cells: ['a', 'b'] }, { cells: ['c', 'd'] }] } },
+		{ type: 'image', props: { url: 'clip.mp4', previewWidth: 300.6 } },
+	] as Parameters<typeof t.editor.insertBlocks>[0], before, 'after');
+	await t.frames();
+	const [, table, video] = t.editor.document as unknown as readonly { readonly type: string; readonly props: Record<string, unknown>; readonly content?: { readonly headerRows?: number } }[];
+	t.check('a table\'s first row is its header, and a picture of a video is a video at a whole width', {
+		headerRows: table?.content?.headerRows,
+		media: { type: video?.type, previewWidth: video?.props.previewWidth },
+	}, { headerRows: 1, media: { type: 'video', previewWidth: 301 } });
+
+	t.editor.insertBlocks([{ type: 'table', content: { type: 'tableContent', rows: [{ cells: [{ type: 'tableCell', props: { colspan: 2 }, content: ['wide'] }] }, { cells: ['x', 'y'] }] } }] as Parameters<typeof t.editor.insertBlocks>[0], before, 'after');
+	await t.frames();
+	const merged = t.editor.document[1] as unknown as { readonly content: { readonly rows: readonly { readonly cells: readonly { readonly props: { readonly colspan?: number } }[] }[] } };
+	t.check('a merged cell is split, its content in its first cell', merged.content.rows.map(row => row.cells.map(cell => cell.props.colspan)), [[1, 1], [1, 1]]);
+
+	// Steps of undo by kind.
+	await t.load('Some text here.\n');
+	await t.frames();
+	t.caret('here.');
+	await t.keyboard.type(' more');
+	selectText(t, 'text');
+	await t.keyboard.press('Meta+u');
+	await t.frames();
+	const underlined = await t.save();
+	t.command('undo');
+	await t.frames();
+	const formatUndone = await t.save();
+	t.caret('more');
+	await t.keyboard.type(' typed');
+	t.editor.pasteText(' pasted');
+	await t.frames();
+	t.command('undo');
+	await t.frames();
+	t.check('a format and a paste are a step each: undo takes back only them, and not the letters typed before', {
+		underlined,
+		formatUndone,
+		pasteUndone: await t.save(),
+	}, {
+		underlined: 'Some <u>text</u> here. more\n',
+		formatUndone: 'Some text here. more\n',
+		pasteUndone: 'Some text here. more typed\n',
+	});
+
+	await t.load('- one\n- two\n- three\n');
+	await t.frames();
+	t.caret('three');
+	await t.keyboard.type('!');
+	await t.keyboard.press('Shift+Meta+ArrowUp');
+	await t.frames();
+	const moved = await t.save();
+	t.command('undo');
+	await t.frames();
+	t.check('a move of a block by keys is a step of its own', { moved, undone: await t.save() }, {
+		moved: '- one\n- three!\n- two\n',
+		undone: '- one\n- two\n- three!\n',
+	});
+
+	await t.load('![](pic.png)\n');
+	await t.frames();
+	const [picture] = t.editor.document;
+	for (const caption of ['a', 'ab', 'abc']) {
+		const update: Parameters<typeof t.editor.updateBlock>[1] = { props: { caption } };
+		t.editor.updateBlock(picture, update);
+	}
+	await t.frames();
+	const captioned = (t.editor.document[0] as unknown as { readonly props: { readonly caption: string } }).props.caption;
+	t.command('undo');
+	await t.frames();
+	t.check('the letters of one caption, one change after another, are one step', {
+		captioned,
+		undone: (t.editor.document[0] as unknown as { readonly props: { readonly caption: string } }).props.caption,
+	}, { captioned: 'abc', undone: '' });
 }
 
 /**
@@ -709,6 +883,17 @@ async function toggles(t: INoteFormatsTest): Promise<void> {
 	await t.keyboard.type('!');
 	await t.frames();
 	t.check('a letter typed into one block of a toggle changes that block alone', await t.save(), note.replace('third child', 'third child!'));
+
+	const closed = '<details>\n<summary>Closed</summary>\n\nhidden\n\n</details>\n\nafter\n';
+	await t.load(closed);
+	await t.frames();
+	t.caret('after', 'start');
+	await t.keyboard.press('Backspace');
+	await t.frames();
+	t.check('Backspace after a closed toggle opens it, as its hidden block now holds the caret', { shown: shown(), saved: await t.save() }, {
+		shown: ['true'],
+		saved: '<details>\n<summary>Closed</summary>\n\nhiddenafter\n\n</details>\n',
+	});
 }
 
 /**
@@ -782,6 +967,7 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	e: keys,
 	g: toggles,
 	k: fixedBlocks,
+	n: shape,
 };
 
 // As editor.tsx does before the first note is drawn.

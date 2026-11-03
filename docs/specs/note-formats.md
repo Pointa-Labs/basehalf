@@ -506,7 +506,8 @@ start).
 64. **Backspace** at the start of a nested block takes it out of its parent
     under the rule of 63; otherwise it deletes the block when it is empty, or
     joins its text to the line above, which for a first child is its
-    parent's line.
+    parent's line. When the block above holds no text, as a picture or a
+    table, Backspace selects it, and a second Backspace deletes it.
 65. **Shift-Mod-↑ and ↓** move a block past a neighbour that cannot hold it,
     and into one that can, as before.
 66. A drag, a paste, a drop, or a change of a block's kind that leaves
