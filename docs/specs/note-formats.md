@@ -615,11 +615,12 @@ start).
     in their canonical form. Every other block, a picture, a video, a sound,
     a file block, a table, code, a toggle, and every other fixed block, and
     a list that holds one of them, is one unit there, drawn as at rest. A
-    click selects it. Delete or Backspace removes it, as one step of undo.
-    Copy and Cut put its Markdown on the clipboard, and a paste of it into
-    the card's editor puts the same block back. A letter or Enter typed
-    while it is selected starts a paragraph after it. Its size, its caption,
-    its file, and a toggle's children are changed in Card Detail.
+    click selects it, and Command-click on a link in it opens the link (rule
+    54). Delete or Backspace removes it, as one step of undo. Copy and Cut
+    put its Markdown on the clipboard, and a paste of it into the card's
+    editor puts the same block back. A letter or Enter typed while it is
+    selected starts a paragraph after it. Its size, its caption, its file,
+    and a toggle's children are changed in Card Detail.
 82a. A double click anywhere on a note's card edits the note there
     ([note rendering](note-rendering.md), rule 25). On a block that the
     card's editor cannot edit, the caret goes to the end of the nearest
