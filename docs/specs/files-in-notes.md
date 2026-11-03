@@ -134,7 +134,8 @@ one folder for every note of that folder:
 13. **A picture with no file** (a screenshot, a picture copied from a page or
     an app, a picture dragged from a page) is saved into the note's folder by
     rule 10, at most 100 MiB, PNG and JPEG as they are and any other picture as
-    PNG.
+    PNG; a drawing of lines (SVG), and a picture the editor cannot draw, as
+    it is.
 14. **Several files** at once each become their own block, in the order they
     came, one after another after the block of the caret or of the point of
     release (an empty line takes the first one's place). One that fails is
