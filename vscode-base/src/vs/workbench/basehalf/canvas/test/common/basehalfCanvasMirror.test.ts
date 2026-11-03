@@ -973,7 +973,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.deepStrictEqual({ saved, bytes: files.get('/work/.bh/mirror/canvas.yaml') === damaged, files: [...files.keys()] }, { saved: undefined, bytes: true, files: ['/work/.bh/mirror/canvas.yaml'] });
 	});
 
-	test('writes the ignore file before the first layout, leaves one that is there, and writes no layout without it', async () => {
+	test('writes the ignore file before the first layout, writes one that differs again, and writes no layout without it', async () => {
 		const card: IBaseHalfCanvasCard = { path: 'a.md', kind: 'file', x: 10, y: 20, width: 300, height: 220 };
 		const first = new TestFileService(new Map());
 		first.ignoreFileThere = false;
@@ -983,7 +983,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		first.files.delete(IGNORE_FILE_PATH);
 		await mirrorService(first as unknown as IFileService).updateCardGeometry(folder(''), { ...card, x: 50 });
 
-		// One that is there is left as it is, whatever it holds.
+		// One that holds anything else is written again, anchored as BaseHalf writes it (files in notes, rule 45).
 		const edited = new TestFileService(new Map([[IGNORE_FILE_PATH, '# changed by someone\n']]));
 		edited.ignoreFileThere = false;
 		await mirrorService(edited as unknown as IFileService).updateCardGeometry(folder(''), card);
@@ -1003,7 +1003,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		}, {
 			firstFiles: [IGNORE_FILE_PATH, '/work/.bh/mirror/canvas.yaml'],
 			content: BASEHALF_MIRROR_IGNORE_CONTENT,
-			edited: '# changed by someone\n',
+			edited: BASEHALF_MIRROR_IGNORE_CONTENT,
 			failed: 'disk full',
 			failingFiles: []
 		});
@@ -1908,7 +1908,7 @@ class TestFileService {
 			// Most tests are about one layout write: for them the ignore file is
 			// there already, so that it adds no write of its own.
 			if (this.ignoreFileThere && resource.fsPath === IGNORE_FILE_PATH) {
-				return { value: VSBuffer.fromString(''), mtime: 0, etag: '' };
+				return { value: VSBuffer.fromString(BASEHALF_MIRROR_IGNORE_CONTENT), mtime: 0, etag: '' };
 			}
 			throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
 		}

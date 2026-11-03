@@ -12,7 +12,8 @@ sound, and a sound an agent makes itself goes where an image does;
 version 10, 2026-10-25, D81: selected text in a PDF names its pages and in
 a book its chapter; installed as a link to BaseHalf's own copy, which
 follows every release, and offered until the user answers, 2026-10-26, D83;
-version 11, 2026-11-02, D110: the formats a note keeps)
+version 11, 2026-11-02, D110: the formats a note keeps; version 12,
+2026-11-03, D111: the files inside a note)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
@@ -156,6 +157,21 @@ its own, which the agents' folders link to
    `<audio src="…" controls></audio>` for a video and a sound. A link to a
    file whose name has a space writes it `%20`. Another spelling is kept as
    written and shown, and is not edited in BaseHalf's editor.
+7. **Files inside a note.** A note's files are content: they are in
+   `.bh/attachments/<folder>/`, one folder per note, linked relative to the
+   note ([files in notes](files-in-notes.md)). To put a file into a note when
+   the user asks, copy it into the folder the note's other links into
+   `.bh/attachments/` use, or into a new folder of 10 random lowercase letters
+   and digits in the `.bh/attachments/` of the nearest folder at or above the
+   note that has `.bh/` or `.git`; never overwrite a file there; link it
+   relative to the note, writing every space and every ASCII punctuation mark
+   other than `-._~/` as `%XX`. To take a file out of a note, remove its link;
+   never move, rename, or delete anything under `.bh/`. An agent that moves a
+   note into a folder of another depth gives its links into `.bh/attachments/`
+   the `../` the new place needs; BaseHalf corrects a link that leads nowhere
+   when it sees the note ([files in notes](files-in-notes.md), rule 28). An
+   image or a sound the agent makes for a note when the user asks goes into
+   the note's folder, not beside the note as a card.
 
 The body describes where things are and what they mean. Following D36, it
 does not tell an agent what to read or in what order. It stays under 500

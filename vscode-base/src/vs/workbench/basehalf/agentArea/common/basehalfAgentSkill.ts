@@ -17,7 +17,7 @@ export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** A whole number that grows whenever the skill text changes. BaseHalf's own
  * copy never takes the text of a lower version (agent skill, "Keeping it
  * current"). */
-export const BASEHALF_AGENT_SKILL_VERSION = '11';
+export const BASEHALF_AGENT_SKILL_VERSION = '12';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -58,6 +58,23 @@ export const BASEHALF_AGENT_OWN_IMAGE_SECTION: readonly string[] = [
 	'## An image or a sound you make yourself',
 	'',
 	'When you make an image or a sound with a tool of your own, such as your own image generation, put the file in the folder of the canvas the user works on, where it is a card. That folder is the one `.bh/cache/selection.yaml` names: the folder at `path` when `selected` is `folder`, and otherwise the folder that holds the selected card, cards, or note. When there is no record, ask the user which folder.'
+];
+
+/**
+ * Where a note's files are (agent skill, "The skill", item 7; files in
+ * notes, rule 47): in the note's own folder in the store, linked relative to
+ * the note. It says how to put a file in and take one out, never by moving
+ * anything under `.bh/`. It is not in the launch instruction.
+ */
+export const BASEHALF_AGENT_NOTE_FILES_SECTION: readonly string[] = [
+	'## Files inside a note',
+	'',
+	'A picture, a video, a sound, or any other file put into a note is content. It is in `.bh/attachments/<folder>/`, one folder per note, and the note links it relative to itself, as `![photo.png](../.bh/attachments/7k3f9q2m1x/photo.png)` from a note one folder down.',
+	'',
+	'- To put a file into a note when the user asks, an image or a sound you make for the note too, copy it into the folder that the note\'s other links into `.bh/attachments/` use. When there is none, make a new folder of 10 random lowercase letters and digits in the `.bh/attachments/` of the nearest folder at or above the note that has `.bh/` or `.git`. Never overwrite a file there: give a taken name a number, as `photo 2.png`.',
+	'- Link it relative to the note, with every space and every ASCII punctuation mark other than `-`, `.`, `_`, `~`, and `/` written as `%XX`: `my%20photo%20%281%29.png`.',
+	'- To take a file out of a note, remove its link. Never move, rename, or delete anything under `.bh/`.',
+	'- When you move a note into a folder of another depth, give its links into `.bh/attachments/` the `../` its new place needs.'
 ];
 
 /**
@@ -128,6 +145,8 @@ export const BASEHALF_AGENT_SKILL_MARKDOWN = [
 	...BASEHALF_AGENT_SHARED_SECTIONS,
 	'',
 	...BASEHALF_AGENT_OWN_IMAGE_SECTION,
+	'',
+	...BASEHALF_AGENT_NOTE_FILES_SECTION,
 	'',
 	...BASEHALF_AGENT_NOTE_FORMATS_SECTION,
 	''

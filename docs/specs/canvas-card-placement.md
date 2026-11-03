@@ -632,11 +632,16 @@ their descriptions. Those are shared through git as before.
   # Written by BaseHalf. Card positions and BaseHalf's working files are
   # not shared through git.
   /.gitignore
-  canvas.yaml
-  !canvas.yaml/
+  /mirror/**/canvas.yaml
+  !/mirror/**/canvas.yaml/
   /cache/
-  *.basehalf-tmp
+  /*.basehalf-tmp
+  /mirror/**/*.basehalf-tmp
   ```
+
+  The rules are anchored, so that nothing of `.bh/attachments/`, where the
+  files of notes are kept and shared ([files in notes](files-in-notes.md)),
+  is hidden, also a note's file named `canvas.yaml`.
 
   - It hides itself, every layout, and `.bh/cache/`.
   - The last rule hides the file that a write under `.bh/` goes through
@@ -653,8 +658,9 @@ their descriptions. Those are shared through git as before.
   `.bh/cache/` in a workspace folder, when the file is not there. When it
   cannot be written, the layout is not written either, as for any
   [write that fails](#when-a-place-cannot-be-saved).
-- **One that is there is left as it is**, whatever it holds. BaseHalf never
-  edits it.
+- **It is kept at BaseHalf's own text**: written when it is missing or
+  differs, also in the `.bh/` of a git repository inside the workspace folder
+  (D111).
 - **The user's own `.gitignore` is never touched**, and BaseHalf runs no git
   command.
 - **Every folder, without any setup.** Git reads an ignore file in whatever

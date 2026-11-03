@@ -12,7 +12,8 @@ import { writeBaseHalfNoteBlocks } from '../../../src/vs/workbench/basehalf/mark
 // Copy out of Rich (note formats, rules 75 to 77): Command-C, Command-X,
 // Copy and Cut in Rich's menu, and a drag of blocks out of Rich put on the
 // clipboard, as text, the Markdown the note stores for what they carry, and
-// for another application its HTML with the palette's values.
+// for another application its HTML with the palette's values. The note they
+// come from goes along, for a paste into another note (files in notes, rule 35).
 
 type NoteEditor = BlockNoteEditor<any, any, any>;
 
@@ -62,7 +63,10 @@ function withPaletteColors(html: string): string {
  * own text after the editor copied. A copy the editor leaves to the page,
  * as within a fixed block, is left as it is. Returns what removes it.
  */
-export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLElement): () => void {
+/** The kind of data that names the note a copy out of Rich comes from (files in notes, rule 35). */
+export const BASEHALF_NOTE_COPY_SOURCE = 'basehalf/note';
+
+export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLElement, note?: () => string | undefined): () => void {
 	let text: string | undefined;
 	const read = (): void => {
 		try {
@@ -75,6 +79,11 @@ export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLEleme
 	const write = (data: DataTransfer | null): void => {
 		if (data && text !== undefined) {
 			data.setData('text/plain', text);
+			// A paste into another note reads the copy's links from this note's place.
+			const source = note?.();
+			if (source) {
+				data.setData(BASEHALF_NOTE_COPY_SOURCE, source);
+			}
 			const html = data.getData('text/html');
 			if (html) {
 				data.setData('text/html', withPaletteColors(html));

@@ -40,7 +40,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		assert.strictEqual(await bridge.sendCommand('toggleOrderedList'), true);
 		assert.strictEqual(await bridge.sendCommand('insertDivider'), true);
 		assert.strictEqual(await bridge.sendFileSearchResult('files-1', [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]), true);
-		assert.strictEqual(await bridge.sendAttachmentResult('attachment-1', { url: 'attachments/diagram.png' }), true);
+		assert.strictEqual(await bridge.sendAttachmentResult('attachment-1', { url: '.bh/attachments/7k3f9q2m1x/diagram.png', name: 'diagram.png' }), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false, structural: true, handoff: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
@@ -141,7 +141,8 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				type: 'basehalf.markdownRich.attachmentResult',
 				key: 'workspace\u0000doc.md',
 				requestId: 'attachment-1',
-				url: 'attachments/diagram.png'
+				url: '.bh/attachments/7k3f9q2m1x/diagram.png',
+				name: 'diagram.png'
 			},
 			{
 				type: 'basehalf.markdownRich.save',

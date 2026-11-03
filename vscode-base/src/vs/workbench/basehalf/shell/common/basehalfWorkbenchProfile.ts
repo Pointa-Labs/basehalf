@@ -483,9 +483,11 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'files.autoSaveDelay': BASEHALF_AUTO_SAVE_DELAY_MS,
 	// Mirror metadata and the root agent protocol files are infrastructure, not
 	// learning material. They remain ordinary workspace files and users can
-	// reveal them by overriding these Explorer defaults.
+	// reveal them by overriding these Explorer defaults. `.bh` is hidden at
+	// every depth: a repository inside the folder keeps its notes' files in a
+	// `.bh/` of its own (files in notes, rule 5).
 	'files.exclude': {
-		'.bh': true,
+		'**/.bh': true,
 		'AGENTS.md': true,
 		'CLAUDE.md': true
 	},

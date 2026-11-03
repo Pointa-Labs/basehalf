@@ -133,7 +133,9 @@ Not in scope, and unchanged:
    is untrusted content. An `<input>` is shown only as a check box, and the
    box is disabled.
 6. An address that is relative, of an image, a video, a sound, or a link, is
-   read from the folder of the note.
+   decoded once and read from the folder of the note; a link into the store
+   of a note's files reads the file there ([files in notes](files-in-notes.md),
+   rule 20).
 6a. A Markdown image whose address ends in a sound or a video extension of
    the one list of media files is that sound or that video:
    `![clip](clip.mp4)` is a video and `![s](s.ogg)` a sound

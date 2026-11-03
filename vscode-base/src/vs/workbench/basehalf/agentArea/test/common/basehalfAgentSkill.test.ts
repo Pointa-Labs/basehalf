@@ -10,6 +10,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { writeBaseHalfNoteBlock } from '../../../markdown/common/basehalfNoteWriter.js';
 import { BASEHALF_AGENT_SHARED_SECTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
 import {
+	BASEHALF_AGENT_NOTE_FILES_SECTION,
 	BASEHALF_AGENT_NOTE_FORMATS_SECTION,
 	BASEHALF_AGENT_OWN_IMAGE_SECTION,
 	BASEHALF_AGENT_SKILL_COPY_SEGMENTS,
@@ -102,7 +103,7 @@ suite('BaseHalfAgentSkill', () => {
 			beforeTheFormats: body.indexOf(section) < body.indexOf(BASEHALF_AGENT_NOTE_FORMATS_SECTION.join('\n')),
 			missing: ['a tool of your own', 'the folder of the canvas the user works on', '`.bh/cache/selection.yaml`', '`folder`', 'ask the user'].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('image you make')
-		}, { version: '11', inBody: true, afterShared: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
+		}, { version: '12', inBody: true, afterShared: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('describes the record of what the user selected, and names the request it answers', () => {
@@ -123,7 +124,27 @@ suite('BaseHalfAgentSkill', () => {
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '11', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '12', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+	});
+
+	test('tells agents where a note\'s files are, how to put one in and take one out, before the formats and outside the launch instruction (files in notes, rule 47)', () => {
+		const body = BASEHALF_AGENT_SKILL_MARKDOWN.slice(BASEHALF_AGENT_SKILL_MARKDOWN.indexOf('\n---\n') + 5);
+		const section = BASEHALF_AGENT_NOTE_FILES_SECTION.join('\n');
+		assert.deepStrictEqual({
+			version: BASEHALF_AGENT_SKILL_VERSION,
+			inBody: body.includes(section),
+			afterOwnImage: body.indexOf(BASEHALF_AGENT_OWN_IMAGE_SECTION.join('\n')) < body.indexOf(section),
+			beforeTheFormats: body.indexOf(section) < body.indexOf(BASEHALF_AGENT_NOTE_FORMATS_SECTION.join('\n')),
+			missing: [
+				'`.bh/attachments/<folder>/`, one folder per note',
+				'10 random lowercase letters and digits',
+				'that has `.bh/` or `.git`',
+				'Never overwrite a file there',
+				'other than `-`, `.`, `_`, `~`, and `/` written as `%XX`',
+				'To take a file out of a note, remove its link. Never move, rename, or delete anything under `.bh/`.',
+			].filter(phrase => !section.includes(phrase)),
+			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('attachments')
+		}, { version: '12', inBody: true, afterOwnImage: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('tells agents the formats a note keeps, each spelled as BaseHalf\'s writer writes it, last and outside the launch instruction (note formats, rule 86)', () => {
@@ -151,7 +172,7 @@ suite('BaseHalfAgentSkill', () => {
 			palette: ['gray `#9b9a97` and `#3f3e3b`', 'pink `#e36aaf` and `#62294b`'].filter(color => !section.includes(color)),
 			keepsOthers: section.includes('keeps any other spelling as written'),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('<u>')
-		}, { version: '11', last: true, notWritten: [], toggle: true, palette: [], keepsOthers: true, inLaunchInstruction: false });
+		}, { version: '12', last: true, notWritten: [], toggle: true, palette: [], keepsOthers: true, inLaunchInstruction: false });
 	});
 
 	test('links Claude Code\'s folder and the shared one to BaseHalf\'s own copy, and is offered until one of them is linked', () => {

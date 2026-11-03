@@ -81,11 +81,11 @@ About:
   setting.
 - A value that a BaseHalf setting cannot take is refused in Settings, with
   the reason, instead of being replaced by its default without a word: the
-  attachments folder (`basehalf.editor.attachmentsDirectory`) is a folder
-  inside the note's folder, by the same rule the rich editor uses, and the
   default zoom (`basehalf.canvas.defaultZoom`) goes up to 1, the largest zoom
   at which the canvas fits a folder
   ([workspace state](workspace-state-and-legacy-cleanup.md#canvas-viewport-state)).
+  There is no setting for where a note's files go: they are the note's own
+  ([files in notes](files-in-notes.md), D111).
 - Every BaseHalf setting has the tag `basehalf`. The welcome page's **Open
   BaseHalf Settings…** searches Settings for it and lists them all.
 - Search results name the group as **BaseHalf**, such as "BaseHalf ›

@@ -18,10 +18,11 @@ export const BH_IGNORE_FILE = [
 	'# Written by BaseHalf. Card positions and BaseHalf\'s working files are',
 	'# not shared through git.',
 	'/.gitignore',
-	'canvas.yaml',
-	'!canvas.yaml/',
+	'/mirror/**/canvas.yaml',
+	'!/mirror/**/canvas.yaml/',
 	'/cache/',
-	'*.basehalf-tmp',
+	'/*.basehalf-tmp',
+	'/mirror/**/*.basehalf-tmp',
 	''
 ].join('\n');
 export const CANVAS_MALFORMED_EMPHASIS_PARAGRAPH = '曾经繁华的长安，如今已是断壁残垣。宫殿倾颓，街市萧条，只有那巍峨的山河依旧矗立，仿佛在无声地诉说着往日的辉煌。春风吹过，城中的草木却长得异常茂盛**，';

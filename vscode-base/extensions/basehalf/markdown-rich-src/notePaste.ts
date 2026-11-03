@@ -9,6 +9,8 @@ import { buildBaseHalfMarkdownLoadProjection, type IBaseHalfMarkdownEditorApi } 
 import { repairBaseHalfNoteHtml, tidyBaseHalfNoteHtml } from '../../../src/vs/workbench/basehalf/markdown/browser/basehalfNoteHtmlRepair.js';
 import { baseHalfNoteBlockChildren, isBaseHalfNoteRecord } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteBlocks.js';
 import { postProcessBaseHalfNoteBlocks, stripBaseHalfNoteReadHints, type BaseHalfNoteReadMode } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteStructure.js';
+import { BASEHALF_NOTE_COPY_SOURCE } from './noteCopy.js';
+import { addBaseHalfNoteFiles, addBaseHalfNoteItems, baseHalfNoteTransferFiles, showBaseHalfNoteFailures, type BaseHalfNoteItemsRequest } from './noteMedia.js';
 
 // Rich's paste (note formats, rules 72 to 74): HTML from another application
 // and Markdown are read as a note's file is read, so what comes in is what
@@ -112,16 +114,126 @@ function vscodeEditorMode(data: DataTransfer): string | undefined {
 	}
 }
 
+/** Whether the caret is in a block of code, where a paste is text. */
+function inCode(editor: BlockNoteEditor<any, any, any>): boolean {
+	return editor.transact(transaction => !!transaction.selection.$from.parent.type.spec.code);
+}
+
+/** What an editor or a page copies: a clipboard that holds one of them holds no items. */
+const notItems = ['vscode-editor-data', 'blocknote/html', 'text/markdown', 'text/html'];
+
+/** A copy of what a paste holds, which can still be read once the paste is over. */
+function copyOfTransfer(data: DataTransfer): DataTransfer {
+	const copy = new DataTransfer();
+	for (const type of data.types) {
+		if (type !== 'Files') {
+			copy.setData(type, data.getData(type));
+		}
+	}
+	for (const file of Array.from(data.files)) {
+		copy.items.add(file);
+	}
+	return copy;
+}
+
+/** Whether an address is a path read from the note's folder: no scheme, no heading of its own, not from the disk's root. */
+function isRelative(address: string): boolean {
+	return address !== '' && !/^[a-z][a-z0-9+.-]*:/i.test(address) && !address.startsWith('#') && !address.startsWith('/');
+}
+
+/**
+ * Blocks copied in another note, rebased to this one (files in notes, rule
+ * 35): each relative address in the editor's own HTML of the copy is read
+ * from the note it came from, and the host gives it from this note, with a
+ * stored file of the other note's folder cloned into this note's folder.
+ * What the host cannot clone stays the other note's, and says why.
+ */
+async function rebaseCopy(editor: BlockNoteEditor<any, any, any>, data: DataTransfer, source: string, requestItems: BaseHalfNoteItemsRequest): Promise<void> {
+	const template = document.createElement('template');
+	template.innerHTML = data.getData('blocknote/html');
+	const places: { readonly element: Element; readonly attribute: string; readonly address: string }[] = [];
+	for (const element of template.content.querySelectorAll('[data-url], [src], [href]')) {
+		for (const attribute of ['data-url', 'src', 'href']) {
+			const value = element.getAttribute(attribute);
+			if (value && isRelative(value)) {
+				places.push({ element, attribute, address: new URL(value, source).href });
+			}
+		}
+	}
+	const uris = [...new Set(places.map(place => place.address))];
+	const rebased = uris.length > 0 ? await requestItems('rebase', { uris }) : undefined;
+	if (!rebased) {
+		return;
+	}
+	const urls = new Map(uris.map((uri, index) => [uri, rebased.items[index]?.url]));
+	for (const place of places) {
+		const url = urls.get(place.address);
+		if (url) {
+			place.element.setAttribute(place.attribute, url);
+		}
+	}
+	data.setData('blocknote/html', template.innerHTML);
+	showBaseHalfNoteFailures(editor, rebased.failures);
+}
+
+/**
+ * The editor's paste handler with the clipboard's items (files in notes,
+ * rules 12, 14, and 15): files that BaseHalf or a file manager copied and
+ * cards copied on the canvas or in Files come with their paths, which only
+ * the host can read, so the host is asked for them first, and puts them in
+ * as their blocks. When the clipboard holds no items, the paste goes on as
+ * `baseHalfNotePasteHandler` reads it, from a copy of what it held. A paste
+ * of what an editor or a page copied, and a paste into code, are read at once.
+ */
+export function makeBaseHalfNotePasteHandler(requestItems: BaseHalfNoteItemsRequest, note: () => string | undefined = () => undefined): (paste: IBaseHalfNotePasteEvent) => boolean {
+	const replays = new WeakSet<Event>();
+	return paste => {
+		const { event, editor } = paste;
+		const data = event.clipboardData;
+		const view = editor.prosemirrorView;
+		if (replays.has(event) || !data || !view || data.types.length === 0 || inCode(editor)) {
+			return baseHalfNotePasteHandler(paste);
+		}
+		const replay = (copy: DataTransfer): void => {
+			if (view.isDestroyed) {
+				return;
+			}
+			const again = new ClipboardEvent('paste', { clipboardData: copy, bubbles: true, cancelable: true });
+			replays.add(again);
+			view.dom.dispatchEvent(again);
+		};
+		// Blocks copied in another note keep working here (files in notes, rule 35); into the same note nothing changes.
+		const source = data.types.includes(BASEHALF_NOTE_COPY_SOURCE) ? data.getData(BASEHALF_NOTE_COPY_SOURCE) : '';
+		if (source && source !== note() && data.types.includes('blocknote/html')) {
+			const copy = copyOfTransfer(data);
+			void rebaseCopy(editor, copy, source, requestItems).catch(error => console.warn('[basehalf] The pasted blocks could not be read from the note they came from.', error)).then(() => replay(copy));
+			return true;
+		}
+		if (data.types.some(type => notItems.includes(type))) {
+			return baseHalfNotePasteHandler(paste);
+		}
+		const copy = copyOfTransfer(data);
+		void addBaseHalfNoteItems(editor, () => requestItems('paste')).then(added => added ? undefined : replay(copy));
+		return true;
+	};
+}
+
 /**
  * The editor's paste handler (rules 72 to 74): text that reads as Markdown is
  * Markdown, other text is text as typed, and Markdown copied from Source or
  * another code editor of Markdown is Markdown; code of another language
- * stays a code block. The rest is the editor's own choice of what to paste.
+ * stays a code block. Files, and a picture copied from a page, are kept in
+ * the note's own folder (files in notes, rules 12 and 13). The rest is the
+ * editor's own choice of what to paste.
  */
 export function baseHalfNotePasteHandler({ event, editor, defaultPasteHandler }: IBaseHalfNotePasteEvent): boolean {
 	const data = event.clipboardData;
-	const inCode = editor.transact(transaction => !!transaction.selection.$from.parent.type.spec.code);
-	const mode = data && !inCode && data.types.includes('vscode-editor-data') ? vscodeEditorMode(data) : undefined;
+	const files = data ? baseHalfNoteTransferFiles(data) : [];
+	if (files.length > 0) {
+		void addBaseHalfNoteFiles(editor, files);
+		return true;
+	}
+	const mode = data && !inCode(editor) && data.types.includes('vscode-editor-data') ? vscodeEditorMode(data) : undefined;
 	const text = mode ? data?.getData('text/plain') : undefined;
 	if (mode && text) {
 		if (mode === 'markdown') {

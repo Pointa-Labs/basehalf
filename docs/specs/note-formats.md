@@ -99,9 +99,8 @@ start).
 
 ## Non-goals
 
-- Files put into a note, where they are kept, and how their links follow
-  them: a later decision (D111). Until then a file put into a note goes to
-  the attachments folder as before.
+- Where a file put into a note is kept, how it is named and linked, and how
+  its links follow a move: [files in notes](files-in-notes.md) (D111).
 - The cover of a PDF in a file block, callouts, and links that follow a
   renamed file.
 - Rewriting notes written before this: nothing is changed until the user
@@ -246,8 +245,9 @@ start).
     page would read as the start of a character reference is `%26`; letters
     of any script, `#`, `?`, and balanced parentheses stay as they are.
 18. A link that `[[` inserts, and the address of a file put into a note, are
-    written with the space, `#`, `?`, `%`, brackets, parentheses, and the
-    other characters a path segment cannot hold in a link encoded:
+    written with the one encoder ([files in notes](files-in-notes.md), rule
+    19): every ASCII character but letters, digits, `-`, `.`, `_`, `~`, and
+    `/` is encoded, and so is white space; letters of any script stay:
     `[my file.md](my%20file.md)`, `docs/lecture%20%231.pdf`.
 19. **Lists.** A list item keeps the marker the file gave it: `-`, `*`, or
     `+`, and the number and `.` or `)` of a numbered item. Its children keep
@@ -434,16 +434,17 @@ start).
 ### Pictures, videos, and sounds
 
 49. Picture, Video, Sound, and File in the slash menu and the add button open
-    the system's file chooser at once. The chosen file is copied where a file
-    put into a note goes ([Non-goals](#non-goals)); once the copy is done, the
+    the system's file chooser at once. The chosen file is copied into the
+    note's own folder ([files in notes](files-in-notes.md), rule 12); once the copy is done, the
     block is added where the menu was, with its address, in one step of undo,
     and a caret still there goes on in the line below it. Until then a
     placeholder that is not part of the note says, by the file's name, that
     the file is being added. Cancel in the chooser adds nothing. A file that
     cannot be added shows "Could not add" and its name, as "Could not add
-    clip.mp4.", in the placeholder for 3 s, and nothing is added. A note, or a
-    file whose name has no extension, chosen for File is added as a paragraph
-    of its link: that is how the note stores it and reads it back.
+    clip.mp4.", in the placeholder for 3 s, and nothing is added. A note or a
+    folder of the workspace is added as a paragraph of its link, linked where
+    it is (files in notes, rule 15); a file kept for the note is a file block
+    whatever its name.
 50. Replace keeps the editor's own panel: a file from the disk, and for a
     picture, a video, and a sound a web address too. A file block offers no
     web address: the note stores it as a link and reads it back as one.
@@ -510,7 +511,8 @@ start).
     to `http:`, `https:`, or `mailto:` opens in the system's browser or mail
     application. A link to a heading opens its note at the heading (rule 56).
     Any other address, a file that is not there, and an address outside the
-    workspace's folders do nothing, and nothing asks.
+    workspace's folders and the stores above them ([files in notes](files-in-notes.md),
+    rule 20) do nothing, and nothing asks.
 54. **The gestures.** On the card at rest, in Preview, and on a fixed block
     of Rich, a click opens a link, as a page does. In Rich and in the card's
     editor, a click puts the caret in it and Command-click or Ctrl-click, by the system,
@@ -613,7 +615,9 @@ start).
     | `<details>`, open or not | a toggle, stored closed |
     | a relative picture, video, or sound in Markdown | read from the note's folder, its kind by the list of media files |
     | Markdown that Rich cannot edit | a fixed block holding the pasted text |
-    | a paragraph that is one link to a file of the note's folder, without formats, at any depth | a file block |
+    | a paragraph that is one link to a file of the note's folder, or one link into the store of files in notes, without formats, at any depth | a file block |
+    | a file from outside the workspace, or a picture with no file | kept in the note's own folder ([files in notes](files-in-notes.md), rules 12 and 13) |
+    | cards copied on the canvas, items copied in Files or dragged from it | linked where they are, a note or a folder as a line with its link ([files in notes](files-in-notes.md), rule 15) |
     | a line break in a caption | a space |
     | text that reads as Markdown | Markdown; other text as typed |
     | a table with merged cells, a header column, or cell colors | a table as rule 60 says |
@@ -725,10 +729,9 @@ start).
 - L7. A video or a sound in a note plays in the system's controls, whose
   pause cannot fade, until files in notes bring BaseHalf's player there
   (D111). Their names are not stored.
-- L8. A file put into a note by a paste or a drop keeps the editor's own
-  upload until D111: while it uploads Rich shows an empty block that the
-  file does not hold, an undo right after it can show that block again, and
-  a failed upload leaves it until the note opens again.
+- L8. A file that comes without a path, as a screenshot or a picture a page
+  gives, goes through the editor, at most 100 MiB; files with paths are
+  cloned by BaseHalf whatever their size (D111).
 - L9. A paste stores toggles closed, drops colors outside the palette and the
   widths of other applications, and turns the alignment of cells into the
   alignment of their column. Markdown that Rich cannot edit, pasted into the

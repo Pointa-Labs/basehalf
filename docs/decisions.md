@@ -5368,6 +5368,67 @@ answer that keeps Markdown and adds a tag only where Markdown has no syntax
   reader in Rich; the mark that carried line breaks of table cells through
   that writer.
 
+## D111 — A file put into a note is the note's own, in a hidden folder of its own, and the note links it as any Markdown file links a file (NEW, 2026-11-03)
+
+**Decision.** A file put into a note from outside the workspace is copied into
+the note's own folder in a hidden store, `.bh/attachments/<folder>/<file>`, at
+the note's home: the nearest folder at or above the note that holds `.bh/` or is
+the root of a git repository, usually the workspace folder. The folder's name is
+10 random letters and digits, never renamed or moved. The note links the file
+with a plain relative Markdown link, written with one encoder; every place reads
+it literally from the note's folder. An item already in the workspace is linked
+where it is. A picture without a name is named by the time it was put in, and a
+taken name gets a number. `.bh` is hidden at every depth. Nothing deletes a
+note's file at once: a file that no text file has mentioned for 30 days goes to
+the Trash, a whole folder as one item. A move to another depth corrects only the
+route of a store link; a copy that BaseHalf makes gets its own clones. In a
+note, its pictures, videos, and sounds are edited in place, so Rich offers no
+item that opens them elsewhere and no label names Card Detail; a file block
+offers Open. The setting `basehalf.editor.attachmentsDirectory` goes. See
+[files in notes](specs/files-in-notes.md).
+
+**Why.** On 2026-11-02 the user asked where a note's files should live
+("但是 attachment 在哪儿存着呢？你觉得我们从产品层面思考，应该使用什么样的方案？"), pointed at
+the workspace folder's own `.bh/` ("其实我想的是放到这个文件夹专属的 .bh 里面"), asked
+whether many hidden folders are common, and asked for a final scheme after a
+first one did not feel right ("我感觉还是不太对，请你帮我再仔细想想方案"). Four designs, three
+judges, and three reviews that raised 44 issues led to this scheme; it was
+held back until the formats of a note (D110) were done. On 2026-11-03 the user
+found that a file stays after its block is deleted ("插入以后又删掉，attachment 里面就会永久保留"),
+that the shared folder mixes the files of every note ("只是把所有工作空间里的文件混在了一起"), that
+the files should be hidden ("我总觉得这个 attachment 应该变成隐藏文件"), and that a picture in a
+note should be edited in place, not opened in Card Detail
+("这个 Card Detail 太不严谨了… 应该直接支持原地编辑就行了呀"), and approved the work.
+
+**What was set aside.**
+- The shared `attachments/` beside the note and its setting: every note of a
+  folder shares it, it shows as a folder card, and nothing follows a move.
+- Each file as a card beside the note, and a visible folder per note: turned
+  down twice; every rename would move a folder.
+- A hidden folder, or a `.bh/`, in every folder: hidden folders everywhere, and
+  agents take a folder with `.bh/` for the workspace.
+- `.bh/mirror/<note path>/`, or any store keyed by the note's path: the mirror
+  moves only small files with known names and deletes unknown files with the
+  kept versions, and a path in the link changes with every rename.
+- A folder named after the note: the name goes stale at the first rename.
+- The note becoming a bundle folder at its first file: the note changes kind
+  and path, and every other tool shows a note named `text`.
+- Workspace-relative or root-anchored links, and resolving a link by its key
+  whatever its route: other tools would show what BaseHalf does not, or the
+  reverse.
+- Files shared across notes by their content: sharing contradicts one owner
+  per note.
+- Deleting a note's files with the note or when its editor closes: it breaks
+  undo after close, Put Back, `git restore`, and a paste of a cut block.
+- `untitled.png` for screenshots: two machines or branches would pick the same
+  name.
+
+**Refines.** D110: a file chosen from the slash menu goes into the note's
+folder. D104: a note's editor links items of the workspace where they are, as
+the input row does. D82: a deleted note's files leave by the 30-day rule. D41:
+BaseHalf writes `.bh/.gitignore` at its own text, and removes the two lines
+early versions wrote into a user's `.gitignore` only after the user confirms.
+
 ## D112 — A double click edits a note on its card wherever it lands, and a note's videos, sounds, and files look on the card as BaseHalf shows them (NEW, 2026-11-03)
 
 **Decision.** A double click anywhere on a note's card edits the note on the

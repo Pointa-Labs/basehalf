@@ -498,17 +498,19 @@ export function baseHalfMarkdownDestination(href: string): string {
 	return written;
 }
 
-// The characters a path segment keeps as they are in a link: letters and
-// digits, the unreserved marks, and the marks that neither end a path nor act
-// in Markdown. A `:` is encoded, so that a first segment never reads as a
-// scheme, and so is `&`, so that it never starts a character reference.
-const keptInPathSegment = /^[A-Za-z0-9\-._~!$'*+,;=@]$/;
+// The one encoder of every address BaseHalf writes into a note (files in
+// notes, rule 19): a path segment keeps letters and digits, `-`, `.`, `_`, and
+// `~`, and every character beyond ASCII but white space and control and
+// format characters. Every other ASCII character is encoded, so that no
+// address reads as a scheme or a character reference, or acts in Markdown.
+const keptInPathSegment = /^[A-Za-z0-9\-._~]$/;
+const encodedInPathSegment = /^[\s\p{Cc}\p{Cf}]$/u;
 
 function encodePathSegment(segment: string): string {
 	let written = '';
-	for (const character of segment) {
+	for (const character of segment.normalize('NFC')) {
 		const codePoint = character.codePointAt(0) ?? 0;
-		if (keptInPathSegment.test(character) || (codePoint > 0x7f && !encodedInDestination.test(character))) {
+		if (keptInPathSegment.test(character) || (codePoint > 0x7f && !encodedInPathSegment.test(character))) {
 			// Letters of any script stay readable, also a lone surrogate, which has no encoding.
 			written += character;
 		} else if (codePoint <= 0x7f) {
@@ -523,12 +525,12 @@ function encodePathSegment(segment: string): string {
 /**
  * The address of a file in the workspace as a link holds it: the address
  * that `[[` inserts and that a file put into a note gets (note formats,
- * rule 18). In each segment of the path, a space, `#`, `?`, `%`, brackets,
- * parentheses, and every other character a segment cannot hold in a link
- * are percent-encoded, and letters of any script stay as they are:
- * `docs/lecture #1.pdf` is `docs/lecture%20%231.pdf`. The address reads back
- * as the path once it is percent-decoded, as a link's address is read
- * (rule 55).
+ * rule 18). In each segment of the path, in NFC, every ASCII character but
+ * letters, digits, `-`, `.`, `_`, and `~` is percent-encoded, and so are
+ * white space and control and format characters; letters of any script stay
+ * as they are: `docs/lecture #1.pdf` is `docs/lecture%20%231.pdf`. The
+ * address reads back as the path once it is percent-decoded, as a link's
+ * address is read (rule 55).
  */
 export function baseHalfMarkdownPathHref(path: string): string {
 	return path.split('/').map(segment => segment === '.' || segment === '..' ? segment : encodePathSegment(segment)).join('/');
