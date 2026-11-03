@@ -126,6 +126,14 @@ place that should take something needed code of its own, and most had none.
   app takes a cut item as a copy.
 - The write takes about 0.1 s and does not hold up the window. A paste in
   BaseHalf that starts before it is done reads what it wrote.
+- A key pressed in a page of the window, such as a note's Rich or a book's
+  reader, is that page's at once: the window takes the page as having the
+  keyboard from that key on, and not only from its next look at the page's
+  focus, which comes every 0.25 s.
+- The write is done only once the system clipboard holds every file it
+  wrote. The system drops the files of a writer that ends as soon as it has
+  written, so the writer reads the clipboard back before it ends, and writes
+  again, once, when a file is missing.
 - The window copies only where text is selected, unless the place says
   beforehand that it has something to copy: the canvas says so while cards
   are selected, and Card Detail while it shows a file that is not edited as
@@ -329,10 +337,28 @@ cards.
   that names D104); the terminal's paste of files
   (`terminalClipboard.test.ts`).
 - Smoke, canvas suite: `canvas-copy-paste-keys` covers criteria 1, 3 (the
-  three forms of one card), 6, and 14. It writes the system clipboard, so it
+  three forms of one card, and five copies of two cards that each hold both
+  files), 6, and 14. It writes the system clipboard, so it
   runs only while the clipboard holds text alone, which it puts back, or on
   CI, or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.
 - The real window: the rest, below.
+
+### Tried again, 2026-11-03
+
+On the system clipboard, read from another process after each write: of 16
+writes of two files, as Command-C on two cards writes them, 10 held only the
+first file (criterion 3 failed); a copy of a picture block in a note lost its
+file in 6 of 24 copies (files in notes, rule 35). The writer had ended at
+once after writing. A private clipboard of its own lost nothing, so the unit
+test cannot show it. With the clipboard read back before the writer ends,
+24 of 24 writes of one or two files and 30 of 30 copies of a picture held
+every file.
+
+The smoke's copy of a file block in a note, right after the note came back
+from a PDF's Card Detail, copied nothing at all: the page had the keyboard,
+but the window looks at a page's focus only every 0.25 s, and Command-C
+came within that time, so the window gave the copy to no page. The window
+now takes a page that sends it a key as the one with the keyboard.
 
 ### Tried in the real window, 2026-10-29
 

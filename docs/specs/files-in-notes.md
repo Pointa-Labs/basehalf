@@ -456,3 +456,10 @@ one folder for every note of that folder:
   store above is edited with its record in that home's mirror).
 - Stage 7: the skill's test (the section names `.bh/attachments/` and says
   which note a selected file there belongs to; version 12).
+- Rule 35's last sentence on the system clipboard: the smoke's
+  `readme-rich-file-copy-holds-the-file` (twelve copies of a file block, each
+  with its file on the clipboard, then a cut without it). In the real window
+  on 2026-11-03 a copy of a picture block lost its file in 6 of 24 copies,
+  because the writer ended before the system took the file; with the
+  clipboard read back first, 30 of 30 held it
+  ([copy, paste, and drop](copy-paste-and-drop.md#tried-again-2026-11-03)).
