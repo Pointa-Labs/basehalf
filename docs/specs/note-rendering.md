@@ -152,10 +152,11 @@ Not in scope, and unchanged:
    file of the workspace in Card Detail, a web address in the browser, a
    heading in its note ([formats of a note](note-formats.md#links)). A link
    that leads nowhere does nothing, and nothing asks.
-6c. Rich asks for a picture, a video, or a sound only once it has read its
-   address by rule 6. It never asks for one at its address as written, which
-   its page would read from the page's own address: nothing it asks for is
-   refused.
+6c. Rich's page reads a relative address from the note's folder wherever it
+   meets one: also in the elements its editor makes for itself, as when it
+   reads a note, draws a picture before it has read the picture's address,
+   or copies blocks. It never asks for a file at the page's own address, and
+   nothing it asks for is refused.
 
 ### How the rendered form is laid out on the card
 
@@ -451,7 +452,8 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     as the time that passed. A sound does the same, and a video that stands
     keeps its frame and its time.
 13f. Opening a note in Rich that holds a picture, a video, and a sound at
-    relative addresses asks the window for no address that is refused.
+    relative addresses, one of them in the store of the note's files, and
+    copying the picture, asks the window for no address that is refused.
 14. A note with such a table that is opened and not edited keeps every byte.
 
 15. A note of 131,072 bytes opens in the card's editor on a double click. A

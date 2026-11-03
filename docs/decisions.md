@@ -5498,10 +5498,12 @@ players of its own, so that a video stopped at every change, as when an
 agent wrote to the note while the video played. Now a video or a sound
 whose block is still in the note goes on playing through the change, at the
 same place and with its sound as it was, and one that stands keeps its frame.
-Two faults found with it were fixed the same day. Rich asked for a note's
-pictures, videos, and sounds at their addresses as written before it had read
-them, which its page read from its own address and the window refused. And a
-reveal of a place in Rich, as when Card Detail opens a note at a heading,
+Two faults found with it were fixed the same day. Rich's page read the
+relative address of a note's picture, video, or sound from its own address
+wherever its editor made an element for itself, as when it read a note,
+drew a picture before it had read the picture's address, or copied a
+picture, and the window refused each such request; it now reads them from
+the note's folder. And a reveal of a place in Rich, as when Card Detail opens a note at a heading,
 scrolled the parts of the window around Card Detail with the note, so that
 the canvas stood a few pixels higher once Card Detail closed: the "about 12
 px" by which a note's card seemed scrolled after a round trip through Card
