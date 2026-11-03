@@ -66,7 +66,7 @@ import {
 import { IBaseHalfAdhdCommand } from '../../markdown/common/basehalfAdhd.js';
 import { IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../markdown/common/basehalfAdhdMirror.js';
 import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
-import { baseHalfNoteFileFailure, IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
+import { baseHalfNoteFileFailure, baseHalfNoteStoresAbove, IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
@@ -1597,7 +1597,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		this.webviewGeneration = generation;
 		const webview = generation.add(createBaseHalfMarkdownRichWebviewElement(this.webviewService, state.relativePath || state.resource.path));
 		this.webview = webview;
-		webview.localResourcesRoot = [markdownRichMediaRoot, state.workspaceFolder];
+		// The stores of the folders above hold files of the notes of a subfolder opened alone (files in notes, rule 48).
+		webview.localResourcesRoot = [markdownRichMediaRoot, state.workspaceFolder, ...baseHalfNoteStoresAbove(state.workspaceFolder)];
 		generation.add(webview.onMessage(event => {
 			if (this.webviewGeneration === generation && this.webview === webview) {
 				void this.handleWebviewMessage(event.message);

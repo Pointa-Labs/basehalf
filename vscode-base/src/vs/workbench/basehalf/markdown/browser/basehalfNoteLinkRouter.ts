@@ -12,6 +12,7 @@ import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { BASEHALF_MEDIA_FILE_EXTENSIONS } from '../../../../platform/protocol/common/basehalfMediaFiles.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
+import { baseHalfNoteStoresAbove } from '../common/basehalfMarkdownAttachment.js';
 import { baseHalfNoteHeadingLine, resolveBaseHalfNoteLink } from '../common/basehalfNoteLinks.js';
 
 // One target for a link, from every place a note is read (note formats,
@@ -46,7 +47,8 @@ export function baseHalfNoteLinkServices(accessor: ServicesAccessor): IBaseHalfN
  * the workspace's folders do nothing, and nothing asks.
  */
 export async function openBaseHalfNoteLink(services: IBaseHalfNoteLinkServices, note: URI, href: string, onHeading?: (heading: string) => void): Promise<void> {
-	const target = resolveBaseHalfNoteLink(note, services.workspace.getWorkspace().folders.map(folder => folder.uri), href);
+	// The stores above a workspace folder hold the files of its notes too (files in notes, rule 48).
+	const target = resolveBaseHalfNoteLink(note, services.workspace.getWorkspace().folders.flatMap(folder => [folder.uri, ...baseHalfNoteStoresAbove(folder.uri)]), href);
 	try {
 		switch (target.kind) {
 			case 'web':

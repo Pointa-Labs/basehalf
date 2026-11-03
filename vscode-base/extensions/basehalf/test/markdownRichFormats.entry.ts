@@ -1187,15 +1187,24 @@ async function noteFiles(t: INoteFormatsTest): Promise<void> {
 	await until('the drop is in', () => uploads.length === 2 && !t.editor.domElement?.querySelector('.basehalf-note-media-placeholder'));
 	await t.frames(3);
 	const dropped = { uploads: [...uploads], saved: await t.save() };
+	// A picture without a file in another kind than PNG or JPEG is kept as PNG (rule 13).
+	uploads.length = 0;
+	drop([new File([Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), character => character.charCodeAt(0))], 'dot.gif', { type: 'image/gif' })]);
+	await until('the picture is in', () => uploads.length === 1 && !t.editor.domElement?.querySelector('.basehalf-note-media-placeholder'));
+	const asPng = [...uploads];
+	t.command('undo');
+	await t.frames(3);
 	drop([new File(['x'], 'fail.mov', { type: 'video/quicktime' })]);
 	await t.frames(3);
 	const failedPlaceholder = t.editor.domElement?.querySelector('.basehalf-note-media-placeholder')?.textContent ?? null;
 	await until('the failure is gone', () => !t.editor.domElement?.querySelector('.basehalf-note-media-placeholder'), 5000);
 	t.check('files dropped on the note go in one after another where they were let go, by the one list of media files, and one that fails adds nothing and says why', {
 		dropped,
+		asPng,
 		failed: { placeholder: failedPlaceholder, saved: await t.save() },
 	}, {
 		dropped: { uploads: ['clip.mp4', 'voice.m4a'], saved: `Start.\n\nSecond.\n\n<video src="${NOTE_STORE}/clip.mp4" controls></video>\n\n<audio src="${NOTE_STORE}/voice.m4a" controls></audio>\n\nThird.\n` },
+		asPng: ['dot.png'],
 		failed: { placeholder: 'Could not add fail.mov: the disk is full.', saved: `Start.\n\nSecond.\n\n<video src="${NOTE_STORE}/clip.mp4" controls></video>\n\n<audio src="${NOTE_STORE}/voice.m4a" controls></audio>\n\nThird.\n` },
 	});
 

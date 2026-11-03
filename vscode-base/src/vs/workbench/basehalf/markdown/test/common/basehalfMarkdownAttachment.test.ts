@@ -17,7 +17,7 @@ import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { IBaseHalfFileClonesService } from '../../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../../workspace/common/basehalfMirrorIgnore.js';
-import { BaseHalfMarkdownAttachmentService, baseHalfMarkdownAttachmentHref, BaseHalfNoteFileError, baseHalfNoteFileFailure } from '../../common/basehalfMarkdownAttachment.js';
+import { BaseHalfMarkdownAttachmentService, baseHalfMarkdownAttachmentHref, BaseHalfNoteFileError, baseHalfNoteFileFailure, baseHalfNoteStoresAbove } from '../../common/basehalfMarkdownAttachment.js';
 import { baseHalfNoteLinkDestinations, baseHalfNoteLinkPath, baseHalfNoteStoreLink, baseHalfNoteStoreLinks } from '../../common/basehalfNoteFileLinks.js';
 import { baseHalfNoteFileName, baseHalfNoteFreeName, baseHalfNoteNumberedName, baseHalfNoteUntitledPictureName, isBaseHalfNoteUnnamedPicture, newBaseHalfNoteFolderName } from '../../common/basehalfNoteFiles.js';
 
@@ -265,6 +265,10 @@ suite('BaseHalfMarkdownAttachment', () => {
 			},
 			record: ['.bh/mirror/.bh/attachments/bbbbbbbbbb/a b.png/edit.yaml', '.bh/mirror/.bh/attachments/bbbbbbbbbb/a b.png/original.png'],
 		});
+	});
+
+	test('a window of a subfolder reads the stores of the folders above it, nearest first', () => {
+		assert.deepStrictEqual(baseHalfNoteStoresAbove(URI.file('/home/me/notes')).map(store => store.path), ['/home/me/.bh/attachments', '/home/.bh/attachments', '/.bh/attachments']);
 	});
 
 	test('a failure of the disk says what happened without its path', () => {

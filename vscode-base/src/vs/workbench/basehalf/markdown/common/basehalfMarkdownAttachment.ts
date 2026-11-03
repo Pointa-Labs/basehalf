@@ -343,6 +343,19 @@ export async function baseHalfCloneNoteFileEditRecord(services: { readonly fileS
 }
 
 /**
+ * The stores of the folders above a workspace folder, which a window of a
+ * subfolder reads its notes' files from (rule 48), nearest first.
+ */
+export function baseHalfNoteStoresAbove(workspaceFolder: URI): URI[] {
+	const stores: URI[] = [];
+	for (let folder = workspaceFolder; !isEqual(dirname(folder), folder);) {
+		folder = dirname(folder);
+		stores.push(joinPath(folder, ...BASEHALF_NOTE_FILES_STORE_PATH));
+	}
+	return stores;
+}
+
+/**
  * The note's home: the nearest folder at or above the note, never above the
  * workspace folder, that holds `.bh/` or is the root of a git repository;
  * else the workspace folder (rules 1 and 2).

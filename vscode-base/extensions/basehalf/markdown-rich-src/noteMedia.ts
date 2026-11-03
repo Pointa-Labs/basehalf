@@ -37,6 +37,9 @@ const accepted: Readonly<Record<BaseHalfNoteMediaChoice, string>> = {
 	file: '',
 };
 
+/** The pictures a note keeps as they come; any other picture without a file is kept as PNG (files in notes, rule 13). */
+const KEPT_PICTURES: ReadonlySet<string> = new Set(['image/png', 'image/jpeg', 'image/svg+xml']);
+
 /** How long a placeholder says that a file could not be added. */
 const FAILURE_SHOWN_MS = 3000;
 
@@ -281,7 +284,7 @@ export async function addBaseHalfNoteFile(editor: NoteEditor, file: File, after?
 	const element = addPlaceholder(view, (after ? blockEnd(view.state, after) : undefined) ?? view.state.selection.from, baseHalfEditorLabel(`Adding ${file.name}…`, `正在添加 ${file.name}…`, `正在新增 ${file.name}…`));
 	let stored: IBaseHalfNoteStoredFile['props'];
 	try {
-		const uploaded = await editor.uploadFile(file) as IBaseHalfNoteStoredFile | string;
+		const uploaded = await editor.uploadFile(await asKeptPicture(file)) as IBaseHalfNoteStoredFile | string;
 		stored = typeof uploaded === 'string' ? { url: uploaded, name: file.name } : uploaded.props;
 		if (!stored.url) {
 			throw new Error(`Could not add ${file.name}.`);
@@ -294,6 +297,29 @@ export async function addBaseHalfNoteFile(editor: NoteEditor, file: File, after?
 		return undefined;
 	}
 	return putInAtPlaceholder(editor, element, [fileBlock(stored)]);
+}
+
+/**
+ * A picture that comes without a file in a kind other than PNG or JPEG,
+ * drawn as PNG (rule 13); a drawing of lines (SVG) and any other file as it
+ * is, and a picture the page cannot draw too.
+ */
+async function asKeptPicture(file: File): Promise<File> {
+	if (!file.type.startsWith('image/') || KEPT_PICTURES.has(file.type)) {
+		return file;
+	}
+	try {
+		const bitmap = await createImageBitmap(file);
+		const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+		canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+		bitmap.close();
+		const png = await canvas.convertToBlob({ type: 'image/png' });
+		const dot = file.name.lastIndexOf('.');
+		return new File([png], `${dot > 0 ? file.name.slice(0, dot) : file.name || 'image'}.png`, { type: 'image/png' });
+	} catch (error) {
+		console.warn('[basehalf] A picture could not be drawn as PNG; it is kept as it is.', error);
+		return file;
+	}
 }
 
 /** A file kept for the note is its block whatever its name (note formats, rule 49). */
