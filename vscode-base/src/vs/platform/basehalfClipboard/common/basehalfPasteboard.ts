@@ -30,11 +30,13 @@ export interface IBaseHalfPasteboardContents {
 export interface IBaseHalfPasteboardService {
 	readonly _serviceBrand: undefined;
 	/**
-	 * Replaces what the clipboard holds with `contents`, in one write.
+	 * Replaces what the clipboard holds with `contents`, in one write, done
+	 * once the clipboard holds every file of it.
 	 * Resolves with false where the system has no such write, which is every
 	 * system without AppKit; nothing is written then.
+	 * `pasteboard` names another clipboard than the system's, for tests.
 	 */
-	write(contents: IBaseHalfPasteboardContents): Promise<boolean>;
+	write(contents: IBaseHalfPasteboardContents, pasteboard?: string): Promise<boolean>;
 	/**
 	 * Adds the files at the paths `files` to what the clipboard holds, as a
 	 * file manager writes files it copies, and keeps every form a copy put

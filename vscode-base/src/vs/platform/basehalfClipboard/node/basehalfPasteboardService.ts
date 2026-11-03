@@ -8,6 +8,27 @@ import { isMacintosh } from '../../../base/common/platform.js';
 import { BASEHALF_CLIPBOARD_RECORD_TYPE, IBaseHalfPasteboardContents, IBaseHalfPasteboardService } from '../common/basehalfPasteboard.js';
 
 /**
+ * Ends a script that has `pasteboard`, `items`, and `input.files`: writes the
+ * items, then reads the pasteboard back before the script ends, since the
+ * system drops the files of a writer that ends as soon as it has written
+ * (copy, paste, and drop, "Copy and Cut"). Says `lost` when a file is not
+ * there.
+ */
+const WRITE_ITEMS = `
+	pasteboard.clearContents;
+	if (!pasteboard.writeObjects(items)) {
+		return 'refused';
+	}
+	const written = pasteboard.pasteboardItems;
+	let files = 0;
+	for (let index = 0; index < written.count; index++) {
+		if (!written.objectAtIndex(index).stringForType('public.file-url').isNil()) {
+			files++;
+		}
+	}
+	return files === input.files.length ? 'written' : 'lost';`;
+
+/**
  * Writes the pasteboard through AppKit, with the system's JavaScript for
  * scripting: one item for each file, as a file manager writes files it copies, and
  * the text and the record on the first item. One item stands for the text and
@@ -30,9 +51,7 @@ function run(argv) {
 		}
 		items.addObject(item);
 	}
-	const pasteboard = $.NSPasteboard.generalPasteboard;
-	pasteboard.clearContents;
-	return pasteboard.writeObjects(items) ? 'written' : 'refused';
+	const pasteboard = input.pasteboard ? $.NSPasteboard.pasteboardWithName(input.pasteboard) : $.NSPasteboard.generalPasteboard;${WRITE_ITEMS}
 }`;
 
 /**
@@ -69,19 +88,17 @@ function run(argv) {
 			item.setStringForType($.NSURL.fileURLWithPath(input.files[index]).absoluteString, 'public.file-url');
 		}
 		items.addObject(item);
-	}
-	pasteboard.clearContents;
-	return pasteboard.writeObjects(items) ? 'written' : 'refused';
+	}${WRITE_ITEMS}
 }`;
 
 export class BaseHalfPasteboardService implements IBaseHalfPasteboardService {
 	declare readonly _serviceBrand: undefined;
 
-	async write(contents: IBaseHalfPasteboardContents): Promise<boolean> {
+	async write(contents: IBaseHalfPasteboardContents, pasteboard?: string): Promise<boolean> {
 		if (!isMacintosh) {
 			return false;
 		}
-		const output = await runScript(WRITE_SCRIPT, { files: contents.files, text: contents.text, record: contents.record, recordType: BASEHALF_CLIPBOARD_RECORD_TYPE });
+		const output = await runWrite(WRITE_SCRIPT, { files: contents.files, text: contents.text, record: contents.record, recordType: BASEHALF_CLIPBOARD_RECORD_TYPE, pasteboard });
 		if (output !== 'written') {
 			throw new Error(`The clipboard was not written: ${output}`);
 		}
@@ -92,7 +109,7 @@ export class BaseHalfPasteboardService implements IBaseHalfPasteboardService {
 		if (!isMacintosh || files.length === 0) {
 			return false;
 		}
-		const output = await runScript(ADD_FILES_SCRIPT, { files, text, pasteboard });
+		const output = await runWrite(ADD_FILES_SCRIPT, { files, text, pasteboard });
 		if (output === 'changed') {
 			return false;
 		}
@@ -101,6 +118,12 @@ export class BaseHalfPasteboardService implements IBaseHalfPasteboardService {
 		}
 		return true;
 	}
+}
+
+/** Runs a script that writes the pasteboard, and once more when the system lost a file it wrote. */
+async function runWrite(script: string, input: object): Promise<string> {
+	const output = await runScript(script, input);
+	return output === 'lost' ? runScript(script, input) : output;
 }
 
 function runScript(script: string, input: object): Promise<string> {

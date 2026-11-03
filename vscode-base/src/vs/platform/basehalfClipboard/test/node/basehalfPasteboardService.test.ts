@@ -8,6 +8,7 @@ import { execFile } from 'child_process';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+import { BASEHALF_CLIPBOARD_RECORD_TYPE } from '../../common/basehalfPasteboard.js';
 import { BaseHalfPasteboardService } from '../../node/basehalfPasteboardService.js';
 
 /** Fills a clipboard of its own as a page's copy does: its text, its HTML, and the page's own kinds of data, in one item. */
@@ -53,6 +54,26 @@ function run(script: string, input: object): Promise<string> {
 
 suite('BaseHalfPasteboardService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	(isMacintosh ? test : test.skip)('a copy of items writes each file as an item of its own, the text and the record on the first, and is done once the clipboard holds every file (copy, paste, and drop, "Copy and Cut")', async function () {
+		this.timeout(30_000);
+		const pasteboard = `com.pointalabs.basehalf.test.${generateUuid()}`;
+		const service = new BaseHalfPasteboardService();
+
+		const written = await service.write({ files: ['/notes/a b.png', '/notes/clip.mp4'], text: 'a b.png\nclip.mp4', record: '{"items":2}' }, pasteboard);
+
+		assert.deepStrictEqual({ written, items: JSON.parse(await run(READ_SCRIPT, { pasteboard })) }, {
+			written: true,
+			items: [
+				{
+					'public.file-url': 'file:///notes/a%20b.png',
+					'public.utf8-plain-text': 'a b.png\nclip.mp4',
+					[BASEHALF_CLIPBOARD_RECORD_TYPE]: '{"items":2}',
+				},
+				{ 'public.file-url': 'file:///notes/clip.mp4' },
+			],
+		});
+	});
 
 	(isMacintosh ? test : test.skip)('files are added to what a copy put on the clipboard, which keeps every kind of data it wrote; nothing is written once the clipboard holds another text (files in notes, rule 35)', async function () {
 		this.timeout(30_000);
