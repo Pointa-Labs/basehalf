@@ -244,7 +244,9 @@ one folder for every note of that folder:
     name are cloned, with their edit records, and the copy's links are pointed
     at the clones before any editor holds it. The original is untouched. A
     clone that fails leaves the copy linking the original's files, and says
-    why.
+    why. A copied folder that carries a store of its own along (a home)
+    gives its notes that copy of the store; the other stores' files are
+    cloned into a new folder of the copy's home.
 34. A copy made outside BaseHalf shares the original's files: a shared file
     stays while either note mentions it. A file put into the copy goes into
     the folder its links already use.
