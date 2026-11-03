@@ -8,11 +8,24 @@
 import fs from 'fs';
 import path from 'path';
 import { workspacePath } from '../../context.mts';
+import { gitStatusOfWorkspace } from '../../fixture.mts';
 import { runCommand, visibleQuickInput, waitForQuickInputResult } from '../../lib/quickInput.mts';
 import { waitForReading } from '../../lib/steps.mts';
 
 function changesPaneOf(page) {
 	return page.locator('.pane', { has: page.locator('.pane-header', { hasText: 'Changes' }) }).first();
+}
+
+function readChangesRows(page) {
+	return changesPaneOf(page).evaluate(element => Array.from(element.querySelectorAll('.monaco-list-row')).map(row => ({
+		label: row.getAttribute('aria-label') ?? '',
+		level: Number(row.getAttribute('aria-level')),
+		expanded: row.getAttribute('aria-expanded')
+	})));
+}
+
+function changesRowOf(rows, name) {
+	return rows.find(row => row.label === name || row.label.startsWith(`${name}, `));
 }
 
 export async function assertSourceControlPanel(page) {
@@ -53,26 +66,49 @@ export async function assertSourceControlChangesAsTree(page) {
 	try {
 		await runCommand(page, 'Git: Refresh');
 		await runCommand(page, 'Source Control: Focus on Changes View');
-		const changesPane = changesPaneOf(page);
-		const readRows = () => changesPane.evaluate(element => Array.from(element.querySelectorAll('.monaco-list-row')).map(row => ({
-			label: row.getAttribute('aria-label') ?? '',
-			level: Number(row.getAttribute('aria-level')),
-			expanded: row.getAttribute('aria-expanded')
-		})));
-		const rowOf = (rows, start) => rows.find(row => row.label === start || row.label.startsWith(`${start}, `));
-
-		await waitForReading(readRows, rows => {
-			const folder = rowOf(rows, 'src');
-			const file = rowOf(rows, 'in-a-folder.txt');
+		await waitForReading(() => readChangesRows(page), rows => {
+			const folder = changesRowOf(rows, 'src');
+			const file = changesRowOf(rows, 'in-a-folder.txt');
 			return folder?.expanded === 'true' && file?.level === folder.level + 1
-				&& rowOf(rows, '.bh')?.expanded === 'false' && !rowOf(rows, 'a-record.txt');
+				&& changesRowOf(rows, '.bh')?.expanded === 'false' && !changesRowOf(rows, 'a-record.txt');
 		}, 'a tree with src open, its new file under it, and .bh closed with its record not shown');
 
-		await changesPane.locator('.monaco-list-row[aria-label=".bh"] .monaco-icon-label').click();
-		await waitForReading(readRows, rows => !!rowOf(rows, 'a-record.txt'), 'the record under .bh after a click on .bh');
+		await changesPaneOf(page).locator('.monaco-list-row[aria-label=".bh"] .monaco-icon-label').click();
+		await waitForReading(() => readChangesRows(page), rows => !!changesRowOf(rows, 'a-record.txt'), 'the record under .bh after a click on .bh');
 	} finally {
 		fs.rmSync(inFolder, { force: true });
 		fs.rmSync(underBh, { force: true });
+		await runCommand(page, 'Git: Refresh');
+	}
+}
+
+/**
+ * The window adds the files the system makes to the repository's `info/exclude`,
+ * and git leaves them out of what it shows (Git, SCM, GitHub, And GitGraph
+ * Boundary, "Files The System Makes").
+ */
+export async function assertSourceControlLeavesOutSystemFiles(page) {
+	const exclude = path.join(workspacePath, '.git', 'info', 'exclude');
+	await waitForReading(() => fs.readFileSync(exclude, 'utf8'), text => text.includes('\n.DS_Store\n'), 'the files the system makes in the exclude file');
+	const made = ['.DS_Store', 'docs/.DS_Store', 'a-control.txt'].map(name => path.join(workspacePath, ...name.split('/')));
+	for (const file of made) {
+		fs.writeFileSync(file, 'made\n', 'utf8');
+	}
+	try {
+		await runCommand(page, 'Git: Refresh');
+		await runCommand(page, 'Source Control: Focus on Changes View');
+		const rows = await waitForReading(() => readChangesRows(page), rows => !!changesRowOf(rows, 'a-control.txt'), 'the control file in Changes');
+		if (changesRowOf(rows, '.DS_Store')) {
+			throw new Error(`Changes shows a file the system makes: ${JSON.stringify(rows)}`);
+		}
+		const status = gitStatusOfWorkspace();
+		if (status.includes('.DS_Store') || !status.includes('a-control.txt')) {
+			throw new Error(`git must leave out only the files the system makes: ${status}`);
+		}
+	} finally {
+		for (const file of made) {
+			fs.rmSync(file, { force: true });
+		}
 		await runCommand(page, 'Git: Refresh');
 	}
 }

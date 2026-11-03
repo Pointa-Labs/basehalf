@@ -6,6 +6,7 @@
 import { dirname, isEqual, joinPath, relativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { baseHalfGitFolder } from '../../workspace/common/basehalfGitExclude.js';
 import { BASEHALF_NOTE_FILES_STORE_PATH } from './basehalfNoteFiles.js';
 
 // Whether git keeps a home's store (files in notes, rule 46): the ignore
@@ -182,7 +183,7 @@ export async function baseHalfNoteStoreGitCheck(services: IBaseHalfNoteFileGitSe
 	for (const folder of folders.reverse()) {
 		await read(joinPath(root, ...folder.split('/').filter(Boolean), '.gitignore'), folder);
 	}
-	await read(joinPath(await gitFolder(fileService, root), 'info', 'exclude'), '');
+	await read(joinPath(await baseHalfGitFolder(fileService, root), 'info', 'exclude'), '');
 	const global = await globalIgnoreFile(services);
 	if (global) {
 		await read(global, '');
@@ -218,21 +219,6 @@ export function baseHalfWithoutEarlyGitIgnoreLines(text: string, line: number): 
 }
 
 /** The repository's own folder: `.git`, or where a `.git` file of a worktree points, whose common folder holds `info/`. */
-async function gitFolder(fileService: IFileService, root: URI): Promise<URI> {
-	const git = joinPath(root, '.git');
-	const stat = await fileService.stat(git).catch(() => undefined);
-	if (!stat || stat.isDirectory) {
-		return git;
-	}
-	const pointer = /^gitdir:\s*(.+?)\s*$/m.exec((await fileService.readFile(git).catch(() => undefined))?.value.toString() ?? '')?.[1];
-	if (!pointer) {
-		return git;
-	}
-	const folder = pointer.startsWith('/') ? git.with({ path: pointer }) : joinPath(root, pointer);
-	const common = (await fileService.readFile(joinPath(folder, 'commondir')).catch(() => undefined))?.value.toString().trim();
-	return common ? (common.startsWith('/') ? folder.with({ path: common }) : joinPath(folder, common)) : folder;
-}
-
 /** The global ignore file: `core.excludesFile` of the user's git settings, or git's own place for it. */
 async function globalIgnoreFile(services: IBaseHalfNoteFileGitServices): Promise<URI | undefined> {
 	const { fileService, userHome } = services;

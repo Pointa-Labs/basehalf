@@ -93,7 +93,7 @@ import {
 } from './areas/workbench/agentArea.mts';
 import { assertCompetingViewContainersHidden, assertHiddenSurfaceCommandsStayHidden, assertOpenEditorsHidden, assertStatusBarCurated } from './areas/workbench/hiddenSurfaces.mts';
 import { assertBaseHalfAboutPage, assertBaseHalfSettingsCategory, assertProvidersPage } from './areas/workbench/settings.mts';
-import { assertGitBranchCheckoutQuickPick, assertSourceControlChangesAsTree, assertSourceControlPanel, assertSourceControlPublishBranchAction } from './areas/workbench/sourceControl.mts';
+import { assertGitBranchCheckoutQuickPick, assertSourceControlChangesAsTree, assertSourceControlLeavesOutSystemFiles, assertSourceControlPanel, assertSourceControlPublishBranchAction } from './areas/workbench/sourceControl.mts';
 import {
 	assertBaseHalfRootTitlebarBreadcrumb,
 	assertCanvasGridScopedToCanvas,
@@ -157,6 +157,7 @@ async function runWorkbenchSuite(page) {
 	await step('agent-area-tabs-and-splits', () => assertAgentAreaTabsAndSplits(page));
 	await step('source-control-git-provider', () => assertSourceControlPanel(page));
 	await step('source-control-changes-as-tree', () => assertSourceControlChangesAsTree(page));
+	await step('source-control-leaves-out-system-files', () => assertSourceControlLeavesOutSystemFiles(page));
 	commitFixtureChanges(workspacePath, 'smoke changes');
 	await step('git-refresh', () => runCommand(page, 'Git: Refresh'));
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));

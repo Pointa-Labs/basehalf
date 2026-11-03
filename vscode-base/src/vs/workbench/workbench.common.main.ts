@@ -503,6 +503,7 @@ import './basehalf/references/browser/basehalfBadgeQuickAccess.contribution.js';
 import './basehalf/references/browser/basehalfReferences.contribution.js';
 import './basehalf/references/browser/basehalfReferenceMigration.contribution.js';
 import './basehalf/workspace/browser/basehalfLegacyCleanup.contribution.js';
+import './basehalf/workspace/browser/basehalfGitExclude.contribution.js';
 import './basehalf/agentArea/browser/basehalfAgentSkill.contribution.js';
 import './basehalf/agentArea/browser/basehalfAgentSelection.contribution.js';
 import './basehalf/agentArea/browser/basehalfAgentArea.contribution.js';
