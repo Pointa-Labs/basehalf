@@ -976,11 +976,12 @@ this specification. Outside changes are merged meanwhile, as always.
     picture's; on every frame the editor's picture or the note's is drawn.
     Done after no change glides it back to within 1 px of the note's
     picture.
-37. On a note in Card Detail with a 6 s video shown 712 × 400, Edit shows
-    the editor within 100 ms, the text under the video lower by the room in
-    the frame of the press, and the player's picture within 1 px of the
-    note's video; on every frame from the press until the editor shows, the
-    note's video or the editor's player shows a picture.
+37. On a note in Card Detail with a 6 s video, Edit shows the editor within
+    100 ms, the text under the video lower by the room in the frame of the
+    press, and the player's picture within 1 px of the note's video; on
+    every frame from the press until the editor shows, the note's video or
+    the editor's player shows a picture. From its first move, the end handle
+    keeps to the pointer within 1 px on every frame.
 38. The end handle of that video dragged to 4 s, and Done: the editor goes
     within 1 s; the video's file is 4 s long and its card information holds
     `original.mp4` and `edit.yaml`; the note shows the new file, 4 s long;
@@ -1056,7 +1057,12 @@ this specification. Outside changes are merged meanwhile, as always.
   `basehalfImageCropView.test.ts`, `basehalfMediaKeys.test.ts`,
   `basehalfMediaEditService.test.ts`). The same suite runs criteria 37 to
   40 on a note of its own with a video and a sound (`noteMediaEdit.mts`),
-  every frame recorded on both sides of the page's frame.
+  every frame recorded on both sides of the page's frame, Edit of the video
+  from its toolbar and from its menu, and of the sound from its menu; it
+  allows 400 ms and 2 s for the times of criteria 37 to 39, and measured on
+  2026-11-03, at a load of 11, 32.7 ms, 0 px, the handle 0.01 px over 56
+  frames, and 57.7 ms at Done for the video, and 38.4 ms, 0 px, 0.01 px
+  over 60 frames, and 262 ms for the sound.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criterion 22.

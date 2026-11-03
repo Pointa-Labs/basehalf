@@ -5661,6 +5661,20 @@ the editors of a video's and a sound's card are the ones the user knows.
   selects a sound to show its toolbar; Edit stands first in the menu of a
   picture, a video, and a sound too, one place for every kind.
 
+**Measured** that day in a development window at a load of 14, on a note
+with a 6 s video of 1280 × 720 shown 712 × 400.5 and a 5 s sound: the
+video's editor showed 49.5 ms after Edit, its picture 0 px from the note's,
+the text under it 100 px lower in the frame of the press, and on no frame
+was neither the note's video nor the editor's drawn; the end handle, once
+past the frame viewer's threshold of a drag, kept to the pointer on every
+frame, 0.01 px; Done took the editor away 73 ms later, the file 4.07 s
+long with `original.mp4` and `edit.yaml`, and the note showed the new
+version; one undo of the note put back the 6 s. The sound's editor showed
+in 36.8 ms at its bar's place, 0 px, the text under it 142 px lower, and
+Done took 258 ms as the editor closed over the bar, the file 3.05 s long.
+Space played and paused the part kept, Right moved the playhead a second,
+and after Escape the note's video stood where the playhead had.
+
 **Consequences.**
 - [Formats of a note](specs/note-formats.md): rule 52g, new rules 52h to
   52k, new criteria 37 to 40, and Verification.
