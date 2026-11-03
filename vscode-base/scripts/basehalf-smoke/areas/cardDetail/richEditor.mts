@@ -12,6 +12,7 @@ import { assertPdfCardDetail } from './cardDetail.mts';
 import { app, root, workspacePath } from '../../context.mts';
 import { createMinimalPdfFixture } from '../../fixture.mts';
 import { assertCardDetail, clickCommandCenterNavigationButton, closeCardDetailIfOpen, pinch } from '../../lib/cardDetail.mts';
+import { withTheRunsClipboard } from '../../lib/clipboard.mts';
 import { activeMarkdownRichFrame, dispatchMarkdownRichComposition } from '../../lib/markdownRich.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
@@ -548,33 +549,36 @@ export async function assertMarkdownRichExternalMergePreservesCursor(page) {
 	await waitUntil(() => !fs.readFileSync(readmePath, 'utf8').includes('MERGEMARK'), 'merge marker removal to persist', 15_000);
 }
 
+/** Copy and Paste in Rich's menu: they write the system's clipboard, which the step puts back. */
 export async function assertMarkdownRichContextMenuClipboard(page) {
-	const frame = await activeMarkdownRichFrame(page);
-	const source = frame.locator('.bn-block-content', { hasText: 'Smoke editable quote' }).first();
-	await source.click({ clickCount: 3 });
-	await page.waitForTimeout(200);
-	await source.click({ button: 'right' });
-	const copyButton = frame.locator('.basehalf-markdown-rich-context-menu button', { hasText: /^Copy$/ });
-	await copyButton.waitFor({ state: 'visible', timeout: 5_000 });
-	await copyButton.click();
-	await page.waitForTimeout(400);
+	await withTheRunsClipboard('readme rich context menu clipboard', async () => {
+		const frame = await activeMarkdownRichFrame(page);
+		const source = frame.locator('.bn-block-content', { hasText: 'Smoke editable quote' }).first();
+		await source.click({ clickCount: 3 });
+		await page.waitForTimeout(200);
+		await source.click({ button: 'right' });
+		const copyButton = frame.locator('.basehalf-markdown-rich-context-menu button', { hasText: /^Copy$/ });
+		await copyButton.waitFor({ state: 'visible', timeout: 5_000 });
+		await copyButton.click();
+		await page.waitForTimeout(400);
 
-	// Paste must be offered at a bare cursor and preserve rich formatting.
-	const target = frame.locator('.bn-block-content', { hasText: 'External merge target paragraph' }).first();
-	await target.click();
-	await page.keyboard.press('End');
-	await target.click({ button: 'right' });
-	const pasteButton = frame.locator('.basehalf-markdown-rich-context-menu button', { hasText: /^Paste$/ });
-	await pasteButton.waitFor({ state: 'visible', timeout: 5_000 });
-	await pasteButton.click();
+		// Paste must be offered at a bare cursor and preserve rich formatting.
+		const target = frame.locator('.bn-block-content', { hasText: 'External merge target paragraph' }).first();
+		await target.click();
+		await page.keyboard.press('End');
+		await target.click({ button: 'right' });
+		const pasteButton = frame.locator('.basehalf-markdown-rich-context-menu button', { hasText: /^Paste$/ });
+		await pasteButton.waitFor({ state: 'visible', timeout: 5_000 });
+		await pasteButton.click();
 
-	const deadline = Date.now() + 15_000;
-	while ((await frame.locator('.bn-block-content strong', { hasText: 'Smoke editable quote' }).count()) < 2) {
-		if (Date.now() > deadline) {
-			throw new Error('Context menu paste did not reproduce the copied rich formatting');
+		const deadline = Date.now() + 15_000;
+		while ((await frame.locator('.bn-block-content strong', { hasText: 'Smoke editable quote' }).count()) < 2) {
+			if (Date.now() > deadline) {
+				throw new Error('Context menu paste did not reproduce the copied rich formatting');
+			}
+			await page.waitForTimeout(150);
 		}
-		await page.waitForTimeout(150);
-	}
+	});
 }
 
 export async function assertMarkdownRichCompositionDefersAutosave(page) {

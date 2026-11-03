@@ -832,16 +832,21 @@ this specification. Outside changes are merged meanwhile, as always.
 - The card's editor's own test (`npm run basehalf:test-canvas-markdown-inline`)
   covers rule 82 and criterion 23.
 - The `cardDetail` suite of the smoke runs criteria 1, 3 to 6, 8 to 11, 13,
-  14, 16 to 20, 21 in Rich, and 26 to 28 in the real window, each on a note
-  of its own, read from the disk after Card Detail opens it again; the
-  `canvas` suite criteria 12 and 13 on the card.
+  14, 16 to 21, 24, and 26 to 28 in the real window, each on a note of its
+  own, read from the disk after Card Detail opens it again: criterion 10 at
+  100%, 200%, and 400%; the web links of criterion 13 with the run standing
+  in for the system's browser, so that nothing opens on the machine;
+  criterion 21 in Rich and in Preview with the system in light and in dark
+  appearance, its pixels on the screen too; criterion 24 in every frame;
+  Chinese typed with an input method into an underlined red word, a toggle's
+  title, and a caption; a copy from Rich pasted into Source; and Command-P
+  from Rich. The `canvas` suite runs criteria 12, 13 (a click on the card at
+  rest and Command-click in the card's editor), and 21 on the card, and the
+  clicks on a summary, a video, and a sound on a resting card, with one
+  player at a time. The steps that write the system's clipboard run in CI,
+  or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
-- In the real window, by hand, recorded with numbers: criterion 21 on the
-  card and in Preview in both appearances, criterion 22, the clicks on a
-  summary, a video, and a sound on a resting card, a web link of criterion
-  13, which opens the system's browser that a smoke run leaves alone, a
-  paste from a browser page, a copy pasted into Source, and the keys of rule
-  69.
+- In the real window, by hand, recorded with numbers: criterion 22.
 - The count of criterion 29 is a script run before each change of the
   reader or the guard.

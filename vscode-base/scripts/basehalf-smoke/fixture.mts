@@ -314,3 +314,24 @@ export function createSolidPng(width, height, [red, green, blue]) {
 		chunk('IEND', Buffer.alloc(0))
 	]);
 }
+
+/** A WAV of silence, `seconds` long, at 16 kHz in mono, 16 bits: it plays, and nobody near the machine hears it. */
+export function createSilentWav(seconds) {
+	const rate = 16_000;
+	const data = Buffer.alloc(rate * seconds * 2);
+	const header = Buffer.alloc(44);
+	header.write('RIFF', 0);
+	header.writeUInt32LE(36 + data.length, 4);
+	header.write('WAVE', 8);
+	header.write('fmt ', 12);
+	header.writeUInt32LE(16, 16);
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(1, 22);
+	header.writeUInt32LE(rate, 24);
+	header.writeUInt32LE(rate * 2, 28);
+	header.writeUInt16LE(2, 32);
+	header.writeUInt16LE(16, 34);
+	header.write('data', 36);
+	header.writeUInt32LE(data.length, 40);
+	return Buffer.concat([header, data]);
+}

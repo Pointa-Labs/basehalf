@@ -10,10 +10,14 @@ import path from 'path';
 import { closeCanvasBadgeFace, openCanvasBadgeFace } from './badges.mts';
 import { frameCanvasCardsForConnection } from './connections.mts';
 import { centerCanvasCards } from './creation.mts';
-import { workspacePath } from '../../context.mts';
+import { waitForViewTransitions } from '../../app.mts';
+import { root, workspacePath } from '../../context.mts';
+import { createSilentWav } from '../../fixture.mts';
+import { restoreSystemAppearance, showSystemAppearance } from '../../lib/appearance.mts';
 import {
 	assertCanvasEdgeVisible,
 	assertCanvasFolder,
+	canvasNoteInlineEditor,
 	emptyCanvasPoint,
 	openRootCanvas,
 	waitForCanvasCardSelection,
@@ -22,8 +26,10 @@ import {
 } from '../../lib/canvas.mts';
 import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
+import { withTheSystemBrowserStoodIn } from '../../lib/opener.mts';
+import { drawnColor } from '../../lib/png.mts';
 import { visibleQuickInput } from '../../lib/quickInput.mts';
-import { waitUntil } from '../../lib/steps.mts';
+import { waitForReading, waitUntil } from '../../lib/steps.mts';
 import { readWorkspaceFile } from '../../lib/workspace.mts';
 
 /**
@@ -368,11 +374,13 @@ export async function assertCanvasNoteRendersMarkdown(page) {
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
-// A link on a note's card at rest opens what it names with a click, as a page
-// does (note formats, criterion 13 and rule 56): a note of the folder whose
-// name holds a space opens in Card Detail within 1 s, a link to a missing
-// file does nothing, a link to a heading in a closed toggle opens the note in
-// Card Detail with the heading in view, and no dialog shows.
+// A link on a note's card opens what it names (note formats, criterion 13,
+// rule 56, and plan R6): a click on the card at rest, and Command-click in the
+// card's editor. A note of the folder whose name holds a space opens in Card
+// Detail within 1 s, a link to a missing file does nothing, a link to a
+// heading in a closed toggle opens the note in Card Detail with the heading in
+// view, a web link opens the system's browser at its address as written, and
+// no dialog shows.
 export async function assertCanvasNoteLinksOpenTheirTargets(page) {
 	const folderName = 'links-on-cards';
 	const notePath = `${folderName}/links.md`;
@@ -380,32 +388,78 @@ export async function assertCanvasNoteLinksOpenTheirTargets(page) {
 	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
 	fs.writeFileSync(path.join(workspacePath, folderName, 'my file.md'), '# My file\n\nThe linked note.\n', 'utf8');
 	const filler = Array.from({ length: 40 }, (_, index) => `Filler paragraph ${index + 1}.\n`).join('\n');
-	fs.writeFileSync(path.join(workspacePath, notePath), `See [my file.md](my%20file.md), [Setup](#setup), and [gone](missing.md).\n\n${filler}\n<details>\n<summary>More</summary>\n\n## Setup\n\nThe end.\n\n</details>\n\n${filler}`, 'utf8');
+	fs.writeFileSync(path.join(workspacePath, notePath), `See [my file.md](my%20file.md), [Setup](#setup), [site](https://example.com/a?b=c#d), and [gone](missing.md).\n\n${filler}\n<details>\n<summary>More</summary>\n\n## Setup\n\nThe end.\n\n</details>\n\n${filler}`, 'utf8');
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
 	await assertCanvasFolder(page, folderName);
 	await card.waitFor({ state: 'visible', timeout: 15_000 });
 	await zoomCanvas(page, 'reset');
 	await centerCanvasCards(page, [card]);
-	const link = name => card.locator('.bh-md-preview a', { hasText: name }).first();
-	await link('my file.md').waitFor({ state: 'visible', timeout: 10_000 });
-	const dialogs = () => page.locator('.monaco-dialog-box').count();
+	const restingLink = name => card.locator('.bh-md-preview a', { hasText: name }).first();
+	await restingLink('my file.md').waitFor({ state: 'visible', timeout: 10_000 });
+	// The card's editor, opened on the first word of the line of links when it is not open.
+	const editorLink = async name => {
+		const editor = canvasNoteInlineEditor(page, notePath);
+		if (!await editor.editable.isVisible().catch(() => false)) {
+			// While Card Detail goes back into its card, the window's root takes every click.
+			await waitForViewTransitions(page);
+			await card.locator('.bh-md-preview p', { hasText: 'See' }).first().dblclick({ position: { x: 4, y: 6 } });
+			await waitForCanvasNoteInlineEditor(page, notePath);
+		}
+		return editor.editable.locator('a', { hasText: name }).first();
+	};
+	const commandClick = async name => (await editorLink(name)).click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
+	// The card at rest again: the line the editor edits is drawn by the editor meanwhile.
+	const closeEditor = async () => {
+		const editor = canvasNoteInlineEditor(page, notePath);
+		if (await editor.editable.isVisible().catch(() => false)) {
+			await editor.editable.click({ position: { x: 4, y: 6 } });
+			await page.keyboard.press('Escape');
+			await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
+		}
+	};
 
-	await link('gone').click();
-	await page.waitForTimeout(1_000);
-	if (await page.locator('.basehalf-card-detail.visible').count() || await dialogs()) {
-		throw new Error(`A click on a link to a missing file on a card did something: Card Detail ${await page.locator('.basehalf-card-detail.visible').count()}, dialogs ${await dialogs()}`);
+	for (const [gesture, open] of [['A click on the card at rest', name => restingLink(name).click()], ['Command-click in the card\'s editor', commandClick]]) {
+		await open('gone');
+		await page.waitForTimeout(1_000);
+		if (await page.locator('.basehalf-card-detail.visible').count() || await dialogCount(page)) {
+			throw new Error(`${gesture} on a link to a missing file did something: Card Detail ${await page.locator('.basehalf-card-detail.visible').count()}, dialogs ${await dialogCount(page)}`);
+		}
+		await open('my file.md');
+		await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title', { hasText: 'my file' }).waitFor({ state: 'visible', timeout: 1_000 }).catch(() => {
+			throw new Error(`${gesture} on [my file.md](my%20file.md) did not open Card Detail of my file.md within 1 s`);
+		});
+		if (await dialogCount(page)) {
+			throw new Error(`${gesture} on a link showed a dialog`);
+		}
+		await closeCardDetailIfOpen(page);
+		await open('Setup');
+		await assertNoteOpensAtSetup(page, gesture);
+		await closeCardDetailIfOpen(page);
 	}
-	await link('my file.md').click();
-	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title', { hasText: 'my file' }).waitFor({ state: 'visible', timeout: 1_000 }).catch(() => {
-		throw new Error('A click on [my file.md](my%20file.md) on a card at rest did not open Card Detail of my file.md within 1 s');
+
+	await closeEditor();
+	await withTheSystemBrowserStoodIn(async opened => {
+		await restingLink('site').click();
+		await waitForReading(opened, addresses => addresses.length === 1, 'a click on a web link on a card at rest to open it in the system\'s browser', 1_000);
+		await commandClick('site');
+		await waitForReading(opened, addresses => addresses.length === 2, 'Command-click on a web link in the card\'s editor to open it in the system\'s browser', 1_000);
+		const addresses = await opened();
+		if (addresses.some(address => address !== 'https://example.com/a?b=c#d') || await dialogCount(page)) {
+			throw new Error(`A web link on a card should open at its address as written, with no dialog: ${JSON.stringify(addresses)}`);
+		}
 	});
-	if (await dialogs()) {
-		throw new Error('A click on a link on a card showed a dialog');
-	}
-	await closeCardDetailIfOpen(page);
 
-	await link('Setup').click();
+	await closeEditor();
+	await removeFolder(page, folderName);
+}
+
+function dialogCount(page) {
+	return page.locator('.monaco-dialog-box').count();
+}
+
+/** After `gesture` on a link to the heading Setup in a closed toggle, Card Detail shows the note with the heading in view within 2 s. */
+async function assertNoteOpensAtSetup(page, gesture) {
 	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-title', { hasText: 'links' }).waitFor({ state: 'visible', timeout: 5_000 });
 	const frame = await activeMarkdownRichFrame(page);
 	const deadline = Date.now() + 2_000;
@@ -424,17 +478,137 @@ export async function assertCanvasNoteLinksOpenTheirTargets(page) {
 		await page.waitForTimeout(100);
 	} while (Date.now() < deadline);
 	if (!place?.shown || !place.inView) {
-		throw new Error(`A click on a link to a heading in a closed toggle on a card did not open the note at the heading: ${JSON.stringify(place)}`);
+		throw new Error(`${gesture} on a link to a heading in a closed toggle did not open the note at the heading: ${JSON.stringify(place)}`);
 	}
-	if (await dialogs()) {
-		throw new Error('A click on a link to a heading on a card showed a dialog');
+	if (await dialogCount(page)) {
+		throw new Error(`${gesture} on a link to a heading showed a dialog`);
 	}
+}
 
+/** Opens the folder `folderName`, written just now, on its own canvas at 100%, with `cards` in the middle. */
+async function openNewFolder(page, folderName, cards) {
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
+	await assertCanvasFolder(page, folderName);
+	for (const card of cards) {
+		await card.waitFor({ state: 'visible', timeout: 15_000 });
+	}
+	await zoomCanvas(page, 'reset');
+	await centerCanvasCards(page, cards);
+}
+
+/** Goes back to the root canvas and takes the folder `folderName` and its layout away. */
+async function removeFolder(page, folderName) {
 	await closeCardDetailIfOpen(page);
 	await openRootCanvas(page);
 	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
 	fs.rmSync(path.join(workspacePath, '.bh', 'mirror', folderName), { recursive: true, force: true });
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+// Note formats, plans R10 and R12: on a note's card at rest, a click on a
+// toggle's title opens it, a click on a video plays it, and a click on a
+// sound's play plays it, and none of the clicks moves the card. One video or
+// sound plays at a time: the note's sound pauses when a video's card starts
+// under the pointer, and the video when the sound starts.
+export async function assertCanvasNoteMediaReactAtRest(page) {
+	const folderName = 'media-on-cards';
+	const notePath = `${folderName}/media.md`;
+	const reelPath = `${folderName}/reel.mp4`;
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${notePath}"]`);
+	const reel = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${reelPath}"]`);
+	const video = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'basehalf-video-6s-mock.mp4'));
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.writeFileSync(path.join(workspacePath, folderName, 'clip.mp4'), video);
+	fs.writeFileSync(path.join(workspacePath, reelPath), video);
+	fs.writeFileSync(path.join(workspacePath, folderName, 'tone.wav'), createSilentWav(6));
+	fs.writeFileSync(path.join(workspacePath, notePath), ['<details>', '<summary>More</summary>', '', 'Inside the toggle.', '', '</details>', '', '![clip](clip.mp4)', '', '<audio src="tone.wav" controls></audio>', ''].join('\n'), 'utf8');
+	// The note tall enough to show its sound, beside the cards of the files.
+	const mirror = path.join(workspacePath, '.bh', 'mirror', folderName);
+	fs.mkdirSync(mirror, { recursive: true });
+	fs.writeFileSync(path.join(mirror, 'canvas.yaml'), [
+		`path: "${folderName}"`,
+		'size:',
+		'  width: 2400',
+		'  height: 1600',
+		'cards:',
+		...[[notePath, 0, 0, 340, 560], [reelPath, 400, 0, 300, 220], [`${folderName}/clip.mp4`, 400, 300, 300, 220], [`${folderName}/tone.wav`, 760, 0, 300, 220]].flatMap(([cardPath, x, y, width, height]) => [
+			`  - path: "${cardPath}"`,
+			'    kind: file',
+			`    x: ${x}`,
+			`    y: ${y}`,
+			`    width: ${width}`,
+			`    height: ${height}`
+		]),
+		'edges: []',
+		''
+	].join('\n'), 'utf8');
+	await openNewFolder(page, folderName, [card, reel]);
+	const sound = card.locator('.bh-md-preview audio').first();
+	const noteVideo = card.locator('.bh-md-preview video').first();
+	await waitForReading(() => sound.evaluate(element => element.readyState), ready => ready >= 1, 'the note\'s sound to load', 10_000);
+	await waitForReading(() => noteVideo.evaluate(element => element.readyState), ready => ready >= 1, 'the note\'s video to load', 10_000);
+	const before = await card.boundingBox();
+
+	const reacted = {};
+	await card.locator('.bh-md-preview summary').first().click();
+	reacted.toggle = await waitForReading(() => card.evaluate(element => element.querySelector('.bh-md-preview details')?.open === true), open => open, 'a click on a toggle\'s title to open it', 2_000).catch(() => false);
+	const videoBox = await noteVideo.boundingBox();
+	await page.mouse.click(videoBox.x + videoBox.width / 2, videoBox.y + videoBox.height / 2);
+	reacted.video = await waitForReading(() => noteVideo.evaluate(element => !element.paused), playing => playing, 'a click on a video to play it', 2_000).catch(() => false);
+	await noteVideo.evaluate(element => element.pause());
+	const soundBox = await sound.boundingBox();
+	// The play button begins the sound's own controls.
+	await page.mouse.click(soundBox.x + 20, soundBox.y + soundBox.height / 2);
+	reacted.sound = await waitForReading(() => sound.evaluate(element => !element.paused), playing => playing, 'a click on a sound\'s play to play it', 2_000).catch(() => false);
+	const after = await card.boundingBox();
+	const moved = { x: Math.round(after.x - before.x), y: Math.round(after.y - before.y) };
+	if (!reacted.toggle || !reacted.video || !reacted.sound || moved.x !== 0 || moved.y !== 0) {
+		throw new Error(`Clicks on a note's card at rest should open its toggle and play its video and its sound, and move nothing: ${JSON.stringify({ reacted, moved })}`);
+	}
+
+	// The video's card starts under the pointer, and the note's sound pauses; the sound starts again, and the video pauses.
+	const reelVideo = reel.locator('.basehalf-canvas-video-player video').first();
+	const reelBox = await reel.boundingBox();
+	await page.mouse.move(reelBox.x + reelBox.width / 2, reelBox.y + reelBox.height / 2, { steps: 4 });
+	const oneAtATime = {};
+	oneAtATime.videoStarted = await waitForReading(() => reelVideo.evaluate(element => !element.paused), playing => playing, 'the video\'s card under the pointer to play', 3_000).catch(() => false);
+	oneAtATime.soundPaused = await waitForReading(() => sound.evaluate(element => element.paused), paused => paused, 'the note\'s sound to pause', 2_000).catch(() => false);
+	await sound.evaluate(element => element.play());
+	oneAtATime.videoPaused = await waitForReading(() => reelVideo.evaluate(element => element.paused), paused => paused, 'the video to pause when the note\'s sound starts', 2_000).catch(() => false);
+	await sound.evaluate(element => element.pause());
+	if (!oneAtATime.videoStarted || !oneAtATime.soundPaused || !oneAtATime.videoPaused) {
+		throw new Error(`One video or sound on the canvas should play at a time, a sound in a note too: ${JSON.stringify(oneAtATime)}`);
+	}
+	await removeFolder(page, folderName);
+}
+
+// Note formats, criterion 21: a red word on a note's card is drawn
+// rgb(232, 112, 107), on the screen too, with the system in light and in dark
+// appearance.
+export async function assertCanvasNotePaletteInBothAppearances(page) {
+	const folderName = 'palette-on-cards';
+	const notePath = `${folderName}/red.md`;
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${notePath}"]`);
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.writeFileSync(path.join(workspacePath, notePath), 'A <span style="color:#e8706b;">red</span> word on a card.\n', 'utf8');
+	await openNewFolder(page, folderName, [card]);
+	const word = card.locator('.bh-md-preview span[style]', { hasText: 'red' }).first();
+	const seen = {};
+	try {
+		for (const appearance of ['light', 'dark']) {
+			await showSystemAppearance(page, appearance);
+			await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+			seen[appearance] = await drawnColor(word, [232, 112, 107]);
+		}
+	} finally {
+		await restoreSystemAppearance(page);
+	}
+	const red = JSON.stringify({ color: 'rgb(232, 112, 107)', pixels: 'rgb(232, 112, 107)' });
+	if (Object.values(seen).some(shown => JSON.stringify(shown) !== red)) {
+		throw new Error(`A red word on a card is not drawn as stored in each appearance: ${JSON.stringify(seen)}`);
+	}
+	await removeFolder(page, folderName);
 }
 
 // A note that starts with a horizontal rule cannot take an upstream list in

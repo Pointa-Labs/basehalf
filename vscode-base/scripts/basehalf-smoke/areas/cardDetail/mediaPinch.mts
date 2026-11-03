@@ -10,9 +10,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import zlib from 'zlib';
 import { root, workspacePath } from '../../context.mts';
 import { assertCardDetail, cardDetailModeLabel, enterEditing, pinch } from '../../lib/cardDetail.mts';
+import { decodePng } from '../../lib/png.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { patternPng } from './imageEdit.mts';
 
@@ -89,51 +89,6 @@ async function readStrip(page, selector) {
 
 function timeAt(strip, x) {
 	return strip.from + (x - strip.x) / strip.width * (strip.to - strip.from);
-}
-
-/** The pixels of a PNG of 8 bits a channel, gray, RGB, or RGBA, as the window's screenshots are. */
-function decodePng(png) {
-	let offset = 8;
-	let width = 0;
-	let height = 0;
-	let channels = 0;
-	const data = [];
-	while (offset < png.length) {
-		const length = png.readUInt32BE(offset);
-		const type = png.toString('latin1', offset + 4, offset + 8);
-		const body = png.subarray(offset + 8, offset + 8 + length);
-		if (type === 'IHDR') {
-			width = body.readUInt32BE(0);
-			height = body.readUInt32BE(4);
-			channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[body[9]];
-			if (body[8] !== 8 || !channels) {
-				throw new Error(`A screenshot of ${body[8]} bits in color type ${body[9]} cannot be read here.`);
-			}
-		} else if (type === 'IDAT') {
-			data.push(body);
-		}
-		offset += 12 + length;
-	}
-	const raw = zlib.inflateSync(Buffer.concat(data));
-	const stride = width * channels;
-	const pixels = Buffer.alloc(stride * height);
-	for (let row = 0; row < height; row++) {
-		const filter = raw[row * (stride + 1)];
-		const line = raw.subarray(row * (stride + 1) + 1, (row + 1) * (stride + 1));
-		for (let index = 0; index < stride; index++) {
-			const left = index >= channels ? pixels[row * stride + index - channels] : 0;
-			const up = row > 0 ? pixels[(row - 1) * stride + index] : 0;
-			const upLeft = row > 0 && index >= channels ? pixels[(row - 1) * stride + index - channels] : 0;
-			const paeth = () => {
-				const estimate = left + up - upLeft;
-				const [a, b, c] = [Math.abs(estimate - left), Math.abs(estimate - up), Math.abs(estimate - upLeft)];
-				return a <= b && a <= c ? left : b <= c ? up : upLeft;
-			};
-			const predicted = filter === 1 ? left : filter === 2 ? up : filter === 3 ? Math.floor((left + up) / 2) : filter === 4 ? paeth() : 0;
-			pixels[row * stride + index] = (line[index] + predicted) & 0xff;
-		}
-	}
-	return { width, height, channels, pixels };
 }
 
 /**
