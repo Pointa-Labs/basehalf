@@ -498,6 +498,9 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'files.watcherExclude': {
 		'**/.bh/cache/**': true
 	},
+	// Changes stands its files under their folders, as Files does. VS Code's own
+	// default is a flat list (Git/SCM/GitHub/GitGraph, "The Changes View").
+	'scm.defaultViewMode': 'tree',
 	// Context menus are drawn in the window, as VS Code's Agents window does:
 	// they follow the product theme, and canvas state shown while a menu is
 	// open closes with it. A native menu is closed by the OS before the window

@@ -1638,6 +1638,11 @@ export class SCMViewPane extends ViewPane {
 				overrideStyles: this.getLocationBasedColors().listOverrideStyles,
 				compressionEnabled: compressionEnabled.get(),
 				collapseByDefault: (e: unknown) => {
+					// BaseHalf: a folder named `.bh` starts closed: its files are BaseHalf's own, hidden everywhere else in the window, and can be nearly all the changes.
+					if (isSCMResourceNode(e) && e.name === '.bh') {
+						return true;
+					}
+
 					// Repository, Resource Group, Resource Folder (Tree) are not collapsed by default
 					return !(isSCMRepository(e) || isSCMResourceGroup(e) || isSCMResourceNode(e));
 				},

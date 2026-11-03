@@ -241,6 +241,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 			'AGENTS.md': true,
 			'CLAUDE.md': true
 		});
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['scm.defaultViewMode'], 'tree');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.startupEditor'], 'welcomePageInEmptyWorkbench');
 		assert.ok(!Object.hasOwn(BASEHALF_CONFIGURATION_DEFAULTS, 'workbench.welcome.enabled'));
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.welcomePage.walkthroughs.openOnInstall'], false);

@@ -5,12 +5,20 @@
 
 // Source Control with git.
 
+import fs from 'fs';
+import path from 'path';
+import { workspacePath } from '../../context.mts';
 import { runCommand, visibleQuickInput, waitForQuickInputResult } from '../../lib/quickInput.mts';
+import { waitForReading } from '../../lib/steps.mts';
+
+function changesPaneOf(page) {
+	return page.locator('.pane', { has: page.locator('.pane-header', { hasText: 'Changes' }) }).first();
+}
 
 export async function assertSourceControlPanel(page) {
 	await runCommand(page, 'Source Control: Focus on Changes View');
 	await page.locator('.part.sidebar .title-label h2', { hasText: /Source Control/i }).waitFor({ state: 'visible', timeout: 20_000 });
-	const changesPane = page.locator('.pane', { has: page.locator('.pane-header', { hasText: 'Changes' }) }).first();
+	const changesPane = changesPaneOf(page);
 	await changesPane.locator('.scm-view').waitFor({ state: 'visible', timeout: 20_000 });
 	await changesPane.locator('.monaco-button', { hasText: /Commit/ }).first().waitFor({ state: 'visible', timeout: 20_000 });
 
@@ -30,6 +38,43 @@ export async function assertSourceControlPanel(page) {
 		const text = element.textContent?.replace(/\s+/g, ' ') ?? '';
 		throw new Error(`Source Control Changes view did not show expected Git state: ${text}`);
 	});
+}
+
+/**
+ * Changes shows a tree: a changed file stands under its open folder, and the
+ * folder of BaseHalf's own records starts closed and opens with a click
+ * (Git, SCM, GitHub, And GitGraph Boundary, "The Changes View").
+ */
+export async function assertSourceControlChangesAsTree(page) {
+	const inFolder = path.join(workspacePath, 'src', 'in-a-folder.txt');
+	const underBh = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'a-record.txt');
+	fs.writeFileSync(inFolder, 'in a folder\n', 'utf8');
+	fs.writeFileSync(underBh, 'a record\n', 'utf8');
+	try {
+		await runCommand(page, 'Git: Refresh');
+		await runCommand(page, 'Source Control: Focus on Changes View');
+		const changesPane = changesPaneOf(page);
+		const readRows = () => changesPane.evaluate(element => Array.from(element.querySelectorAll('.monaco-list-row')).map(row => ({
+			label: row.getAttribute('aria-label') ?? '',
+			level: Number(row.getAttribute('aria-level')),
+			expanded: row.getAttribute('aria-expanded')
+		})));
+		const rowOf = (rows, start) => rows.find(row => row.label === start || row.label.startsWith(`${start}, `));
+
+		await waitForReading(readRows, rows => {
+			const folder = rowOf(rows, 'src');
+			const file = rowOf(rows, 'in-a-folder.txt');
+			return folder?.expanded === 'true' && file?.level === folder.level + 1
+				&& rowOf(rows, '.bh')?.expanded === 'false' && !rowOf(rows, 'a-record.txt');
+		}, 'a tree with src open, its new file under it, and .bh closed with its record not shown');
+
+		await changesPane.locator('.monaco-list-row[aria-label=".bh"] .monaco-icon-label').click();
+		await waitForReading(readRows, rows => !!rowOf(rows, 'a-record.txt'), 'the record under .bh after a click on .bh');
+	} finally {
+		fs.rmSync(inFolder, { force: true });
+		fs.rmSync(underBh, { force: true });
+		await runCommand(page, 'Git: Refresh');
+	}
 }
 
 export async function assertSourceControlPublishBranchAction(page) {
