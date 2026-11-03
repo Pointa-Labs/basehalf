@@ -27,6 +27,7 @@ suite('BaseHalf settings in Settings', () => {
 		assert.deepStrictEqual(basehalf?.children?.map(child => ({ id: child.id, label: child.label, settings: child.settings, page: child.custom === true })), [
 			{ id: 'basehalf/editor', label: 'Editor', settings: ['basehalf.editor.*'], page: false },
 			{ id: 'basehalf/canvas', label: 'Canvas', settings: ['basehalf.canvas.*'], page: false },
+			{ id: 'basehalf/files', label: 'Files', settings: ['basehalf.files.*'], page: false },
 			{ id: 'basehalf/agentArea', label: 'Agent Area', settings: ['basehalf.agent.*', 'basehalf.agents.*'], page: false },
 			{ id: 'basehalf/models', label: 'Providers', settings: undefined, page: true },
 			{ id: 'basehalf/about', label: 'About', settings: undefined, page: true }

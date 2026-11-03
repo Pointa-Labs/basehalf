@@ -10,6 +10,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
+import { baseHalfIsUnderBhFolder } from '../../workspace/common/basehalfBhFolder.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import {
 	BaseHalfNavigationResult,
@@ -125,6 +126,10 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		const workspaceResource = this.toWorkspaceResource(resource);
 		if (!workspaceResource) {
 			return { handled: false, reason: 'outsideWorkspace' };
+		}
+		// A folder under `.bh` has no canvas: a click on it in Files, where a setting can show it, only opens it there (files in notes, rule 26).
+		if (baseHalfIsUnderBhFolder(workspaceResource.relativePath)) {
+			return { handled: false, reason: 'noCanvasUnderBh' };
 		}
 		if ((this._activeCanvasEditor || this._state.cardDetail) && !await this.flushActiveEditor()) {
 			return { handled: false, reason: 'blockedByDirtyEditor' };
@@ -408,11 +413,27 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!folderWorkspaceResource) {
 			return undefined;
 		}
+		if (baseHalfIsUnderBhFolder(folderWorkspaceResource.relativePath)) {
+			return this.toCanvasOnShow(workspaceResource.workspaceFolder, options);
+		}
 
 		return {
 			...folderWorkspaceResource,
 			source: options.source
 		};
+	}
+
+	/**
+	 * The canvas a file under `.bh` opens over when nothing chose one, as Files
+	 * does: the one on show, if it is of the file's workspace folder, or that
+	 * workspace folder's (files in notes, rule 26).
+	 */
+	private toCanvasOnShow(workspaceFolder: URI, options: IBaseHalfOpenResourceOptions): IBaseHalfCanvasFolderState | undefined {
+		const onShow = this._state.canvasFolder;
+		const folder = onShow && this.uriIdentityService.extUri.isEqual(onShow.workspaceFolder, workspaceFolder) && !baseHalfIsUnderBhFolder(onShow.relativePath)
+			? onShow
+			: this.toWorkspaceResource(workspaceFolder);
+		return folder && { ...folder, source: options.source };
 	}
 
 	/**

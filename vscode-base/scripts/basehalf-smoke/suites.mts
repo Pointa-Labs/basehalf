@@ -78,7 +78,7 @@ import {
 	assertMarkdownRichUndoStopsAtLoad
 } from './areas/cardDetail/richEditor.mts';
 import { assertCanvasBreadcrumbsRemoved, assertCanvasContainsCard, assertMarkdownRichRevealsText } from './areas/navigation/navigation.mts';
-import { assertExplorerRenameCascadesMirror, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
+import { assertExplorerRenameCascadesMirror, assertExplorerShowsBhFolderBySetting, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
 import { runAudioCardSteps } from './areas/video/audioCards.mts';
 import { assertLandingLeftNoPartialFile, runGenerationCardSteps } from './areas/video/generationCards.mts';
 import { assertProviderRequestsFromSharedProcess } from './areas/video/providerService.mts';
@@ -339,6 +339,7 @@ async function runNavigationSuite(page) {
 	});
 	await step('migration-moves-seeded-legacy-pair', () => assertMigrationMovesSeededLegacyPair(page));
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
+	await step('explorer-shows-bh-by-setting', () => assertExplorerShowsBhFolderBySetting(page));
 	await step('nothing-installed-after-session', () => assertWorkspaceOpenInstallsNothing());
 }
 

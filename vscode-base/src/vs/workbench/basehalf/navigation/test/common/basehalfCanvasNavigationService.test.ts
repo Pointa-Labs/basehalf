@@ -106,6 +106,38 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/guide.md');
 	});
 
+	test('a folder under .bh has no canvas, and a file under it opens over the canvas on show', async () => {
+		const service = createService(new Map([
+			['/workspace/docs', aFileStat(URI.file('/workspace/docs'), FileType.Directory)],
+			['/workspace/.bh', aFileStat(URI.file('/workspace/.bh'), FileType.Directory)],
+			['/workspace/.bh/mirror', aFileStat(URI.file('/workspace/.bh/mirror'), FileType.Directory)],
+			['/workspace/docs/.bh/attachments', aFileStat(URI.file('/workspace/docs/.bh/attachments'), FileType.Directory)],
+			['/workspace/.bh/attachments/a1/photo.png', aFileStat(URI.file('/workspace/.bh/attachments/a1/photo.png'), FileType.File)]
+		]));
+
+		await service.openResource(URI.file('/workspace/docs'), { source: 'explorer' });
+		for (const folder of ['/workspace/.bh', '/workspace/.bh/mirror', '/workspace/docs/.bh/attachments']) {
+			assert.deepStrictEqual(await service.openResource(URI.file(folder), { source: 'explorer' }), { handled: false, reason: 'noCanvasUnderBh' });
+			assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		}
+
+		const result = await service.openResource(URI.file('/workspace/.bh/attachments/a1/photo.png'), { source: 'explorer' });
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.cardDetail?.relativePath, '.bh/attachments/a1/photo.png');
+		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		assert.strictEqual(service.state.canvasFolder?.source, 'explorer');
+	});
+
+	test('a file under .bh opens over the canvas of its workspace folder when the canvas on show is of another', async () => {
+		const service = createService(new Map([
+			['/workspace/.bh/attachments/a1/photo.png', aFileStat(URI.file('/workspace/.bh/attachments/a1/photo.png'), FileType.File)]
+		]));
+
+		const result = await service.openResource(URI.file('/workspace/.bh/attachments/a1/photo.png'), { source: 'explorer' });
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
+	});
+
 	test('opens a file over the canvas of a requested folder in its workspace folder, which closing shows again', async () => {
 		const video = URI.file('/workspace/renders/clip.mp4');
 		const service = createService(new Map([

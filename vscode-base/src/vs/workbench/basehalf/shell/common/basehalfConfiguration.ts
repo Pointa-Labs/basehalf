@@ -6,10 +6,12 @@
 import { localize } from '../../../../nls.js';
 import { ConfigurationScope, IConfigurationNode } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { BASEHALF_AGENT_SESSION_CHOICES, BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind } from '../../agentArea/common/basehalfAgentArea.js';
+import { BASEHALF_FILES_SHOW_HIDDEN_FOLDER_SETTING } from '../../workspace/common/basehalfBhFolder.js';
 
 export const BaseHalfSetting = {
 	EditorReadingMode: 'basehalf.editor.readingMode',
 	CanvasDefaultZoom: 'basehalf.canvas.defaultZoom',
+	FilesShowHiddenFolder: BASEHALF_FILES_SHOW_HIDDEN_FOLDER_SETTING,
 	AgentDefaultSession: 'basehalf.agent.defaultSession',
 	AgentsOfferSkill: 'basehalf.agents.offerSkill'
 } as const;
@@ -54,6 +56,13 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			scope: ConfigurationScope.RESOURCE,
 			tags: [BASEHALF_SETTINGS_TAG],
 			description: localize('basehalf.canvas.defaultZoom', 'The largest zoom at which the canvas first shows a folder that has no saved view on this computer, and frames cards you create: it fits the cards at this zoom or smaller. 1 is 100%.')
+		},
+		[BaseHalfSetting.FilesShowHiddenFolder]: {
+			type: 'boolean',
+			default: false,
+			scope: ConfigurationScope.RESOURCE,
+			tags: [BASEHALF_SETTINGS_TAG],
+			description: localize('basehalf.files.showHiddenFolder', 'Controls whether Files shows the `.bh` folder, where BaseHalf keeps the files put into notes and what it records about cards. It stays hidden on the canvas, in Search, and in Quick Open. Changing what it holds can lose a note\'s files or a card\'s records.')
 		},
 		[BaseHalfSetting.AgentDefaultSession]: {
 			type: 'string',

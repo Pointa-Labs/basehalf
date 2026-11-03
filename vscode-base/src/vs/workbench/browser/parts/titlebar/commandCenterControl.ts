@@ -31,6 +31,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfItemDisplayName } from '../../../basehalf/cardDetail/common/basehalfCardDetail.js';
 import { BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE } from '../../../basehalf/canvas/common/basehalfCanvasFolderDrop.js';
+import { baseHalfIsUnderBhFolder } from '../../../basehalf/workspace/common/basehalfBhFolder.js';
 
 const AI_DISABLED_SETTING = 'chat.disableAIFeatures';
 const AGENT_STATUS_ENABLED_SETTING = 'chat.agentsControl.enabled';
@@ -48,7 +49,10 @@ function baseHalfTitleBreadcrumbs(state: IBaseHalfCanvasNavigationState): readon
 		return [];
 	}
 
-	const parts = target.relativePath.split('/').filter(Boolean);
+	// BaseHalf: a file under `.bh` stands in the canvas it opens over: a folder under `.bh` has no canvas, and its name means nothing to a user (files in notes, rule 26).
+	const parts = state.cardDetail && state.canvasFolder && baseHalfIsUnderBhFolder(state.cardDetail.relativePath)
+		? [...state.canvasFolder.relativePath.split('/').filter(Boolean), basename(state.cardDetail.resource)]
+		: target.relativePath.split('/').filter(Boolean);
 	const rootLabel = basename(target.workspaceFolder) || target.workspaceFolder.authority || localize('basehalf.breadcrumb.workspace', "Workspace");
 	const entries: IBaseHalfTitleBreadcrumb[] = [{
 		label: rootLabel,

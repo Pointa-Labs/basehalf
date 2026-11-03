@@ -10,12 +10,12 @@ import path from 'path';
 import process from 'process';
 import { workspacePath } from '../../context.mts';
 import { FAR_FIXTURE_CONTENT } from '../../fixture.mts';
-import { assertCanvasEdgeGone, assertCanvasEdgeVisible } from '../../lib/canvas.mts';
+import { assertCanvasEdgeGone, assertCanvasEdgeVisible, assertCanvasFolder } from '../../lib/canvas.mts';
 import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { clickNotificationAction, expectNotification } from '../../lib/notifications.mts';
 import { runCommand } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
-import { readWorkspaceFile } from '../../lib/workspace.mts';
+import { openExplorerRow, readWorkspaceFile, showExplorer } from '../../lib/workspace.mts';
 
 const LEGACY_REFERENCES_RECORD_PATH = path.join('.bh', 'legacy-references.yaml');
 // A complete legacy pair from a release before D37: guide.md's badge lists
@@ -159,4 +159,44 @@ async function renameExplorerEntry(page, currentName, nextName) {
 			await page.waitForTimeout(250);
 		}
 	}
+}
+
+/**
+ * A setting shows `.bh` in Files at once, and a click on it only opens it there:
+ * the canvas stays, and nothing is laid out for it (workspace state, D116).
+ */
+export async function assertExplorerShowsBhFolderBySetting(page) {
+	const settingsPath = path.join(workspacePath, '.vscode', 'settings.json');
+	const settings = fs.readFileSync(settingsPath, 'utf8');
+	const bhRow = page.locator('.explorer-viewlet .monaco-list-row[aria-label=".bh"]');
+	await showExplorer(page);
+	await openExplorerRow(page, 'docs');
+	await assertCanvasFolder(page, 'docs');
+	if (await bhRow.count() > 0) {
+		throw new Error('Files must not show .bh while the setting is off');
+	}
+
+	fs.writeFileSync(settingsPath, JSON.stringify({ ...JSON.parse(settings), 'basehalf.files.showHiddenFolder': true }, null, '\t'), 'utf8');
+	try {
+		await bhRow.waitFor({ state: 'visible', timeout: 20_000 });
+		await bhRow.click();
+		await page.locator('.explorer-viewlet .monaco-list-row[aria-label="mirror"]').waitFor({ state: 'visible', timeout: 15_000 });
+		await assertCanvasFolder(page, 'docs');
+		if (fs.existsSync(path.join(workspacePath, '.bh', 'mirror', '.bh'))) {
+			throw new Error('A click on .bh in Files must lay nothing out for it');
+		}
+
+		// A file under it opens over the canvas on show, and the location names that canvas and the file.
+		await page.locator('.explorer-viewlet .monaco-list-row[aria-label=".gitignore"]').click();
+		await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
+		const location = (await page.locator('.basehalf-command-center-breadcrumb-segment').allTextContents()).map(label => label.trim());
+		if (location.join(' / ') !== `${path.basename(workspacePath)} / docs / .gitignore`) {
+			throw new Error(`A file under .bh must stand in the canvas on show: ${JSON.stringify(location)}`);
+		}
+		await closeCardDetailIfOpen(page);
+		await assertCanvasFolder(page, 'docs');
+	} finally {
+		fs.writeFileSync(settingsPath, settings, 'utf8');
+	}
+	await bhRow.waitFor({ state: 'hidden', timeout: 20_000 });
 }

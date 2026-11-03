@@ -30,6 +30,7 @@ suite('BaseHalfConfiguration', () => {
 		assert.deepStrictEqual(keys, [
 			'basehalf.editor.readingMode',
 			'basehalf.canvas.defaultZoom',
+			'basehalf.files.showHiddenFolder',
 			'basehalf.agent.defaultSession',
 			'basehalf.agents.offerSkill'
 		]);

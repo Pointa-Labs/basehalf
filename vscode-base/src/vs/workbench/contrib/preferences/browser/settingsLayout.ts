@@ -192,6 +192,12 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['basehalf.canvas.*']
 				},
 				{
+					// BaseHalf: whether Files shows `.bh`.
+					id: 'basehalf/files',
+					label: localize('basehalfFiles', "Files"),
+					settings: ['basehalf.files.*']
+				},
+				{
 					// BaseHalf: the Agent Area's settings, and whether BaseHalf offers its skill to agents.
 					id: 'basehalf/agentArea',
 					label: localize('basehalfAgentArea', "Agent Area"),

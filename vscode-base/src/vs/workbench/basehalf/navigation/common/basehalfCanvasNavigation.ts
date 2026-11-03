@@ -88,7 +88,7 @@ export interface IBaseHalfCanvasNavigationState {
 export type BaseHalfNavigationResult =
 	| { readonly handled: true; readonly target: 'canvasFolder'; readonly state: IBaseHalfCanvasFolderState }
 	| { readonly handled: true; readonly target: 'cardDetail'; readonly state: IBaseHalfCardDetailState }
-	| { readonly handled: false; readonly reason: 'outsideWorkspace' | 'missingOrUnreadable' | 'unsupportedResource' | 'blockedByDirtyEditor' | 'superseded' };
+	| { readonly handled: false; readonly reason: 'outsideWorkspace' | 'missingOrUnreadable' | 'unsupportedResource' | 'blockedByDirtyEditor' | 'superseded' | 'noCanvasUnderBh' };
 
 export interface IBaseHalfCanvasNavigationService {
 	readonly _serviceBrand: undefined;

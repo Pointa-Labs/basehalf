@@ -75,6 +75,7 @@ import { CountBadge } from '../../../../../base/browser/ui/countBadge/countBadge
 import { listFilterMatchHighlight, listFilterMatchHighlightBorder } from '../../../../../platform/theme/common/colorRegistry.js';
 import { asCssVariable } from '../../../../../platform/theme/common/colorUtils.js';
 import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
+import { BASEHALF_FILES_SHOW_HIDDEN_FOLDER_SETTING, baseHalfFilesExclude } from '../../../../basehalf/workspace/common/basehalfBhFolder.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/navigation/common/basehalfOpenRouting.js';
 
 export class ExplorerDelegate implements IListVirtualDelegate<ExplorerItem> {
@@ -1250,7 +1251,8 @@ export class FilesFilter implements ITreeFilter<ExplorerItem, FuzzyScore> {
 		this.toDispose.push(this._onDidChange);
 		this.toDispose.push(this.contextService.onDidChangeWorkspaceFolders(() => this.updateConfiguration()));
 		this.toDispose.push(this.configurationService.onDidChangeConfiguration((e) => {
-			if (e.affectsConfiguration('files.exclude') || e.affectsConfiguration('explorer.excludeGitIgnore')) {
+			// BaseHalf: the setting that shows `.bh` in Files decides what Files leaves out.
+			if (e.affectsConfiguration('files.exclude') || e.affectsConfiguration('explorer.excludeGitIgnore') || e.affectsConfiguration(BASEHALF_FILES_SHOW_HIDDEN_FOLDER_SETTING)) {
 				this.updateConfiguration();
 			}
 		}));
@@ -1311,7 +1313,8 @@ export class FilesFilter implements ITreeFilter<ExplorerItem, FuzzyScore> {
 		let updatedGitIgnoreSetting = false;
 		this.contextService.getWorkspace().folders.forEach(folder => {
 			const configuration = this.configurationService.getValue<IFilesConfiguration>({ resource: folder.uri });
-			const excludesConfig: glob.IExpression = configuration?.files?.exclude || Object.create(null);
+			// BaseHalf: a setting shows `.bh` in Files, and only there: all else that reads `files.exclude` goes on leaving it out (D116).
+			const excludesConfig: glob.IExpression = baseHalfFilesExclude(configuration?.files?.exclude || Object.create(null), !!this.configurationService.getValue<boolean>(BASEHALF_FILES_SHOW_HIDDEN_FOLDER_SETTING, { resource: folder.uri }));
 			const parseIgnoreFile: boolean = configuration.explorer.excludeGitIgnore;
 
 			// If we should be parsing ignoreFiles for this workspace and don't have an ignore tree initialize one
