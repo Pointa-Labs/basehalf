@@ -5442,6 +5442,22 @@ skill says which note it belongs to: the `file` and `note` fields of the
 store, and the skill now puts it in the note's folder (files in notes,
 rule 47).
 
+**The gaps closed (2026-11-03, evening).** What the stages had left open was
+built before the work went to the user. A note made from text copied out of
+another note is a copy of that note: its links are read from the note the
+copy names, and its files are cloned into a folder of its own, as Duplicate
+gives them; the window reads that name from its own data on the clipboard.
+A note moved outside BaseHalf down into a repository, whose links still lead
+into the store of the home it left, gets clones in the repository's store,
+as a note moved there in BaseHalf does: a repository holds what its notes
+show. A move made without an undo source, as an extension makes one, gives
+its correction none, so that the canvas never takes back a move it did not
+make. A window that stays open for days scans for unmentioned files once a
+day, as a window that opens does. The git notice is checked in the smoke, on
+a repository the step makes, and in the real window. See
+[files in notes](specs/files-in-notes.md), rules 29 to 31, 33, 34, and 37,
+and criteria 15 to 17.
+
 ## D112 — A double click edits a note on its card wherever it lands, and a note's videos, sounds, and files look on the card as BaseHalf shows them (NEW, 2026-11-03)
 
 **Decision.** A double click anywhere on a note's card edits the note on the
