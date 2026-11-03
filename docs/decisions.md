@@ -5367,3 +5367,80 @@ answer that keeps Markdown and adds a tag only where Markdown has no syntax
   placeholders of media from the slash menu; the editor's Markdown writer and
   reader in Rich; the mark that carried line breaks of table cells through
   that writer.
+
+## D113 — A picture in a note is edited where the note shows it, with the editor of its card (NEW, 2026-11-03)
+
+**Decision.** A picture in a note in Card Detail is edited where the note
+shows it. Edit, first in the picture's toolbar, makes room under the picture
+for the tools, and the window draws the editor of the picture's card over the
+picture, at its place and its size, editing: the crop frame, free or to a
+ratio, Turn Left, Flip, the Straighten dial, the line with Revert to
+Original, and Done at the end of the tools. Done, Escape, and a press
+elsewhere in the note go back to the note, which shows the file as edited at
+the width the picture had, as the editor glides to it and the room closes.
+The edit is the edit of the file the note links, kept as a card's edit is
+kept, its original and record its card information; the note's text does not
+change. While the editor is open its changes are steps of its own; at Done
+the whole edit is one step of the note's undo. The menu of a picture has no
+Open in Card Detail. Videos and sounds follow in a later decision. See
+[formats of a note](specs/note-formats.md#editing-a-picture-in-its-note) and
+[editing media](specs/media-editing.md#editing-a-picture-in-its-note).
+
+**Why.** On 2026-11-03 the user found Open in Card Detail in the menu of a
+picture in a note made large, and asked for editing in place instead
+("进入放大版的笔记后，右键图片会有一个 Open in Card Detail。这个 Card Detail 太不严谨了，而且我们似乎也不应该是这样的产品逻辑吧？应该直接支持原地编辑就行了呀"),
+and approved the plan of Edit in the picture's toolbar, the card's tools on
+the picture in the note, Done back to the note, and one step of undo
+("没问题，你可以开启多 agent 去并行完成这些任务，越快越好"). Measured that day in a
+development window of `2583c6805` with the change, on a 1600 × 1000 picture
+shown 712 × 445 in a note: the room opened in the frame of the press, 4 to
+8 ms after it; the editor showed 18 to 27 ms after the press, in the second
+or third frame, its picture 0 px from the note's; a corner dragged over 82
+frames stayed under the pointer on every frame, 0 px off; and on no frame of
+Edit or Done was neither picture drawn. Done after a crop of the same shape
+left the editor 52 ms later; after a crop to 971 × 1000 the editor glided from
+432 × 445 to 712 × 733, the note's picture growing under it in step and the
+text under it moving with it, and went 243 ms after Done, 0.4 px from the
+note's picture. The picture's file held the crop, its card information the
+original and the record, and the note's file did not change.
+
+**What was set aside.**
+- Open in Card Detail from the picture's menu: it leaves the note for a view
+  of the file alone, and a picture that the note keeps (D111) is no card
+  that the user knows.
+- Drawing the crop view inside Rich's page: the page's bundle has no
+  translations of the window, and the editor's menus, hovers, writes, and
+  records would be built again for the page and kept in step with the card's.
+  The window draws the card's own editor over the page instead, in a layer of
+  Card Detail's rich projection.
+- A new file for each edit, with a new link in the note: the note's text
+  would change at every edit, and a picture of the workspace linked where it
+  is would no longer show on its card as it shows in the note.
+- Each change a step of the canvas undo, as on the picture's card: Command+Z
+  in the note would not reach it, and Undo on the canvas later would change a
+  picture of a note out of sight.
+- An editor in a dialog or on a page of its own: it is not editing in place.
+- Room above the picture as well: the picture would move when Edit is
+  pressed. The editor draws in the picture's box, and the margin around it
+  shows the note.
+
+**Consequences.**
+- [Formats of a note](specs/note-formats.md): Decision, rules 3 and 78, new
+  rules 52a to 52g, new criteria 30 to 33, and Verification.
+  [Editing media](specs/media-editing.md): Decision, "Changes save
+  themselves", the new section "Editing a picture in its note", new
+  criterion 39, and Where this lands.
+- Rich's page and the window speak new messages: `editPicture` from the page
+  with the picture's box, `pictureEditEnded` with the file's version,
+  `pictureLaidOut` with the picture's box at that version, `showPicture`,
+  `pictureShown`, and `endPictureEdit` for a press in the note. The page loads
+  a version of a file by an address of its own
+  (`?basehalfVersion=<mtime>-<size>`), as the canvas does.
+- Files a note keeps (D111) are edited as files of the workspace are: their
+  originals and records are card information of the stored file, which
+  retention keeps while the file is kept and removes with it, and which a
+  copy of a note that clones its files clones too.
+- Undo of the note holds the choices before Edit and after Done in a map of
+  the note's shared document that is never written to the file; its undo and
+  redo set those choices through the media edit service, with no step of the
+  canvas.

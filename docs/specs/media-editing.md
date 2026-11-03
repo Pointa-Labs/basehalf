@@ -24,7 +24,9 @@ for viewing a video as large as fits with its player's controls, and the
 edit bar that Edit makes room for; and
 [D103](../decisions.md#d103--in-the-edit-bar-of-a-video-the-yellow-frame-is-changed-only-by-its-handles-and-the-playhead-stays-inside-it-new-2026-10-29)
 for the yellow frame, which only its handles change, and the playhead,
-which stays inside it.
+which stays inside it; and
+[D113](../decisions.md#d113--a-picture-in-a-note-is-edited-where-the-note-shows-it-with-the-editor-of-its-card-new-2026-11-03)
+for a picture edited where its note shows it.
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -296,6 +298,9 @@ crop:
   file within 0.6 s are one step, as when an arrow key repeats. Command+Z
   undoes the step wherever the keyboard is in Card Detail, outside an editor
   of text, and on the canvas ([exact undo](exact-undo.md#editing-media)).
+  A picture edited in its note is the exception: its changes are steps of
+  the editor while it is open, and the whole edit one step of the note's
+  undo ([Editing a picture in its note](#editing-a-picture-in-its-note)).
 - **Undo and redo show the choices before or after at once** in an editor of
   the file, and the file follows as after a change. What BaseHalf wrote for
   the last 8 sets of choices of a file stays in `.bh/cache/edit/` until the
@@ -866,6 +871,43 @@ in Card Detail.
   by 0.1°, with Shift by 1°. Keys that follow each other within 0.6 s are one
   change.
 
+## Editing a picture in its note
+
+- **A picture in a note in Card Detail is edited where the note shows it**
+  (D113), with Edit in its toolbar
+  ([formats of a note](note-formats.md#editing-a-picture-in-its-note)).
+  The window draws the crop view of [Cropping an image](#cropping-an-image)
+  over the note's page, at the picture's place: its picture stands where
+  the note's stands, at the same size, so that nothing moves when it comes.
+  The note makes room under the picture for the tools and the line. The
+  editor shows once its picture is drawn; until then the note's picture
+  shows.
+- It edits from the start: the rest of the original dims around the part
+  kept, and the frame, the tools, and the line are those of the card's
+  editor, with the same changes, the same writes, and Revert to Original.
+  **Done** stands at the end of the row of tools, in the yellow of Card
+  Detail's Done; there is no Edit to go back to.
+- The margin of 24 px around the picture, in which the frame rests and a
+  held corner makes the picture follow, shows the note, not the editor's
+  background: the editor draws in the picture's box only, with its rounded
+  corners.
+- **The file is the one the note links**, read from the note's folder: a
+  file of the workspace linked where it is, or a file the note keeps
+  (D111). Its original and edit record are its card information, as for
+  any file ([What is kept](#what-is-kept)). The note's text does not change.
+- Done, Escape, and a press elsewhere in the note go back to the note: the
+  editor views, the file follows at once, the note shows the file's new
+  version under the editor, and the editor glides to it in 200 ms and goes.
+  Closing Card Detail or going to another card ends it as Done does.
+- **Undo.** While the editor is open, its changes are steps of its own:
+  Command+Z and Shift+Command+Z undo and redo them one by one, and they are
+  no steps of the canvas. At Done the choices before Edit and after Done are
+  one step of the note's undo, and its undo and redo set those choices, as
+  an undo of the canvas does: the file follows, and one that changed
+  meanwhile says so and changes nothing.
+- Pinching over the editor zooms its picture, as in Card Detail; the note
+  does not magnify or scroll while the editor is open.
+
 ## Editing a sound
 
 ### The waveform
@@ -1341,6 +1383,12 @@ in Card Detail.
     frame. End and Home stop at the part's ends, and Play from 7 s stops on
     the part's last frame (D103; the user, 2026-10-29: when dragging, the
     yellow frame and the white line in it were unclear).
+39. A picture edited in its note meets criteria 30 to 33 of
+    [formats of a note](note-formats.md#acceptance-criteria): the editor
+    over the note's picture within 1 px, a corner under the pointer on every
+    frame, a picture drawn on every frame of Edit and Done, and the whole
+    edit one step of the note's undo, which no step of the canvas holds
+    (D113).
 
 ## Verification
 
@@ -1451,4 +1499,10 @@ player of a video gives the frame viewer its time, a jump to a time, and the
 playing of a range; the waveform of a sound plays the edit itself, with the
 window's audio. The shared process's file clones service
 (`src/vs/platform/basehalfFiles/`) writes a file from bytes and ranges of
-other files, which a trim's copy asks of it (D99).
+other files, which a trim's copy asks of it (D99). A picture edited in its note (D113): where its
+editor stands in `common/basehalfNotePictureEdit.ts`, which Rich's page
+imports too; the editing over the note's page in
+`cardDetail/browser/basehalfNotePictureEditing.ts`, which Card Detail's rich
+projection starts and ends from the messages of the page; the Edit button,
+the room, and the picture at its new version in Rich
+(`extensions/basehalf/markdown-rich-src/notePictureEdit.ts`).

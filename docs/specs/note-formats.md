@@ -1,7 +1,9 @@
 # Formats of a note
 
 Status: Draft (2026-11-02)
-Decision: [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
+Decision: [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02),
+and [D113](../decisions.md#d113--a-picture-in-a-note-is-edited-where-the-note-shows-it-with-the-editor-of-its-card-new-2026-11-03)
+for editing a picture where the note shows it
 Related: [note rendering](note-rendering.md) (what the card and Preview show,
 and the blocks Rich cannot edit), [zoom and outline of a note](note-zoom-and-outline.md)
 (headings in a closed toggle), [copy, paste, and drop](copy-paste-and-drop.md)
@@ -143,9 +145,11 @@ start).
    list, check list), Bold, Italic, Underline, Strikethrough, the color menu,
    and Create link. It has no alignment, Nest, Unnest, or comment button.
 3. The toolbar of a picture, a video, and a sound has Edit caption, Replace,
-   and Delete, and a picture also Rename, which edits its name. The toolbar
-   of a file has Replace, Rename, and Delete. None has an alignment button,
-   Toggle preview, Download, or a caption for a file.
+   and Delete, and a picture also Rename, which edits its name, and Edit,
+   first, which edits the picture where it is when its address is a file's
+   ([Editing a picture in its note](#editing-a-picture-in-its-note)). The
+   toolbar of a file has Replace, Rename, and Delete. None has an alignment
+   button, Toggle preview, Download, or a caption for a file.
 4. The menu of a block's drag handle holds Delete only.
 5. The slash menu and the add button offer the blocks of rule 2, the code
    block, the divider, the table, the emoji, the picture, the video, the
@@ -451,6 +455,47 @@ start).
     notes (D111). On the canvas, one that starts pauses the others
     ([generation cards](generation-cards.md#the-player)).
 
+### Editing a picture in its note
+
+52a. **A picture is edited where the note shows it** (D113). Edit in its
+     toolbar makes room under the picture, at once, as tall as the tools and
+     the line under them, and the editor of the picture's card stands over
+     the picture, at its place and its size, editing
+     ([editing media](media-editing.md#editing-a-picture-in-its-note)):
+     the crop frame, free or to a ratio, Turn Left, Flip, the Straighten
+     dial, the line with Revert to Original, and Done at the end of the
+     tools. The view scrolls as little as shows the editor whole. Nothing of
+     the note flashes: the editor shows once its picture is drawn, and the
+     note's picture stays until then.
+52b. While the picture is edited, the note stays as it is: it does not
+     scroll or magnify, it shows no toolbar, and the keyboard is the
+     editor's. The margin around the picture, in which the frame rests,
+     shows the note, as the text above the picture.
+52c. **Done, Escape, and a press anywhere else in the note go back to the
+     note.** A press does nothing else. The note shows the file as the edit
+     made it, at the width the picture had, or as wide as the file when it
+     is narrower now; the editor glides to it, in 200 ms, as the room
+     closes, and goes once the note's picture is drawn under it. Escape
+     during a drag only ends the drag, as in Card Detail.
+52d. **The edit is the file's.** Edit edits the picture file the note links,
+     as its card would: the file holds the edit, and its card information
+     keeps the original and the record
+     ([editing media](media-editing.md#what-is-kept)). The note's text does
+     not change. A picture of a file of the workspace linked where it is
+     shows the edit on its own card too.
+52e. **Undo.** While the editor is open, Command+Z and Shift+Command+Z undo
+     and redo its changes one by one, as in Card Detail. After Done, the
+     whole edit is one step of the note's undo: Undo in the note puts back
+     the picture as it was before Edit, Redo puts the edit back, and the
+     file follows each, as after a change. An edit that changed nothing is
+     no step.
+52f. A picture whose address is on the web, or leads outside the workspace,
+     has no Edit: BaseHalf does not edit it. One whose file cannot be edited
+     ([editing media](media-editing.md#non-goals)) or is missing goes back
+     to the note at once.
+52g. The menu of a picture has no Open in Card Detail: the picture is
+     edited where it is. Videos and sounds get Edit in a later decision.
+
 ### Links
 
 53. **One target, every place.** A link to a note or a file of the workspace
@@ -587,9 +632,9 @@ start).
 ### Undo
 
 78. A format, a resize, a change of a block's kind, a nest, a move, a paste,
-    a drop, and a cut are one step each, together with what Rich adjusts
-    after them. The letters typed into one caption, one after another, are
-    one step.
+    a drop, a cut, and the edit of a picture (rule 52e) are one step each,
+    together with what Rich adjusts after them. The letters typed into one
+    caption, one after another, are one step.
 79. Undo of the only change of a block puts the file back byte for byte.
 80. Reading a note, an outside change, a toggle opened or closed, and what
     Rich adjusts while it reads are never steps.
@@ -801,6 +846,22 @@ this specification. Outside changes are merged meanwhile, as always.
 29. On the notes of the fidelity corpus and of `docs/`, no kind of block that
     Rich edited before this decision is fixed after it in more than 1% of its
     blocks, except the kinds that L2 lists.
+30. On a note in Card Detail with a 1600 × 1000 picture, Edit shows the
+    editor within 50 ms, the text under the picture 108 px lower in the same
+    frame as the press, and the editor's picture within 1 px of the note's;
+    on every frame from the press until the editor shows, the note's picture
+    or the editor's is drawn.
+31. A corner of the crop frame dragged over 40 frames stays under the
+    pointer, within 1 px, on every frame.
+32. Done after a crop that keeps 971 × 1000 of the picture: on every frame
+    the editor's picture or the note's is drawn; the editor goes within
+    300 ms; the note shows the new file, 712 px wide as before; and the
+    editor's picture on its last frame is within 1 px of the note's. The
+    note's file has not changed; the picture's file is 971 × 1000 and its
+    card information holds `original.png` and `edit.yaml`.
+33. Command+Z in the note after that Done puts the picture back as the
+    original, 1600 × 1000, in one step, and the card information goes;
+    Shift+Command+Z puts the crop back.
 
 ## Verification
 
@@ -845,6 +906,11 @@ this specification. Outside changes are merged meanwhile, as always.
   clicks on a summary, a video, and a sound on a resting card, with one
   player at a time. The steps that write the system's clipboard run in CI,
   or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.
+- The `cardDetail` suite of the smoke runs criteria 30 to 33 on a note of
+  its own, in every frame, on both sides of the page's frame
+  (`notePictureEdit.mts`); unit tests cover the editor's box and the
+  messages of rules 52a to 52e (`basehalfNotePictureEdit.test.ts`,
+  `basehalfMarkdownRichWebviewProtocol.test.ts`).
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criterion 22.
