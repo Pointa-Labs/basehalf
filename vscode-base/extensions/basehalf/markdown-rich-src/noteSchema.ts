@@ -45,6 +45,27 @@ function decodeAsThePageDoes(text: string): string {
 export const renderedNote = { baseUri: '' };
 
 /**
+ * Reads every relative address of the page from the folder of the open note,
+ * `baseUri` (note rendering, rule 6c): also those of the elements the editor
+ * makes for itself, as it reads a note, draws a picture before it has read
+ * its address, or copies blocks, which the page would otherwise read from its
+ * own address, where the window refuses them.
+ */
+export function setRenderedNoteBase(baseUri: string): void {
+	renderedNote.baseUri = baseUri;
+	let base = document.head.querySelector('base');
+	if (!baseUri) {
+		base?.remove();
+		return;
+	}
+	if (!base) {
+		base = document.createElement('base');
+		document.head.prepend(base);
+	}
+	base.href = baseUri;
+}
+
+/**
  * The rendered form of Markdown that the editor cannot edit (note rendering):
  * the elements and the text that the card shows for the same Markdown.
  */

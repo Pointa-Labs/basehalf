@@ -123,7 +123,7 @@ import {
 	makeBaseHalfSelectionRevealExtension,
 	setBaseHalfSelectionReveal,
 } from './selectionRevealDecorations.js';
-import { baseHalfEditorLabel, baseHalfNoteSchema, renderedNote } from './noteSchema.js';
+import { baseHalfEditorLabel, baseHalfNoteSchema, setRenderedNoteBase } from './noteSchema.js';
 import { baseHalfNoteFileAddressAt, baseHalfNotePictureElement, makeBaseHalfNotePictureEditExtension, setBaseHalfNotePictureEditMark } from './notePictureEdit.js';
 import { BASEHALF_IMAGE_CROP_MARGIN, BASEHALF_NOTE_PICTURE_EDIT_ROOM } from '../../../src/vs/workbench/basehalf/mediaEdit/common/basehalfNotePictureEdit.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from './noteUndo.js';
@@ -1116,7 +1116,7 @@ function MarkdownRichEditor(): JSX.Element {
 		state.key = key;
 		state.resource = resource;
 		state.baseUri = baseUri;
-		renderedNote.baseUri = baseUri;
+		setRenderedNoteBase(baseUri);
 		state.editable = editable;
 		state.conflictDisk = undefined;
 		state.writeError = undefined;
@@ -2030,7 +2030,7 @@ function MarkdownRichEditor(): JSX.Element {
 		pendingInit.current = undefined;
 		session.current.surface = payload.surface;
 		session.current.baseUri = payload.baseUri;
-		renderedNote.baseUri = payload.baseUri;
+		setRenderedNoteBase(payload.baseUri);
 		if (payload.surface === 'detail') {
 			ensureReadingAids(session.current.key !== payload.key, payload.reducedMotion ?? false);
 		}
