@@ -460,7 +460,9 @@ start).
     the card a press on the picture is the card's, as on a video's card, and
     only the bar takes presses; in Preview a click on the picture plays and
     pauses it. On the canvas, one that starts pauses the others
-    ([generation cards](generation-cards.md#the-player)).
+    ([generation cards](generation-cards.md#the-player)). A note drawn again,
+    as Preview draws it at every change, keeps its players: what plays goes
+    on playing ([note rendering](note-rendering.md), rule 4b).
 
 ### Editing a picture in its note
 
@@ -530,7 +532,10 @@ start).
     scroll the heading to
     24 pixels below the top of the view, as a click in the outline does, and
     open the closed toggles around it. On the card and in the card's editor
-    the link opens the note in Card Detail at the heading.
+    the link opens the note in Card Detail at the heading. Only the note's
+    view scrolls, also when Card Detail opens a note at a heading or at the
+    lines of a selection: the parts of the window around Card Detail do not
+    move.
     `other.md#part` opens `other.md` at its heading `part`.
 57. No link shows a system tooltip: the card, Preview, and a fixed block
     drop the `title` of a link and a picture when they draw it.
@@ -902,6 +907,9 @@ this specification. Outside changes are merged meanwhile, as always.
 34. Command+Z in the note after that Done puts the picture back as the
     original, 1600 × 1000, in one step, and the card information goes;
     Shift+Command+Z puts the crop back.
+35. After Card Detail opened a note at a heading in a closed toggle far down
+    the note and closed again, the parts of the window and the note's card
+    stand where they stood before, to the pixel.
 
 ## Verification
 
@@ -942,7 +950,8 @@ this specification. Outside changes are merged meanwhile, as always.
   Chinese typed with an input method into an underlined red word, a toggle's
   title, and a caption; a copy from Rich pasted into Source; and Command-P
   from Rich. The `canvas` suite runs criteria 12, 13 (a click on the card at
-  rest and Command-click in the card's editor), 21 on the card, 23, and 30,
+  rest and Command-click in the card's editor), 21 on the card, 23, 30, and
+  35,
   and the clicks on a summary, a video, and a sound on a resting card, with
   one player at a time. The steps that write the system's clipboard run in CI,
   or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.

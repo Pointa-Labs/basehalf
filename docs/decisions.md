@@ -5491,6 +5491,24 @@ BaseHalf draws them ("没问题，你可以开启多 agent 去并行完成这些
 - The system's own controls for a note's video and sound: they differ from
   every other player of the canvas, and their presses never reach the card.
 
+**Kept playing (2026-11-03).** A note drawn again keeps its players. Preview
+draws a note again at every change of it, the card's editor after a change
+made elsewhere, and the card at rest when its file changes; each drawing made
+players of its own, so that a video stopped at every change, as when an
+agent wrote to the note while the video played. Now a video or a sound
+whose block is still in the note goes on playing through the change, at the
+same place and with its sound as it was, and one that stands keeps its frame.
+Two faults found with it were fixed the same day. Rich asked for a note's
+pictures, videos, and sounds at their addresses as written before it had read
+them, which its page read from its own address and the window refused. And a
+reveal of a place in Rich, as when Card Detail opens a note at a heading,
+scrolled the parts of the window around Card Detail with the note, so that
+the canvas stood a few pixels higher once Card Detail closed: the "about 12
+px" by which a note's card seemed scrolled after a round trip through Card
+Detail. See [note rendering](specs/note-rendering.md), rules 4b and 6c and
+criteria 13e and 13f, and [formats of a note](specs/note-formats.md), rules
+52 and 56 and criterion 35.
+
 ## D113 — A picture in a note is edited where the note shows it, with the editor of its card (NEW, 2026-11-03)
 
 **Decision.** A picture in a note in Card Detail is edited where the note
