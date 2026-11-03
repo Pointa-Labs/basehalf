@@ -17,6 +17,7 @@ import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
+import { IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { IDialogService, IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -316,6 +317,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IDialogService public readonly dialogService: IDialogService,
 		@IClipboardService public readonly clipboardService: IClipboardService,
 		@IBaseHalfClipboardService public readonly baseHalfClipboardService: IBaseHalfClipboardService,
+		@IBaseHalfMarkdownAttachmentService public readonly markdownAttachmentService: IBaseHalfMarkdownAttachmentService,
 		@IFileDialogService public readonly fileDialogService: IFileDialogService,
 		@IExplorerService public readonly explorerService: IExplorerService,
 		@IPathService public readonly pathService: IPathService,

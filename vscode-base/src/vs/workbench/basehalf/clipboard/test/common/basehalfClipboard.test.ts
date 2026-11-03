@@ -4,9 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfClipboardRecord, baseHalfTransferFileNames, parseBaseHalfClipboardFileNames, parseBaseHalfClipboardRecord } from '../../common/basehalfClipboard.js';
+import { baseHalfClipboardRecord, baseHalfTransferFileNames, parseBaseHalfClipboardFileNames, parseBaseHalfClipboardRecord, parseBaseHalfClipboardWebCustomData } from '../../common/basehalfClipboard.js';
 import { BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_GRID_COLUMN_GAP, baseHalfCanvasCenteredTransferOrigin } from '../../../canvas/common/basehalfCanvasModel.js';
 
 suite('BaseHalf clipboard', () => {
@@ -24,6 +25,40 @@ suite('BaseHalf clipboard', () => {
 		}, {
 			read: { cut: true, items: [{ path: '/work/shots/a b.png', draft: undefined }, { path: '/work/shots/next.mp4', draft: true }] },
 			others: [undefined, undefined, undefined, undefined]
+		});
+	});
+
+	test('the kinds a page wrote onto the clipboard are read from the window\'s one piece of data for them; data that is not whole reads as none', () => {
+		// The window's form: its length, the number of entries, then each kind and value in UTF-16, padded to four bytes.
+		const write = (entries: readonly [string, string][]): VSBuffer => {
+			const parts: number[] = [];
+			const uint32 = (value: number) => parts.push(value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff);
+			const string16 = (value: string) => {
+				uint32(value.length);
+				for (let index = 0; index < value.length; index++) {
+					parts.push(value.charCodeAt(index) & 0xff, value.charCodeAt(index) >>> 8);
+				}
+				while (parts.length % 4 !== 0) {
+					parts.push(0);
+				}
+			};
+			uint32(entries.length);
+			for (const [kind, value] of entries) {
+				string16(kind);
+				string16(value);
+			}
+			const payload = parts.length;
+			return VSBuffer.wrap(new Uint8Array([payload & 0xff, (payload >>> 8) & 0xff, (payload >>> 16) & 0xff, payload >>> 24, ...parts]));
+		};
+		const whole = write([['vscode-editor-data', '{"mode":"markdown"}'], ['basehalf/note', 'file:///work/读书/a b.md']]);
+		assert.deepStrictEqual({
+			whole: [...parseBaseHalfClipboardWebCustomData(whole)],
+			cut: [...parseBaseHalfClipboardWebCustomData(whole.slice(0, whole.byteLength - 6))],
+			none: [...parseBaseHalfClipboardWebCustomData(VSBuffer.alloc(0))],
+		}, {
+			whole: [['vscode-editor-data', '{"mode":"markdown"}'], ['basehalf/note', 'file:///work/读书/a b.md']],
+			cut: [],
+			none: [],
 		});
 	});
 

@@ -42,7 +42,9 @@ suite('BaseHalfMarkdownAttachment', () => {
 			service.items(URI.joinPath(WORKSPACE, ...note.split('/')), text, paths.map(path => path.startsWith('/') ? URI.file(path) : joinPath(WORKSPACE, ...path.split('/'))));
 		const rebase = (note: string, text: string, paths: readonly string[]) =>
 			service.rebase(URI.joinPath(WORKSPACE, ...note.split('/')), text, paths.map(path => joinPath(WORKSPACE, ...path.split('/'))));
-		return { fileService, put, putItems, rebase, files: () => tree(fileService) };
+		const copiedNoteText = (note: string, text: string, source: string) =>
+			service.copiedNoteText(URI.joinPath(WORKSPACE, ...note.split('/')), text, source.startsWith('/') ? URI.file(source) : joinPath(WORKSPACE, ...source.split('/')));
+		return { fileService, put, putItems, rebase, copiedNoteText, files: () => tree(fileService) };
 	}
 
 	/** Clones as the disk's own clone does: never over a file that is there. */
@@ -264,6 +266,43 @@ suite('BaseHalfMarkdownAttachment', () => {
 				failures: [],
 			},
 			record: ['.bh/mirror/.bh/attachments/bbbbbbbbbb/a b.png/edit.yaml', '.bh/mirror/.bh/attachments/bbbbbbbbbb/a b.png/original.png'],
+		});
+	});
+
+	test('a note made from text copied out of another note links from its own place, its stored files cloned into a folder of its own with their records; the other note is untouched (rule 33)', async () => {
+		const copied = [
+			'![a](../.bh/attachments/aaaaaaaaaa/a%20b.png) ![b](<../.bh/attachments/aaaaaaaaaa/b.png>)',
+			'[cat](../pics/cat.png) [part](other.md#part) [web](https://example.com/x.png) [top](#top)',
+			'',
+		].join('\n');
+		const workspace = await open({
+			'notes/a.md': copied,
+			'notes/other.md': '',
+			'pics/cat.png': 'cat',
+			'.bh/attachments/aaaaaaaaaa/a b.png': 'a',
+			'.bh/attachments/aaaaaaaaaa/b.png': 'b',
+			'.bh/mirror/.bh/attachments/aaaaaaaaaa/a b.png/edit.yaml': 'original: original.png\n',
+		});
+
+		const result = await workspace.copiedNoteText('untitled.md', copied, 'notes/a.md');
+		const folder = /attachments\/(?<folder>[a-z0-9]{10})\//.exec(result.text)?.groups?.folder ?? '';
+		const files = await workspace.files();
+		assert.deepStrictEqual({
+			text: result.text.split(folder).join('<new>'),
+			failures: result.failures,
+			own: FOLDER.test(folder) && folder !== 'aaaaaaaaaa',
+			clones: Object.keys(files).filter(path => path.includes(folder)).map(path => path.split(folder).join('<new>')).sort(),
+			original: files['notes/a.md'] === copied,
+		}, {
+			text: [
+				'![a](.bh/attachments/<new>/a%20b.png) ![b](.bh/attachments/<new>/b.png)',
+				'[cat](pics/cat.png) [part](notes/other.md#part) [web](https://example.com/x.png) [top](#top)',
+				'',
+			].join('\n'),
+			failures: [],
+			own: true,
+			clones: ['.bh/attachments/<new>/a b.png', '.bh/attachments/<new>/b.png', '.bh/mirror/.bh/attachments/<new>/a b.png/edit.yaml'],
+			original: true,
 		});
 	});
 
