@@ -557,6 +557,7 @@ start).
     | a palette color, in BaseHalf's values, the editor's other palettes, an opaque `rgb()` or `rgba()` of one of them, or its CSS name (`grey` for gray too) | that palette color |
     | any other color, a block's color, an alignment, a file's caption | nothing |
     | a width of a picture or a video | kept from Markdown and from Rich; dropped from other applications |
+    | a picture, a video, or a sound within a line of text, from another application | a block of its own, between the line's text before it and after it |
     | `<details>`, open or not | a toggle, stored closed |
     | a relative picture, video, or sound in Markdown | read from the note's folder, its kind by the list of media files |
     | Markdown that Rich cannot edit | a fixed block holding the pasted text |

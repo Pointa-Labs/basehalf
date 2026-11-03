@@ -773,15 +773,20 @@ async function pastes(t: INoteFormatsTest): Promise<void> {
 		await paste(t, data);
 		return { saved: await t.save(), blocks: t.blocks().map(block => block.type) };
 	};
-	t.check('HTML from another application keeps underline but over a whole link and palette colors, and drops other colors, alignment, and a picture\'s width', {
+	t.check('HTML from another application keeps underline but over a whole link and palette colors, drops other colors, alignment, and a picture\'s width, and makes a picture in a line a block of its own', {
 		formats: (await into({
 			'text/html': '<p style="text-align:center;background-color:yellow"><u>under</u>, <a href="https://example.com/a"><u>a whole link</u></a>, <span style="color: rgb(232, 112, 107)">red</span>, and <span style="color:#123456">other</span>.</p>',
 			'text/plain': 'under, a whole link, red, and other.',
 		})).saved,
 		picture: (await into({ 'text/html': '<img src="https://example.com/pic.png" width="200">', 'text/plain': '' })).saved,
+		pictureInALine: (await into({
+			'text/html': '<p><a href="https://example.com/"><u>linked</u></a> and a picture <img src="https://example.com/pic.png" width="200"> in a line.</p>',
+			'text/plain': 'linked and a picture in a line.',
+		})).saved,
 	}, {
 		formats: 'Start.\n\n<u>under</u>, [a whole link](https://example.com/a), <span style="color:#e8706b;">red</span>, and other.\n',
 		picture: 'Start.\n\n![](https://example.com/pic.png)\n',
+		pictureInALine: 'Start.\n\n[linked](https://example.com/) and a picture\n\n![](https://example.com/pic.png)\n\nin a line.\n',
 	});
 	t.check('a pasted toggle is stored closed, and a pasted table has one header row and no merged cells', {
 		toggle: (await into({ 'text/html': '<details open><summary>Title</summary><p>child</p></details>', 'text/plain': 'Title child' })).saved,

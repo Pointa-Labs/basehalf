@@ -67,4 +67,15 @@ suite('BaseHalfNoteHtmlRepair', () => {
 		assert.strictEqual(caption('<figure><img src="a.png"><figcaption>a<br>b</figcaption></figure>'), 'a b');
 		assert.strictEqual(caption('<figure><img src="a.png"><figcaption>a<br/><br>b</figcaption></figure>'), 'a  b');
 	});
+
+	test('makes a pasted picture, video, or sound in a line of text a block of its own between the text before and after it', () => {
+		const picture = (name: string) => `<img src="https://x/${name}" data-url="https://x/${name}">`;
+		assert.strictEqual(mended('<p><a href="u">l</a> and <img src="https://x/p.png"> then.</p>', 'paste'), `<p><a href="u">l</a> and </p>${picture('p.png')}<p> then.</p>`);
+		// In a link: the picture goes out of it, and the link keeps its text on either side.
+		assert.strictEqual(mended('<h2>Title <a href="u">a<img src="https://x/p.png">b</a></h2>', 'drop'), `<h2>Title <a href="u">a</a></h2>${picture('p.png')}<h2><a href="u">b</a></h2>`);
+		// Two in a line, and a line that is a picture alone.
+		assert.strictEqual(mended('<p><img src="https://x/a.png"> and <img src="https://x/b.png"></p><p><img src="https://x/c.png"></p>', 'paste'), `${picture('a.png')}<p> and </p>${picture('b.png')}${picture('c.png')}`);
+		// A note's Markdown is read as the card shows it.
+		assert.strictEqual(mended('<p>a <img src="p.png"> b</p>'), '<p>a <img src="p.png" data-url="p.png"> b</p>');
+	});
 });

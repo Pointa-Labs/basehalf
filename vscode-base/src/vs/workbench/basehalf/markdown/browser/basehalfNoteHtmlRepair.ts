@@ -322,6 +322,40 @@ export interface IBaseHalfNoteHtmlRepair {
 	readonly openFlags: readonly boolean[];
 }
 
+/** Whether a fragment holds text a page shows, or a picture, a video, a sound, or a line break. */
+function holdsMoreThanWhiteSpace(node: Node): boolean {
+	return textNodesOf(node).some(text => !asciiWhiteSpace.test(text.data)) || elementsOf(node as ParentNode).some(element => isTag(element, 'img', 'video', 'audio', 'br', 'input', 'hr'));
+}
+
+/**
+ * A picture, a video, or a sound among the text of a pasted line is a block of
+ * its own, between the line's text before it and after it (note formats, rule
+ * 72): the editor holds none in a line of text, and would drop it.
+ */
+function liftMediaOutOfPastedLines(fragment: DocumentFragment): void {
+	for (const line of elementsOf(fragment)) {
+		if (!isTag(line, 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') || inCode(line)) {
+			continue;
+		}
+		// A picture inside a video or a sound is what shows where they cannot play, and goes with them.
+		const media = elementsOf(line).filter(element => isTag(element, 'img', 'video', 'audio') && !element.parentElement?.closest('video, audio'));
+		for (const element of media) {
+			const before = line.ownerDocument.createRange();
+			before.setStart(line, 0);
+			before.setEndBefore(element);
+			const head = line.cloneNode(false) as Element;
+			head.append(before.extractContents());
+			if (holdsMoreThanWhiteSpace(head)) {
+				line.before(head);
+			}
+			line.before(element);
+		}
+		if (media.length > 0 && !holdsMoreThanWhiteSpace(line)) {
+			line.remove();
+		}
+	}
+}
+
 /**
  * Pasted HTML shows a picture of a video or a sound as that video or sound,
  * by the one list of media files (note formats, rules 26 and 72). A note's
@@ -696,6 +730,7 @@ function removeUnderlineOfWholeLinks(fragment: DocumentFragment): void {
  */
 export function repairBaseHalfNoteHtml(fragment: DocumentFragment, mode: BaseHalfNoteReadMode): IBaseHalfNoteHtmlRepair {
 	if (mode !== 'markdown') {
+		liftMediaOutOfPastedLines(fragment);
 		showPastedMediaOfItsKind(fragment);
 	}
 	keepMediaAddresses(fragment, mode);
