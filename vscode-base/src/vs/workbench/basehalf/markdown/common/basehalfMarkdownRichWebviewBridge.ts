@@ -9,7 +9,7 @@ import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichHostMessage,
-	BaseHalfMarkdownRichPictureChoices,
+	BaseHalfMarkdownRichMediaChoices,
 	BaseHalfMarkdownRichSurface,
 	BaseHalfMarkdownRichWebviewMessage,
 	IBaseHalfMarkdownRichFileLink,
@@ -110,9 +110,9 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 	}
 
 	/** The editing of a picture ended: Rich shows its file at `version`, closes the room under it, and keeps `step` for its undo (D113). */
-	sendPictureEditEnded(blockId: string, version: string | undefined, step?: { readonly before: BaseHalfMarkdownRichPictureChoices; readonly after: BaseHalfMarkdownRichPictureChoices }): Promise<boolean> {
+	sendMediaEditEnded(blockId: string, version: string | undefined, step?: { readonly before: BaseHalfMarkdownRichMediaChoices; readonly after: BaseHalfMarkdownRichMediaChoices }): Promise<boolean> {
 		return this.transport.postMessage({
-			type: 'basehalf.markdownRich.pictureEditEnded',
+			type: 'basehalf.markdownRich.mediaEditEnded',
 			key: this.key,
 			blockId,
 			...(version !== undefined ? { version } : {}),
@@ -121,9 +121,9 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 	}
 
 	/** An undo or a redo of the note set the choices of the picture file at `href`: Rich shows it at `version` (D113). */
-	sendPictureVersion(href: string, version: string): Promise<boolean> {
+	sendMediaVersion(href: string, version: string): Promise<boolean> {
 		return this.transport.postMessage({
-			type: 'basehalf.markdownRich.pictureVersion',
+			type: 'basehalf.markdownRich.mediaVersion',
 			key: this.key,
 			href,
 			version
@@ -131,18 +131,18 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 	}
 
 	/** The editor of a picture shows over it: Rich hides its own picture under the editor (D113). */
-	sendHidePicture(blockId: string): Promise<boolean> {
+	sendHideMedia(blockId: string): Promise<boolean> {
 		return this.transport.postMessage({
-			type: 'basehalf.markdownRich.hidePicture',
+			type: 'basehalf.markdownRich.hideMedia',
 			key: this.key,
 			blockId
 		});
 	}
 
 	/** The editor of a picture stands where the note shows it now: Rich shows its own picture again (D113). */
-	sendShowPicture(blockId: string): Promise<boolean> {
+	sendShowMedia(blockId: string): Promise<boolean> {
 		return this.transport.postMessage({
-			type: 'basehalf.markdownRich.showPicture',
+			type: 'basehalf.markdownRich.showMedia',
 			key: this.key,
 			blockId
 		});

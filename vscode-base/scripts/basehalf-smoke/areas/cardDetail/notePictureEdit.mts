@@ -25,7 +25,7 @@ const NOTE_TEXT = ['# Trip', '', 'The text above the picture.', '', '![photo](ph
 const TALL_NOTE = `${FOLDER}/tall.md`;
 const TALL_PICTURE = `${FOLDER}/tall.png`;
 const TALL_NOTE_TEXT = ['# Tower', '', 'The text above the picture.', '', '![tower](tall.png)', '', 'The text under the picture.', ''].join('\n');
-const STAGE = '.basehalf-note-picture-stage';
+const STAGE = '.basehalf-note-media-stage';
 // Criteria 31, 33, 35, and 36 ask for 50 ms, 300 ms, and 400 ms on an idle machine; a loaded one is slower, and the smoke allows that and logs the times.
 const EDIT_SHOWN_LIMIT_MS = 250;
 const DONE_GONE_LIMIT_MS = 600;
@@ -82,7 +82,7 @@ async function startWindowFrames(page) {
 				return;
 			}
 			const stage = document.querySelector(selector);
-			const layer = document.querySelector('.basehalf-card-detail-note-picture-layer');
+			const layer = document.querySelector('.basehalf-card-detail-note-media-layer');
 			const iframe = [...(layer?.parentElement?.children ?? [])].find(child => child.tagName === 'IFRAME');
 			const picture = stage?.querySelector('.basehalf-image-crop-picture');
 			state.frames.push({
@@ -293,7 +293,7 @@ export async function assertNotePictureEditInPlace(page) {
 
 	// Criterion 32: Done.
 	const done = await page.evaluate(() => performance.timeOrigin + performance.now());
-	await page.locator('.basehalf-note-picture-done').click();
+	await page.locator('.basehalf-note-media-done').click();
 	await page.locator(STAGE).waitFor({ state: 'detached', timeout: 5_000 });
 	await page.waitForTimeout(300);
 	windowRecord = await windowFrames(page);
@@ -340,7 +340,7 @@ export async function assertNotePictureEditInPlace(page) {
 	assertAPictureOnEveryFrame(await windowFrames(page), await pageFrames(frame), againPressed, whole.t, 'Edit again');
 	await dragTopLeftTo(page, { x: whole.whole.l - 3, y: whole.whole.t - 3 }, 30);
 	await page.waitForTimeout(1_600);
-	await page.locator('.basehalf-note-picture-done').click();
+	await page.locator('.basehalf-note-media-done').click();
 	await page.locator(STAGE).waitFor({ state: 'detached', timeout: 5_000 });
 	await waitUntil(() => pngSize(PICTURE) === '1600x1000', 'one drag of the frame\'s corner onto the original\'s takes the whole original back', 10_000);
 
@@ -389,7 +389,7 @@ export async function assertNotePictureEditTallInView(page) {
 
 	// Done after no change glides it back to the note's picture.
 	const done = await page.evaluate(() => performance.timeOrigin + performance.now());
-	await page.locator('.basehalf-note-picture-done').click();
+	await page.locator('.basehalf-note-media-done').click();
 	await page.locator(STAGE).waitFor({ state: 'detached', timeout: 5_000 });
 	await page.waitForTimeout(300);
 	const windowRecord = await windowFrames(page);

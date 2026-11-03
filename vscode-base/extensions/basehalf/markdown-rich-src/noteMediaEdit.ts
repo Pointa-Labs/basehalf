@@ -14,7 +14,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
  * for the editor's tools, and hides its own picture under the editor while the
  * editor glides back to it once the editing ended.
  */
-export interface IBaseHalfNotePictureEditMark {
+export interface IBaseHalfNoteMediaEditMark {
 	readonly blockId: string;
 	/** The room under the picture, in pixels of the page. */
 	readonly room: number;
@@ -22,18 +22,18 @@ export interface IBaseHalfNotePictureEditMark {
 	readonly hidden: boolean;
 }
 
-const EDITING_CLASS = 'basehalf-note-picture-editing';
-const HIDDEN_CLASS = 'basehalf-note-picture-hidden';
+const EDITING_CLASS = 'basehalf-note-media-editing';
+const HIDDEN_CLASS = 'basehalf-note-media-hidden';
 
-interface INotePictureEditState {
-	readonly mark: IBaseHalfNotePictureEditMark | undefined;
+interface INoteMediaEditState {
+	readonly mark: IBaseHalfNoteMediaEditMark | undefined;
 	readonly decorations: DecorationSet;
 }
 
-const notePictureEditKey = new PluginKey<INotePictureEditState>('baseHalfNotePictureEdit');
+const noteMediaEditKey = new PluginKey<INoteMediaEditState>('baseHalfNoteMediaEdit');
 
 /** The mark is a decoration of the picture's block: ProseMirror owns the block's element and would drop a class set on it by hand. */
-function buildDecorations(doc: PmNode, mark: IBaseHalfNotePictureEditMark | undefined): DecorationSet {
+function buildDecorations(doc: PmNode, mark: IBaseHalfNoteMediaEditMark | undefined): DecorationSet {
 	if (!mark) {
 		return DecorationSet.empty;
 	}
@@ -49,7 +49,7 @@ function buildDecorations(doc: PmNode, mark: IBaseHalfNotePictureEditMark | unde
 		if (content?.type.name === 'image') {
 			decorations.push(Decoration.node(pos + 1, pos + 1 + content.nodeSize, {
 				class: mark.hidden ? `${EDITING_CLASS} ${HIDDEN_CLASS}` : EDITING_CLASS,
-				style: `--basehalf-note-picture-edit-room: ${mark.room}px`,
+				style: `--basehalf-note-media-edit-room: ${mark.room}px`,
 			}));
 		}
 		return false;
@@ -57,16 +57,16 @@ function buildDecorations(doc: PmNode, mark: IBaseHalfNotePictureEditMark | unde
 	return DecorationSet.create(doc, decorations);
 }
 
-export function makeBaseHalfNotePictureEditExtension() {
+export function makeBaseHalfNoteMediaEditExtension() {
 	return createExtension({
-		key: 'baseHalfNotePictureEdit',
+		key: 'baseHalfNoteMediaEdit',
 		prosemirrorPlugins: [
-			new Plugin<INotePictureEditState>({
-				key: notePictureEditKey,
+			new Plugin<INoteMediaEditState>({
+				key: noteMediaEditKey,
 				state: {
 					init: () => ({ mark: undefined, decorations: DecorationSet.empty }),
 					apply(transaction, value, _oldState, newState) {
-						const meta = transaction.getMeta(notePictureEditKey) as { readonly mark: IBaseHalfNotePictureEditMark | undefined } | undefined;
+						const meta = transaction.getMeta(noteMediaEditKey) as { readonly mark: IBaseHalfNoteMediaEditMark | undefined } | undefined;
 						if (meta) {
 							return { mark: meta.mark, decorations: buildDecorations(newState.doc, meta.mark) };
 						}
@@ -78,7 +78,7 @@ export function makeBaseHalfNotePictureEditExtension() {
 				},
 				props: {
 					decorations(state) {
-						return notePictureEditKey.getState(state)?.decorations ?? DecorationSet.empty;
+						return noteMediaEditKey.getState(state)?.decorations ?? DecorationSet.empty;
 					}
 				}
 			})
@@ -87,19 +87,19 @@ export function makeBaseHalfNotePictureEditExtension() {
 }
 
 /** Marks the picture whose editor stands over it, or none. */
-export function setBaseHalfNotePictureEditMark(view: EditorView | undefined, mark: IBaseHalfNotePictureEditMark | undefined): void {
+export function setBaseHalfNoteMediaEditMark(view: EditorView | undefined, mark: IBaseHalfNoteMediaEditMark | undefined): void {
 	if (!view) {
 		return;
 	}
 	try {
-		view.dispatch(view.state.tr.setMeta(notePictureEditKey, { mark }));
+		view.dispatch(view.state.tr.setMeta(noteMediaEditKey, { mark }));
 	} catch {
 		// The webview can dispose the ProseMirror view while the editing ends.
 	}
 }
 
 /** The element of a picture block's picture, not of a block nested in it. */
-export function baseHalfNotePictureElement(root: HTMLElement | undefined, blockId: string): HTMLImageElement | undefined {
+export function baseHalfNoteMediaElement(root: HTMLElement | undefined, blockId: string): HTMLImageElement | undefined {
 	const block = root?.querySelector(`[data-node-type="blockContainer"][data-id="${CSS.escape(blockId)}"]`);
 	for (const picture of block?.querySelectorAll('.bn-block-content[data-content-type="image"] img.bn-visual-media') ?? []) {
 		if (picture instanceof HTMLImageElement && picture.closest('[data-node-type="blockContainer"]') === block) {

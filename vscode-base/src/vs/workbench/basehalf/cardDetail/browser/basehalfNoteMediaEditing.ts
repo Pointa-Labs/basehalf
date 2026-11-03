@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import './media/basehalfNotePictureEditing.css';
+import './media/basehalfNoteMediaEditing.css';
 import { $, addDisposableListener, append, getWindow, scheduleAtNextAnimationFrame } from '../../../../base/browser/dom.js';
 import { raceTimeout } from '../../../../base/common/async.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -20,22 +20,22 @@ import { resolveBaseHalfNoteLink } from '../../markdown/common/basehalfNoteLinks
 import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
 import { BaseHalfMediaEditing } from '../../mediaEdit/browser/basehalfMediaEditing.js';
 import { IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
-import { baseHalfNotePictureEditorBox, baseHalfNotePictureEditorFit, type IBaseHalfNotePictureBox } from '../../mediaEdit/common/basehalfNotePictureEdit.js';
+import { baseHalfNotePictureEditorBox, baseHalfNoteMediaEditorFit, type IBaseHalfNoteMediaBox } from '../../mediaEdit/common/basehalfNoteMediaEdit.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 
 /** A picture of a note that its Edit opened (D113). */
-export interface IBaseHalfNotePictureEditingTarget {
+export interface IBaseHalfNoteMediaEditingTarget {
 	/** The note the picture is in. */
 	readonly note: URI;
 	readonly blockId: string;
 	/** The picture's address in the note. */
 	readonly href: string;
 	/** Where the picture stands in the frame of Rich's page. */
-	readonly box: IBaseHalfNotePictureBox;
+	readonly box: IBaseHalfNoteMediaBox;
 }
 
 /** What the editing of a picture needs of Card Detail's rich projection. */
-export interface IBaseHalfNotePictureEditingHost {
+export interface IBaseHalfNoteMediaEditingHost {
 	/** The layer over Rich's page in which the editor is drawn: it has the place and the size of the page's frame. */
 	readonly layer: HTMLElement;
 	/**
@@ -44,7 +44,7 @@ export interface IBaseHalfNotePictureEditingHost {
 	 * `step` when the edit changed the file, which Rich keeps as one step of
 	 * the note's undo.
 	 */
-	ended(blockId: string, version: string | undefined, step: IBaseHalfNotePictureEditStep | undefined): void;
+	ended(blockId: string, version: string | undefined, step: IBaseHalfNoteMediaEditStep | undefined): void;
 	/** The editor shows over the picture: Rich hides its own under it, where the editor may draw the picture smaller. */
 	hide(blockId: string): void;
 	/** The editor stands where Rich shows the picture now: Rich shows it again, and then the editing goes. */
@@ -52,7 +52,7 @@ export interface IBaseHalfNotePictureEditingHost {
 }
 
 /** The edit of a picture from Edit to Done, one step of the note's undo: the choices before and after it. */
-export interface IBaseHalfNotePictureEditStep {
+export interface IBaseHalfNoteMediaEditStep {
 	readonly before: IBaseHalfMediaChoices;
 	readonly after: IBaseHalfMediaChoices;
 }
@@ -61,7 +61,7 @@ export interface IBaseHalfNotePictureEditStep {
 const END_GLIDE_MILLISECONDS = 200;
 
 /** Above the canvas's undo and Rich's: while the editor of a picture has the keyboard, Command+Z undoes its changes. */
-const NOTE_PICTURE_UNDO_REDO_PRIORITY = 120;
+const NOTE_MEDIA_UNDO_REDO_PRIORITY = 120;
 
 /**
  * A picture edited in its note (D113): the editor of the picture's card,
@@ -71,7 +71,7 @@ const NOTE_PICTURE_UNDO_REDO_PRIORITY = 120;
  * the note flashes, and Done, Escape, and a press in the note go back to the
  * note, which shows the file as it is then.
  */
-export class BaseHalfNotePictureEditing extends Disposable {
+export class BaseHalfNoteMediaEditing extends Disposable {
 
 	private editing: BaseHalfMediaEditing | undefined;
 	private file: IBaseHalfWorkspaceResource | undefined;
@@ -80,12 +80,12 @@ export class BaseHalfNotePictureEditing extends Disposable {
 	private shown = false;
 	/** The choices when Edit was pressed, and the steps of the editor's own undo since. */
 	private initial: IBaseHalfMediaChoices = {};
-	private readonly undoSteps: IBaseHalfNotePictureEditStep[] = [];
-	private readonly redoSteps: IBaseHalfNotePictureEditStep[] = [];
+	private readonly undoSteps: IBaseHalfNoteMediaEditStep[] = [];
+	private readonly redoSteps: IBaseHalfNoteMediaEditStep[] = [];
 
 	constructor(
-		readonly target: IBaseHalfNotePictureEditingTarget,
-		private readonly host: IBaseHalfNotePictureEditingHost,
+		readonly target: IBaseHalfNoteMediaEditingTarget,
+		private readonly host: IBaseHalfNoteMediaEditingHost,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IBaseHalfMediaEditService private readonly mediaEditService: IBaseHalfMediaEditService,
@@ -111,9 +111,9 @@ export class BaseHalfNotePictureEditing extends Disposable {
 			this.undoSteps.push({ before, after });
 			this.redoSteps.length = 0;
 		};
-		this._register(UndoCommand.addImplementation(NOTE_PICTURE_UNDO_REDO_PRIORITY, 'basehalfNotePictureEdit', () => this.hasKeyboard() && this.undo()));
-		this._register(RedoCommand.addImplementation(NOTE_PICTURE_UNDO_REDO_PRIORITY, 'basehalfNotePictureEdit', () => this.hasKeyboard() && this.redo()));
-		const stage = this.stage = append(this.host.layer, $('.basehalf-note-picture-stage'));
+		this._register(UndoCommand.addImplementation(NOTE_MEDIA_UNDO_REDO_PRIORITY, 'basehalfNoteMediaEdit', () => this.hasKeyboard() && this.undo()));
+		this._register(RedoCommand.addImplementation(NOTE_MEDIA_UNDO_REDO_PRIORITY, 'basehalfNoteMediaEdit', () => this.hasKeyboard() && this.redo()));
+		const stage = this.stage = append(this.host.layer, $('.basehalf-note-media-stage'));
 		this._register({ dispose: () => stage.remove() });
 		placeStage(stage, this.target.box);
 		// Hidden until the picture is drawn in it: the note's own picture shows meanwhile.
@@ -134,9 +134,9 @@ export class BaseHalfNotePictureEditing extends Disposable {
 				this.comeIntoView(stage, editing);
 			}
 		}));
-		const done = append(stage, $<HTMLButtonElement>('button.basehalf-note-picture-done'));
+		const done = append(stage, $<HTMLButtonElement>('button.basehalf-note-media-done'));
 		done.type = 'button';
-		done.textContent = localize('basehalf.notePictureEdit.done', "Done");
+		done.textContent = localize('basehalf.noteMediaEdit.done', "Done");
 		this._register(addDisposableListener(done, 'mousedown', event => event.preventDefault()));
 		this._register(addDisposableListener(done, 'click', () => void this.end()));
 		// Escape goes back to the note once the editor has used it, as for a drag it puts back.
@@ -173,10 +173,10 @@ export class BaseHalfNotePictureEditing extends Disposable {
 	 * the editor, and closed the room under it: the editor glides there, as
 	 * the crop it kept fits that box, and then Rich shows its own picture.
 	 */
-	laidOut(box: IBaseHalfNotePictureBox | undefined): void {
+	laidOut(box: IBaseHalfNoteMediaBox | undefined): void {
 		const stage = this.stage;
 		if (!stage || !box || this.shown) {
-			this.showPicture();
+			this.showMedia();
 			return;
 		}
 		const window = getWindow(stage);
@@ -184,7 +184,7 @@ export class BaseHalfNotePictureEditing extends Disposable {
 			stage.style.transition = ['left', 'top', 'width', 'height'].map(property => `${property} ${END_GLIDE_MILLISECONDS}ms cubic-bezier(0.25, 1, 0.5, 1)`).join(', ');
 		}
 		const moved = placeStage(stage, box);
-		const timer = window.setTimeout(() => this.showPicture(), moved && stage.style.transition ? END_GLIDE_MILLISECONDS : 0);
+		const timer = window.setTimeout(() => this.showMedia(), moved && stage.style.transition ? END_GLIDE_MILLISECONDS : 0);
 		this._register(toDisposable(() => window.clearTimeout(timer)));
 	}
 
@@ -194,7 +194,7 @@ export class BaseHalfNotePictureEditing extends Disposable {
 	 * out around the part kept (D113).
 	 */
 	private comeIntoView(stage: HTMLElement, editing: BaseHalfMediaEditing): void {
-		const fitted = baseHalfNotePictureEditorFit(this.target.box, this.host.layer.clientHeight);
+		const fitted = baseHalfNoteMediaEditorFit(this.target.box, this.host.layer.clientHeight);
 		if (fitted === this.target.box) {
 			editing.showWhole();
 			return;
@@ -253,7 +253,7 @@ export class BaseHalfNotePictureEditing extends Disposable {
 		return true;
 	}
 
-	private showPicture(): void {
+	private showMedia(): void {
 		if (!this.shown && !this._store.isDisposed) {
 			this.shown = true;
 			this.host.show(this.target.blockId);
@@ -261,7 +261,7 @@ export class BaseHalfNotePictureEditing extends Disposable {
 	}
 
 	private pictureFile(): IBaseHalfWorkspaceResource | undefined {
-		return baseHalfNotePictureFile(this.workspaceContextService.getWorkspace().folders.map(folder => folder.uri), this.target.note, this.target.href);
+		return baseHalfNoteMediaFile(this.workspaceContextService.getWorkspace().folders.map(folder => folder.uri), this.target.note, this.target.href);
 	}
 }
 
@@ -272,7 +272,7 @@ export class BaseHalfNotePictureEditing extends Disposable {
  * 48), with its card information in the mirror of that store's home. None
  * for an address elsewhere.
  */
-export function baseHalfNotePictureFile(folders: readonly URI[], note: URI, href: string): IBaseHalfWorkspaceResource | undefined {
+export function baseHalfNoteMediaFile(folders: readonly URI[], note: URI, href: string): IBaseHalfWorkspaceResource | undefined {
 	const stores = folders.flatMap(folder => baseHalfNoteStoresAbove(folder));
 	const target = resolveBaseHalfNoteLink(note, [...folders, ...stores], href);
 	if (target.kind !== 'file') {
@@ -301,8 +301,8 @@ export function baseHalfNotePictureFile(folders: readonly URI[], note: URI, href
  * it has then is what the note shows; none when it did not change, which the
  * service says.
  */
-export function applyBaseHalfNotePictureChoices(accessor: ServicesAccessor, note: URI, href: string, choices: IBaseHalfMediaChoices): Promise<string | undefined> {
-	const file = baseHalfNotePictureFile(accessor.get(IWorkspaceContextService).getWorkspace().folders.map(folder => folder.uri), note, href);
+export function applyBaseHalfNoteMediaChoices(accessor: ServicesAccessor, note: URI, href: string, choices: IBaseHalfMediaChoices): Promise<string | undefined> {
+	const file = baseHalfNoteMediaFile(accessor.get(IWorkspaceContextService).getWorkspace().folders.map(folder => folder.uri), note, href);
 	const mediaEditService = accessor.get(IBaseHalfMediaEditService);
 	const fileService = accessor.get(IFileService);
 	return (async () => {
@@ -320,7 +320,7 @@ function sameChoices(a: IBaseHalfMediaChoices, b: IBaseHalfMediaChoices): boolea
 }
 
 /** Puts the editor where it draws the picture at the picture's box; says whether it moved. */
-function placeStage(stage: HTMLElement, picture: IBaseHalfNotePictureBox): boolean {
+function placeStage(stage: HTMLElement, picture: IBaseHalfNoteMediaBox): boolean {
 	const box = baseHalfNotePictureEditorBox(picture);
 	const before = [stage.style.left, stage.style.top, stage.style.width, stage.style.height].join();
 	stage.style.left = `${box.left}px`;

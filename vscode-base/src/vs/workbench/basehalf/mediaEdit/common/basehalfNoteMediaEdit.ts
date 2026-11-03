@@ -14,13 +14,13 @@ export const BASEHALF_IMAGE_CROP_MARGIN = 24;
 /** The height of the crop view's row of tools (`.basehalf-image-crop-tools` in basehalfImageCropView.css). */
 export const BASEHALF_IMAGE_CROP_TOOLS_HEIGHT = 56;
 
-/** The height of the line under the editor of a picture, with its foot (basehalfMediaEditing.css and basehalfNotePictureEditing.css). */
+/** The height of the line under the editor of a picture, with its foot (basehalfMediaEditing.css and basehalfNoteMediaEditing.css). */
 export const BASEHALF_MEDIA_EDIT_LINE_HEIGHT = 28;
 
 /** The room a note makes under a picture while it is edited: the part of the editor below the picture. */
 export const BASEHALF_NOTE_PICTURE_EDIT_ROOM = BASEHALF_IMAGE_CROP_MARGIN + BASEHALF_IMAGE_CROP_TOOLS_HEIGHT + BASEHALF_MEDIA_EDIT_LINE_HEIGHT;
 
-export interface IBaseHalfNotePictureBox {
+export interface IBaseHalfNoteMediaBox {
 	readonly left: number;
 	readonly top: number;
 	readonly width: number;
@@ -34,7 +34,7 @@ export interface IBaseHalfNotePictureBox {
  * margin, so the picture of the editor stands where the note shows the
  * picture, and nothing moves when the editor comes.
  */
-export function baseHalfNotePictureEditorBox(picture: IBaseHalfNotePictureBox): IBaseHalfNotePictureBox {
+export function baseHalfNotePictureEditorBox(picture: IBaseHalfNoteMediaBox): IBaseHalfNoteMediaBox {
 	return {
 		left: picture.left - BASEHALF_IMAGE_CROP_MARGIN,
 		top: picture.top - BASEHALF_IMAGE_CROP_MARGIN,
@@ -52,7 +52,7 @@ export function baseHalfNotePictureEditorBox(picture: IBaseHalfNotePictureBox): 
  * view's bottom, its middle across where the picture's is, so that the tools
  * never fall below the view, which does not scroll while the editor is open.
  */
-export function baseHalfNotePictureEditorFit(picture: IBaseHalfNotePictureBox, viewHeight: number): IBaseHalfNotePictureBox {
+export function baseHalfNoteMediaEditorFit(picture: IBaseHalfNoteMediaBox, viewHeight: number): IBaseHalfNoteMediaBox {
 	const top = Math.max(picture.top, BASEHALF_IMAGE_CROP_MARGIN);
 	const room = viewHeight - BASEHALF_NOTE_PICTURE_EDIT_ROOM - top;
 	// A scroll of the page lands on whole pixels of the screen: a fraction of a pixel more is no reason to move.
