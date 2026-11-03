@@ -890,7 +890,21 @@ in Card Detail.
 - The margin of 24 px around the picture, in which the frame rests and a
   held corner makes the picture follow, shows the note, not the editor's
   background: the editor draws in the picture's box only, with its rounded
-  corners.
+  corners. The note's own picture hides under the editor once it shows.
+- **A picture that an edit cropped or straightened shows its whole
+  original** while it is edited again: once the editor shows, its picture
+  glides out in 200 ms until the whole original fits the picture's box, as
+  a corner pushed to the edge brings it in ([The crop frame](#the-crop-frame)),
+  the frame on the part kept and the rest dimmed around it. A change comes
+  to rest from there as in Card Detail: the part kept as large as fits the
+  box. The Straighten dial keeps the frame where it stands on screen, there
+  as at rest.
+- **The tools stay in the view.** A picture whose editor, with the tools
+  and the line under it, would not fit the view glides in 200 ms once the
+  editor shows to as large as fits between the picture's top, or the view's
+  top less the margin, and the room above the view's bottom, its middle
+  across where the picture's was; at Done it glides back to the note's
+  picture.
 - **The file is the one the note links**, read from the note's folder: a
   file of the workspace linked where it is, or a file the note keeps
   (D111). Its original and edit record are its card information, as for
@@ -1393,12 +1407,13 @@ original goes to the Trash with it, and its record is deleted.
     frame. End and Home stop at the part's ends, and Play from 7 s stops on
     the part's last frame (D103; the user, 2026-10-29: when dragging, the
     yellow frame and the white line in it were unclear).
-39. A picture edited in its note meets criteria 31 to 34 of
+39. A picture edited in its note meets criteria 31 to 36 of
     [formats of a note](note-formats.md#acceptance-criteria): the editor
     over the note's picture within 1 px, a corner under the pointer on every
-    frame, a picture drawn on every frame of Edit and Done, and the whole
-    edit one step of the note's undo, which no step of the canvas holds
-    (D113).
+    frame, a picture drawn on every frame of Edit and Done, the whole edit
+    one step of the note's undo, which no step of the canvas holds, the
+    whole original of a cropped picture, and the tools of a tall one in the
+    view (D113).
 
 ## Verification
 

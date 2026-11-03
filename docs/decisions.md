@@ -5569,3 +5569,33 @@ original and the record, and the note's file did not change.
   the note's shared document that is never written to the file; its undo and
   redo set those choices through the media edit service, with no step of the
   canvas.
+
+**Finished (2026-11-03).** A picture that an edit cropped or straightened is
+edited from its whole original: once its editor shows over the note's
+picture, the picture glides out in 200 ms until the whole original fits the
+picture's box, the frame on the part kept and the rest dimmed around it, as
+the editor of its card shows it once a corner pushed to the edge has brought
+the whole picture in (D97). Before, the rest stood in the margin around the
+box, where the note shows, so what a crop had left out could not be seen. A
+change then comes to rest as on the card, the part kept as large as fits the
+box. The note's own picture hides under the editor once the editor shows, so
+that where the editor's picture is smaller than the box the note's background
+shows, dimmed with the rest. A picture whose editor would not fit the view,
+the tools and the line under it, glides at Edit to as large as fits between
+the top of the view and the room above its bottom, so that the tools never
+fall below the view, which does not scroll while the editor is open; Done
+glides it back to the note's picture.
+
+Set aside:
+- Fitting the whole original into the box from the first frame: the picture
+  would jump at Edit.
+- Drawing the rest of the original around the box, over the note, at the
+  scale of the part kept, as an editor of documents shows a picture's crop:
+  the rest of a picture cropped to a tenth would cover the note many times
+  over, the frame would need room in the note that the note does not give,
+  and the note's text would hide under it.
+- Keeping the whole original at rest while editing: the card's frame comes to
+  rest as large as fits, and its drag inside the frame, its dial, and its
+  pinch work from there.
+- Letting the tools of a tall picture float over its lower part, the picture
+  at its size: the frame's lower handles would stay out of the view.

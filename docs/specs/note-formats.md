@@ -474,10 +474,27 @@ start).
      tools. The view scrolls as little as shows the editor whole. Nothing of
      the note flashes: the editor shows once its picture is drawn, and the
      note's picture stays until then.
+     - A picture that an edit cropped or straightened is edited from its
+       whole original: once the editor shows, its picture glides out in
+       200 ms until the whole original fits the picture's box, the frame on
+       the part kept and the rest of the original dimmed around it, as the
+       card's editor shows it once a corner pushed to the edge has brought
+       the whole picture in. A change then comes to rest as on the card, the
+       part kept as large as fits the box.
+     - A picture whose editor would not fit the view, with the tools and the
+       line under it, glides in 200 ms once the editor shows to as large as
+       fits between the picture's top, or the top of the view less the
+       frame's margin when the picture's top is above it, and the room above
+       the view's bottom, its middle across where the picture's was: the
+       tools never fall below the view. A cropped one then glides out to its
+       whole original.
 52b. While the picture is edited, the note stays as it is: it does not
      scroll or magnify, it shows no toolbar, and the keyboard is the
      editor's. The margin around the picture, in which the frame rests,
-     shows the note, as the text above the picture.
+     shows the note, as the text above the picture. The note's own picture
+     hides under the editor once the editor shows: where the editor's
+     picture is smaller than the picture's box, the note's background shows,
+     dimmed with the rest.
 52c. **Done, Escape, and a press anywhere else in the note go back to the
      note.** A press does nothing else. The note shows the file as the edit
      made it, at the width the picture had, or as wide as the file when it
@@ -902,6 +919,19 @@ this specification. Outside changes are merged meanwhile, as always.
 34. Command+Z in the note after that Done puts the picture back as the
     original, 1600 × 1000, in one step, and the card information goes;
     Shift+Command+Z puts the crop back.
+35. Edit again after that redo, on the picture shown 712 × 733: the
+    editor's picture stands within 1 px of the note's when it shows, and
+    within 400 ms the whole original fits the picture's box, 712 × 445, with
+    the frame 432 × 445 on the part kept; on every frame the editor's picture
+    or the note's is drawn. The frame's corner dragged onto the original's
+    corner in one drag takes the whole original back.
+36. Edit on a picture of a note that is taller than the view with the room
+    under it: within 400 ms the editor's picture is as large as fits between
+    the picture's top and the tools, the bottom of the line under the tools
+    at most at the view's bottom, its middle across within 1 px of the
+    picture's; on every frame the editor's picture or the note's is drawn.
+    Done after no change glides it back to within 1 px of the note's
+    picture.
 
 ## Verification
 
@@ -946,16 +976,18 @@ this specification. Outside changes are merged meanwhile, as always.
   and the clicks on a summary, a video, and a sound on a resting card, with
   one player at a time. The steps that write the system's clipboard run in CI,
   or with `BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1`.
-- The `cardDetail` suite of the smoke runs criteria 31 to 34 on a note of
+- The `cardDetail` suite of the smoke runs criteria 31 to 36 on a note of
   its own, in every frame, on both sides of the page's frame, each frame
   stamped when it is read (`notePictureEdit.mts`). It logs the times of
   criteria 31 and 33 and allows 250 ms and 600 ms for them, which a loaded
   machine needs; on 2026-11-03, at a load of 25, it measured 31 ms, 0 px,
   0 px over 82 frames, 268 ms, and 0.1 px. Unit tests cover the editor's
-  box, the messages of rules 52a to 52e, and the changes that are no steps
-  of the canvas with their undo (`basehalfNotePictureEdit.test.ts`,
+  box and the box it glides to in a short view, the messages of rules 52a
+  to 52e, the whole original that the crop view glides out to, and the
+  changes that are no steps of the canvas with their undo
+  (`basehalfNotePictureEdit.test.ts`,
   `basehalfMarkdownRichWebviewProtocol.test.ts`,
-  `basehalfMediaEditService.test.ts`).
+  `basehalfImageCropView.test.ts`, `basehalfMediaEditService.test.ts`).
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criterion 22.
