@@ -55,7 +55,7 @@ export interface IBaseHalfNoteFileRetentionServices {
  * What a scan did: `released` and `noted` read everything; the others
  * released nothing, `unread` and `limit` after noting what they found.
  */
-export type BaseHalfNoteFileScanOutcome = 'released' | 'noted' | 'unread' | 'limit' | 'cloud' | 'marked' | 'recent' | 'locked' | 'none';
+export type BaseHalfNoteFileScanOutcome = 'released' | 'noted' | 'unread' | 'limit' | 'cloud' | 'marked' | 'recent' | 'locked' | 'none' | 'empty';
 
 export interface IBaseHalfNoteFileScanResult {
 	readonly outcome: BaseHalfNoteFileScanOutcome;
@@ -113,27 +113,32 @@ export async function baseHalfReleaseUnmentionedNoteFiles(services: IBaseHalfNot
 	if (before.scanned !== undefined && now - before.scanned >= 0 && now - before.scanned < SCAN_EVERY_MS) {
 		return nothing('recent');
 	}
+	let walked: IWalk;
+	try {
+		walked = await walk(fileService, workspaceFolder, limits);
+	} catch (error) {
+		services.logService.warn('[BaseHalf] could not list the notes that mention their files', error);
+		return nothing('unread');
+	}
+	// A scan that finds no store and has noted no file writes nothing, so that opening a workspace without
+	// files in notes writes only layouts under `.bh/` (rule 37).
+	if (walked.stores.length === 0 && Object.keys(before.unmentioned).length === 0) {
+		return nothing('empty');
+	}
 	await baseHalfEnsureMirrorIgnoreFile(fileService, workspaceFolder);
 	const lock = joinPath(cache, LOCK_FILE);
 	if (!await takeLock(fileService, lock, now)) {
 		return nothing('locked');
 	}
 	try {
-		return await scan(services, workspaceFolder, before, notesResource, now, limits);
+		return await scan(services, workspaceFolder, before, notesResource, now, walked);
 	} finally {
 		await fileService.del(lock).catch(() => undefined);
 	}
 }
 
-async function scan(services: IBaseHalfNoteFileRetentionServices, workspaceFolder: URI, before: INoteFilesRecord, notesResource: URI, now: number, limits: IBaseHalfNoteFileScanLimits): Promise<IBaseHalfNoteFileScanResult> {
+async function scan(services: IBaseHalfNoteFileRetentionServices, workspaceFolder: URI, before: INoteFilesRecord, notesResource: URI, now: number, walked: IWalk): Promise<IBaseHalfNoteFileScanResult> {
 	const { fileService, logService } = services;
-	let walked: IWalk;
-	try {
-		walked = await walk(fileService, workspaceFolder, limits);
-	} catch (error) {
-		logService.warn('[BaseHalf] could not list the notes that mention their files', error);
-		return { outcome: 'unread', released: [] };
-	}
 	const stored = await storedFiles(fileService, workspaceFolder, walked.stores);
 	const names = new Map<string, string[]>();
 	for (const file of stored) {

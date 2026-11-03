@@ -176,6 +176,22 @@ suite('BaseHalfNoteFileRetention', () => {
 		});
 	});
 
+	test('a folder with .bh/ but no store and no noted file writes nothing at a scan, so that opening it writes only layouts (rule 37)', async () => {
+		const workspace = await open({ 'a.md': '# A\n', '.bh/canvas.yaml': 'cards: []\n' });
+
+		const result = await workspace.scan(NOW);
+
+		assert.deepStrictEqual({
+			outcome: result.outcome,
+			cache: await workspace.fileService.exists(joinPath(WORKSPACE, '.bh', 'cache')),
+			files: await workspace.files(),
+		}, {
+			outcome: 'empty',
+			cache: false,
+			files: ['.bh/canvas.yaml', 'a.md'],
+		});
+	});
+
 	test('just before a release, a file that changed since the scan is read again; without the Trash a released file is deleted with its edit record', async () => {
 		const workspace = await open({
 			'late.md': 'nothing yet\n',
