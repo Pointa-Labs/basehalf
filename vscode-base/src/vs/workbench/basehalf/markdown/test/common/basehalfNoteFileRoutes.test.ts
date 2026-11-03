@@ -13,8 +13,9 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
-import { baseHalfNoteLinkDestinationRanges } from '../../common/basehalfNoteFileLinks.js';
+import { baseHalfNoteLinkDestinationRanges, baseHalfNoteLinkDestinations } from '../../common/basehalfNoteFileLinks.js';
 import { baseHalfApplyNoteRouteEdits, baseHalfNoteFileRouteEdits } from '../../common/basehalfNoteFileRoutes.js';
+import { resolveBaseHalfNoteLink } from '../../common/basehalfNoteLinks.js';
 
 const WORKSPACE = URI.file('/workspace');
 
@@ -34,6 +35,24 @@ suite('BaseHalfNoteFileRoutes', () => {
 		};
 		return { fileService, corrected };
 	}
+
+	test('a link into the store, in the ../ form and after its route is corrected, goes to the stored file wherever the note is', async () => {
+		const link = '![a](../.bh/attachments/aaaaaaaaaa/a%20b.png) <video src="../.bh/attachments/aaaaaaaaaa/clip.mp4"></video>\n';
+		const workspace = await open({
+			'读书/note.md': link,
+			'deep/er/moved.md': link,
+			'.bh/attachments/aaaaaaaaaa/a b.png': '',
+			'.bh/attachments/aaaaaaaaaa/clip.mp4': '',
+		});
+		const targets = (note: string, text: string) => baseHalfNoteLinkDestinations(text).map(href => {
+			const target = resolveBaseHalfNoteLink(joinPath(WORKSPACE, ...note.split('/')), [WORKSPACE], href);
+			return target.kind === 'file' ? target.uri.path : target.kind;
+		});
+		assert.deepStrictEqual([targets('读书/note.md', link), targets('deep/er/moved.md', await workspace.corrected('deep/er/moved.md'))], [
+			['/workspace/.bh/attachments/aaaaaaaaaa/a b.png', '/workspace/.bh/attachments/aaaaaaaaaa/clip.mp4'],
+			['/workspace/.bh/attachments/aaaaaaaaaa/a b.png', '/workspace/.bh/attachments/aaaaaaaaaa/clip.mp4'],
+		]);
+	});
 
 	test('a note moved to another depth gets the route of each link into the store that leads nowhere, and nothing else', async () => {
 		const note = [

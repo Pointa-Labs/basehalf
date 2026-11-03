@@ -207,18 +207,8 @@ export class BaseHalfMarkdownAttachmentService implements IBaseHalfMarkdownAttac
 		throw refuse('its name is taken');
 	}
 
-	/**
-	 * The note's home: the nearest folder at or above the note, never above
-	 * the workspace folder, that holds `.bh/` or is the root of a git
-	 * repository; else the workspace folder.
-	 */
-	private async homeOf(note: URI, workspaceFolder: URI): Promise<URI> {
-		for (let folder = dirname(note); isEqualOrParent(folder, workspaceFolder) && !isEqual(folder, workspaceFolder); folder = dirname(folder)) {
-			if (await this.fileService.exists(joinPath(folder, '.bh')) || await this.fileService.exists(joinPath(folder, '.git'))) {
-				return folder;
-			}
-		}
-		return workspaceFolder;
+	private homeOf(note: URI, workspaceFolder: URI): Promise<URI> {
+		return baseHalfNoteHome(this.fileService, note, workspaceFolder);
 	}
 
 	private isMarked(folder: URI): Promise<boolean> {
@@ -267,6 +257,20 @@ export class BaseHalfMarkdownAttachmentService implements IBaseHalfMarkdownAttac
 		const stat = await this.fileService.resolve(folder).catch(() => undefined);
 		return new Set((stat?.children ?? []).map(child => child.name.toLowerCase()));
 	}
+}
+
+/**
+ * The note's home: the nearest folder at or above the note, never above the
+ * workspace folder, that holds `.bh/` or is the root of a git repository;
+ * else the workspace folder (rules 1 and 2).
+ */
+export async function baseHalfNoteHome(fileService: IFileService, note: URI, workspaceFolder: URI): Promise<URI> {
+	for (let folder = dirname(note); isEqualOrParent(folder, workspaceFolder) && !isEqual(folder, workspaceFolder); folder = dirname(folder)) {
+		if (await fileService.exists(joinPath(folder, '.bh')) || await fileService.exists(joinPath(folder, '.git'))) {
+			return folder;
+		}
+	}
+	return workspaceFolder;
 }
 
 /**
