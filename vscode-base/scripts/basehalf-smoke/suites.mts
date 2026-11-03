@@ -47,6 +47,7 @@ import { assertNoteFormatsCopyCarriesMarkdown, assertNoteFormatsCopyIntoSource, 
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import { assertCardDetailEditShowsOnItsCard } from './areas/cardDetail/editOnCard.mts';
 import { assertCardDetailImageCropBack } from './areas/cardDetail/imageCropBack.mts';
+import { assertNoteFilesGitNotice } from './areas/cardDetail/noteFilesGit.mts';
 import { assertCardDetailImageEdit } from './areas/cardDetail/imageEdit.mts';
 import { assertCardDetailMediaPinch } from './areas/cardDetail/mediaPinch.mts';
 import { assertNotePictureEditInPlace } from './areas/cardDetail/notePictureEdit.mts';
@@ -240,6 +241,7 @@ async function runCardDetailSuite(page) {
 	await step('readme-rich-composition-queues-single-undo', () => assertMarkdownRichCompositionQueuesSingleUndo(page));
 	await step('readme-rich-file-link-autocomplete', () => assertMarkdownRichFileLinkAutocomplete(page));
 	await step('readme-rich-file-attachment', () => assertMarkdownRichFileAttachment(page));
+	await step('note-files-git-notice', () => assertNoteFilesGitNotice(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 	await step('workspace-open-installs-nothing', () => assertWorkspaceOpenInstallsNothing());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
