@@ -5786,3 +5786,66 @@ cards, so a folder under `.bh` now has no canvas at all.
 - What is under `.bh` can then be renamed, moved, and deleted in Files, as it
   always could in a file manager. BaseHalf recovers as from a change made
   outside it (D40).
+
+## D117 — The menu of blocks in a note is short enough to read, and a line its add button made is there only once it holds something (NEW, 2026-11-04)
+
+**Decision.** The add button and `/` open one list that BaseHalf draws itself:
+one-line rows of 30 px in a surface 280 px wide and at most 428 px tall, drawn
+as BaseHalf's other menus are, with what typed at the start of a line makes each
+block at the row's right end. Its order is Paragraph, the first three headings,
+the lists, Quote, Code Block, Table, and Divider; then Image, Video, Audio, File,
+and Link to File, a row for the list of `[[`; then the toggle headings, the last
+three headings, and Emoji. One row is lit, and the pointer's moves and the keys
+move that one. Letters rank the rows and hide the group names. The list opens
+under its line when 240 px or more is there, or when more room is there than
+above, and stays on its side until it closes. Beside a block with children
+showing, the add button's new line is their first child, directly under the
+button. A new line that still holds nothing when the menu closes goes, and the
+note, undo, and redo are as they were; a block chosen from the menu is one step
+of undo with its line. All of Rich's menus and toolbars take BaseHalf's theme. See
+[the menu of blocks in a note](specs/note-block-menu.md).
+
+**Why.** On 2026-11-04 the user said that the add button's menu of the note in
+Card Detail had problems, and left the judgment to me ("请你自行判断，做出选择，迭代这个菜单栏").
+The menu was the editor library's with BaseHalf's items behind it, and a look at
+it in a window showed four causes under what looked wrong. Escape did not close
+it: the editor marks every Escape as used, and since D110 a key the editor used
+stops at the page's root, before the list's listener on the document, and the
+smoke pressed Escape without looking. It wore no theme,
+because the library sets its theme on the editor's root and BaseHalf draws the
+menus on another element. Its rows and order were made for showing what a block
+is once: 49 px a row and a second line each, so that 1,286 px of list met a view
+of 795 px. And the add button changed the note before the user had chosen: the
+line it made stayed after Escape, though the file does not keep an empty line,
+so what Rich showed differed from the file, which D110 rules out, and it was a
+step of undo of its own, which D82 rules out for one thing the user did.
+
+**What was set aside.**
+- A filter field inside the menu, with the note untouched until a choice. It
+  makes undo trivially exact, but a user who clicks the button and starts writing
+  would write into a field; and `/` would still filter in the line, so there
+  would be two ways of filtering.
+- Marking the new line as outside undo until it is kept. Then undo after letters
+  typed into it leaves an empty line that no undo takes away, a common sequence,
+  to save a redo in a rare one. The line is a step of undo while it stands, and
+  the menu puts the undo and redo lists back if it goes.
+- A grid of icons on top of the list, as some notes products have. Two kinds of
+  keyboard movement in one list, and icons that need a tooltip to name them.
+- Rows of recent or suggested blocks: state outside the file for a saving of two
+  letters, and a list whose order moves is one the eye cannot learn.
+- Key combinations at the right end of a row. A note is Markdown, and the form that
+  makes the block is what the file stores, in fewer keys.
+- Hiding the rarer rows until letters ask for them: nothing has to be explained if
+  every block is in the list and the rare ones come last.
+
+**What the check showed.** Measured in a window of 1130 × 795 points: the list went
+from 9 rows in 488 px with Media below the fold after 12 more rows, to 12 rows, the
+name of Media and Files, and half its first row in 428 px; the current row went from a shade darker than the
+menu to the theme's selection color, the same as the prompt's reference menu.
+
+**Consequences.**
+- [Formats of a note](specs/note-formats.md): rules 5 and 49 name the new spec.
+  [Development harness](harness/README.md): a route for it.
+- `extensions/basehalf/markdown-rich-src/noteBlockMenu.tsx` holds the menu and the
+  add button, and `noteAddedLine.ts` the new line, so that the bundle test runs them.
+- The bundle test mounts the real menu, and the smoke has steps `note-block-menu-*`.

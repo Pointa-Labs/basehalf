@@ -152,8 +152,10 @@ start).
 4. The menu of a block's drag handle holds Delete only.
 5. The slash menu and the add button offer the blocks of rule 2, the code
    block, the divider, the table, the emoji, the picture, the video, the
-   sound, and the file. A toggle heading is offered at levels 1 to 3; one of
-   level 4 to 6 in a file is read and written as it is.
+   sound, the file, and the list of files to link. A toggle heading is offered
+   at levels 1 to 3; one of level 4 to 6 in a file is read and written as it
+   is. How the menu looks and acts, and what a line the add button made becomes,
+   is [the menu of blocks in a note](note-block-menu.md).
 6. The handles of a table's rows and columns offer Delete and Add above,
    below, left, and right, and no header, color, merge, or split item.
    Dragging the border of a column does nothing.
@@ -439,7 +441,9 @@ start).
     block is added where the menu was, with its address, in one step of undo,
     and a caret still there goes on in the line below it. Until then a
     placeholder that is not part of the note says, by the file's name, that
-    the file is being added. Cancel in the chooser adds nothing. A file that
+    the file is being added. Cancel in the chooser adds nothing, and a line the
+    add button made for it goes ([the menu of blocks](note-block-menu.md), rule
+    32). A file that
     cannot be added shows "Could not add" and its name, as "Could not add
     clip.mp4.", in the placeholder for 3 s, and nothing is added. A note or a
     folder of the workspace is added as a paragraph of its link, linked where
