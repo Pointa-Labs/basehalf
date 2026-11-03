@@ -5607,3 +5607,66 @@ Set aside:
   pinch work from there.
 - Letting the tools of a tall picture float over its lower part, the picture
   at its size: the frame's lower handles would stay out of the view.
+
+## D114 — A video and a sound in a note are edited where the note shows them, with the editors of their cards (NEW, 2026-11-03)
+
+**Decision.** A video and a sound in a note in Card Detail are edited where
+the note shows them, as a picture is (D113). Edit, first in the toolbar of
+the video or the sound, makes room under it, and the window draws the
+editor of the file's card over it, at its place and its width, editing. A
+video's is the player of Card Detail at the video's box, playing the
+original of an edited video from the frame the note showed, its own
+controls given way to the edit bar under it: Play and the frame viewer of
+the whole original, the part kept in its yellow frame with its handles, and
+the playhead inside it (D99, D102, D103); the line with Revert to Original;
+and Done at the end of the line. A sound's is its card's waveform at the
+sound's place and width, 112 px tall, with the trims at its ends outside the
+handles, the playhead, and a selected stretch with Delete; Play with the
+time under it and Done at the end of that row; and the line. Space, the
+arrow keys, Home, and End play and move the playhead as in Card Detail.
+Done, Escape, and a press elsewhere in the note go back to the note, which
+shows the file as edited at the time the editor's playhead stood, and the
+room closes as the editor goes. The edit is the file's, kept as a card's
+edit is kept: for a file the note keeps (D111), its original and record are
+the stored file's card information. The note's text does not change. While
+the editor is open its changes are steps of its own; at Done the whole edit
+is one step of the note's undo. The menu of a video and a sound has no Open
+in Card Detail, as D111 left it. See
+[formats of a note](specs/note-formats.md#editing-a-video-or-a-sound-in-its-note)
+and [editing media](specs/media-editing.md#editing-a-video-or-a-sound-in-its-note).
+
+**Why.** On 2026-11-03 D111 took Open in Card Detail from the menus of a
+note's pictures, videos, and sounds, and D113 gave a picture Edit in place
+with "Videos and sounds follow in a later decision": a video or a sound in a
+note could no longer be trimmed at all, while the code of Rich's menu said
+that they were edited in place. The user's rule for the picture was editing
+where it is, not in a view of its own ("应该直接支持原地编辑就行了呀"), and
+the editors of a video's and a sound's card are the ones the user knows.
+
+**What was set aside.**
+- Open in Card Detail for a video and a sound: D113's reasons.
+- Drawing the editors in Rich's page: D113's reasons, and a video's frames
+  are read and encoded by the window.
+- A video that glides smaller to make room above its edit bar, as in Card
+  Detail (D102): in a note the room opens under the video, which keeps its
+  place and its size, as a picture does.
+- A waveform as tall as in Card Detail, 30% of the view: a note's sound
+  shows as a bar, and the least height of the waveform, 112 px, shows its
+  phrases at the width of the note.
+- Edit and Done in Card Detail's header for a note's media: the header
+  belongs to the note.
+
+**Consequences.**
+- [Formats of a note](specs/note-formats.md): rule 52g, new rules 52h to
+  52k, new criteria 37 to 40, and Verification.
+  [Editing media](specs/media-editing.md): the new section "Editing a video
+  or a sound in its note", new criterion 40, and Where this lands.
+- The editing of a picture in its note becomes the editing of a note's
+  media: the messages of D113 become `editMedia` with the kind of the media
+  and the time its element stands at, `mediaEditEnded` with the time of the
+  playhead, `mediaLaidOut`, `hideMedia`, `showMedia`, `mediaShown`,
+  `endMediaEdit`, `applyMediaChoices`, and `mediaVersion`; the note's map of
+  edits for its undo holds the choices of any media file.
+- The waveform of a sound says when its bars are drawn, as the picture of
+  the crop view does, so that the editor over a note's sound shows once it
+  is drawn.

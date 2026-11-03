@@ -922,6 +922,38 @@ in Card Detail.
 - Pinching over the editor zooms its picture, as in Card Detail; the note
   does not magnify or scroll while the editor is open.
 
+## Editing a video or a sound in its note
+
+- **A video and a sound in a note are edited where the note shows them**
+  (D114), with Edit in their toolbars
+  ([formats of a note](note-formats.md#editing-a-video-or-a-sound-in-its-note)),
+  as a picture is ([Editing a picture in its note](#editing-a-picture-in-its-note)):
+  the window draws the editor of the file's card over the note's page, at
+  the place of the video or the sound, and the note makes room under it.
+  The file, its card information, Done, Escape, a press elsewhere, and the
+  undo are a picture's.
+- **A video**: the player of Card Detail stands at the video's box, so that
+  its picture stands where the note's stands, and plays the copy of the
+  original, from the frame the note's video showed. While editing, its own
+  controls give way to the edit bar, which stands under it in the room the
+  note made, 12 px under the picture, as wide as it: Play and the frame
+  viewer ([Editing a video](#editing-a-video)), then the line, with Done at
+  its end. The room is the edit bar's and the line's, 100 px: the picture
+  does not glide smaller, as it does in Card Detail (D102), because the room
+  opens under it. The editor shows once the player has its frame.
+- **A sound**: the waveform ([Editing a sound](#editing-a-sound)) stands at
+  the place of the sound's bar, as wide as it and 112 px tall, with Play and
+  the time under it, Done at the end of that row, and the line under them;
+  the note makes room under the bar for what the editor takes past it. The
+  editor shows once the waveform is drawn.
+- The keyboard in the editor is Card Detail's ([The keyboard](#the-keyboard)):
+  Space plays and pauses the part kept, Left and Right move the playhead a
+  second, with Shift a frame of a video, Home and End to the part's ends,
+  and a handle takes its own keys.
+- At Done the note shows the file's new version at the time the playhead
+  stood, counted in the file, paused, and the room closes as the editor
+  goes.
+
 ## Editing a sound
 
 ### The waveform
@@ -1414,6 +1446,11 @@ original goes to the Trash with it, and its record is deleted.
     one step of the note's undo, which no step of the canvas holds, the
     whole original of a cropped picture, and the tools of a tall one in the
     view (D113).
+40. A video and a sound edited in their note meet criteria 37 to 40 of
+    [formats of a note](note-formats.md#acceptance-criteria): the editor
+    over the note's video within 1 px, a picture on every frame of Edit, a
+    trim kept by the file with its card information, the whole edit one
+    step of the note's undo, and the keys of Card Detail (D114).
 
 ## Verification
 
@@ -1524,10 +1561,12 @@ player of a video gives the frame viewer its time, a jump to a time, and the
 playing of a range; the waveform of a sound plays the edit itself, with the
 window's audio. The shared process's file clones service
 (`src/vs/platform/basehalfFiles/`) writes a file from bytes and ranges of
-other files, which a trim's copy asks of it (D99). A picture edited in its note (D113): where its
-editor stands in `common/basehalfNotePictureEdit.ts`, which Rich's page
-imports too; the editing over the note's page in
-`cardDetail/browser/basehalfNotePictureEditing.ts`, which Card Detail's rich
-projection starts and ends from the messages of the page; the Edit button,
-the room, and the picture at its new version in Rich
-(`extensions/basehalf/markdown-rich-src/notePictureEdit.ts`).
+other files, which a trim's copy asks of it (D99). A picture, a video, or a sound edited in its note (D113,
+D114): where its editor stands in `common/basehalfNoteMediaEdit.ts`, which
+Rich's page imports too; the editing over the note's page in
+`cardDetail/browser/basehalfNoteMediaEditing.ts`, which Card Detail's rich
+projection starts and ends from the messages of the page, with the keys of
+a video's and a sound's editor in `cardDetail/browser/basehalfMediaKeys.ts`,
+which Card Detail's media projection shares; the Edit button, the room,
+and the media at its new version in Rich
+(`extensions/basehalf/markdown-rich-src/noteMediaEdit.ts`).
