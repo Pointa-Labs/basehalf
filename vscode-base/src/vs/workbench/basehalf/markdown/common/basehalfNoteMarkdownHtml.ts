@@ -145,6 +145,9 @@ function linkToAddressAsRead(token: Token, decode: (text: string) => string): vo
  */
 export const BASEHALF_NOTE_FILE_LINK_TITLE = 'basehalf-file-block';
 
+/** The icon of Rich's file block, from the icons of its editor, at 24 by 24: the card, Preview, and a fixed block draw it too. */
+export const BASEHALF_NOTE_FILE_ICON_PATH = 'M3 8L9.00319 2H19.9978C20.5513 2 21 2.45531 21 2.9918V21.0082C21 21.556 20.5551 22 20.0066 22H3.9934C3.44476 22 3 21.5501 3 20.9932V8ZM10 4V9H5V20H19V4H10Z';
+
 /** A paragraph that Rich shows as a file block: the name the block shows and the address of its file as the note has it. */
 export interface IBaseHalfNoteFileLink {
 	readonly name: string;

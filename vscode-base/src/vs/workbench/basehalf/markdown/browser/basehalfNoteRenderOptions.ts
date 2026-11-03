@@ -9,7 +9,7 @@ import { safeSetInnerHtml } from '../../../../base/browser/domSanitize.js';
 import { allowedMarkdownHtmlAttributes, type MarkdownActionHandler, type MarkdownRenderOptions } from '../../../../base/browser/markdownRenderer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { baseHalfNoteLinkHref } from '../common/basehalfNoteLinks.js';
-import { BASEHALF_NOTE_FILE_LINK_TITLE, BASEHALF_NOTE_HTML_TAGS, baseHalfNoteMarkedExtension } from '../common/basehalfNoteMarkdownHtml.js';
+import { BASEHALF_NOTE_FILE_ICON_PATH, BASEHALF_NOTE_FILE_LINK_TITLE, BASEHALF_NOTE_HTML_TAGS, baseHalfNoteMarkedExtension } from '../common/basehalfNoteMarkdownHtml.js';
 
 // How a note is drawn where it is read (note formats, rules 81 and 57; note
 // rendering, rules 1 to 6): the card at rest and Preview with the same rules,
@@ -69,9 +69,6 @@ export function baseHalfNoteRenderOptions(options: IBaseHalfNoteRenderOptions = 
 	};
 }
 
-// The icon of Rich's file block, from the icons of its editor.
-const FILE_ICON_PATH = 'M3 8L9.00319 2H19.9978C20.5513 2 21 2.45531 21 2.9918V21.0082C21 21.556 20.5551 22 20.0066 22H3.9934C3.44476 22 3 21.5501 3 20.9932V8ZM10 4V9H5V20H19V4H10Z';
-
 /**
  * Finishes a rendered note. A paragraph that Rich shows as a file block is
  * drawn as Rich draws one, the file's icon and its name in a box, and stays
@@ -85,7 +82,7 @@ export function finishBaseHalfNoteRendering(element: HTMLElement): void {
 	// eslint-disable-next-line no-restricted-syntax
 	for (const link of Array.from(element.querySelectorAll(`a[title="${BASEHALF_NOTE_FILE_LINK_TITLE}"]`))) {
 		link.classList.add('bh-md-file');
-		link.prepend($.SVG('svg', { class: 'bh-md-file-icon', viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' }, $.SVG('path', { d: FILE_ICON_PATH })));
+		link.prepend($.SVG('svg', { class: 'bh-md-file-icon', viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' }, $.SVG('path', { d: BASEHALF_NOTE_FILE_ICON_PATH })));
 	}
 	// eslint-disable-next-line no-restricted-syntax
 	for (const titled of Array.from(element.querySelectorAll('a[title], img[title]'))) {

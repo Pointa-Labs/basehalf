@@ -1013,7 +1013,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			return;
 		}
 		const anchor = event.target.closest<HTMLAnchorElement>('.ProseMirror a[href]');
-		const href = anchor?.getAttribute('href');
+		// A link of a block drawn as at rest, a file block among them, holds its address as the renderer resolved it.
+		const href = anchor?.getAttribute('href') || anchor?.dataset.href;
 		if (!anchor || !href || !this.root.contains(anchor)) {
 			return;
 		}

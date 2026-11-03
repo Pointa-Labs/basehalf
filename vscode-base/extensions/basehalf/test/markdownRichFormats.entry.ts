@@ -1406,7 +1406,8 @@ async function fixedBlocks(t: INoteFormatsTest): Promise<void> {
 /**
  * Part q, file blocks (note formats, rules 12 and 81; criterion 30): the
  * paragraphs that the card and Preview draw as file blocks are the ones Rich
- * reads as file blocks, with the same names and files.
+ * reads as file blocks, with the same names and files, and a fixed block
+ * draws one as a file block too.
  */
 async function fileBlocks(t: INoteFormatsTest): Promise<void> {
 	const note = [
@@ -1448,6 +1449,14 @@ async function fileBlocks(t: INoteFormatsTest): Promise<void> {
 	};
 	collect(t.editor.document);
 	t.check('the card draws a paragraph as a file block where Rich reads a file block, with its name and its file', baseHalfNoteFileLinks(note), files);
+	// A paragraph that is one link to a file, in a block Rich cannot edit, shows as a file block there too: an item
+	// Rich keeps fixed holds one.
+	await t.load('- item <mark>kept</mark>\n\n  [nested.pdf](nested.pdf)\n');
+	await t.frames();
+	const drawn = [...(t.editor.domElement?.querySelectorAll<HTMLElement>('.basehalf-raw-passthrough-rendered a.bh-md-file') ?? [])];
+	t.check('a fixed block draws a paragraph that is one link to a file as a file block, which keeps its address and shows no title',
+		drawn.map(link => ({ name: link.textContent, href: link.getAttribute('href'), icon: link.firstElementChild?.getAttribute('class'), title: link.hasAttribute('title') })),
+		[{ name: 'nested.pdf', href: 'nested.pdf', icon: 'bh-md-file-icon', title: false }]);
 }
 
 /**

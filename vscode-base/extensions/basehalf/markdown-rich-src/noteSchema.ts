@@ -11,6 +11,8 @@ import { BlockNoteSchema, createBlockSpec, createStyleSpecFromTipTapMark, defaul
 import { ReactAudioBlock, ReactFileBlock, ReactImageBlock, ReactVideoBlock } from '@blocknote/react';
 import { BASEHALF_RAW_PASSTHROUGH_BLOCK } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import {
+	BASEHALF_NOTE_FILE_ICON_PATH,
+	BASEHALF_NOTE_FILE_LINK_TITLE,
 	BASEHALF_NOTE_HTML_ATTRIBUTES,
 	BASEHALF_NOTE_HTML_TAGS,
 	BASEHALF_NOTE_SPAN_STYLE,
@@ -62,6 +64,19 @@ function renderNoteMarkdown(source: string): DocumentFragment {
 		});
 	} finally {
 		dompurify.removeHook('uponSanitizeAttribute');
+	}
+	// A paragraph that is one link to a file shows as Rich's file block, and stays the link it is (rule 81).
+	for (const link of Array.from(rendered.querySelectorAll(`a[title="${BASEHALF_NOTE_FILE_LINK_TITLE}"]`))) {
+		const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		icon.setAttribute('class', 'bh-md-file-icon');
+		icon.setAttribute('viewBox', '0 0 24 24');
+		icon.setAttribute('fill', 'currentColor');
+		icon.setAttribute('aria-hidden', 'true');
+		const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+		shape.setAttribute('d', BASEHALF_NOTE_FILE_ICON_PATH);
+		icon.appendChild(shape);
+		link.classList.add('bh-md-file');
+		link.prepend(icon);
 	}
 	// No link and no picture shows a system tooltip (rule 57).
 	for (const titled of Array.from(rendered.querySelectorAll('a[title], img[title]'))) {
