@@ -44,4 +44,31 @@ suite('BaseHalfNoteLinkRouter', () => {
 			'viewer /workspace/notes/handout.pdf over its own folder'
 		]);
 	});
+
+	test('a note of a subfolder\'s window opens its files from the store above the window\'s folder, and nothing above it but the stores (files in notes, rule 48)', async () => {
+		const opened: string[] = [];
+		const services = {
+			opener: { open: async (target: URI) => { opened.push(`external ${target.path}`); return true; } } as unknown as IOpenerService,
+			files: { exists: async () => true } as unknown as IFileService,
+			navigation: {
+				state: { canvasFolder: { resource: URI.file('/workspace/notes') }, cardDetail: undefined },
+				openResource: async (resource: URI) => {
+					opened.push(`viewer ${resource.path}`);
+					return { handled: false, reason: 'superseded' };
+				},
+			} as unknown as IBaseHalfCanvasNavigationService,
+			workspace: { getWorkspace: () => ({ folders: [{ uri: URI.file('/workspace/notes') }] }) } as unknown as IWorkspaceContextService,
+			log: new NullLogService(),
+		};
+		const note = URI.file('/workspace/notes/week 1.md');
+
+		for (const href of ['../.bh/attachments/7k3f9q2m1x/handout.pdf', '../.bh/attachments/7k3f9q2m1x/report.docx', '../other.pdf']) {
+			await openBaseHalfNoteLink(services, note, href);
+		}
+
+		assert.deepStrictEqual(opened, [
+			'viewer /workspace/.bh/attachments/7k3f9q2m1x/handout.pdf',
+			'external /workspace/.bh/attachments/7k3f9q2m1x/report.docx',
+		]);
+	});
 });
