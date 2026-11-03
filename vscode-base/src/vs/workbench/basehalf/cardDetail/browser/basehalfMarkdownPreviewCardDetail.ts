@@ -259,7 +259,8 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		rendered.element.classList.add('basehalf-card-detail-markdown-preview-content');
 		this.rendered.add(rendered);
 		// A video and a sound play in BaseHalf's player, and a click on the picture plays and pauses it (note formats, rule 52).
-		this.rendered.add(playBaseHalfNoteMedia(rendered.element, 'page'));
+		// The drawing for the next change takes them over: what plays goes on playing (note rendering, rule 4b).
+		this.rendered.add(playBaseHalfNoteMedia(rendered.element, { note: state.resource, surface: 'preview' }));
 		this.outline.refresh();
 		this.updateStatus();
 		this.revealSelection();
