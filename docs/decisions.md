@@ -5450,9 +5450,13 @@ gives them; the window reads that name from its own data on the clipboard.
 A note moved outside BaseHalf down into a repository, whose links still lead
 into the store of the home it left, gets clones in the repository's store,
 as a note moved there in BaseHalf does: a repository holds what its notes
-show. A move made without an undo source, as an extension makes one, gives
-its correction none, so that the canvas never takes back a move it did not
-make. A window that stays open for days scans for unmentioned files once a
+show. An undo of a move takes back its correction first, while the note is
+still where the move put it, and a redo makes it again after the move: the
+undo had moved the note back first, lost the correction with the note's
+closed model, and corrected the note again as a step of its own, which took
+the redo away. A move made without an undo source, as an extension makes one,
+gives its correction none, so that the canvas never takes back a move it did
+not make. A window that stays open for days scans for unmentioned files once a
 day, as a window that opens does. The git notice is checked in the smoke, on
 a repository the step makes, and in the real window. See
 [files in notes](specs/files-in-notes.md), rules 29 to 31, 33, 34, and 37,

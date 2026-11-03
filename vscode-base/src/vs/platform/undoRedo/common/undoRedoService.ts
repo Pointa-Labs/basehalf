@@ -1053,7 +1053,7 @@ export class UndoRedoService implements IUndoRedoService {
 	}
 
 	private _resourceUndo(editStack: ResourceEditStack, element: ResourceStackElement, undoConfirmed: boolean): Promise<void> | void {
-		if (!element.isValid) {
+		if (!element.isValid && !this._opensItsFileAgain(element)) {
 			// invalid element => immediately flush edit stack!
 			editStack.flushAllElements();
 			return;
@@ -1067,9 +1067,26 @@ export class UndoRedoService implements IUndoRedoService {
 			return;
 		}
 		return this._invokeResourcePrepare(element, (cleanup) => {
+			if (!element.isValid) {
+				// BaseHalf: the file opened again does not hold what its model held.
+				cleanup.dispose();
+				editStack.flushAllElements();
+				return;
+			}
 			editStack.moveBackward(element);
 			return this._safeInvokeWithLocks(element, () => element.actual.undo(), new EditStackSnapshot([editStack]), cleanup, () => this._continueUndoInGroup(element.groupId, element.sourceId, undoConfirmed));
 		});
+	}
+
+	/**
+	 * BaseHalf: whether an element whose model is gone opens its file again
+	 * before its undo or redo, as an element across files does, also when it
+	 * touches one file: it is valid again when the file holds what its model
+	 * held, so that a correction of a moved note, which no editor holds, is
+	 * undone and redone with its move (files in notes, rule 29).
+	 */
+	private _opensItsFileAgain(element: ResourceStackElement): boolean {
+		return element.actual.type === UndoRedoElementType.Workspace && typeof element.actual.prepareUndoRedo === 'function';
 	}
 
 	private _findClosestUndoElementInGroup(groupId: number): [StackElement | null, string | null] {
@@ -1341,7 +1358,7 @@ export class UndoRedoService implements IUndoRedoService {
 	}
 
 	private _resourceRedo(editStack: ResourceEditStack, element: ResourceStackElement): Promise<void> | void {
-		if (!element.isValid) {
+		if (!element.isValid && !this._opensItsFileAgain(element)) {
 			// invalid element => immediately flush edit stack!
 			editStack.flushAllElements();
 			return;
@@ -1356,6 +1373,12 @@ export class UndoRedoService implements IUndoRedoService {
 		}
 
 		return this._invokeResourcePrepare(element, (cleanup) => {
+			if (!element.isValid) {
+				// BaseHalf: the file opened again does not hold what its model held.
+				cleanup.dispose();
+				editStack.flushAllElements();
+				return;
+			}
 			editStack.moveForward(element);
 			return this._safeInvokeWithLocks(element, () => element.actual.redo(), new EditStackSnapshot([editStack]), cleanup, () => this._continueRedoInGroup(element.groupId));
 		});

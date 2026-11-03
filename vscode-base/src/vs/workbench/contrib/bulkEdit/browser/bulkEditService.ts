@@ -64,6 +64,8 @@ class BulkEdit {
 		private readonly _undoRedoGroup: UndoRedoGroup,
 		private readonly _undoRedoSource: UndoRedoSource | undefined,
 		private readonly _confirmBeforeUndo: boolean,
+		/** BaseHalf: text edits are one element across files, also in one file. */
+		private readonly _acrossFiles: boolean,
 		@IInstantiationService private readonly _instaService: IInstantiationService,
 		@ILogService private readonly _logService: ILogService,
 	) {
@@ -149,7 +151,7 @@ class BulkEdit {
 
 	private async _performTextEdits(edits: ResourceTextEdit[], undoRedoGroup: UndoRedoGroup, undoRedoSource: UndoRedoSource | undefined, progress: IProgress<void>, reason: TextModelEditSource | undefined): Promise<readonly URI[]> {
 		this._logService.debug('_performTextEdits', JSON.stringify(edits));
-		const model = this._instaService.createInstance(BulkTextEdits, this._label || localize('workspaceEdit', "Workspace Edit"), this._code || 'undoredo.workspaceEdit', this._editor, undoRedoGroup, undoRedoSource, progress, this._token, edits);
+		const model = this._instaService.createInstance(BulkTextEdits, this._label || localize('workspaceEdit', "Workspace Edit"), this._code || 'undoredo.workspaceEdit', this._editor, undoRedoGroup, undoRedoSource, progress, this._token, edits, this._acrossFiles);
 		return await model.apply(reason);
 	}
 
@@ -173,6 +175,8 @@ export class BulkEditService implements IBulkEditService {
 	private readonly _activeUndoRedoGroups = new LinkedList<UndoRedoGroup>();
 	/** BaseHalf: the undo source of each running edit's group. */
 	private readonly _activeUndoRedoSources = new Map<UndoRedoGroup, UndoRedoSource | undefined>();
+	/** BaseHalf: the edits that join each running edit's group once that edit is done. */
+	private readonly _activeUndoRedoJoins = new Map<UndoRedoGroup, (() => Promise<unknown>)[]>();
 	private _previewHandler?: IBulkEditPreviewHandler;
 
 	constructor(
@@ -231,15 +235,21 @@ export class BulkEditService implements IBulkEditService {
 		let undoRedoGroup: UndoRedoGroup | undefined;
 		let undoRedoGroupRemove = () => { };
 		let undoRedoSource = options?.undoRedoSource;
+		// BaseHalf: the running edit whose group this edit joins once it is done, and the edits that join this one's.
+		let runningJoins: (() => Promise<unknown>)[] | undefined;
+		let ownJoins: (() => Promise<unknown>)[] | undefined;
 		if (typeof options?.undoRedoGroupId === 'number') {
 			for (const candidate of this._activeUndoRedoGroups) {
 				if (candidate.id === options.undoRedoGroupId) {
 					undoRedoGroup = candidate;
 					// BaseHalf: an edit that joins the group of a running edit, as an edit made
-					// once a move is done, takes that edit's undo source, so that one undo of the
-					// source takes back the whole group and asks nothing; a group of two sources
-					// asked "Would you like to undo …?" at the second (files in notes, rule 29).
+					// once a move is done, takes that edit's undo source, whatever it is, so that
+					// one undo of the source takes back the whole group and asks nothing; a group
+					// of two sources asked "Would you like to undo …?" at the second, and with a
+					// source of its own the canvas would take back a move it did not make (files
+					// in notes, rule 29).
 					undoRedoSource = this._activeUndoRedoSources.get(candidate);
+					runningJoins = options.undoRedoAfterRunningEdit ? this._activeUndoRedoJoins.get(candidate) : undefined;
 					break;
 				}
 			}
@@ -247,10 +257,13 @@ export class BulkEditService implements IBulkEditService {
 		if (!undoRedoGroup) {
 			const group = undoRedoGroup = new UndoRedoGroup();
 			const remove = this._activeUndoRedoGroups.push(group);
+			const joins: (() => Promise<unknown>)[] = ownJoins = [];
 			this._activeUndoRedoSources.set(group, undoRedoSource);
+			this._activeUndoRedoJoins.set(group, joins);
 			undoRedoGroupRemove = () => {
 				remove();
 				this._activeUndoRedoSources.delete(group);
+				this._activeUndoRedoJoins.delete(group);
 			};
 		}
 
@@ -265,9 +278,19 @@ export class BulkEditService implements IBulkEditService {
 			edits,
 			undoRedoGroup,
 			undoRedoSource,
-			!!options?.confirmBeforeUndo
+			!!options?.confirmBeforeUndo,
+			!!options?.undoRedoAcrossFiles
 		);
 
+		if (runningJoins) {
+			// BaseHalf: made once the running edit is done, before it returns, its elements after that edit's.
+			const joins = runningJoins;
+			return new Promise<IBulkEditResult>((resolve, reject) => joins.push(() => this._perform(bulkEdit, label, edits, options).then(resolve, reject)));
+		}
+		return this._perform(bulkEdit, label, edits, options, ownJoins, undoRedoGroupRemove);
+	}
+
+	private async _perform(bulkEdit: BulkEdit, label: string | undefined, edits: ResourceEdit[], options: IBulkEditOptions | undefined, joins?: (() => Promise<unknown>)[], undoRedoGroupRemove = () => { }): Promise<IBulkEditResult> {
 		let listener: IDisposable | undefined;
 		try {
 			listener = this._lifecycleService.onBeforeShutdown(e => e.veto(this._shouldVeto(label, e.reason), 'veto.blukEditService'));
@@ -287,6 +310,10 @@ export class BulkEditService implements IBulkEditService {
 			throw err;
 		} finally {
 			listener?.dispose();
+			// BaseHalf: the edits that joined once this one is done; each tells its own caller how it went.
+			while (joins?.length) {
+				await joins.shift()!().catch(() => undefined);
+			}
 			undoRedoGroupRemove();
 		}
 	}

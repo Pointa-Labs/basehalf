@@ -468,9 +468,8 @@ one folder for every note of that folder:
   edit records, from another home's store above the note and from one beside
   it; nothing in a marked folder); the routes contribution's test (a move of
   an open note in one step of undo with its correction, which an editor's
-  Command-Z leaves; an undo of the move writes nothing); the bulk edit
-  service's test (an edit that joins the step of a running edit takes its
-  undo source).
+  Command-Z leaves; an undo of the move writes nothing; an edit that joins
+  the step of a running edit takes its undo source).
 - Stage 5, the rest: the Rich bundle test's Markdown pasted from another
   note's Source (links rebased, stored files cloned) and a copy of blocks
   that are all files (the files asked for the clipboard; a cut asks
@@ -488,9 +487,11 @@ one folder for every note of that folder:
 - The gaps closed after the stages: the routes test (a link into the store of
   another home of the workspace folder, which still leads somewhere, gets a
   clone; a store above the workspace folder is left); the routes
-  contribution's test (a redo of a move brings the edit again with it and
-  asks nothing; a move without an undo source gives the edit none, and an
-  editor's Command-Z takes back both); the copies test (a note made from text
+  contribution's test (with the correction saved and no editor holding the
+  note, an undo of a move takes the correction back before the move, a redo
+  makes it again after the move, a second undo takes both back again, and
+  no correction of its own is made or asked about; a move without an undo
+  source gives the edit none, and an editor's Command-Z takes back both); the copies test (a note made from text
   copied out of another note: links rebased, stored files cloned into a
   folder of its own, records of a store outside the workspace folder); the
   clipboard's test (the note a copy names, read from the window's own custom

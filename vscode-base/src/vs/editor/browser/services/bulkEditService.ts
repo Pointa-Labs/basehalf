@@ -103,6 +103,18 @@ export interface IBulkEditOptions {
 	quotableLabel?: string;
 	undoRedoSource?: UndoRedoSource;
 	undoRedoGroupId?: number;
+	/**
+	 * BaseHalf: an edit that joins the group of a running edit (`undoRedoGroupId`)
+	 * is made once that edit is done, so that its elements follow the running
+	 * edit's and are undone before them, as a correction made once a move is
+	 * done must be (files in notes, rule 29).
+	 */
+	undoRedoAfterRunningEdit?: boolean;
+	/**
+	 * BaseHalf: the text edits are one element across files also in one file,
+	 * whose undo and redo open the file again once its model is gone.
+	 */
+	undoRedoAcrossFiles?: boolean;
 	confirmBeforeUndo?: boolean;
 	respectAutoSaveConfig?: boolean;
 	reason?: TextModelEditSource;
