@@ -30,6 +30,7 @@ import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
 import { withTheSystemBrowserStoodIn } from '../../lib/opener.mts';
 import { drawnColor } from '../../lib/png.mts';
 import { visibleQuickInput } from '../../lib/quickInput.mts';
+import { assertNoteMediaPlayedOn, readNoteMediaFrames, sampleNoteMediaEveryFrame, writeNoteAsAnAgent } from '../../lib/noteMediaFrames.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
 import { readWorkspaceFile } from '../../lib/workspace.mts';
 
@@ -398,6 +399,7 @@ export async function assertCanvasNoteLinksOpenTheirTargets(page) {
 	await centerCanvasCards(page, [card]);
 	const restingLink = name => card.locator('.bh-md-preview a', { hasText: name }).first();
 	await restingLink('my file.md').waitFor({ state: 'visible', timeout: 10_000 });
+	await assertCardDetailAtAHeadingMovesNothingAroundIt(page, card, restingLink('Setup'));
 	// The card's editor, opened on the first word of the line of links when it is not open.
 	const editorLink = async name => {
 		const editor = canvasNoteInlineEditor(page, notePath);
@@ -457,6 +459,39 @@ export async function assertCanvasNoteLinksOpenTheirTargets(page) {
 
 	await closeEditor();
 	await removeFolder(page, folderName);
+}
+
+/**
+ * Note formats, rule 56 and criterion 35: Card Detail opened at a heading in a
+ * closed toggle far down the note, by a click on a link to it, and closed
+ * again, leaves the parts of the window and the note's card where they stood.
+ * The presses are the pointer's own: a locator's click scrolls its target into
+ * view, which can move the window's parts, as no user's press does.
+ */
+async function assertCardDetailAtAHeadingMovesNothingAroundIt(page, card, link) {
+	const cardPath = await card.getAttribute('data-basehalf-card-path');
+	const read = () => page.evaluate(path => {
+		const box = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`)?.getBoundingClientRect();
+		const scrolled = Array.from(document.querySelectorAll('.monaco-workbench, .split-view-container, .monaco-grid-view, .part'))
+			.filter(element => element.scrollTop !== 0 || element.scrollLeft !== 0)
+			.map(element => `${element.className.split(' ')[0]} ${element.scrollLeft},${element.scrollTop}`);
+		return { card: box ? [Math.round(box.x * 10) / 10, Math.round(box.y * 10) / 10] : undefined, scrolled };
+	}, cardPath);
+	await waitForViewTransitions(page);
+	const before = await read();
+	const target = await link.boundingBox();
+	await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2);
+	await assertNoteOpensAtSetup(page, 'A click on a link to a heading on the card at rest');
+	await waitForViewTransitions(page);
+	const close = await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-close').boundingBox();
+	await page.mouse.click(close.x + close.width / 2, close.y + close.height / 2);
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 10_000 });
+	await waitForViewTransitions(page);
+	const after = await read();
+	// Earlier steps may have left a part moved by a locator's click: what counts is that this round trip moved nothing.
+	if (JSON.stringify(after) !== JSON.stringify(before)) {
+		throw new Error(`Card Detail opened at a heading and closed again should leave the window's parts and the note's card where they stood: ${JSON.stringify({ before, after })}`);
+	}
 }
 
 function dialogCount(page) {
@@ -654,6 +689,73 @@ export async function assertCanvasNoteMediaReactAtRest(page) {
 	if (!previewPlays || !previewPauses || previewShows.bars !== 2 || previewShows.fileBlock !== 1) {
 		throw new Error(`In Preview a note's video and sound should show BaseHalf's bar, a click on the video should play and pause it, and the file should be a file block: ${JSON.stringify({ previewPlays, previewPauses, previewShows })}`);
 	}
+	await removeFolder(page, folderName);
+}
+
+// Note rendering, rule 4b and criterion 13e: the card of a note drawn again,
+// for its file written from outside as an agent writes it, keeps its players.
+// A video and a sound that play on the card at rest go on playing, on every
+// frame shown, unpaused, with a frame to show, their time never going back and
+// advancing as much as the time that passed; a video that stands keeps its
+// frame; and a video that plays in the card's editor goes on playing too.
+export async function assertCanvasNoteMediaPlaysOnWhenDrawnAgain(page) {
+	const folderName = 'media-drawn-again';
+	const notePath = `${folderName}/media.md`;
+	const file = path.join(workspacePath, folderName, 'media.md');
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${notePath}"]`);
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.copyFileSync(path.join(root, 'scripts', 'fixtures', 'basehalf-video-6s-mock.mp4'), path.join(workspacePath, folderName, 'clip.mp4'));
+	fs.writeFileSync(path.join(workspacePath, folderName, 'tone.wav'), createSilentWav(30));
+	fs.writeFileSync(file, ['# Media', '', 'Before the video.', '', '![clip](clip.mp4)', '', 'Between.', '', '<audio src="tone.wav" controls></audio>', '', 'The end.', ''].join('\n'), 'utf8');
+	const mirror = path.join(workspacePath, '.bh', 'mirror', folderName);
+	fs.mkdirSync(mirror, { recursive: true });
+	fs.writeFileSync(path.join(mirror, 'canvas.yaml'), [`path: "${folderName}"`, 'size:', '  width: 2400', '  height: 1600', 'cards:', `  - path: "${notePath}"`, '    kind: file', '    x: 0', '    y: 0', '    width: 440', '    height: 600', 'edges: []', ''].join('\n'), 'utf8');
+	await openNewFolder(page, folderName, [card]);
+	const cardSelector = `.basehalf-canvas-card[data-basehalf-card-path="${notePath}"] .bh-md-preview`;
+	const players = noteMediaPlayers(card.locator('.bh-md-preview'));
+	await waitForReading(() => players.video.media.evaluate(element => element.readyState), ready => ready >= 2, 'the note\'s video to show its first frame', 10_000);
+	await waitForReading(() => players.sound.media.evaluate(element => element.readyState), ready => ready >= 1, 'the note\'s sound to load', 10_000);
+
+	const playOn = async (what, selector, play) => {
+		await play.click();
+		await waitForReading(() => page.evaluate(selector => !document.querySelector(selector)?.paused, selector), playing => playing, `${what} to play`, 3_000);
+		const stop = await sampleNoteMediaEveryFrame(page, selector);
+		await writeNoteAsAnAgent(page, file);
+		const reading = readNoteMediaFrames(await stop(), true);
+		await page.evaluate(selector => document.querySelector(selector)?.pause(), selector);
+		assertNoteMediaPlayedOn(what, reading, true);
+		return reading;
+	};
+	const readings = {};
+	readings.rest = await playOn('A video that plays on a note\'s card at rest', `${cardSelector} .basehalf-canvas-video-player.note:not(.sound) video`, players.video.play);
+	readings.sound = await playOn('A sound that plays on a note\'s card at rest', `${cardSelector} .basehalf-canvas-video-player.note.sound video`, players.sound.play);
+
+	// A video that stands keeps its frame.
+	const standing = `${cardSelector} .basehalf-canvas-video-player.note:not(.sound) video`;
+	await page.evaluate(selector => new Promise(resolve => {
+		const video = document.querySelector(selector);
+		video.addEventListener('seeked', resolve, { once: true });
+		video.currentTime = 2.5;
+	}), standing);
+	const stopStanding = await sampleNoteMediaEveryFrame(page, standing);
+	await writeNoteAsAnAgent(page, file, 2);
+	readings.standing = readNoteMediaFrames(await stopStanding(), false);
+	assertNoteMediaPlayedOn('A video that stands on a note\'s card at rest', readings.standing, false);
+
+	// The card's editor, opened on a paragraph by a double click.
+	await waitForViewTransitions(page);
+	const line = await card.locator('.bh-md-preview p', { hasText: 'Between.' }).first().boundingBox();
+	await page.mouse.dblclick(line.x + 12, line.y + line.height / 2);
+	await waitForCanvasNoteInlineEditor(page, notePath);
+	const editor = canvasNoteInlineEditor(page, notePath);
+	const inEditor = noteMediaPlayers(editor.host);
+	const editorSelector = `[data-testid="canvas-note-editor-${notePath}"] .basehalf-canvas-video-player.note:not(.sound) video`;
+	await waitForReading(() => inEditor.video.media.evaluate(element => element.readyState), ready => ready >= 2, 'the video in the card\'s editor to show a frame', 10_000);
+	readings.editor = await playOn('A video that plays in a note\'s card\'s editor', editorSelector, inEditor.video.play);
+	await editor.editable.click({ position: { x: 4, y: 6 } });
+	await page.keyboard.press('Escape');
+	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	console.error(`[basehalf-smoke] note media drawn again: ${JSON.stringify(readings)}`);
 	await removeFolder(page, folderName);
 }
 
