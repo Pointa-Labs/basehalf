@@ -45,7 +45,8 @@ Not in scope, and unchanged:
 - The palette of the canvas and of the Agent Area terminal. Both have a dark
   palette of their own (see [Limits](#limits)).
 - The behavior of Source Control, Files, and the Git extension. BaseHalf uses
-  VS Code's implementation as it is
+  VS Code's implementation as it is, apart from
+  [how Changes starts](../git-scm-github-gitgraph.md#the-changes-view)
   ([Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md)).
 - A file icon theme. The product shows no file icons in Files and Source
   Control, as before.

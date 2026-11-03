@@ -89,7 +89,9 @@ one folder for every note of that folder:
    a plain reason.
 5. `.bh` is hidden at every depth: on the canvas, in Files, Search, Quick
    Open, and the `[[` menu (`files.exclude` holds `**/.bh`). Putting a file into
-   a note adds no card to any canvas.
+   a note adds no card to any canvas. Source Control shows what git sees, with
+   `.bh` closed at first
+   ([the Changes view](../git-scm-github-gitgraph.md#the-changes-view)).
 6. The setting `basehalf.editor.attachmentsDirectory` is gone. A folder named
    `attachments` that a note links into is an ordinary folder of the
    workspace, and its links keep working (pre-launch: nothing is moved).

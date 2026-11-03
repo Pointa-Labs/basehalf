@@ -28,8 +28,9 @@ repository root holds the 1.141.0 source for this (an ignored folder).
 When the whole tree is updated from upstream later, take upstream's version
 of every file below and apply BaseHalf's own changes to it again. Only
 `viewPaneContainer.ts` (the option `fillsToBottomEdge`), `titlebarPart.ts`
-(the tool bar at the left end, see below), and the two theme files (terminal
-colors) hold a BaseHalf change among them.
+(the tool bar at the left end, see below), `scmViewPane.ts` (how Changes
+starts, see below), and the two theme files (terminal colors) hold a BaseHalf
+change among them.
 
 ### Identical to 1.141.0
 - `extensions/theme-defaults/themes/dark_modern.json`
@@ -178,6 +179,15 @@ it over:
   not registered in `MenuId.LayoutControlMenu`,
   `MenuId.MenubarAppearanceMenu`, or `MenuId.LayoutControlMenuSubmenu`, and
   its two layout icons are gone. The command keeps Cmd+J.
+
+## How Changes starts (2026-11-04)
+
+BaseHalf's own change. See "The Changes View" in
+`docs/git-scm-github-gitgraph.md`. An update of the whole tree has to carry
+it over:
+
+- `src/vs/workbench/contrib/scm/browser/scmViewPane.ts`: a folder named `.bh`
+  starts closed (`collapseByDefault`).
 
 ## The location in the title bar (2026-07-12, revised 2026-10-24)
 
