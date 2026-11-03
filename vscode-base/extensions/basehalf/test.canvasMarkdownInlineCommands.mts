@@ -134,6 +134,14 @@ export function exerciseSelectionAcrossDocuments(before: readonly string[], afte
 	return mapped ? next.textBetween(Math.min(mapped.anchor, mapped.head), Math.max(mapped.anchor, mapped.head), '\\n') : undefined;
 }
 
+export function exerciseTypedText(source: string, afterText: string, typed: string) {
+	const document = canvasSchema.nodes.doc.create(null, [canvasSchema.nodes.markdown_unit.create({ unitId: 'typed-unit' }, parseMarkdown(source).content)]);
+	const position = textPosition(document, afterText, true);
+	const state = EditorState.create({ doc: document, selection: TextSelection.create(document, position) });
+	const next = state.apply(state.tr.insertText(typed));
+	return serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, next.doc.firstChild!.content));
+}
+
 export function exerciseSelectedSource(units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string }[], anchorText: string, headText: string) {
 	const records = new Map<string, CanvasMarkdownRuntimeUnit>();
 	const nodes = units.map((unit, index) => {
@@ -181,6 +189,8 @@ const testModule = await import(`data:text/javascript;base64,${Buffer.from(modul
 		readonly markdown: string;
 	};
 	readonly exerciseSelectionAcrossDocuments: (before: readonly string[], after: readonly string[], anchorText: string, headText: string) => string | undefined;
+	readonly exerciseTypedText: (source: string, afterText: string, typed: string) => string;
+	readonly canEditCanvasMarkdownUnit: (markdown: string) => boolean;
 	readonly exerciseSelectedSource: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string }[], anchorText: string, headText: string) => { readonly text: string; readonly start: number; readonly end: number; readonly firstEnd: number; readonly lastStart: number } | undefined;
 	readonly exerciseCanvasProjectionPersistence: (
 		source: string,
@@ -320,5 +330,36 @@ assert.deepEqual([
 	{ text: 'SR 系统必须', start: listStart, end: listEnd, firstEnd: listEnd, lastStart: listStart },
 	{ text: '概念\nIR', start: 0, end: listEnd, firstEnd: heading.markdown.length, lastStart: listStart },
 ], 'selected text is read as shown, with the Markdown of the first and the last unit it is in');
+
+// The formats a note stores as HTML (note formats, rule 82): the card's editor
+// edits underline and the palette's colors, reads the tags Rich writes, keeps
+// an untouched unit byte for byte, and writes what it changes as Rich does.
+const noteFormats = [
+	'A <u>word</u> here.',
+	'One <span style="color:#e8706b;">red</span> word.',
+	'**important <span style="color:#e8706b;background-color:#4a401d;"><u>word</u></span> here**',
+	'A <strong>strong</strong> word and <code>a`b</code> in code.',
+	'# A <u>heading</u> line',
+];
+assert.deepEqual(noteFormats.map(source => ({
+	editable: testModule.canEditCanvasMarkdownUnit(source),
+	kept: testModule.exerciseCanvasProjectionPersistence(source, source, source).unchanged,
+})), noteFormats.map(source => ({ editable: true, kept: source })), 'units with the tags Rich writes are editable and kept byte for byte when untouched');
+assert.deepEqual([
+	testModule.exerciseTypedText('A <u>word</u> here.', 'wo', 'x'),
+	testModule.exerciseTypedText('**important <span style="color:#e8706b;background-color:#4a401d;"><u>word</u></span> here**', 'wor', 'x'),
+	testModule.exerciseTypedText('Start.', 'Start.', ' <div>'),
+], [
+	'A <u>woxrd</u> here.',
+	'**important <span style="color:#e8706b;background-color:#4a401d;"><u>worxd</u></span> here**',
+	'Start. &lt;div>',
+], 'a letter typed into an underlined or colored word keeps its tags, and a typed tag is written as text');
+assert.deepEqual([
+	'a <span style="color:red">x</span>',
+	'a <span style="color:#123456;">x</span>',
+	'a <u>x',
+	'a <b>x</b>',
+	'<details>\n<summary>Title</summary>\n\nchild\n\n</details>',
+].map(source => testModule.canEditCanvasMarkdownUnit(source)), [false, false, false, false, false], 'other HTML, other colors, and tags that do not close keep their unit as it is');
 
 console.log('Canvas Markdown inline command tests passed.');

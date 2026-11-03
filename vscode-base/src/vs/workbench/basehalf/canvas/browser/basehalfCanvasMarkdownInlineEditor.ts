@@ -24,7 +24,7 @@ import { IBaseHalfCanvasNoteEditPoint, IBaseHalfCanvasNoteFormatState } from '..
 import { BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS } from '../common/basehalfCanvasWheelGesture.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../markdown/common/basehalfMarkdownFormatting.js';
 import { IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
-import { segmentBaseHalfMarkdownTopLevelBody, splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
+import { segmentBaseHalfMarkdownTopLevelBodyWithToggles, splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelectionLines.js';
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
@@ -693,7 +693,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.bodyEnd = content.length;
 		this.bodyMarkdown = body;
 		const referenceDefinitions = collectBaseHalfCanvasMarkdownReferenceDefinitions(body);
-		const segments = segmentBaseHalfMarkdownTopLevelBody(body);
+		// A toggle is one unit, kept as it is and drawn as at rest (note formats, rule 82).
+		const segments = segmentBaseHalfMarkdownTopLevelBodyWithToggles(body);
 		const sourceSegments = segments.length > 0 ? segments : [{ source: '', raw: '', prefix: '', sep: '' }];
 		const units: IBaseHalfCanvasMarkdownRenderedUnit[] = [];
 		for (let index = 0; index < sourceSegments.length; index++) {

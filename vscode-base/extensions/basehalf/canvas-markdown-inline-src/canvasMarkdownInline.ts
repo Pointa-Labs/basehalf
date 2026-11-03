@@ -20,6 +20,8 @@ import { EditorState, Plugin, PluginKey, Selection, TextSelection, type Command,
 import { canJoin, canSplit } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet, EditorView } from '@tiptap/pm/view';
 import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownFormatting.js';
+import { writeBaseHalfNoteInline, type BaseHalfNoteInlinePlace, type IBaseHalfNoteLink, type IBaseHalfNoteStyledText, type IBaseHalfNoteTextStyles } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteInline.js';
+import { baseHalfNotePaletteAlias, baseHalfNoteSpanStyle, isBaseHalfNotePaletteColor, parseBaseHalfNoteSpanStyle, type BaseHalfNotePaletteRole } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 
 export interface CanvasMarkdownInlineSelection {
 	readonly anchor: number;
@@ -114,6 +116,15 @@ interface MarkdownToken {
 	attrGet?(name: string): string | null;
 }
 
+/** A palette color as a mark's attributes, from its name or a color that stands for it (note formats, rule 29). */
+function paletteAttrs(role: BaseHalfNotePaletteRole, value: string | null | undefined): { color: string } | false {
+	if (!value) {
+		return false;
+	}
+	const color = isBaseHalfNotePaletteColor(value) ? value : baseHalfNotePaletteAlias(role, value);
+	return color ? { color } : false;
+}
+
 let canvasNodes = commonmarkSchema.spec.nodes
 	.remove('image')
 	.update('heading', {
@@ -168,29 +179,206 @@ canvasNodes = canvasNodes
 		toDOM: () => ['br', { 'data-basehalf-soft-break': 'true' }],
 	});
 
+// Underline and the palette's colors, which a note stores as `<u>` and spans
+// (note formats, rules 11, 12, 29, and 82). Pasted HTML keeps them in any
+// spelling that stands for them, Rich's copies among them.
 const canvasSchema = new Schema({
 	nodes: canvasNodes,
-	marks: commonmarkSchema.spec.marks.addToEnd('strike', {
-		parseDOM: [{ tag: 'del' }, { tag: 's' }],
-		toDOM: () => ['del', 0],
-	}),
+	marks: commonmarkSchema.spec.marks
+		.addToEnd('strike', {
+			parseDOM: [{ tag: 'del' }, { tag: 's' }],
+			toDOM: () => ['del', 0],
+		})
+		.addToEnd('underline', {
+			parseDOM: [
+				{ tag: 'u' },
+				{ style: 'text-decoration', getAttrs: value => /\bunderline\b/.test(String(value)) ? null : false },
+				{ style: 'text-decoration-line', getAttrs: value => /\bunderline\b/.test(String(value)) ? null : false },
+			],
+			toDOM: () => ['u', 0],
+		})
+		.addToEnd('text_color', {
+			attrs: { color: {} },
+			parseDOM: [
+				{ tag: 'span[data-style-type="textColor"]', getAttrs: element => paletteAttrs('text', (element as HTMLElement).getAttribute('data-value')) },
+				{ style: 'color', getAttrs: value => paletteAttrs('text', String(value)) },
+			],
+			toDOM: mark => ['span', { style: baseHalfNoteSpanStyle(String(mark.attrs.color), undefined) }, 0],
+		})
+		.addToEnd('background_color', {
+			attrs: { color: {} },
+			parseDOM: [
+				{ tag: 'span[data-style-type="backgroundColor"]', getAttrs: element => paletteAttrs('background', (element as HTMLElement).getAttribute('data-value')) },
+				{ style: 'background-color', getAttrs: value => paletteAttrs('background', String(value)) },
+			],
+			toDOM: mark => ['span', { style: baseHalfNoteSpanStyle(undefined, String(mark.attrs.color)) }, 0],
+		}),
 });
 
 const canvasTokenizer = defaultMarkdownParser.tokenizer;
 canvasTokenizer.enable('strikethrough');
-canvasTokenizer.set({ linkify: true });
+canvasTokenizer.set({ linkify: true, html: true });
 canvasTokenizer.enable('linkify');
+
+interface MarkdownItToken {
+	readonly type: string;
+	readonly content: string;
+	attrSet(name: string, value: string): void;
+}
+
+type MarkdownItTokenClass = new (type: string, tag: string, nesting: -1 | 0 | 1) => MarkdownItToken;
+
+/** The tags of formats that a note's writer writes as HTML, by the mark each opens. */
+const noteTagMarks: Readonly<Record<string, string>> = { u: 'u', strong: 'strong', em: 'em', del: 's', s: 's', code: 'code_html' };
+
+/**
+ * The inline HTML that a note's writer writes for formats Markdown has no
+ * spelling for, read as the formats it stands for: `<u>`, a span of palette
+ * colors in its stored spelling, `<strong>`, `<em>`, `<del>`, `<code>`, and
+ * `<br>`. Any other HTML, and tags that do not close in order, stay HTML,
+ * which keeps the unit fixed.
+ */
+function noteTagsAsMarks(children: readonly MarkdownItToken[], Token: MarkdownItTokenClass): readonly MarkdownItToken[] {
+	const read: MarkdownItToken[] = [];
+	const open: string[][] = [];
+	for (const token of children) {
+		if (token.type !== 'html_inline') {
+			read.push(token);
+			continue;
+		}
+		const html = token.content;
+		const tag = /^<(\/?)(u|strong|em|del|s|code)>$/i.exec(html);
+		const span = /^<span style="([^"]*)">$/i.exec(html);
+		if (tag) {
+			const name = noteTagMarks[tag[2].toLowerCase()];
+			if (tag[1]) {
+				const closed = open.pop();
+				if (closed?.length !== 1 || closed[0] !== name) {
+					return children;
+				}
+				read.push(new Token(`${name}_close`, '', -1));
+			} else {
+				open.push([name]);
+				read.push(new Token(`${name}_open`, '', 1));
+			}
+		} else if (span) {
+			const colors = parseBaseHalfNoteSpanStyle(span[1]);
+			if (!colors) {
+				return children;
+			}
+			const names: string[] = [];
+			for (const [name, color] of [['text_color', colors.textColor], ['background_color', colors.backgroundColor]] as const) {
+				if (color) {
+					const opening = new Token(`${name}_open`, 'span', 1);
+					opening.attrSet('color', color);
+					read.push(opening);
+					names.push(name);
+				}
+			}
+			open.push(names);
+		} else if (/^<\/span>$/i.test(html)) {
+			const closed = open.pop();
+			if (!closed || closed.length === 0 || closed.some(name => name !== 'text_color' && name !== 'background_color')) {
+				return children;
+			}
+			for (const name of [...closed].reverse()) {
+				read.push(new Token(`${name}_close`, 'span', -1));
+			}
+		} else if (/^<br\s*\/?>$/i.test(html)) {
+			read.push(new Token('hardbreak', 'br', 0));
+		} else {
+			read.push(token);
+		}
+	}
+	return open.length === 0 ? read : children;
+}
+
+(canvasTokenizer as unknown as {
+	readonly core: { readonly ruler: { after(name: string, rule: string, run: (state: { readonly tokens: { type: string; children: readonly MarkdownItToken[] | null }[]; readonly Token: MarkdownItTokenClass }) => void): void } };
+}).core.ruler.after('inline', 'basehalf_note_tags', state => {
+	for (const block of state.tokens) {
+		if (block.type === 'inline' && block.children) {
+			block.children = noteTagsAsMarks(block.children, state.Token);
+		}
+	}
+});
 
 const { image: _imageParser, ...baseParserTokens } = defaultMarkdownParser.tokens;
 const canvasParser = new MarkdownParser(canvasSchema, canvasTokenizer, {
 	...baseParserTokens,
 	softbreak: { node: 'soft_break' },
 	s: { mark: 'strike' },
+	u: { mark: 'underline' },
+	code_html: { mark: 'code' },
+	text_color: { mark: 'text_color', getAttrs: token => ({ color: token.attrGet('color') }) },
+	background_color: { mark: 'background_color', getAttrs: token => ({ color: token.attrGet('color') }) },
 });
+
+const markStyles: Readonly<Record<string, keyof IBaseHalfNoteTextStyles>> = { strong: 'bold', em: 'italic', strike: 'strike', code: 'code', underline: 'underline', text_color: 'textColor', background_color: 'backgroundColor' };
+
+/** The inline content of a run of nodes, as a note's writer takes it: runs of styled text, those of one link together. */
+function noteInlineOf(nodes: readonly ProseMirrorNode[]): (IBaseHalfNoteStyledText | IBaseHalfNoteLink)[] {
+	const content: (IBaseHalfNoteStyledText | { type: 'link'; href: string; content: IBaseHalfNoteStyledText[] })[] = [];
+	for (const node of nodes) {
+		const text = node.isText ? node.text ?? '' : node.type.name === 'hard_break' ? '\n' : '';
+		if (text === '') {
+			continue;
+		}
+		const styles: Record<string, string | boolean> = {};
+		let href: string | undefined;
+		for (const mark of node.marks) {
+			const style = markStyles[mark.type.name];
+			if (style === 'textColor' || style === 'backgroundColor') {
+				styles[style] = String(mark.attrs.color);
+			} else if (style) {
+				styles[style] = true;
+			} else if (mark.type.name === 'link') {
+				href = String(mark.attrs.href);
+			}
+		}
+		const run: IBaseHalfNoteStyledText = { type: 'text', text, styles: styles as IBaseHalfNoteTextStyles };
+		const last = content[content.length - 1];
+		if (href === undefined) {
+			content.push(run);
+		} else if (last?.type === 'link' && last.href === href) {
+			last.content.push(run);
+		} else {
+			content.push({ type: 'link', href, content: [run] });
+		}
+	}
+	return content;
+}
+
+/**
+ * A textblock's inline content as a note stores it, in the spelling Rich
+ * writes it in (note formats, rules 12 and 82): each line between soft
+ * breaks by the note's writer, the soft breaks kept as they are.
+ */
+function writeNoteInline(node: ProseMirrorNode, place: BaseHalfNoteInlinePlace): string {
+	const lines: ProseMirrorNode[][] = [[]];
+	node.forEach(child => {
+		if (child.type.name === 'soft_break') {
+			lines.push([]);
+		} else {
+			lines[lines.length - 1].push(child);
+		}
+	});
+	return lines.map(line => writeBaseHalfNoteInline(noteInlineOf(line), { place })).join('\n');
+}
 
 const { image: _imageSerializer, ...baseSerializerNodes } = defaultMarkdownSerializer.nodes;
 const canvasSerializer = new MarkdownSerializer({
 	...baseSerializerNodes,
+	paragraph(state, node, parent) {
+		const place = parent.type.name === 'blockquote' ? 'quote' : parent.type.name === 'list_item' ? 'listItem' : 'paragraph';
+		state.text(writeNoteInline(node, place), false);
+		state.closeBlock(node);
+	},
+	heading(state, node) {
+		state.write(`${state.repeat('#', Number(node.attrs.level))} `);
+		state.text(writeNoteInline(node, 'heading'), false);
+		state.closeBlock(node);
+	},
 	soft_break(state) {
 		state.write('\n');
 	},
@@ -236,14 +424,15 @@ const supportedInlineTokens = new Set([
 	'link_close',
 	's_open',
 	's_close',
+	'u_open',
+	'u_close',
+	'code_html_open',
+	'code_html_close',
+	'text_color_open',
+	'text_color_close',
+	'background_color_open',
+	'background_color_close',
 ]);
-
-const htmlTagPattern = /<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*?)?\/?>/;
-const htmlDeclarationPattern = /<!--|<![A-Z]|<\?[^>]*\?>|<!\[CDATA\[/i;
-
-function containsUnsupportedHtml(text: string): boolean {
-	return htmlDeclarationPattern.test(text) || htmlTagPattern.test(text);
-}
 
 function isTableDelimiterLine(line: string): boolean {
 	const withoutQuote = line.replace(/^(?: {0,3}>[ \t]?)+/, '').trim();
@@ -325,8 +514,8 @@ function tokensAreSupported(tokens: readonly MarkdownToken[]): boolean {
 			}
 			if (child.type === 'text') {
 				const content = child.content ?? '';
-				if (containsUnsupportedHtml(content)
-					|| content.includes('![')
+				// HTML is read as HTML: what is text here is text, `<` and all.
+				if (content.includes('![')
 					// Reference links need definitions from the full document. A Canvas
 					// unit is intentionally parsed in isolation, so accepting them here
 					// would turn the first edit into a lossy normalization.

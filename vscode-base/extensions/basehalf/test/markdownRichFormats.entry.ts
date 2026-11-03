@@ -35,6 +35,7 @@ import {
 import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
 import { makeBaseHalfAdhdDecorationExtension } from '../markdown-rich-src/adhdDecorations.js';
 import { createBaseHalfNoteEditorApi } from '../markdown-rich-src/noteConversions.js';
+import { createCanvasMarkdownInlineEditor } from '../canvas-markdown-inline-src/canvasMarkdownInline.js';
 import { installBaseHalfNoteCopy } from '../markdown-rich-src/noteCopy.js';
 import { addBaseHalfNoteMediaFile, installBaseHalfNoteResizeUnderZoom } from '../markdown-rich-src/noteMedia.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste } from '../markdown-rich-src/notePaste.js';
@@ -1030,6 +1031,40 @@ async function magnifiedResize(t: INoteFormatsTest): Promise<void> {
 	}
 }
 
+/**
+ * Part j, the card's editor (note formats, rule 82): colored and underlined
+ * text as Rich's copy puts it on the clipboard pastes colored and
+ * underlined into the card's editor, which writes it as Rich writes it.
+ */
+async function cardEditor(t: INoteFormatsTest): Promise<void> {
+	const host = document.createElement('div');
+	const unit = document.createElement('div');
+	host.append(unit);
+	document.body.append(host);
+	let written = '';
+	const card = createCanvasMarkdownInlineEditor(host, {
+		markdown: 'Start.',
+		units: [{ id: '0', markdown: 'Start.', prefix: '', separator: '', editable: true, element: unit }],
+		// The end of `Start.`: after the unit's and the paragraph's openings.
+		selection: { anchor: 8, head: 8 },
+		onMarkdownChange: markdown => {
+			written = markdown;
+		},
+	});
+	try {
+		card.focus();
+		const transfer = new DataTransfer();
+		transfer.setData('text/html', '<span data-style-type="textColor" data-value="red" style="color:#e8706b;">red</span> and <u>under</u>');
+		transfer.setData('text/plain', 'red and under');
+		host.querySelector('.ProseMirror')?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+		await t.frames();
+		t.check('red and underlined text copied from Rich pastes red and underlined into the card\'s editor, written as Rich writes it', written, 'Start.<span style="color:#e8706b;">red</span> and <u>under</u>');
+	} finally {
+		card.destroy();
+		host.remove();
+	}
+}
+
 /** Selects the first text that matches, and gives the editor the keyboard. */
 function selectText(t: INoteFormatsTest, text: string): void {
 	const view = t.editor.prosemirrorView;
@@ -1282,6 +1317,7 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	g: toggles,
 	h: media,
 	i: magnifiedResize,
+	j: cardEditor,
 	k: fixedBlocks,
 	n: shape,
 };

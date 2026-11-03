@@ -15,6 +15,7 @@ import {
 	joinBaseHalfMarkdownFrontmatter,
 	segmentBaseHalfMarkdownBody,
 	segmentBaseHalfMarkdownTopLevelBody,
+	segmentBaseHalfMarkdownTopLevelBodyWithToggles,
 	spliceBaseHalfMarkdownSave,
 	splitBaseHalfMarkdownFrontmatter
 } from '../../common/basehalfMarkdownProjection.js';
@@ -219,6 +220,18 @@ suite('BaseHalfMarkdownProjection', () => {
 				'soft-line-one\nsoft-line-two',
 				'Last paragraph.'
 			]);
+		});
+
+		test('keeps a toggle whose parts are blocks of their own as one segment for the card\'s editor (note formats, rule 82)', () => {
+			const body = 'Before.\n\n<details open>\n<summary>Title</summary>\n\nchild one\n\nchild two\n\n</details>\n\nAfter.\n';
+			const grouped = segmentBaseHalfMarkdownTopLevelBodyWithToggles(body);
+			assert.strictEqual(grouped.map(segment => segment.raw).join(''), body);
+			assert.deepStrictEqual(grouped.map(segment => segment.source), [
+				'Before.',
+				'<details open>\n<summary>Title</summary>\n\nchild one\n\nchild two\n\n</details>',
+				'After.'
+			]);
+			assert.strictEqual(tiles(body).length > grouped.length, true);
 		});
 
 		test('keeps an entire top-level list in one segment', () => {

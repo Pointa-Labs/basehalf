@@ -282,6 +282,15 @@ export function segmentBaseHalfMarkdownTopLevelBody(body: string): IBaseHalfMark
 	return segmentBaseHalfMarkdownBodyWithListMode(body, false, false);
 }
 
+/**
+ * As {@link segmentBaseHalfMarkdownTopLevelBody}, with a `<details>` whose
+ * parts are blocks of their own as one segment: the card's editor keeps a
+ * toggle as one unit, drawn as at rest (note formats, rule 82).
+ */
+export function segmentBaseHalfMarkdownTopLevelBodyWithToggles(body: string): IBaseHalfMarkdownSegment[] {
+	return segmentBaseHalfMarkdownBodyWithListMode(body, false, true);
+}
+
 function segmentBaseHalfMarkdownBodyWithListMode(body: string, splitListItems: boolean, groupToggles: boolean): IBaseHalfMarkdownSegment[] {
 	if (body === '') {
 		return [];
