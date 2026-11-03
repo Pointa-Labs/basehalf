@@ -5689,3 +5689,8 @@ and after Escape the note's video stood where the playhead had.
 - The waveform of a sound says when its bars are drawn, as the picture of
   the crop view does, so that the editor over a note's sound shows once it
   is drawn.
+- A note's player on the card, in the card's editor, and in Preview plays a
+  file that an edit in the note or its undo changed from an address that
+  names the file's version, and one that stands is played anew: a player
+  handed from one drawing of a note to the next by its address would keep
+  the version it loaded.

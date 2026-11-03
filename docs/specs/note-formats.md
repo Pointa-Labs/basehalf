@@ -561,7 +561,11 @@ start).
      and the room closes as the editor goes. The edit is the file's, as a
      picture's (rule 52d), and its undo is a picture's: one step of the
      note's undo at Done (rule 52e). One whose file BaseHalf cannot edit, or
-     that is missing, goes back to the note at once (rule 52f).
+     that is missing, goes back to the note at once (rule 52f). The note's
+     card, the card's editor, and Preview play a file that the edit or its
+     undo changed anew from its new version, by an address that names it,
+     also the players that already stand: none keeps showing what the
+     window loaded of the file before.
 
 ### Links
 
