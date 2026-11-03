@@ -241,8 +241,9 @@ start).
     page would read as the start of a character reference is `%26`; letters
     of any script, `#`, `?`, and balanced parentheses stay as they are.
 18. A link that `[[` inserts, and the address of a file put into a note, are
-    written with the space, `#`, `?`, `%`, brackets, parentheses, and the
-    other characters a path segment cannot hold in a link encoded:
+    written with the one encoder ([files in notes](files-in-notes.md), rule
+    19): every ASCII character but letters, digits, `-`, `.`, `_`, `~`, and
+    `/` is encoded, and so is white space; letters of any script stay:
     `[my file.md](my%20file.md)`, `docs/lecture%20%231.pdf`.
 19. **Lists.** A list item keeps the marker the file gave it: `-`, `*`, or
     `+`, and the number and `.` or `)` of a numbered item. Its children keep

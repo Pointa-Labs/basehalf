@@ -97,8 +97,10 @@ one folder for every note of that folder:
 ### A note's folder and the names of its files
 
 7. A note's folder is the first folder named by the note's links into the
-   store that exists. A note without one gets a new folder the next time a
-   file is put into it.
+   store that exists. A note without one gets the folder the window last put
+   one of its files into, while that folder is there, so that files put in
+   together, and a file put in after an undo took the last one away, share
+   it; else a new folder.
 8. A new folder's name is 10 random characters of `a-z` and `0-9`, as
    `7k3f9q2m1x`, free in every store BaseHalf knows. It is never renamed or
    moved, and it holds nothing of the note's name or place. An agent may make
