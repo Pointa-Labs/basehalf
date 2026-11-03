@@ -65,6 +65,22 @@ export class BaseHalfClipboardService implements IBaseHalfClipboardService {
 		return written;
 	}
 
+	addFiles(resources: readonly URI[], text: string): Promise<void> {
+		if (resources.length === 0 || resources.some(resource => resource.scheme !== Schemas.file)) {
+			return this.writing;
+		}
+		const write = async () => {
+			try {
+				await this.pasteboardService.addFiles(resources.map(resource => resource.fsPath), text);
+			} catch (error) {
+				this.logService.warn('[BaseHalf] the copied files could not be added to the clipboard', error);
+			}
+		};
+		const written = this.writing.then(write, write);
+		this.writing = written.catch(() => undefined);
+		return written;
+	}
+
 	async read(): Promise<BaseHalfTransfer | undefined> {
 		const items = await this.readItems();
 		if (items) {

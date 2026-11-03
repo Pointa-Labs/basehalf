@@ -142,6 +142,7 @@ suite('BaseHalfAgentSkill', () => {
 				'Never overwrite a file there',
 				'other than `-`, `.`, `_`, `~`, and `/` written as `%XX`',
 				'To take a file out of a note, remove its link. Never move, rename, or delete anything under `.bh/`.',
+				'A selected file under `.bh/attachments/` belongs to the note whose links name its folder.',
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('attachments')
 		}, { version: '12', inBody: true, afterOwnImage: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });

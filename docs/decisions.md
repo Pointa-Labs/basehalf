@@ -5429,6 +5429,19 @@ the input row does. D82: a deleted note's files leave by the 30-day rule. D41:
 BaseHalf writes `.bh/.gitignore` at its own text, and removes the two lines
 early versions wrote into a user's `.gitignore` only after the user confirms.
 
+**Finished (2026-11-03).** A route correction joins the step of the move,
+with its undo source, so that one undo where the move was made takes back
+both and asks nothing (D89). A note moved outside BaseHalf into another home,
+or whose files are only in a store beside it, gets clones of its files, not a
+route into another repository's store. A copy of blocks that are all files
+also puts the files on the clipboard, as D104's copy of items does, and a
+copy out of Source names its note, so that Rich rebases it as it rebases
+blocks. The selection record names a note's file by its own path, and the
+skill says which note it belongs to: the `file` and `note` fields of the
+2026-11-02 scheme were to keep an agent's picture for a note out of the
+store, and the skill now puts it in the note's folder (files in notes,
+rule 47).
+
 ## D112 — A double click edits a note on its card wherever it lands, and a note's videos, sounds, and files look on the card as BaseHalf shows them (NEW, 2026-11-03)
 
 **Decision.** A double click anywhere on a note's card edits the note on the

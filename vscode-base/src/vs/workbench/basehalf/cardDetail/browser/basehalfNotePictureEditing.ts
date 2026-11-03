@@ -7,7 +7,7 @@ import './media/basehalfNotePictureEditing.css';
 import { $, addDisposableListener, append, getWindow, scheduleAtNextAnimationFrame } from '../../../../base/browser/dom.js';
 import { raceTimeout } from '../../../../base/common/async.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
-import { relativePath } from '../../../../base/common/resources.js';
+import { dirname, isEqualOrParent, relativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { localize } from '../../../../nls.js';
@@ -15,6 +15,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaVersion } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { baseHalfNoteStoresAbove } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { resolveBaseHalfNoteLink } from '../../markdown/common/basehalfNoteLinks.js';
 import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
 import { BaseHalfMediaEditing } from '../../mediaEdit/browser/basehalfMediaEditing.js';
@@ -211,21 +212,35 @@ export class BaseHalfNotePictureEditing extends Disposable {
 	}
 
 	private pictureFile(): IBaseHalfWorkspaceResource | undefined {
-		return baseHalfNotePictureFile(this.workspaceContextService, this.target.note, this.target.href);
+		return baseHalfNotePictureFile(this.workspaceContextService.getWorkspace().folders.map(folder => folder.uri), this.target.note, this.target.href);
 	}
 }
 
-/** The workspace file of a picture's address in a note, read from the note's folder; none for an address outside the workspace. */
-function baseHalfNotePictureFile(workspaceContextService: IWorkspaceContextService, note: URI, href: string): IBaseHalfWorkspaceResource | undefined {
-	const folders = workspaceContextService.getWorkspace().folders.map(folder => folder.uri);
-	const target = resolveBaseHalfNoteLink(note, folders, href);
+/**
+ * The file of a picture's address in a note, read from the note's folder: a
+ * file of the workspace, or of a store above a workspace folder, which a
+ * window of a subfolder shows its notes' files from (files in notes, rule
+ * 48), with its card information in the mirror of that store's home. None
+ * for an address elsewhere.
+ */
+export function baseHalfNotePictureFile(folders: readonly URI[], note: URI, href: string): IBaseHalfWorkspaceResource | undefined {
+	const stores = folders.flatMap(folder => baseHalfNoteStoresAbove(folder));
+	const target = resolveBaseHalfNoteLink(note, [...folders, ...stores], href);
 	if (target.kind !== 'file') {
 		return undefined;
 	}
 	for (const folder of folders) {
-		const path = relativePath(folder, target.uri);
+		const path = isEqualOrParent(target.uri, folder) ? relativePath(folder, target.uri) : undefined;
 		if (path !== undefined) {
 			return { resource: target.uri, workspaceFolder: folder, relativePath: path };
+		}
+	}
+	for (const store of stores) {
+		// The store's home is the folder that holds its `.bh`.
+		const home = dirname(dirname(store));
+		const path = isEqualOrParent(target.uri, store) ? relativePath(home, target.uri) : undefined;
+		if (path) {
+			return { resource: target.uri, workspaceFolder: home, relativePath: path };
 		}
 	}
 	return undefined;
@@ -238,7 +253,7 @@ function baseHalfNotePictureFile(workspaceContextService: IWorkspaceContextServi
  * service says.
  */
 export function applyBaseHalfNotePictureChoices(accessor: ServicesAccessor, note: URI, href: string, choices: IBaseHalfMediaChoices): Promise<string | undefined> {
-	const file = baseHalfNotePictureFile(accessor.get(IWorkspaceContextService), note, href);
+	const file = baseHalfNotePictureFile(accessor.get(IWorkspaceContextService).getWorkspace().folders.map(folder => folder.uri), note, href);
 	const mediaEditService = accessor.get(IBaseHalfMediaEditService);
 	const fileService = accessor.get(IFileService);
 	return (async () => {

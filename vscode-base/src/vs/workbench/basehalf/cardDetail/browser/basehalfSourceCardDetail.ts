@@ -25,6 +25,7 @@ import { ITextFileService, TextFileEditorModelState, TextFileOperationError, Tex
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
 
 export class BaseHalfSourceCardDetail extends Disposable {
 	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
@@ -119,6 +120,13 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			}));
 			this.editor = editor;
 			editor.setModel(modelReference.object.textEditorModel);
+			if (/\.(?:md|markdown)$/i.test(state.resource.path)) {
+				// A copy of a note's text names the note, so that Rich in another note rebases its links (files in notes, rule 35).
+				const note = state.resource.toString();
+				const nameNote = (event: ClipboardEvent) => event.clipboardData?.setData(BASEHALF_NOTE_COPY_SOURCE, note);
+				this._register(addDisposableListener(this.editorHost, 'copy', nameNote, true));
+				this._register(addDisposableListener(this.editorHost, 'cut', nameNote, true));
+			}
 			this._register(editor.onDidChangeModelContent(() => this.updateStatus()));
 			// Read once the selection settles: a drag over a long note changes it
 			// with every move.

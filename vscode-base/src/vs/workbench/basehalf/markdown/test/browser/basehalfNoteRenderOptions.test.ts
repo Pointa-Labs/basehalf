@@ -15,7 +15,8 @@ suite('BaseHalfNoteRenderOptions', () => {
 
 	function rendered(source: string, note?: URI): { readonly root: HTMLElement; readonly dispose: () => void } {
 		const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: true });
-		markdown.baseUri = URI.file('/notes/note.md');
+		// The card and Preview read a note's pictures from the note's place.
+		markdown.baseUri = note ?? URI.file('/notes/note.md');
 		const root = document.createElement('div');
 		const rendering = renderMarkdown(markdown, baseHalfNoteRenderOptions({ note }), root);
 		finishBaseHalfNoteRendering(rendering.element);
@@ -90,6 +91,35 @@ suite('BaseHalfNoteRenderOptions', () => {
 				'/notes/my file.md',
 				'/notes/笔记.md',
 			]);
+		} finally {
+			note.dispose();
+		}
+	});
+
+	test('a note of a subfolder\'s window draws its files from the store above the window\'s folder, and its file block opens one there (files in notes, rule 48)', () => {
+		const note = rendered([
+			'![photo](../.bh/attachments/7k3f9q2m1x/photo%202.png)',
+			'',
+			'![clip](../.bh/attachments/7k3f9q2m1x/clip.mp4)',
+			'',
+			'[handout.pdf](../.bh/attachments/7k3f9q2m1x/handout.pdf)',
+			''
+		].join('\n'), URI.file('/notes/reading/week 1.md'));
+		try {
+			// The window loads a picture, a video, or a sound from any folder by its kind (files in notes, rule 48).
+			const loaded = (address: string | null | undefined) => {
+				const uri = URI.parse(address ?? '');
+				return `${uri.scheme} ${uri.path}`;
+			};
+			assert.deepStrictEqual({
+				picture: loaded(note.root.querySelector('img')?.getAttribute('src')),
+				video: loaded(note.root.querySelector('video')?.getAttribute('src')),
+				block: URI.parse(note.root.querySelector<HTMLElement>('a.bh-md-file')?.dataset.href ?? '').path,
+			}, {
+				picture: 'vscode-file /notes/.bh/attachments/7k3f9q2m1x/photo 2.png',
+				video: 'vscode-file /notes/.bh/attachments/7k3f9q2m1x/clip.mp4',
+				block: '/notes/.bh/attachments/7k3f9q2m1x/handout.pdf',
+			});
 		} finally {
 			note.dispose();
 		}

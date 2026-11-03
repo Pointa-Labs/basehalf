@@ -74,7 +74,8 @@ export const BASEHALF_AGENT_NOTE_FILES_SECTION: readonly string[] = [
 	'- To put a file into a note when the user asks, an image or a sound you make for the note too, copy it into the folder that the note\'s other links into `.bh/attachments/` use. When there is none, make a new folder of 10 random lowercase letters and digits in the `.bh/attachments/` of the nearest folder at or above the note that has `.bh/` or `.git`. Never overwrite a file there: give a taken name a number, as `photo 2.png`.',
 	'- Link it relative to the note, with every space and every ASCII punctuation mark other than `-`, `.`, `_`, `~`, and `/` written as `%XX`: `my%20photo%20%281%29.png`.',
 	'- To take a file out of a note, remove its link. Never move, rename, or delete anything under `.bh/`.',
-	'- When you move a note into a folder of another depth, give its links into `.bh/attachments/` the `../` its new place needs.'
+	'- When you move a note into a folder of another depth, give its links into `.bh/attachments/` the `../` its new place needs.',
+	'- A selected file under `.bh/attachments/` belongs to the note whose links name its folder.'
 ];
 
 /**

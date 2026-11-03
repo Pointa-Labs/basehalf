@@ -84,6 +84,9 @@ async function uploadTestFile(file: File): Promise<IBaseHalfNoteStoredFile> {
 /** What the host was asked for items, and what it answers next: none, as for a clipboard of text, until a check sets them. */
 const itemRequests: { readonly source: 'paste' | 'drop' | 'rebase'; readonly uris?: readonly string[]; readonly files?: readonly string[] }[] = [];
 
+/** What Rich gave the host to put on the clipboard as files (files in notes, rule 35). */
+const copiedFiles: { readonly files: readonly string[]; readonly text: string }[] = [];
+
 /** The note the test's editor holds, as editor.tsx knows it, and as Rich's copy names it. */
 const noteNow = { resource: 'file:///workspace/notes/a.md' };
 const itemsAnswer: { next?: IBaseHalfNoteItems; delay?: number } = {};
@@ -178,7 +181,7 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 			reading: () => openNow.reading,
 		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems })],
 		paste: { handler: makeBaseHalfNotePasteHandler(requestTestItems, () => noteNow.resource), install: (editor, api) => installBaseHalfNotePaste(editor, api) },
-		copy: editor => installBaseHalfNoteCopy(editor, document.body, () => noteNow.resource),
+		copy: editor => installBaseHalfNoteCopy(editor, document.body, () => noteNow.resource, (files, text) => copiedFiles.push({ files: [...files], text })),
 		blockIndex: editor => installBaseHalfNoteBlockIndex(editor),
 	},
 	baseline: { editorApi: blockNoteEditorApi, extensions: () => [] },
@@ -1140,6 +1143,59 @@ async function noteItems(t: INoteFormatsTest): Promise<void> {
 			source: 'file:///workspace/top.md',
 			requests: [{ source: 'rebase', uris: ['file:///workspace/.bh/attachments/aaaaaaaaaa/a%20b.png', 'file:///workspace/other.md'] }],
 			saved: `Start.\n\n![a](${NOTE_STORE}/a%20b.png)\n\nSee [other](../other.md) and [here](#heading).\n`,
+		},
+	});
+
+	// Markdown copied out of Source, as the code editor puts it on the clipboard with the note it names.
+	const fromSource = async (note: string) => {
+		await t.load('Start.\n');
+		await t.frames();
+		t.caret('Start.');
+		await t.keyboard.press('Enter');
+		itemRequests.length = 0;
+		t.editor.domElement?.dispatchEvent(new ClipboardEvent('paste', {
+			clipboardData: transferOf([], {
+				'text/plain': '![a](.bh/attachments/aaaaaaaaaa/a%20b.png)\n\nSee [other](<other.md>) and [here](#heading).\n',
+				'vscode-editor-data': JSON.stringify({ version: 1, isFromEmptySelection: false, multicursorText: null, mode: 'markdown' }),
+				'basehalf/note': note,
+			}),
+			bubbles: true, cancelable: true,
+		}));
+		await until('the pasted Markdown is in', () => t.blocks().length > 2);
+		await t.frames(3);
+		return { requests: [...itemRequests], saved: await t.save() };
+	};
+	const markdown = { other: await fromSource('file:///workspace/top.md'), same: await fromSource(noteNow.resource) };
+
+	// A copy of blocks that are all files gives the host their files; a cut, and a copy with text, do not.
+	const copyOf = async (source: string, action: 'copy' | 'cut') => {
+		await t.load(source);
+		await t.frames();
+		t.editor.prosemirrorView.dispatch(t.editor.prosemirrorView.state.tr.setSelection(new AllSelection(t.editor.prosemirrorView.state.doc)));
+		copiedFiles.length = 0;
+		const data = new DataTransfer();
+		t.editor.domElement?.dispatchEvent(new ClipboardEvent(action, { clipboardData: data, bubbles: true, cancelable: true }));
+		await new Promise(resolve => setTimeout(resolve, 20));
+		return copiedFiles.map(({ files, text }) => ({ files, sameText: text === data.getData('text/plain') }));
+	};
+	const files = `![a b](${NOTE_STORE}/a%20b.png)\n\n<video src="${NOTE_STORE}/clip.mp4" controls></video>\n\n[report.pdf](../docs/report.pdf)\n`;
+	const copies = { files: await copyOf(files, 'copy'), cut: await copyOf(files, 'cut'), withText: await copyOf(`Words.\n\n${files}`, 'copy') };
+
+	t.check('Markdown pasted from another note\'s Source is read from its place as blocks are; a copy of files alone gives the host the files, a cut and a copy with text do not (files in notes, rule 35)', { markdown, copies }, {
+		markdown: {
+			other: {
+				requests: [{ source: 'rebase', uris: ['file:///workspace/.bh/attachments/aaaaaaaaaa/a%20b.png', 'file:///workspace/other.md'] }],
+				saved: `Start.\n\n![a](${NOTE_STORE}/a%20b.png)\n\nSee [other](../other.md) and [here](#heading).\n`,
+			},
+			same: {
+				requests: [],
+				saved: 'Start.\n\n![a](.bh/attachments/aaaaaaaaaa/a%20b.png)\n\nSee [other](other.md) and [here](#heading).\n',
+			},
+		},
+		copies: {
+			files: [{ files: ['file:///workspace/.bh/attachments/7k3f9q2m1x/a%20b.png', 'file:///workspace/.bh/attachments/7k3f9q2m1x/clip.mp4', 'file:///workspace/docs/report.pdf'], sameText: true }],
+			cut: [],
+			withText: [],
 		},
 	});
 }

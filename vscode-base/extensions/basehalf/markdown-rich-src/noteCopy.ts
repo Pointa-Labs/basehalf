@@ -7,6 +7,7 @@ import type { BlockNoteEditor } from '@blocknote/core';
 import { CellSelection } from 'prosemirror-tables';
 import { writeBaseHalfNoteInline, type BaseHalfNoteInlineContent } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteInline.js';
 import { baseHalfNotePaletteAlias, baseHalfNoteSpanStyle } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
+import { BASEHALF_NOTE_COPY_SOURCE } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteFileLinks.js';
 import { writeBaseHalfNoteBlocks } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteWriter.js';
 
 // Copy out of Rich (note formats, rules 75 to 77): Command-C, Command-X,
@@ -42,6 +43,39 @@ function selectionMarkdown(editor: NoteEditor): string | undefined {
 	return writeBaseHalfNoteBlocks(blocks, { isOpen: () => false });
 }
 
+/** The kinds of blocks that show a file (files in notes, rule 35). */
+const FILE_BLOCKS: ReadonlySet<string> = new Set(['image', 'video', 'audio', 'file']);
+
+/**
+ * The file addresses of the files a selection of blocks that are all files
+ * names, read from the note's place: pictures, videos, sounds, and file
+ * blocks of files on the disk. None for any other selection.
+ */
+function selectionFiles(editor: NoteEditor, note: string | undefined): string[] | undefined {
+	const { selection } = editor.prosemirrorView.state;
+	if (!note || selection.empty || selection instanceof CellSelection) {
+		return undefined;
+	}
+	const files: string[] = [];
+	for (const block of editor.getSelectionCutBlocks().blocks as readonly { readonly type?: string; readonly props?: { readonly url?: unknown }; readonly children?: readonly unknown[] }[]) {
+		const url = block.props?.url;
+		if (!FILE_BLOCKS.has(block.type ?? '') || typeof url !== 'string' || url === '' || (block.children?.length ?? 0) > 0) {
+			return undefined;
+		}
+		let address: URL;
+		try {
+			address = new URL(url, note);
+		} catch {
+			return undefined;
+		}
+		if (address.protocol !== 'file:') {
+			return undefined;
+		}
+		files.push(address.href);
+	}
+	return files.length > 0 ? files : undefined;
+}
+
 /** The HTML of a copy with the palette's values in the note's spelling instead of the editor's own palette. */
 function withPaletteColors(html: string): string {
 	const template = document.createElement('template');
@@ -61,18 +95,21 @@ function withPaletteColors(html: string): string {
  * Markdown as their text. The text is read before the editor copies, and
  * before a cut deletes what it copied; it takes the place of the editor's
  * own text after the editor copied. A copy the editor leaves to the page,
- * as within a fixed block, is left as it is. Returns what removes it.
+ * as within a fixed block, is left as it is. A copy, not a cut, of blocks
+ * that are all files hands their files to `onFilesCopied` once the page has
+ * written the clipboard (files in notes, rule 35). Returns what removes it.
  */
-/** The kind of data that names the note a copy out of Rich comes from (files in notes, rule 35). */
-export const BASEHALF_NOTE_COPY_SOURCE = 'basehalf/note';
-
-export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLElement, note?: () => string | undefined): () => void {
+export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLElement, note?: () => string | undefined, onFilesCopied?: (files: readonly string[], text: string) => void): () => void {
 	let text: string | undefined;
-	const read = (): void => {
+	let files: string[] | undefined;
+	const read = (copying: boolean): void => {
 		try {
 			text = selectionMarkdown(editor);
+			// A copy of files alone puts the files on the clipboard too; a cut does not (files in notes, rule 35).
+			files = copying ? selectionFiles(editor, note?.()) : undefined;
 		} catch (error) {
 			text = undefined;
+			files = undefined;
 			console.error('[basehalf] Rich could not write the selection as the note stores it; the editor\'s copy stands.', error);
 		}
 	};
@@ -88,10 +125,16 @@ export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLEleme
 			if (html) {
 				data.setData('text/html', withPaletteColors(html));
 			}
+			if (files && onFilesCopied) {
+				const copied = { files, text };
+				// Once the page has written the clipboard.
+				setTimeout(() => onFilesCopied(copied.files, copied.text), 0);
+			}
 		}
 		text = undefined;
+		files = undefined;
 	};
-	const onBeforeCopy = (): void => read();
+	const onBeforeCopy = (event: ClipboardEvent): void => read(event.type === 'copy');
 	const onCopied = (event: ClipboardEvent): void => {
 		if (event.defaultPrevented) {
 			write(event.clipboardData);
@@ -108,6 +151,7 @@ export function installBaseHalfNoteCopy(editor: NoteEditor, container: HTMLEleme
 		try {
 			const blocks = editor.tryParseHTMLToBlocks(event.dataTransfer.getData('blocknote/html'));
 			text = writeBaseHalfNoteBlocks(blocks, { isOpen: () => false });
+			files = undefined;
 		} catch (error) {
 			text = undefined;
 			console.error('[basehalf] Rich could not write the dragged blocks as the note stores them.', error);

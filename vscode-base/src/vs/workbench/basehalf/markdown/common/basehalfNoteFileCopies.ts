@@ -4,17 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { ResourceMap } from '../../../../base/common/map.js';
 import { basename, dirname, isEqualOrParent, joinPath, relativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
-import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfCloneNoteFileEditRecord, baseHalfMarkdownAttachmentHref, baseHalfNoteHome } from './basehalfMarkdownAttachment.js';
+import { baseHalfMarkdownAttachmentHref, baseHalfNoteHome } from './basehalfMarkdownAttachment.js';
 import { baseHalfNoteLinkDestinationRanges, baseHalfNoteStoreLink } from './basehalfNoteFileLinks.js';
-import { BASEHALF_NO_WORKSPACE_SETUP_MARKER, BASEHALF_NOTE_FILES_STORE_PATH, baseHalfNoteFreeName, newBaseHalfNoteFolderName } from './basehalfNoteFiles.js';
-import { IBaseHalfNoteRouteEdit, baseHalfApplyNoteRouteEdits } from './basehalfNoteFileRoutes.js';
+import { BASEHALF_NO_WORKSPACE_SETUP_MARKER } from './basehalfNoteFiles.js';
+import { BaseHalfNoteFileClones, IBaseHalfNoteRouteEdit, baseHalfApplyNoteRouteEdits } from './basehalfNoteFileRoutes.js';
 
 // Copies that BaseHalf makes of notes (files in notes, rule 33): each copied
 // note gets its own folder in the store of its home, the stored files its
@@ -100,32 +97,48 @@ function isNote(resource: URI): boolean {
 /**
  * Clones the stored files that the copy `to` of the note `from` links into a
  * new folder of its home's store, with their edit records, and points its
- * links at them. A link that names a file the copied folder `copied` holds,
- * as its own store copied along, is the copy's own already. Gives false when
- * a file could not be cloned.
+ * links at them. Gives false when a file could not be cloned.
  */
 async function copyNoteFiles(services: IBaseHalfNoteFileCopyServices, from: URI, to: URI, copied: URI): Promise<boolean> {
+	const markdown = (await services.fileService.readFile(to)).value.toString();
+	const planned = await baseHalfNoteFileCloneEdits(services, from, to, copied, markdown);
+	if (!planned) {
+		return true;
+	}
+	const text = baseHalfApplyNoteRouteEdits(markdown, planned.edits);
+	if (text !== markdown) {
+		await services.fileService.writeFile(to, VSBuffer.fromString(text));
+	}
+	return planned.complete;
+}
+
+/**
+ * The edits that give the note `to`, whose text is `markdown`, a copy of the
+ * note `from` or the note `from` moved into another home, clones of the
+ * stored files its links name, in a new folder of its home's store, with
+ * their edit records, and point its links at them (rules 31 and 33). A link
+ * that names a file the folder `copied` holds, as its own store copied or
+ * moved along, is left as it is. A file that could not be cloned is linked
+ * where `from` links it, from the place of `to`. None in a marked folder.
+ */
+export async function baseHalfNoteFileCloneEdits(services: IBaseHalfNoteFileCopyServices, from: URI, to: URI, copied: URI, markdown: string): Promise<{ readonly edits: readonly IBaseHalfNoteRouteEdit[]; readonly complete: boolean } | undefined> {
 	const { fileService } = services;
 	const workspaceFolder = services.workspaceFolderOf(to);
 	if (!workspaceFolder || await fileService.exists(joinPath(workspaceFolder, BASEHALF_NO_WORKSPACE_SETUP_MARKER))) {
-		return true;
+		return undefined;
 	}
-	const markdown = (await fileService.readFile(to)).value.toString();
 	const links = baseHalfNoteLinkDestinationRanges(markdown).flatMap(({ at, destination }) => {
 		const link = baseHalfNoteStoreLink(destination);
 		return link ? [{ at, destination, link }] : [];
 	});
 	if (links.length === 0) {
-		return true;
+		return undefined;
 	}
 	const home = await baseHalfNoteHome(fileService, to, workspaceFolder);
 	if (await fileService.exists(joinPath(home, BASEHALF_NO_WORKSPACE_SETUP_MARKER))) {
-		return true;
+		return undefined;
 	}
-	let folder: URI | undefined;
-	const taken = new Set<string>();
-	const clones = new ResourceMap<URI | null>();
-	let complete = true;
+	const clones = new BaseHalfNoteFileClones(services, workspaceFolder, home);
 	const edits: IBaseHalfNoteRouteEdit[] = [];
 	for (const { at, destination, link } of links) {
 		const original = joinPath(dirname(from), ...link.path.split('/'));
@@ -133,47 +146,12 @@ async function copyNoteFiles(services: IBaseHalfNoteFileCopyServices, from: URI,
 		if (isEqualOrParent(own, copied) && await fileService.exists(own)) {
 			continue;
 		}
-		let clone = clones.get(original);
-		if (clone === undefined) {
-			clone = null;
-			if (await fileService.exists(original)) {
-				try {
-					folder ??= await newFolder(fileService, home);
-					const name = baseHalfNoteFreeName(basename(original), taken);
-					taken.add(name.toLowerCase());
-					clone = joinPath(folder, name);
-					await services.fileClonesService.clone(original, clone);
-					await baseHalfCloneNoteFileEditRecord(services, workspaceFolder, original, clone);
-				} catch {
-					clone = null;
-					complete = false;
-				}
-			}
-			clones.set(original, clone);
-		}
+		const clone = await fileService.exists(original) ? await clones.clone(original) : undefined;
 		// A file that could not be cloned stays the original's, linked from the copy's place (rule 33).
 		const target = clone ?? (await fileService.exists(original) ? original : undefined);
 		if (target) {
 			edits.push({ at, length: destination.length, text: baseHalfMarkdownAttachmentHref(to, target) });
 		}
 	}
-	const text = baseHalfApplyNoteRouteEdits(markdown, edits);
-	if (text !== markdown) {
-		await fileService.writeFile(to, VSBuffer.fromString(text));
-	}
-	return complete;
-}
-
-/** A new folder in the store of `home`, with the store's ignore file. */
-async function newFolder(fileService: IFileService, home: URI): Promise<URI> {
-	const store = joinPath(home, ...BASEHALF_NOTE_FILES_STORE_PATH);
-	await baseHalfEnsureMirrorIgnoreFile(fileService, home);
-	for (; ;) {
-		const folder = joinPath(store, newBaseHalfNoteFolderName());
-		if (!await fileService.exists(folder)) {
-			await baseHalfAssertBhPathComponentsNotSymbolicLink(fileService, home, folder);
-			await fileService.createFolder(folder);
-			return folder;
-		}
-	}
+	return { edits, complete: !clones.incomplete };
 }

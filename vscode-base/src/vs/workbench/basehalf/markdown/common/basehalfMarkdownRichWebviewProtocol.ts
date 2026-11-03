@@ -389,6 +389,17 @@ export type BaseHalfMarkdownRichWebviewMessage =
 	}
 	| {
 		/**
+		 * A copy of blocks that are all files: the file addresses of the
+		 * files they name, which the host adds to what the page put on the
+		 * clipboard, whose text is `text` (files in notes, rule 35).
+		 */
+		readonly type: 'basehalf.markdownRich.copiedFiles';
+		readonly key: string;
+		readonly uris: readonly string[];
+		readonly text: string;
+	}
+	| {
+		/**
 		 * A save wrote a block without its formats, as the editor's own writer
 		 * or as plain text, because Rich's writer failed on it (note formats,
 		 * design A5): for the log, with the block as JSON cut to 4 KiB.
@@ -629,6 +640,11 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 				&& (candidate.files === undefined || (Array.isArray(candidate.files) && candidate.files.every(file => file instanceof File)));
 		case 'basehalf.markdownRich.openResource':
 			return typeof candidate.href === 'string' && candidate.href.length > 0;
+		case 'basehalf.markdownRich.copiedFiles':
+			return Array.isArray(candidate.uris)
+				&& candidate.uris.length > 0
+				&& candidate.uris.every(uri => typeof uri === 'string' && uri.length > 0)
+				&& typeof candidate.text === 'string';
 		case 'basehalf.markdownRich.clipboard':
 			return candidate.action === 'copy' || candidate.action === 'cut' || candidate.action === 'paste';
 		case 'basehalf.markdownRich.editPicture':

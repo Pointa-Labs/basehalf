@@ -171,7 +171,8 @@ its own, which the agents' folders link to
    the `../` the new place needs; BaseHalf corrects a link that leads nowhere
    when it sees the note ([files in notes](files-in-notes.md), rule 28). An
    image or a sound the agent makes for a note when the user asks goes into
-   the note's folder, not beside the note as a card.
+   the note's folder, not beside the note as a card. A selected file under
+   `.bh/attachments/` belongs to the note whose links name its folder.
 
 The body describes where things are and what they mean. Following D36, it
 does not tell an agent what to read or in what order. It stays under 500

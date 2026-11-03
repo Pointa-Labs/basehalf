@@ -35,4 +35,13 @@ export interface IBaseHalfPasteboardService {
 	 * system without AppKit; nothing is written then.
 	 */
 	write(contents: IBaseHalfPasteboardContents): Promise<boolean>;
+	/**
+	 * Adds the files at the paths `files` to what the clipboard holds, as a
+	 * file manager writes files it copies, and keeps every form a copy put
+	 * there, when its text is still `text` (files in notes, rule 35).
+	 * Resolves with false where the system has no such write, or when the
+	 * clipboard holds something else by then; nothing is written then.
+	 * `pasteboard` names another clipboard than the system's, for tests.
+	 */
+	addFiles(files: readonly string[], text: string, pasteboard?: string): Promise<boolean>;
 }

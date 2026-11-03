@@ -7,14 +7,15 @@ import assert from 'assert';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../../base/common/network.js';
-import { joinPath } from '../../../../../base/common/resources.js';
+import { joinPath, relativePath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { IBaseHalfFileClonesService } from '../../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { baseHalfNoteLinkDestinationRanges, baseHalfNoteLinkDestinations } from '../../common/basehalfNoteFileLinks.js';
-import { baseHalfApplyNoteRouteEdits, baseHalfNoteFileRouteEdits } from '../../common/basehalfNoteFileRoutes.js';
+import { baseHalfApplyNoteRouteEdits, baseHalfNoteFileRouteEdits, baseHalfNoteStoresBelow } from '../../common/basehalfNoteFileRoutes.js';
 import { resolveBaseHalfNoteLink } from '../../common/basehalfNoteLinks.js';
 
 const WORKSPACE = URI.file('/workspace');
@@ -29,11 +30,49 @@ suite('BaseHalfNoteFileRoutes', () => {
 		for (const [path, content] of Object.entries(files)) {
 			await fileService.writeFile(joinPath(WORKSPACE, ...path.split('/')), VSBuffer.fromString(content));
 		}
-		const corrected = async (note: string) => {
+		// Clones as the disk's own clone does, never over a file that is there.
+		const fileClonesService = {
+			_serviceBrand: undefined,
+			clone: async (source: URI, target: URI) => {
+				if (await fileService.exists(target)) {
+					throw new Error('EEXIST: file already exists');
+				}
+				await fileService.copy(source, target, false);
+			}
+		} as unknown as IBaseHalfFileClonesService;
+		const corrected = async (note: string, workspaceFolder = WORKSPACE) => {
 			const text = (await fileService.readFile(joinPath(WORKSPACE, ...note.split('/')))).value.toString();
-			return baseHalfApplyNoteRouteEdits(text, await baseHalfNoteFileRouteEdits(fileService, WORKSPACE, joinPath(WORKSPACE, ...note.split('/')), text));
+			const services = { fileService, fileClonesService, knownStores: () => baseHalfNoteStoresBelow(fileService, workspaceFolder) };
+			return baseHalfApplyNoteRouteEdits(text, await baseHalfNoteFileRouteEdits(services, workspaceFolder, joinPath(WORKSPACE, ...note.split('/')), text));
 		};
-		return { fileService, corrected };
+		const tree = async () => {
+			const files: string[] = [];
+			const walk = async (folder: URI) => {
+				for (const child of (await fileService.resolve(folder)).children ?? []) {
+					if (child.isDirectory) {
+						await walk(child.resource);
+					} else if (child.name !== '.gitignore') {
+						files.push(relativePath(WORKSPACE, child.resource)!);
+					}
+				}
+			};
+			await walk(WORKSPACE);
+			return files.sort();
+		};
+		return { fileService, corrected, tree };
+	}
+
+	/** `text` with each store folder that is not one of a test's own (ten times one letter) named by the order it first shows in. */
+	function named(text: string, folders = new Map<string, string>()): string {
+		return text.replace(/attachments\/([a-z0-9]{10})\//g, (whole, folder: string) => {
+			if (/^(?<letter>[a-z])\k<letter>{9}$/.test(folder)) {
+				return whole;
+			}
+			if (!folders.has(folder)) {
+				folders.set(folder, `<new${folders.size + 1}>`);
+			}
+			return `attachments/${folders.get(folder)}/`;
+		});
 	}
 
 	test('a link into the store, in the ../ form and after its route is corrected, goes to the stored file wherever the note is', async () => {
@@ -91,6 +130,60 @@ suite('BaseHalfNoteFileRoutes', () => {
 		assert.deepStrictEqual([await workspace.corrected('up.md'), await workspace.corrected('repo/notes/n.md')], [
 			'![x](.bh/attachments/bbbbbbbbbb/x.png)\n',
 			'![y](../.bh/attachments/cccccccccc/y.png)\n',
+		]);
+	});
+
+	test('a note moved outside BaseHalf into another home, or whose files are only in a store beside it, gets clones of its files and their edit records in its home\'s store (rules 30 and 31)', async () => {
+		const workspace = await open({
+			'repo/.git/HEAD': '',
+			'repo/deep/moved.md': '![x](../.bh/attachments/aaaaaaaaaa/x%20y.png) ![w](../.bh/attachments/aaaaaaaaaa/w.png)\n',
+			'.bh/attachments/aaaaaaaaaa/x y.png': 'x',
+			'.bh/attachments/aaaaaaaaaa/w.png': 'w',
+			'.bh/mirror/.bh/attachments/aaaaaaaaaa/x y.png/edit.yaml': 'crop',
+			'.bh/mirror/.bh/attachments/aaaaaaaaaa/x y.png/original.png': 'original',
+			'other/.git/HEAD': '',
+			'other/.bh/attachments/bbbbbbbbbb/z.png': 'z',
+			'beside/.git/HEAD': '',
+			'beside/n.md': '![z](.bh/attachments/bbbbbbbbbb/z.png)\n',
+		});
+		const folders = new Map<string, string>();
+
+		assert.deepStrictEqual({
+			moved: named(await workspace.corrected('repo/deep/moved.md'), folders),
+			beside: named(await workspace.corrected('beside/n.md'), folders),
+			tree: (await workspace.tree()).map(path => named(path, folders)),
+		}, {
+			moved: '![x](../.bh/attachments/<new1>/x%20y.png) ![w](../.bh/attachments/<new1>/w.png)\n',
+			beside: '![z](.bh/attachments/<new2>/z.png)\n',
+			tree: [
+				'.bh/attachments/aaaaaaaaaa/w.png',
+				'.bh/attachments/aaaaaaaaaa/x y.png',
+				'.bh/mirror/.bh/attachments/aaaaaaaaaa/x y.png/edit.yaml',
+				'.bh/mirror/.bh/attachments/aaaaaaaaaa/x y.png/original.png',
+				'.bh/mirror/repo/.bh/attachments/<new1>/x y.png/edit.yaml',
+				'.bh/mirror/repo/.bh/attachments/<new1>/x y.png/original.png',
+				'beside/.bh/attachments/<new2>/z.png',
+				'beside/.git/HEAD',
+				'beside/n.md',
+				'other/.bh/attachments/bbbbbbbbbb/z.png',
+				'other/.git/HEAD',
+				'repo/.bh/attachments/<new1>/w.png',
+				'repo/.bh/attachments/<new1>/x y.png',
+				'repo/.git/HEAD',
+				'repo/deep/moved.md',
+			].sort(),
+		});
+	});
+
+	test('a note of a subfolder\'s window gets the route to the store above the window\'s folder, which is never cloned from (rule 48)', async () => {
+		const workspace = await open({
+			'sub/deep/n.md': '![x](../.bh/attachments/cccccccccc/x.png)\n',
+			'.bh/attachments/cccccccccc/x.png': 'x',
+		});
+
+		assert.deepStrictEqual([await workspace.corrected('sub/deep/n.md', joinPath(WORKSPACE, 'sub')), await workspace.tree()], [
+			'![x](../../.bh/attachments/cccccccccc/x.png)\n',
+			['.bh/attachments/cccccccccc/x.png', 'sub/deep/n.md'],
 		]);
 	});
 

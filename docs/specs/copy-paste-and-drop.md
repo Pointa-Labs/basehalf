@@ -109,7 +109,10 @@ place that should take something needed code of its own, and most had none.
     selected text, as before;
   - in a note's Rich editor, the Markdown that the note would store for the
     selection, as text, and its HTML with the palette's colors
-    ([formats of a note](note-formats.md#copy)).
+    ([formats of a note](note-formats.md#copy)); a selection of blocks that
+    are all files copies the files themselves too, as a file manager copies
+    files, and a cut does not ([files in notes](files-in-notes.md), rule 35);
+  - in a note's Source, the selected text, with the note it comes from.
 - With nothing selected, a copy changes nothing on the clipboard.
 - A copy of items writes the system clipboard once, in three forms at once:
   1. **the files and folders themselves**, as a file manager writes files it copies,

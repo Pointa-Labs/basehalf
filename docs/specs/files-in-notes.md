@@ -220,20 +220,31 @@ one folder for every note of that folder:
     nothing: neither the folder nor the links hold the note's name or place.
 29. A move of a note to another depth in BaseHalf rewrites, once the move is
     done, the route of each of its links into the store and nothing else, in
-    one minimal edit with the undo source of a BaseHalf service: Command-Z in
-    an editor of the note stops at it and asks nothing, and an open Rich takes
-    it while the user types.
+    one minimal edit that joins the step of the move, with its undo source:
+    one Command-Z where the move was made, on the canvas or in Files, takes
+    back the move and the edit together and asks nothing; Command-Z in an
+    editor of the note stops at the edit and asks nothing; and an open Rich
+    takes it while the user types. A correction BaseHalf makes of an open
+    note on its own (rule 30) is a step of a BaseHalf service, which the
+    canvas's Command-Z reaches. The undo or redo of a move writes no
+    correction of its own: the step's edit goes back or comes again with it.
 30. A move outside BaseHalf, or while it was closed, leaves the links broken
     until BaseHalf sees the note (300 ms after the folder's file events are
     quiet, or at the next open). Then a link into the store that leads
-    nowhere gets its route corrected when its key is in a store at or above
-    the note, the nearest first, or its files cloned into a new folder of the
-    home's store when the key is in another store BaseHalf knows. Only links that lead nowhere are
-    touched; nothing is written while git is in the middle of an operation in
-    that repository, nor in a marked folder.
+    nowhere gets its route corrected when its key is in the store of the
+    note's home, or in a store above the workspace folder (rule 48), the
+    nearest first. When the key is in another store BaseHalf knows, of
+    another home above the note or beside it, the files are cloned into a new
+    folder of the home's store, with their edit records, and the links
+    pointed there (rule 31). BaseHalf knows the stores of the workspace's
+    folders, looked for in the first 5,000 folders of each. Only links that
+    lead nowhere are touched; nothing is written while git is in the middle
+    of an operation in that repository, nor in a marked folder.
 31. A note moved into another home has its files cloned into a new folder of
-    the new home's store, and its links pointed there; the old files leave by
-    rule 43.
+    the new home's store, with their edit records, and its links pointed
+    there; the old files leave by rule 43. A move in BaseHalf is known as it
+    happens, a move outside BaseHalf by the links that then lead nowhere
+    (rule 30); one whose links still lead somewhere changes nothing.
 32. A folder moved to another depth corrects the notes below it by rules 29
     and 30. A folder that is a home carries its store along.
 
@@ -254,10 +265,13 @@ one folder for every note of that folder:
 35. A block cut or copied into another note keeps working there: its relative
     links are rebased to the receiving note, and each stored file that is not
     in the receiving note's folder is cloned there, with its edit record. Into
-    the same note nothing is copied. A copy out of Rich names the note it
-    comes from; text copied elsewhere, as from Source, is pasted as written.
-    A block of file blocks alone copies the files themselves for other
-    places, never as cut.
+    the same note nothing is copied. A copy out of Rich, and a copy of text
+    out of a note's Source, names the note it comes from, and Rich rebases
+    what it pastes from another note, blocks and Markdown alike. Source
+    pastes text as written, as text copied elsewhere is pasted. A copy of
+    blocks that are all files (pictures, videos, sounds, file blocks) also
+    puts the files themselves on the clipboard for other places, as a file
+    manager copies files; a cut does not.
 
 ### Leaving
 
@@ -314,7 +328,12 @@ one folder for every note of that folder:
     path. When the cause is the two lines early versions wrote into a user's
     `.gitignore` (`# BaseHalf derived cache` and `.bh/`), the notice offers
     Remove, Show, and Keep; Remove deletes exactly those two lines after the
-    user confirms, and Keep is remembered.
+    user confirms, and Keep is remembered. BaseHalf reads a home's ignore
+    files when a window opens on it with a store, and when a file first
+    appears in a store during the window, as git reads them: a folder left
+    out leaves out what it holds, and of the lines that name a path the last
+    one decides, a deeper `.gitignore` before a higher one, `info/exclude`,
+    and the global file. A home outside a repository has no notice.
 
 ### Agents
 
@@ -325,15 +344,21 @@ one folder for every note of that folder:
     note's home, never overwriting; to link it with the one encoder; to take a
     file out of a note by removing its link, never by moving, renaming, or
     deleting anything under `.bh/`; and that a moved note's routes are
-    corrected by BaseHalf when it sees the note.
+    corrected by BaseHalf when it sees the note. The selection record names a
+    note's file open in Card Detail by its own path, with no field for its
+    note; the skill says that a file under `.bh/attachments/` belongs to the
+    note whose links name its folder.
 
 ### Subfolders and repositories
 
 48. A subfolder opened in a window of its own still shows its notes' files in
-    the store above it: Rich takes the stores of folders above the workspace
-    folder as places it may read. A file put into such a note goes into the
-    folder its links already use. A window never releases files from a store
-    above its workspace folder.
+    the store above it: Rich, the card, and Preview take the stores of
+    folders above the workspace folder as places they may read, a file block
+    there opens its file, and a picture there is edited in place as any
+    (rule 27), its original and edit record in the mirror of that store's
+    home. A file put into such a note goes into the folder its links already
+    use. A window never releases files from a store above its workspace
+    folder.
 
 ### Failure messages
 
@@ -409,4 +434,25 @@ one folder for every note of that folder:
   failed clone); `basehalfMarkdownAttachment.test.ts` (the links of pasted
   blocks); the Rich bundle test's blocks pasted from another note; in the
   real window, Duplicate of a note with a video and its edit record.
-- Stages 4, 6, and 7 add their own checks as they are built.
+- Stage 4: `basehalfNoteFileRoutes.test.ts` (a route corrected within the
+  home and to a store above the workspace folder; files cloned, with their
+  edit records, from another home's store above the note and from one beside
+  it; nothing in a marked folder); the routes contribution's test (a move of
+  an open note in one step of undo with its correction, which an editor's
+  Command-Z leaves; an undo of the move writes nothing); the bulk edit
+  service's test (an edit that joins the step of a running edit takes its
+  undo source).
+- Stage 5, the rest: the Rich bundle test's Markdown pasted from another
+  note's Source (links rebased, stored files cloned) and a copy of blocks
+  that are all files (the files asked for the clipboard; a cut asks
+  nothing); the Source editor's copy names its note.
+- Stage 6: `basehalfNoteFileGit.test.ts` (the ignore files read as git reads
+  them: a folder left out, the last line deciding, `!`, anchored and
+  unanchored lines, `**`, a deeper `.gitignore`, `info/exclude`, the global
+  file, the two early lines found) and the notice's test (once per home,
+  Remove after the confirmation, Keep remembered); the render options test
+  and the link router test (a note of a subfolder's window draws and opens
+  its files from the store above); the picture editing test (a picture in a
+  store above is edited with its record in that home's mirror).
+- Stage 7: the skill's test (the section names `.bh/attachments/` and says
+  which note a selected file there belongs to; version 12).

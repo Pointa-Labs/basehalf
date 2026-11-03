@@ -171,6 +171,8 @@ export class BulkEditService implements IBulkEditService {
 	declare readonly _serviceBrand: undefined;
 
 	private readonly _activeUndoRedoGroups = new LinkedList<UndoRedoGroup>();
+	/** BaseHalf: the undo source of each running edit's group. */
+	private readonly _activeUndoRedoSources = new Map<UndoRedoGroup, UndoRedoSource | undefined>();
 	private _previewHandler?: IBulkEditPreviewHandler;
 
 	constructor(
@@ -228,17 +230,28 @@ export class BulkEditService implements IBulkEditService {
 		// create a separate undo-redo-group
 		let undoRedoGroup: UndoRedoGroup | undefined;
 		let undoRedoGroupRemove = () => { };
+		let undoRedoSource = options?.undoRedoSource;
 		if (typeof options?.undoRedoGroupId === 'number') {
 			for (const candidate of this._activeUndoRedoGroups) {
 				if (candidate.id === options.undoRedoGroupId) {
 					undoRedoGroup = candidate;
+					// BaseHalf: an edit that joins the group of a running edit, as an edit made
+					// once a move is done, takes that edit's undo source, so that one undo of the
+					// source takes back the whole group and asks nothing; a group of two sources
+					// asked "Would you like to undo …?" at the second (files in notes, rule 29).
+					undoRedoSource = this._activeUndoRedoSources.get(candidate);
 					break;
 				}
 			}
 		}
 		if (!undoRedoGroup) {
-			undoRedoGroup = new UndoRedoGroup();
-			undoRedoGroupRemove = this._activeUndoRedoGroups.push(undoRedoGroup);
+			const group = undoRedoGroup = new UndoRedoGroup();
+			const remove = this._activeUndoRedoGroups.push(group);
+			this._activeUndoRedoSources.set(group, undoRedoSource);
+			undoRedoGroupRemove = () => {
+				remove();
+				this._activeUndoRedoSources.delete(group);
+			};
 		}
 
 		const label = options?.quotableLabel || options?.label;
@@ -251,7 +264,7 @@ export class BulkEditService implements IBulkEditService {
 			options?.token ?? CancellationToken.None,
 			edits,
 			undoRedoGroup,
-			options?.undoRedoSource,
+			undoRedoSource,
 			!!options?.confirmBeforeUndo
 		);
 
