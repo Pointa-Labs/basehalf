@@ -175,6 +175,40 @@ suite('BaseHalfNoteFileRoutes', () => {
 		});
 	});
 
+	test('a note moved outside BaseHalf down into a repository, whose link still leads into the store of the home it left, and a note linking a repository\'s store, get clones in their homes; a link into the home\'s own store is left (rule 31)', async () => {
+		const workspace = await open({
+			'repo/.git/HEAD': '',
+			'repo/n.md': '![x](../.bh/attachments/aaaaaaaaaa/x.png)\n',
+			'.bh/attachments/aaaaaaaaaa/x.png': 'x',
+			'.bh/mirror/.bh/attachments/aaaaaaaaaa/x.png/edit.yaml': 'crop',
+			'root.md': '![y](repo/.bh/attachments/bbbbbbbbbb/y.png) ![z](.bh/attachments/cccccccccc/z.png)\n',
+			'repo/.bh/attachments/bbbbbbbbbb/y.png': 'y',
+			'.bh/attachments/cccccccccc/z.png': 'z',
+		});
+		const folders = new Map<string, string>();
+
+		assert.deepStrictEqual({
+			moved: named(await workspace.corrected('repo/n.md'), folders),
+			root: named(await workspace.corrected('root.md'), folders),
+			tree: (await workspace.tree()).map(path => named(path, folders)).sort(),
+		}, {
+			moved: '![x](.bh/attachments/<new1>/x.png)\n',
+			root: '![y](.bh/attachments/<new2>/y.png) ![z](.bh/attachments/cccccccccc/z.png)\n',
+			tree: [
+				'.bh/attachments/<new2>/y.png',
+				'.bh/attachments/aaaaaaaaaa/x.png',
+				'.bh/attachments/cccccccccc/z.png',
+				'.bh/mirror/.bh/attachments/aaaaaaaaaa/x.png/edit.yaml',
+				'.bh/mirror/repo/.bh/attachments/<new1>/x.png/edit.yaml',
+				'repo/.bh/attachments/<new1>/x.png',
+				'repo/.bh/attachments/bbbbbbbbbb/y.png',
+				'repo/.git/HEAD',
+				'repo/n.md',
+				'root.md',
+			].sort(),
+		});
+	});
+
 	test('a note of a subfolder\'s window gets the route to the store above the window\'s folder, which is never cloned from (rule 48)', async () => {
 		const workspace = await open({
 			'sub/deep/n.md': '![x](../.bh/attachments/cccccccccc/x.png)\n',
