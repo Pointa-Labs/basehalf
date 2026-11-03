@@ -10,6 +10,7 @@ import {
 	type BaseHalfMarkdownFormatCommand,
 	type IBaseHalfMarkdownFormatState,
 } from './basehalfMarkdownFormatting.js';
+import type { BaseHalfNoteMediaKind } from '../../mediaEdit/common/basehalfNoteMediaEdit.js';
 
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX = 'basehalf.markdownRich';
@@ -172,9 +173,10 @@ export type BaseHalfMarkdownRichHostMessage =
 	}
 	| {
 		/**
-		 * The editing of a picture of the note ended (D113): Rich shows the
-		 * picture's file at `version`, a version the window gives it, and
-		 * closes the room it made under the picture.
+		 * The editing of a picture, a video, or a sound of the note ended
+		 * (D113, D114): Rich shows the file at `version`, a version the window
+		 * gives it, a video or a sound at `time`, and closes the room it made
+		 * under the media.
 		 */
 		readonly type: 'basehalf.markdownRich.mediaEditEnded';
 		readonly key: string;
@@ -182,6 +184,8 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly version?: string;
 		/** The choices before Edit and after Done, when the edit changed the file: one step of the note's undo. */
 		readonly step?: { readonly before: BaseHalfMarkdownRichMediaChoices; readonly after: BaseHalfMarkdownRichMediaChoices };
+		/** Where the editor's playhead stood, in seconds of the file as it is now. */
+		readonly time?: number;
 	}
 	| {
 		/** An undo or a redo of the note set the choices of the picture file at `href`: Rich shows it at `version` (D113). */
@@ -425,16 +429,19 @@ export type BaseHalfMarkdownRichWebviewMessage =
 	}
 	| {
 		/**
-		 * Edit of a picture's toolbar (D113): the window draws the picture's
-		 * editor over the picture at `box`, its address in the note `href`.
-		 * Rich has made room under the picture, and the note does not move
-		 * until the editing ends.
+		 * Edit of the toolbar of a picture, a video, or a sound (D113, D114):
+		 * the window draws the editor of the file's card over the media at
+		 * `box`, its address in the note `href`. Rich has made room under the
+		 * media, and the note does not move until the editing ends.
 		 */
 		readonly type: 'basehalf.markdownRich.editMedia';
 		readonly key: string;
 		readonly blockId: string;
+		readonly kind: BaseHalfNoteMediaKind;
 		readonly href: string;
 		readonly box: IBaseHalfMarkdownRichBox;
+		/** Where the note's video or sound stood, in seconds of the file. */
+		readonly time?: number;
 	}
 	| {
 		/**
@@ -530,7 +537,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 		case 'basehalf.markdownRich.mediaEditEnded':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
 				&& (candidate.version === undefined || typeof candidate.version === 'string')
-				&& (candidate.step === undefined || isObject(candidate.step) && isObject((candidate.step as { before?: unknown }).before) && isObject((candidate.step as { after?: unknown }).after));
+				&& (candidate.step === undefined || isObject(candidate.step) && isObject((candidate.step as { before?: unknown }).before) && isObject((candidate.step as { after?: unknown }).after))
+				&& isOptionalTime(candidate.time);
 		case 'basehalf.markdownRich.mediaVersion':
 			return typeof candidate.href === 'string' && candidate.href.length > 0
 				&& typeof candidate.version === 'string' && candidate.version.length > 0;
@@ -656,8 +664,10 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return candidate.action === 'copy' || candidate.action === 'cut' || candidate.action === 'paste';
 		case 'basehalf.markdownRich.editMedia':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
+				&& (candidate.kind === 'image' || candidate.kind === 'video' || candidate.kind === 'audio')
 				&& typeof candidate.href === 'string' && candidate.href.length > 0
-				&& isBaseHalfMarkdownRichBox(candidate.box);
+				&& isBaseHalfMarkdownRichBox(candidate.box)
+				&& isOptionalTime(candidate.time);
 		case 'basehalf.markdownRich.mediaLaidOut':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0
 				&& (candidate.box === undefined || isBaseHalfMarkdownRichBox(candidate.box));
@@ -838,6 +848,11 @@ function isBaseHalfMarkdownRichBox(value: unknown): value is IBaseHalfMarkdownRi
 
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** A time of a video or a sound, in seconds, or none. */
+function isOptionalTime(value: unknown): boolean {
+	return value === undefined || isFiniteNumber(value) && value >= 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {

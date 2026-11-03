@@ -75,6 +75,7 @@ import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
 import { applyBaseHalfNoteMediaChoices, BaseHalfNoteMediaEditing } from './basehalfNoteMediaEditing.js';
+import type { BaseHalfNoteMediaKind } from '../../mediaEdit/common/basehalfNoteMediaEdit.js';
 import { IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
 import { baseHalfDragHoldsFilesItems, baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
 import { WebviewWindowDragMonitor } from '../../../contrib/webview/browser/webviewWindowDragMonitor.js';
@@ -872,7 +873,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				this.webview?.[message.action]();
 				break;
 			case 'basehalf.markdownRich.editMedia':
-				await this.editMedia(state, message.blockId, message.href, message.box);
+				await this.editMedia(state, message);
 				break;
 			case 'basehalf.markdownRich.mediaLaidOut':
 				if (this.mediaEditing.value?.target.blockId === message.blockId) {
@@ -1741,16 +1742,19 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	 * picture, in a layer over Rich's page. A picture that BaseHalf cannot edit
 	 * ends at once, and Rich closes the room it made.
 	 */
-	private async editMedia(state: IBaseHalfCardDetailState, blockId: string, href: string, box: IBaseHalfMarkdownRichBox): Promise<void> {
+	private async editMedia(state: IBaseHalfCardDetailState, message: { readonly blockId: string; readonly kind: BaseHalfNoteMediaKind; readonly href: string; readonly box: IBaseHalfMarkdownRichBox; readonly time?: number }): Promise<void> {
 		await this.mediaEditing.value?.end();
+		const { blockId, kind, href, box, time } = message;
 		const editing = this.instantiationService.createInstance(BaseHalfNoteMediaEditing, {
 			note: state.resource,
 			blockId,
+			kind,
 			href,
 			box: this.boxInLayer(box),
+			...(time !== undefined ? { time } : {}),
 		}, {
 			layer: this.mediaLayer(),
-			ended: (ended, version, step) => void this.bridge?.sendMediaEditEnded(ended, version, step && { before: { ...step.before }, after: { ...step.after } }),
+			ended: (ended, version, step, at) => void this.bridge?.sendMediaEditEnded(ended, version, step && { before: { ...step.before }, after: { ...step.after } }, at),
 			hide: hidden => void this.bridge?.sendHideMedia(hidden),
 			show: shown => void this.bridge?.sendShowMedia(shown),
 		});
@@ -1761,7 +1765,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 	}
 
-	/** The layer over Rich's page in which the editor of a picture is drawn. */
+	/** The layer over Rich's page in which the editor of a picture, a video, or a sound of the note is drawn. */
 	private mediaLayer(): HTMLElement {
 		if (!this.noteMediaLayer || this.noteMediaLayer.parentElement !== this.webviewHost) {
 			this.noteMediaLayer = append(this.webviewHost, $('.basehalf-card-detail-note-media-layer'));

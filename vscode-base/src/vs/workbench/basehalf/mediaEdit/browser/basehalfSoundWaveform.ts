@@ -95,6 +95,9 @@ interface IPlaying {
 export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaEditor {
 
 	readonly element: HTMLElement;
+	/** The waveform's bars are drawn, or the sound could not be decoded. */
+	readonly drawn: Promise<void>;
+	private markDrawn: () => void = () => undefined;
 	private readonly playButton: HTMLButtonElement;
 	private readonly time: HTMLElement;
 	private readonly strip: HTMLElement;
@@ -204,9 +207,16 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.spreadFollow = this._register(new BaseHalfStripEdgeFollow(this.strip, baseHalfStripClock(getWindow(this.element)), () => this.view.to - this.view.from,
 			direction => direction < 0 ? this.view.from <= SPREAD_EPSILON : this.view.to >= this.timeline().duration - SPREAD_EPSILON,
 			(seconds, clientX) => this.moveSpread(seconds, clientX)));
+		this.drawn = new Promise<void>(resolve => this.markDrawn = resolve);
+		this._register(toDisposable(() => this.markDrawn()));
 		this.registerListeners();
 		this.render();
-		void this.load();
+		void this.load().finally(() => this.markDrawn());
+	}
+
+	fileTime(): number {
+		// The file holds the stretch between the handles of the parts joined, from its start.
+		return Math.min(Math.max(this.playedTime() - this.range.start, 0), this.range.end - this.range.start);
 	}
 
 	get choices(): IBaseHalfMediaChoices {

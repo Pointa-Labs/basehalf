@@ -442,12 +442,17 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 	test('carries the editing of a picture of the note both ways, with boxes of real sizes only (D113)', () => {
 		const key = 'workspace\u0000doc.md';
 		const box = { left: 200, top: 254.5, width: 712, height: 445 };
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', href: 'pictures/photo.png', box }), true);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', href: '', box }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: '', href: 'a.png', box }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', href: 'a.png', box: { ...box, width: 0 } }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', href: 'a.png', box: { ...box, top: Number.NaN } }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', href: 'a.png' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'image', href: 'pictures/photo.png', box }), true);
+		// A video and a sound say where they stood (D114).
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'video', href: 'clip.mp4', box, time: 2.5 }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'audio', href: 'take.wav', box, time: -1 }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'file', href: 'a.pdf', box }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', href: 'a.png', box }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'image', href: '', box }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: '', kind: 'image', href: 'a.png', box }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'image', href: 'a.png', box: { ...box, width: 0 } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'image', href: 'a.png', box: { ...box, top: Number.NaN } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.editMedia', key, blockId: 'b1', kind: 'image', href: 'a.png' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.mediaLaidOut', key, blockId: 'b1', box }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.mediaLaidOut', key, blockId: 'b1' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.mediaLaidOut', key, blockId: 'b1', box: { ...box, height: -1 } }), false);
@@ -457,6 +462,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.mediaEditEnded', key, blockId: 'b1', version: '1793691962158-206445' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.mediaEditEnded', key, blockId: 'b1' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.mediaEditEnded', key, blockId: 'b1', version: 7 }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.mediaEditEnded', key, blockId: 'b1', version: '1-2', time: 1.25 }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.mediaEditEnded', key, blockId: 'b1', time: Number.NaN }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.showMedia', key, blockId: 'b1' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.showMedia', key }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.hideMedia', key, blockId: 'b1' }), true);

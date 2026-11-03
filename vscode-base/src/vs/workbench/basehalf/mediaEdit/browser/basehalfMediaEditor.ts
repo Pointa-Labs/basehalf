@@ -43,6 +43,8 @@ export interface IBaseHalfMediaEditor extends IDisposable {
 	 * from (D113). A video and a sound show the whole original already.
 	 */
 	showWhole?(): void;
+	/** Where the playhead of a video or a sound stands, counted in the file as the editor's choices make it: the time a note shows the file at once its editor goes (D114). */
+	fileTime?(): number;
 }
 
 /** What a change did, which names its step: "Trim shot.mp4", "Cut take.wav", "Crop still.png". */

@@ -838,6 +838,7 @@ function MarkdownRichEditor(): JSX.Element {
 			type: 'basehalf.markdownRich.editMedia',
 			key: state.key,
 			blockId,
+			kind: 'image',
 			href: block.props.url,
 			box: { left: box.left, top: box.top, width: box.width, height: box.height },
 		});
