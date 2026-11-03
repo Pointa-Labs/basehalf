@@ -72,24 +72,37 @@ function isSegment(segment: string): boolean {
 	return segment !== '' && segment !== '.' && segment !== '..';
 }
 
+/** A link's destination in a note's Markdown, with where it starts. */
+export interface IBaseHalfNoteLinkDestination {
+	readonly at: number;
+	readonly destination: string;
+}
+
 /**
  * The destinations of a note's links and pictures, of its reference
  * definitions, and of the `src` and `href` of its HTML, outside code blocks
- * and code spans, in their order.
+ * and code spans, in their order, each with where it starts in `markdown`.
  */
-export function baseHalfNoteLinkDestinations(markdown: string): string[] {
+export function baseHalfNoteLinkDestinationRanges(markdown: string): IBaseHalfNoteLinkDestination[] {
 	const text = withoutCode(markdown);
-	const found: { readonly at: number; readonly destination: string }[] = [];
+	const found: IBaseHalfNoteLinkDestination[] = [];
+	// In each form the destination ends the match, or ends it but for a closing quote.
 	for (const match of text.matchAll(/\]\(\s*(<[^>\n]*>|[^\s)]+)/g)) {
-		found.push({ at: match.index ?? 0, destination: match[1] });
+		found.push({ at: (match.index ?? 0) + match[0].length - match[1].length, destination: match[1] });
 	}
 	for (const match of text.matchAll(/^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)/gm)) {
-		found.push({ at: match.index ?? 0, destination: match[1] });
+		found.push({ at: (match.index ?? 0) + match[0].length - match[1].length, destination: match[1] });
 	}
 	for (const match of text.matchAll(/\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/gi)) {
-		found.push({ at: match.index ?? 0, destination: match[1] ?? match[2] ?? match[3] ?? '' });
+		const destination = match[1] ?? match[2] ?? match[3] ?? '';
+		found.push({ at: (match.index ?? 0) + match[0].length - destination.length - (match[3] === undefined ? 1 : 0), destination });
 	}
-	return found.sort((a, b) => a.at - b.at).map(item => item.destination);
+	return found.sort((a, b) => a.at - b.at);
+}
+
+/** The destinations of a note's links, as `baseHalfNoteLinkDestinationRanges` finds them. */
+export function baseHalfNoteLinkDestinations(markdown: string): string[] {
+	return baseHalfNoteLinkDestinationRanges(markdown).map(item => item.destination);
 }
 
 /** The links into the store of a note's Markdown, in their order. */
@@ -104,15 +117,26 @@ export function baseHalfNoteStoreLinks(markdown: string): IBaseHalfNoteStoreLink
 	return links;
 }
 
-/** A note's Markdown with its fenced code blocks and code spans blanked, so that no link is found in code. */
+/**
+ * A note's Markdown with its fenced code blocks and code spans blanked by
+ * spaces, so that no link is found in code and every other character keeps
+ * its place.
+ */
 function withoutCode(markdown: string): string {
 	const kept: string[] = [];
 	let fence: { readonly marker: string; readonly length: number } | undefined;
-	for (const line of markdown.split(/\r\n?|\n/)) {
+	// Lines at the even places, their ends at the odd ones.
+	const parts = markdown.split(/(\r\n?|\n)/);
+	for (let index = 0; index < parts.length; index++) {
+		const line = parts[index];
+		if (index % 2 === 1) {
+			kept.push(line);
+			continue;
+		}
 		const opening = /^ {0,3}(`{3,}|~{3,})/.exec(line);
 		if (opening && !fence) {
 			fence = { marker: opening[1][0], length: opening[1].length };
-			kept.push('');
+			kept.push(' '.repeat(line.length));
 			continue;
 		}
 		if (fence) {
@@ -120,10 +144,10 @@ function withoutCode(markdown: string): string {
 			if (closing && closing[1][0] === fence.marker && closing[1].length >= fence.length) {
 				fence = undefined;
 			}
-			kept.push('');
+			kept.push(' '.repeat(line.length));
 			continue;
 		}
-		kept.push(line.replace(/(`+)[\s\S]*?\1/g, ''));
+		kept.push(line.replace(/(`+)[\s\S]*?\1/g, span => ' '.repeat(span.length)));
 	}
-	return kept.join('\n');
+	return kept.join('');
 }
