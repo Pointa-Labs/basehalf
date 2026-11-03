@@ -42,3 +42,24 @@ export function baseHalfNotePictureEditorBox(picture: IBaseHalfNotePictureBox): 
 		height: picture.height + BASEHALF_IMAGE_CROP_MARGIN + BASEHALF_NOTE_PICTURE_EDIT_ROOM,
 	};
 }
+
+/**
+ * Where the editor of a picture of a note draws the picture while it edits,
+ * in a view `viewHeight` tall from the top of the page's frame: the picture's
+ * box when the editor fits the view, its margin above and its room below;
+ * otherwise as large as fits between the picture's top, or the margin under
+ * the view's top when the picture's top is above it, and the room above the
+ * view's bottom, its middle across where the picture's is, so that the tools
+ * never fall below the view, which does not scroll while the editor is open.
+ */
+export function baseHalfNotePictureEditorFit(picture: IBaseHalfNotePictureBox, viewHeight: number): IBaseHalfNotePictureBox {
+	const top = Math.max(picture.top, BASEHALF_IMAGE_CROP_MARGIN);
+	const room = viewHeight - BASEHALF_NOTE_PICTURE_EDIT_ROOM - top;
+	// A scroll of the page lands on whole pixels of the screen: a fraction of a pixel more is no reason to move.
+	if (top === picture.top && picture.height <= room + 1) {
+		return picture;
+	}
+	const scale = Math.min(1, Math.max(1, room) / picture.height);
+	const width = picture.width * scale;
+	return { left: picture.left + (picture.width - width) / 2, top, width, height: picture.height * scale };
+}

@@ -20,7 +20,7 @@ import { resolveBaseHalfNoteLink } from '../../markdown/common/basehalfNoteLinks
 import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
 import { BaseHalfMediaEditing } from '../../mediaEdit/browser/basehalfMediaEditing.js';
 import { IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
-import { baseHalfNotePictureEditorBox, type IBaseHalfNotePictureBox } from '../../mediaEdit/common/basehalfNotePictureEdit.js';
+import { baseHalfNotePictureEditorBox, baseHalfNotePictureEditorFit, type IBaseHalfNotePictureBox } from '../../mediaEdit/common/basehalfNotePictureEdit.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 
 /** A picture of a note that its Edit opened (D113). */
@@ -45,6 +45,8 @@ export interface IBaseHalfNotePictureEditingHost {
 	 * the note's undo.
 	 */
 	ended(blockId: string, version: string | undefined, step: IBaseHalfNotePictureEditStep | undefined): void;
+	/** The editor shows over the picture: Rich hides its own under it, where the editor may draw the picture smaller. */
+	hide(blockId: string): void;
 	/** The editor stands where Rich shows the picture now: Rich shows it again, and then the editing goes. */
 	show(blockId: string): void;
 }
@@ -55,7 +57,7 @@ export interface IBaseHalfNotePictureEditStep {
 	readonly after: IBaseHalfMediaChoices;
 }
 
-/** How long the editor glides to where the note shows the picture once its editing ended, in milliseconds. */
+/** How long the editor glides to where the note shows the picture once its editing ended, and into the view at Edit, in milliseconds. */
 const END_GLIDE_MILLISECONDS = 200;
 
 /** Above the canvas's undo and Rich's: while the editor of a picture has the keyboard, Command+Z undoes its changes. */
@@ -125,6 +127,13 @@ export class BaseHalfNotePictureEditing extends Disposable {
 			return false;
 		}
 		stage.classList.remove('drawing');
+		this.host.hide(this.target.blockId);
+		// The first frame that shows the editor shows it where the note's picture is; it moves from the next.
+		this._register(scheduleAtNextAnimationFrame(getWindow(stage), () => {
+			if (!this.ending) {
+				this.comeIntoView(stage, editing);
+			}
+		}));
 		const done = append(stage, $<HTMLButtonElement>('button.basehalf-note-picture-done'));
 		done.type = 'button';
 		done.textContent = localize('basehalf.notePictureEdit.done', "Done");
@@ -176,6 +185,46 @@ export class BaseHalfNotePictureEditing extends Disposable {
 		}
 		const moved = placeStage(stage, box);
 		const timer = window.setTimeout(() => this.showPicture(), moved && stage.style.transition ? END_GLIDE_MILLISECONDS : 0);
+		this._register(toDisposable(() => window.clearTimeout(timer)));
+	}
+
+	/**
+	 * Once the editor shows: one whose tools would fall below the view glides
+	 * into it, as large as fits above them, and then the whole original glides
+	 * out around the part kept (D113).
+	 */
+	private comeIntoView(stage: HTMLElement, editing: BaseHalfMediaEditing): void {
+		const fitted = baseHalfNotePictureEditorFit(this.target.box, this.host.layer.clientHeight);
+		if (fitted === this.target.box) {
+			editing.showWhole();
+			return;
+		}
+		const window = getWindow(stage);
+		const glide = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+		if (glide) {
+			stage.style.transition = ['left', 'top', 'width', 'height'].map(property => `${property} ${END_GLIDE_MILLISECONDS}ms cubic-bezier(0.25, 1, 0.5, 1)`).join(', ');
+		}
+		placeStage(stage, fitted);
+		// The whole original glides out once the editor has its last size: a new size lays the picture out at rest again.
+		let shown = false;
+		const showWhole = () => {
+			if (!shown && !this.ending && !this._store.isDisposed) {
+				shown = true;
+				this._register(scheduleAtNextAnimationFrame(window, () => this._register(scheduleAtNextAnimationFrame(window, () => {
+					if (!this.ending) {
+						editing.showWhole();
+					}
+				}))));
+			}
+		};
+		if (glide) {
+			this._register(addDisposableListener(stage, 'transitionend', (event: TransitionEvent) => {
+				if (event.target === stage && event.propertyName === 'height') {
+					showWhole();
+				}
+			}));
+		}
+		const timer = window.setTimeout(showWhole, glide ? END_GLIDE_MILLISECONDS + 100 : 0);
 		this._register(toDisposable(() => window.clearTimeout(timer)));
 	}
 

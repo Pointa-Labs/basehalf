@@ -130,6 +130,15 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
+	/** The editor of a picture shows over it: Rich hides its own picture under the editor (D113). */
+	sendHidePicture(blockId: string): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.hidePicture',
+			key: this.key,
+			blockId
+		});
+	}
+
 	/** The editor of a picture stands where the note shows it now: Rich shows its own picture again (D113). */
 	sendShowPicture(blockId: string): Promise<boolean> {
 		return this.transport.postMessage({

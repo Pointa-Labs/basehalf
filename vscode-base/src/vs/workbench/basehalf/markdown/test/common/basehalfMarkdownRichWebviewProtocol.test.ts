@@ -459,6 +459,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.pictureEditEnded', key, blockId: 'b1', version: 7 }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.showPicture', key, blockId: 'b1' }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.showPicture', key }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.hidePicture', key, blockId: 'b1' }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.hidePicture', key, blockId: '' }), false);
 	});
 
 	test('carries the edit of a picture as one step of the note\'s undo, and its undo and redo (D113)', () => {

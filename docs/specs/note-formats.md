@@ -483,8 +483,8 @@ start).
        part kept as large as fits the box.
      - A picture whose editor would not fit the view, with the tools and the
        line under it, glides in 200 ms once the editor shows to as large as
-       fits between the picture's top, or the top of the view less the
-       frame's margin when the picture's top is above it, and the room above
+       fits between the picture's top, or the frame's margin under the top
+       of the view when the picture's top is above it, and the room above
        the view's bottom, its middle across where the picture's was: the
        tools never fall below the view. A cropped one then glides out to its
        whole original.
@@ -921,10 +921,12 @@ this specification. Outside changes are merged meanwhile, as always.
     Shift+Command+Z puts the crop back.
 35. Edit again after that redo, on the picture shown 712 × 733: the
     editor's picture stands within 1 px of the note's when it shows, and
-    within 400 ms the whole original fits the picture's box, 712 × 445, with
-    the frame 432 × 445 on the part kept; on every frame the editor's picture
-    or the note's is drawn. The frame's corner dragged onto the original's
-    corner in one drag takes the whole original back.
+    within 400 ms the whole original fits the box the editor draws the
+    picture in, 712 × 445 in a view tall enough for the editor, with the
+    frame on the part kept, 432 × 445; in a shorter view, which the editor
+    first glides into (criterion 36), within 600 ms. On every frame the
+    editor's picture or the note's is drawn. The frame's corner dragged onto
+    the original's corner in one drag takes the whole original back.
 36. Edit on a picture of a note that is taller than the view with the room
     under it: within 400 ms the editor's picture is as large as fits between
     the picture's top and the tools, the bottom of the line under the tools
@@ -981,7 +983,11 @@ this specification. Outside changes are merged meanwhile, as always.
   stamped when it is read (`notePictureEdit.mts`). It logs the times of
   criteria 31 and 33 and allows 250 ms and 600 ms for them, which a loaded
   machine needs; on 2026-11-03, at a load of 25, it measured 31 ms, 0 px,
-  0 px over 82 frames, 268 ms, and 0.1 px. Unit tests cover the editor's
+  0 px over 82 frames, 268 ms, and 0.1 px. It allows 800 ms for criteria 35
+  and 36, and measured that day 0.01 px and 413 ms, in its view, shorter
+  than the editor of a picture 733 px tall, and for a tall picture the
+  tools in the view after 210 ms, the line ending at the view's bottom,
+  0.16 px off the middle across, and 0 px at Done. Unit tests cover the editor's
   box and the box it glides to in a short view, the messages of rules 52a
   to 52e, the whole original that the crop view glides out to, and the
   changes that are no steps of the canvas with their undo

@@ -5584,7 +5584,15 @@ shows, dimmed with the rest. A picture whose editor would not fit the view,
 the tools and the line under it, glides at Edit to as large as fits between
 the top of the view and the room above its bottom, so that the tools never
 fall below the view, which does not scroll while the editor is open; Done
-glides it back to the note's picture.
+glides it back to the note's picture. Measured that day in a development
+window at a load of 30, on the crop that keeps 971 × 1000: the editor showed
+73 ms after Edit, its part kept 0.3 px from the note's picture, and the whole
+original fit the box 263 ms after Edit, 712 × 445 with the frame 432 × 445,
+on no frame neither picture drawn; one drag onto the original's corner took
+the whole 1600 × 1000 back. A picture 712 × 1112 in a view 655 px tall
+glided in 190 ms to 335 × 523, the line under the tools ending at the view's
+bottom and the picture 0.13 px off its middle across, and Done glided it
+back to 0 px.
 
 Set aside:
 - Fitting the whole original into the box from the first frame: the picture

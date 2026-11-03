@@ -191,6 +191,12 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly version: string;
 	}
 	| {
+		/** The editor of the picture shows over it: the note's own picture hides under the editor, which may draw it smaller (D113). */
+		readonly type: 'basehalf.markdownRich.hidePicture';
+		readonly key: string;
+		readonly blockId: string;
+	}
+	| {
 		/** The editor of the picture stands where the note shows it now: the note's own picture shows again (D113). */
 		readonly type: 'basehalf.markdownRich.showPicture';
 		readonly key: string;
@@ -528,6 +534,7 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 		case 'basehalf.markdownRich.pictureVersion':
 			return typeof candidate.href === 'string' && candidate.href.length > 0
 				&& typeof candidate.version === 'string' && candidate.version.length > 0;
+		case 'basehalf.markdownRich.hidePicture':
 		case 'basehalf.markdownRich.showPicture':
 			return typeof candidate.blockId === 'string' && candidate.blockId.length > 0;
 		case 'basehalf.markdownRich.focusAtPoint':

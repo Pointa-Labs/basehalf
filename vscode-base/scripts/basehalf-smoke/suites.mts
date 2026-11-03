@@ -49,7 +49,7 @@ import { assertCardDetailEditShowsOnItsCard } from './areas/cardDetail/editOnCar
 import { assertCardDetailImageCropBack } from './areas/cardDetail/imageCropBack.mts';
 import { assertCardDetailImageEdit } from './areas/cardDetail/imageEdit.mts';
 import { assertCardDetailMediaPinch } from './areas/cardDetail/mediaPinch.mts';
-import { assertNotePictureEditInPlace } from './areas/cardDetail/notePictureEdit.mts';
+import { assertNotePictureEditInPlace, assertNotePictureEditTallInView } from './areas/cardDetail/notePictureEdit.mts';
 import { assertCardDetailSoundEdit } from './areas/cardDetail/soundEdit.mts';
 import { assertCardDetailVideoEdit } from './areas/cardDetail/videoEdit.mts';
 import { assertCardDetailVideoEdgeFollow } from './areas/cardDetail/videoEdge.mts';
@@ -277,6 +277,7 @@ async function runCardDetailSuite(page) {
 	await step('card-detail-sound-edit', () => assertCardDetailSoundEdit(page));
 	await step('card-detail-media-pinch', () => assertCardDetailMediaPinch(page));
 	await step('note-picture-edit-in-place', () => assertNotePictureEditInPlace(page));
+	await step('note-picture-edit-tall-in-view', () => assertNotePictureEditTallInView(page));
 	await step('note-formats-open', () => openNoteFormatsNote(page));
 	await step('note-formats-offer-only-what-the-file-keeps', () => assertNoteFormatsOfferOnlyWhatTheFileKeeps(page));
 	await step('note-formats-keys-stay-in-rich', () => assertNoteFormatsKeysStayInRich(page));

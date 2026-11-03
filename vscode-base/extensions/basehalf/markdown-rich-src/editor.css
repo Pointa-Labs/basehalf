@@ -864,8 +864,9 @@ body,
 	visibility: hidden;
 }
 
+/* The editor's library shows the picture's resize handles by an inline style while the pointer is over it: they never show around an editor that draws the picture smaller. */
 .basehalf-markdown-rich .basehalf-note-picture-editing .bn-resize-handle {
-	display: none;
+	display: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

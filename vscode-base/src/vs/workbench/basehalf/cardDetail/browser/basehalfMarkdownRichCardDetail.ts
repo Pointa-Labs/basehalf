@@ -1751,6 +1751,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}, {
 			layer: this.pictureLayer(),
 			ended: (ended, version, step) => void this.bridge?.sendPictureEditEnded(ended, version, step && { before: { ...step.before }, after: { ...step.after } }),
+			hide: hidden => void this.bridge?.sendHidePicture(hidden),
 			show: shown => void this.bridge?.sendShowPicture(shown),
 		});
 		this.pictureEditing.value = editing;

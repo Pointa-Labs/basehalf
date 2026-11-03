@@ -901,10 +901,10 @@ in Card Detail.
   as at rest.
 - **The tools stay in the view.** A picture whose editor, with the tools
   and the line under it, would not fit the view glides in 200 ms once the
-  editor shows to as large as fits between the picture's top, or the view's
-  top less the margin, and the room above the view's bottom, its middle
-  across where the picture's was; at Done it glides back to the note's
-  picture.
+  editor shows to as large as fits between the picture's top, or the
+  margin under the view's top when the picture's top is above it, and the
+  room above the view's bottom, its middle across where the picture's was;
+  at Done it glides back to the note's picture.
 - **The file is the one the note links**, read from the note's folder: a
   file of the workspace linked where it is, or a file the note keeps
   (D111). Its original and edit record are its card information, as for

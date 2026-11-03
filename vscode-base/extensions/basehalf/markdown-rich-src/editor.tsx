@@ -652,7 +652,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
 	const notePictureEditExtension = useMemo(() => makeBaseHalfNotePictureEditExtension(), []);
 	// The picture whose editor the window draws over it (D113), and the version of each file it edited, by address.
-	const pictureEdit = useRef<{ readonly blockId: string; readonly url: string; ending: boolean } | undefined>(undefined);
+	const pictureEdit = useRef<{ readonly blockId: string; readonly url: string; readonly room: number; ending: boolean } | undefined>(undefined);
 	const [editedPicture, setEditedPicture] = useState<string | undefined>(undefined);
 	// After the editing, the toolbar waits for the pointer or a key: the page still takes the pointer to be where it pressed Edit.
 	const [toolbarWaits, setToolbarWaits] = useState(false);
@@ -819,10 +819,11 @@ function MarkdownRichEditor(): JSX.Element {
 			|| block?.type !== 'image' || typeof block.props.url !== 'string' || !block.props.url) {
 			return;
 		}
-		pictureEdit.current = { blockId, url: block.props.url, ending: false };
-		setEditedPicture(blockId);
 		// The room is the editor's below the picture, in pixels of the screen however large the page is drawn.
-		setBaseHalfNotePictureEditMark(view, { blockId, room: BASEHALF_NOTE_PICTURE_EDIT_ROOM / (readingAids.current?.zoom.level ?? 1), hidden: false });
+		const room = BASEHALF_NOTE_PICTURE_EDIT_ROOM / (readingAids.current?.zoom.level ?? 1);
+		pictureEdit.current = { blockId, url: block.props.url, room, ending: false };
+		setEditedPicture(blockId);
+		setBaseHalfNotePictureEditMark(view, { blockId, room, hidden: false });
 		const shown = picture.getBoundingClientRect();
 		const bounds = scroller.getBoundingClientRect();
 		const above = shown.top - BASEHALF_IMAGE_CROP_MARGIN - bounds.top;
@@ -2211,6 +2212,14 @@ function MarkdownRichEditor(): JSX.Element {
 				case 'basehalf.markdownRich.pictureVersion':
 					showPictureVersion(message.href, message.version);
 					break;
+				case 'basehalf.markdownRich.hidePicture': {
+					// The editor shows over the picture, and may draw it smaller: the note's own hides under it (D113).
+					const edit = pictureEdit.current;
+					if (edit?.blockId === message.blockId && !edit.ending) {
+						setBaseHalfNotePictureEditMark(editor.prosemirrorView, { blockId: edit.blockId, room: edit.room, hidden: true });
+					}
+					break;
+				}
 				case 'basehalf.markdownRich.showPicture':
 					showEditedPicture(message.blockId);
 					break;

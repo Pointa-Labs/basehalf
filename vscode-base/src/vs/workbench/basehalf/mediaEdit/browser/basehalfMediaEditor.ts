@@ -36,6 +36,13 @@ export interface IBaseHalfMediaEditor extends IDisposable {
 	movePlayhead?(move: BaseHalfPlayheadMove): void;
 	/** Plays or pauses a video or a sound, as Space does with the keyboard on its media. An image has nothing to play. */
 	togglePlay?(): void;
+	/**
+	 * While editing, glides until the whole original fits the view, the frame
+	 * on the part kept, as a corner pushed to the edge brings it in: what an
+	 * edit left out shows, as an editor drawn over a picture of a note starts
+	 * from (D113). A video and a sound show the whole original already.
+	 */
+	showWhole?(): void;
 }
 
 /** What a change did, which names its step: "Trim shot.mp4", "Cut take.wav", "Crop still.png". */

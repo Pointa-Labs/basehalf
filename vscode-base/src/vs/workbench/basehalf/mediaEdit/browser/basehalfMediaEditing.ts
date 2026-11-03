@@ -251,6 +251,13 @@ export class BaseHalfMediaEditing extends Disposable {
 		this.editor?.focus();
 	}
 
+	/** While editing, shows the whole original, the part kept framed in it, as the editor of a picture of a note starts from (D113). */
+	showWhole(): void {
+		if (this.isEditing) {
+			this.editor?.showWhole?.();
+		}
+	}
+
 	/**
 	 * Whose the steps of the changes are: the canvas undo's, or, once set,
 	 * the steps of an undo of its own, which this is given before and after

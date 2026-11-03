@@ -122,8 +122,18 @@ interface IDrag {
 	readonly anchor?: IBaseHalfPoint;
 	/** Where the pointer holds the handle on screen, before the margin stops it. */
 	held?: IBaseHalfPoint;
+	/** The frame on screen when a turn of the dial started, which keeps its place while the part changes under it. */
+	readonly frame?: IBaseHalfScreenBox;
 	/** When the picture last followed the handle. */
 	followedAt?: number;
+}
+
+/** A box on screen, from the view's top left. */
+interface IBaseHalfScreenBox {
+	readonly left: number;
+	readonly top: number;
+	readonly right: number;
+	readonly bottom: number;
 }
 
 /** The ways a handle moves the frame outwards on screen, along each axis: −1 to the left or the top, 1 to the right or the bottom. */
@@ -337,6 +347,17 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 	}
 
+	showWhole(): void {
+		if (!this.editing || this.drag) {
+			return;
+		}
+		this.settleKeys();
+		this.endGesture();
+		this.restWait.clear();
+		this.resetZoom();
+		this.glideTo(this.wholeMapping());
+	}
+
 	setChoices(choices: IBaseHalfMediaChoices): void {
 		if (sameChoices(choices, this.choices)) {
 			return;
@@ -526,9 +547,13 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	}
 
 	private glideToRest(): void {
+		this.glideTo(this.restMapping());
+	}
+
+	/** Glides in 200 ms from where the picture is to `to`, at once when motion is reduced. */
+	private glideTo(to: IMapping): void {
 		this.stopGlide();
 		const from = this.mapping;
-		const to = this.restMapping();
 		const window = getWindow(this.element);
 		const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 		if (reduced || sameMapping(from, to)) {
@@ -573,6 +598,11 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}, REST_DELAY_MILLISECONDS);
 	}
 
+	/** The mapping that shows the part kept in `frame`, a box on screen of the part's ratio: the frame keeps its place while the part changes under it. */
+	private mappingOfFrame(frame: IBaseHalfScreenBox): IMapping {
+		return this.mappingAt(this.state.crop, { x: (frame.left + frame.right) / 2, y: (frame.top + frame.bottom) / 2 }, (frame.right - frame.left) / this.state.crop.width);
+	}
+
 	/** The mapping at `scale` that shows the point `point` of the picture at the point `screen` of the view. */
 	private mappingAt(point: IBaseHalfPoint, screen: IBaseHalfPoint, scale: number): IMapping {
 		const back = baseHalfRotate({ x: (screen.x - this.viewSize.width / 2) / scale, y: (screen.y - this.viewSize.height / 2) / scale }, -this.state.straighten);
@@ -592,6 +622,12 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const width = state.crop.width * mapping.scale;
 		const height = state.crop.height * mapping.scale;
 		return { left: center.x - width / 2, top: center.y - height / 2, right: center.x + width / 2, bottom: center.y + height / 2 };
+	}
+
+	/** The whole picture, at its angle, as it fits the room, at the middle of the view: where a handle pushed to every edge brings it. */
+	private wholeMapping(): IMapping {
+		const picture = this.pictureSize();
+		return { center: { x: picture.width / 2, y: picture.height / 2 }, scale: this.fitScale() };
 	}
 
 	/** The scale at which the whole picture, at its angle, fits the room: the picture follows a handle no further. */
@@ -627,7 +663,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this._register(addDisposableListener(this.dial, 'dblclick', () => {
 			if (!this.drag) {
 				this.settleKeys();
-				this.change('straighten', baseHalfStraightenCrop(this.original, this.state, 0), false);
+				this.change('straighten', baseHalfStraightenCrop(this.original, this.state, 0), !this.atRest());
 			}
 		}));
 		this._register(addDisposableListener(getWindow(this.element), 'keydown', event => {
@@ -711,7 +747,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.stopGlide();
 		const at = this.viewPoint(event);
 		const grab = grabbed ? this.toScreen(grabbed) : at;
-		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, page: this.page, anchor };
+		const frame = what.kind === 'dial' ? this.frameOf(this.state, this.mapping) : undefined;
+		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, page: this.page, anchor, frame };
 		const capture = what.kind === 'dial' ? this.dial : this.view;
 		try {
 			capture.setPointerCapture(event.pointerId);
@@ -753,8 +790,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 					degrees = 0;
 				}
 				this.state = baseHalfStraightenCrop(this.original, before, degrees, before.crop);
-				// The frame stays at rest and the picture grows under it as far as the angle needs.
-				this.mapping = this.restMapping();
+				// The frame keeps its place, at rest or where it stands, and the picture grows under it as far as the angle needs.
+				this.mapping = drag.frame ? this.mappingOfFrame(drag.frame) : this.restMapping();
 				break;
 			}
 			case 'pan':
@@ -777,9 +814,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			this.render();
 			return;
 		}
-		if (drag.what.kind === 'dial') {
-			this.mapping = this.restMapping();
-		} else if (!this.atRest()) {
+		if (!this.atRest()) {
 			// The frame stays where it was let go for a second, then glides to rest (D97).
 			this.restLater();
 		}
@@ -1067,7 +1102,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			event.stopPropagation();
 			this.settleKeys();
 			// Each key is a change; keys that repeat are one step of undo.
-			this.change('straighten', baseHalfStraightenCrop(this.original, this.state, this.state.straighten + arrow.x * (event.shiftKey ? 1 : 0.1)), false);
+			// A frame away from its rest, as the whole picture shows it, glides there; at rest it stays.
+			this.change('straighten', baseHalfStraightenCrop(this.original, this.state, this.state.straighten + arrow.x * (event.shiftKey ? 1 : 0.1)), !this.atRest());
 			return;
 		}
 		const corner = [...this.corners].find(([, element]) => element === target)?.[0];
