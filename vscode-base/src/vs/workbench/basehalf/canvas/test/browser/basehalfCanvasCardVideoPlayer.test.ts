@@ -37,8 +37,8 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		}
 	});
 
-	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail; with `sound`, of a sound. */
-	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false, sound = false): IPlayerFixture {
+	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail; with `sound`, of a sound; with `note`, of a note. */
+	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false, sound = false, note?: 'card' | 'page'): IPlayerFixture {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';
 		mainWindow.document.body.appendChild(frame);
@@ -58,6 +58,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			onError: () => { /* the test video is never loaded */ },
 			detail,
 			sound,
+			...(note ? { note } : {}),
 			// No audio graph: the sound starts and stops at once (basehalfCanvasVideoSound.test.ts has the fades).
 			soundGraph: () => undefined
 		}));
@@ -431,6 +432,32 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			keyboardOnPlayer: mainWindow.document.activeElement === player.element,
 			label: player.element.getAttribute('aria-label')
 		}, { fullScreen: true, controls: 'shown', tabbable: [-1, 0, -1], media: ['play', 'pause'], keyboardOnPlayer: true, label: 'Sound' });
+	});
+
+	test('in a note the bar shows always, without Open, the pointer plays nothing, and Play plays with the sound; on the card the picture is the card\'s, and in Preview a click on it plays and pauses (note formats, rule 52)', () => {
+		const card = createPlayer(320, undefined, false, false, 'card');
+		point(card.player.element, 'pointerenter');
+		card.player.element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		card.control('play').click();
+		point(card.player.element, 'pointerleave');
+		const page = createPlayer(320, undefined, false, false, 'page');
+		point(page.player.element, 'pointerenter');
+		page.player.video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		page.player.video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		const sound = createPlayer(320, '/workspace/tone.wav', false, true, 'card');
+		const seen = (fixture: IPlayerFixture) => ({
+			controls: fixture.player.element.dataset.controls,
+			open: fixture.control('open').hidden,
+			picture: fixture.player.video.style.pointerEvents,
+			media: fixture.media,
+			reachedCard: fixture.reachedCard,
+			hover: fixture.control('play').getAttribute('data-basehalf-hover'),
+		});
+		assert.deepStrictEqual({ card: seen(card), page: seen(page), sound: { controls: sound.player.element.dataset.controls, classes: [...sound.player.element.classList] } }, {
+			card: { controls: 'shown', open: true, picture: 'none', media: ['play'], reachedCard: ['click:basehalf-canvas-video-player'], hover: 'Pause' },
+			page: { controls: 'shown', open: true, picture: '', media: ['play', 'pause'], reachedCard: ['click:basehalf-canvas-video-player-video', 'click:basehalf-canvas-video-player-video'], hover: 'Play' },
+			sound: { controls: 'shown', classes: ['basehalf-canvas-video-player', 'sound', 'note'] },
+		});
 	});
 
 	test('Card Detail starts at the frame its card shows, also when the canvas asks for the file with its version, and leaves the card at the frame where it stopped', () => {

@@ -9,6 +9,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { baseHalfCanvasNotePartSource, BASEHALF_CANVAS_NOTE_PART_LENGTH, IBaseHalfCanvasNoteParts, planBaseHalfCanvasNoteParts } from '../common/basehalfCanvasPreview.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasStoredMarkdown } from './basehalfCanvasMarkdownInlineEditor.js';
+import { playBaseHalfNoteMedia } from './basehalfCanvasNoteMedia.js';
 
 /** The class of the element that holds one built part. It takes no box of its own. */
 export const BASEHALF_CANVAS_NOTE_PART_CLASS = 'bh-md-part';
@@ -74,6 +75,8 @@ class BaseHalfCanvasNoteInParts extends Disposable {
 	private buildNext(): void {
 		const part = append(this.container, $(`.${BASEHALF_CANVAS_NOTE_PART_CLASS}`));
 		this._register(renderBaseHalfCanvasStoredMarkdown(part, this.resource, baseHalfCanvasNotePartSource(this.plan, this.built), this.onOpenLink));
+		// A video and a sound play in BaseHalf's player, whose picture is the card's (note formats, rule 52).
+		this._register(playBaseHalfNoteMedia(part, 'card'));
 		this.built++;
 		if (this.complete) {
 			this.watching.clear();

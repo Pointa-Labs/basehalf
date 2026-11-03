@@ -30,6 +30,7 @@ import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelection
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
 import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
 import { baseHalfNoteFileLinks } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
+import { playBaseHalfNoteMedia } from './basehalfCanvasNoteMedia.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { restoreBaseHalfSidewaysScroll } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 
@@ -799,6 +800,10 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		renderStore.add(toDisposable(() => runtime.destroy()));
 		const editable = this.root.querySelector<HTMLElement>(':scope > .ProseMirror');
 		editable?.setAttribute('aria-label', `Edit ${state.relativePath}`);
+		if (editable) {
+			// The editor shows copies of the blocks drawn above: their videos and sounds play in BaseHalf's player there (note formats, rule 52).
+			renderStore.add(playBaseHalfNoteMedia(editable, 'card'));
+		}
 		this.root.scrollTop = scrollTop;
 		if (options.focus) {
 			if (clientPoint && this.runtime) {

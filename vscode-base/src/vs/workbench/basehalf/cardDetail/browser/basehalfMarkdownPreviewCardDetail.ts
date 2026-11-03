@@ -23,6 +23,7 @@ import { ITextFileService, TextFileOperationError, TextFileOperationResult } fro
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
 import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
+import { playBaseHalfNoteMedia } from '../../canvas/browser/basehalfCanvasNoteMedia.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { installBaseHalfSidewaysScrollbar } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehalfMarkdownRichTextModel.js';
@@ -257,6 +258,8 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		finishBaseHalfNoteRendering(rendered.element);
 		rendered.element.classList.add('basehalf-card-detail-markdown-preview-content');
 		this.rendered.add(rendered);
+		// A video and a sound play in BaseHalf's player, and a click on the picture plays and pauses it (note formats, rule 52).
+		this.rendered.add(playBaseHalfNoteMedia(rendered.element, 'page'));
 		this.outline.refresh();
 		this.updateStatus();
 		this.revealSelection();

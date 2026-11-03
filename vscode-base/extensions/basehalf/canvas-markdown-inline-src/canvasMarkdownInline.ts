@@ -586,6 +586,8 @@ interface CanvasMarkdownRuntimeUnit {
 	readonly input: CanvasMarkdownInlineUnit;
 	readonly initialNode: ProseMirrorNode;
 	readonly staticElement: HTMLElement;
+	/** The text the block shows, as it was drawn: what a selection over it holds, without the text of the controls a host adds. */
+	readonly text: string;
 }
 
 function canvasMarkdownProjectionIsEquivalent(renderedDocument: ProseMirrorNode, sourceDocument: ProseMirrorNode): boolean {
@@ -668,7 +670,7 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
 		} else {
 			node = canvasSchema.nodes.unsupported_markdown.create({ unitId: unit.id });
 		}
-		records.set(unit.id, { input: unit, initialNode: node, staticElement });
+		records.set(unit.id, { input: unit, initialNode: node, staticElement, text: staticElement.textContent ?? '' });
 		nodes.push(node);
 	}
 	return {
@@ -779,7 +781,7 @@ function selectedCanvasMarkdownSource(
 		}
 		if (leaf.type === canvasSchema.nodes.unsupported_markdown) {
 			const unitId = typeof leaf.attrs.unitId === 'string' ? leaf.attrs.unitId : '';
-			return records.get(unitId)?.staticElement.textContent ?? '';
+			return records.get(unitId)?.text ?? '';
 		}
 		return '';
 	});
@@ -1931,7 +1933,12 @@ export function createCanvasMarkdownInlineEditor(
 				dom.classList.add('basehalf-canvas-markdown-inline-unit', 'unsupported');
 				dom.dataset.basehalfMarkdownUnit = unitId;
 				dom.contentEditable = 'false';
-				return { dom };
+				// A press or a key on a control in the block, as a player's, is the control's, not the editor's (note formats, rule 52).
+				const onControl = (event: Event) => {
+					const target = event.target as Element | null;
+					return typeof target?.closest === 'function' && target.closest('button, [role="slider"]') !== null;
+				};
+				return { dom, stopEvent: onControl };
 			},
 		},
 		dispatchTransaction(transaction) {
