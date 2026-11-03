@@ -152,6 +152,9 @@ text: "核心概念\nIR（原始需求）：用户想要什么（业务导向、
   do. The workspace folder itself is `.`.
 - `cards` has `paths`, a list of the selected cards in the order of the
   canvas's list order, instead of `path`.
+- A note's file open in Card Detail, a file under `.bh/attachments/`, is
+  recorded by its own path, as a card or as the document of its text; no
+  field names its note ([files in notes](files-in-notes.md), rule 47).
 - A selected draft is recorded as a `card`, by the path its file will have,
   and `draft: true` is added: there is no file at that path yet
   ([generation cards](generation-cards.md#drafts-and-missing-files)). Among
