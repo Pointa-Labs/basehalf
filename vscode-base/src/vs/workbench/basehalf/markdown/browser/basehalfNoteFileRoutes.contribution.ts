@@ -16,6 +16,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWorkingCopyFileService } from '../../../services/workingCopy/common/workingCopyFileService.js';
+import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
 import { baseHalfApplyNoteRouteEdits, baseHalfNoteFileRouteEdits } from '../common/basehalfNoteFileRoutes.js';
 
 /** How long the file events of a folder are quiet before the notes that appeared are read (files in notes, rule 30). */
@@ -41,7 +42,8 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IWorkingCopyFileService workingCopyFileService: IWorkingCopyFileService,
 		@ITextFileService private readonly textFileService: ITextFileService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IBaseHalfMovedItemsService movedItemsService: IBaseHalfMovedItemsService
 	) {
 		super();
 		// A move in BaseHalf: the moved notes, once the move is done (rule 29).
@@ -56,6 +58,12 @@ export class BaseHalfNoteFileRoutesContribution extends Disposable implements IW
 		this._register(this.fileService.onDidFilesChange(event => {
 			for (const resource of event.rawAdded) {
 				this.add(resource);
+			}
+		}));
+		// A move made while BaseHalf was closed, recognized when the folder opens (rule 30).
+		this._register(movedItemsService.onDidRecognize(({ workspaceFolder, moves }) => {
+			for (const move of moves) {
+				this.add(URI.joinPath(workspaceFolder, ...move.to.split('/')));
 			}
 		}));
 	}
@@ -136,4 +144,4 @@ function isNote(name: string): boolean {
 	return /\.(?:md|markdown)$/i.test(name);
 }
 
-registerWorkbenchContribution2(BaseHalfNoteFileRoutesContribution.ID, BaseHalfNoteFileRoutesContribution, WorkbenchPhase.Eventually);
+registerWorkbenchContribution2(BaseHalfNoteFileRoutesContribution.ID, BaseHalfNoteFileRoutesContribution, WorkbenchPhase.AfterRestored);

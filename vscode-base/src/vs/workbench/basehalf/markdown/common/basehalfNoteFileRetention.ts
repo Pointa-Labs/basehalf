@@ -321,12 +321,10 @@ function releaseItems(stored: readonly IStoredFile[], releasing: readonly IStore
 async function release(services: IBaseHalfNoteFileRetentionServices, workspaceFolder: URI, item: URI): Promise<void> {
 	const { fileService, trash } = services;
 	const path = relativePath(workspaceFolder, item);
-	const at = path?.split('/').lastIndexOf('.bh') ?? -1;
 	await fileService.del(item, { useTrash: trash, recursive: true });
-	if (path && at >= 0) {
-		// A note's edited file keeps its original at its own path in the mirror (rule 27).
-		const segments = path.split('/');
-		const record = joinPath(workspaceFolder, ...segments.slice(0, at), '.bh', 'mirror', ...segments.slice(at));
+	if (path) {
+		// A note's edited file keeps its original at its own path in the workspace folder's mirror (rule 27).
+		const record = joinPath(workspaceFolder, '.bh', 'mirror', ...path.split('/'));
 		if (await fileService.exists(record)) {
 			await fileService.del(record, { useTrash: trash, recursive: true });
 		}
