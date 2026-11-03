@@ -726,6 +726,14 @@ export class WebviewElement extends Disposable implements IWebviewElement, Webvi
 			return;
 		}
 
+		// BaseHalf: a key from the page while its element has the window's focus means the page has the keyboard:
+		// the window takes it as focused from this key on, not only from the page's next look at its focus, which
+		// comes every 0.25 s. Before, Command-C right after a click into a page that the keyboard came back to
+		// copied nothing (copy, paste, and drop, "Copy and Cut").
+		if (!this._focused) {
+			this.handleFocusChange(true);
+		}
+
 		// Electron: workaround for https://github.com/electron/electron/issues/14258
 		// We have to detect keyboard events in the <webview> and dispatch them to our
 		// keybinding service because these events do not bubble to the parent window anymore.
