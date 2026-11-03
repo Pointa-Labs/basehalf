@@ -96,6 +96,7 @@ export interface IBaseHalfMarkdownRichFormatState extends IBaseHalfMarkdownForma
 export type BaseHalfMarkdownRichEditorCommand =
 	| 'undo'
 	| 'redo'
+	| 'selectAll'
 	| BaseHalfMarkdownFormatCommand;
 
 /**
@@ -686,7 +687,7 @@ function isBaseHalfMarkdownRichSurface(value: unknown): value is BaseHalfMarkdow
 }
 
 function isBaseHalfMarkdownRichEditorCommand(value: unknown): value is BaseHalfMarkdownRichEditorCommand {
-	return value === 'undo' || value === 'redo' || isBaseHalfMarkdownFormatCommand(value);
+	return value === 'undo' || value === 'redo' || value === 'selectAll' || isBaseHalfMarkdownFormatCommand(value);
 }
 
 function isBaseHalfMarkdownRichFormatState(value: unknown): value is IBaseHalfMarkdownRichFormatState {

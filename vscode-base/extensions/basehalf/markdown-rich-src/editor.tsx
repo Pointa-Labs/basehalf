@@ -51,7 +51,7 @@ import {
 import { RiExternalLinkFill, RiImageEditFill } from 'react-icons/ri';
 import { applyUpdate, Doc as YDoc, UndoManager, type Transaction as YTransaction, type XmlFragment, type YMapEvent } from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
-import { TextSelection, type EditorState } from '@tiptap/pm/state';
+import { AllSelection, TextSelection, type EditorState } from '@tiptap/pm/state';
 import { createRoot } from 'react-dom/client';
 import {
 	createContext,
@@ -1533,7 +1533,23 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 	}, [editor, postFormatState, reportError]);
 
+	// Select All selects every block of the note, also pictures, videos, sounds, file blocks, and other fixed
+	// blocks at its ends, which the page's own Select All of text leaves out (note formats, rule 71a). It
+	// changes nothing, so it also works in a note that cannot be edited.
+	const selectWholeNote = useCallback((): boolean => {
+		const view = editor.prosemirrorView;
+		if (!view || composing.current || view.composing) {
+			return false;
+		}
+		editor.focus();
+		view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));
+		return true;
+	}, [editor]);
+
 	const executeEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
+		if (command === 'selectAll') {
+			return selectWholeNote();
+		}
 		const undoManager = ensureLiveUndoManager();
 		editor.focus();
 		if (command === 'undo') {
@@ -1574,10 +1590,13 @@ function MarkdownRichEditor(): JSX.Element {
 		} finally {
 			undoManager?.stopCapturing();
 		}
-	}, [editor, ensureLiveUndoManager, insertDivider, noteUndo, postFormatState, setSelectedBlockType, toggleSelectedList]);
+	}, [editor, ensureLiveUndoManager, insertDivider, noteUndo, postFormatState, selectWholeNote, setSelectedBlockType, toggleSelectedList]);
 
 	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
 		const state = session.current;
+		if (command === 'selectAll') {
+			return state.ready && !state.loading && selectWholeNote();
+		}
 		if (!state.editable || state.structuralFrozen || state.conflictDisk !== undefined || state.writeError !== undefined) {
 			return false;
 		}
@@ -1591,7 +1610,7 @@ function MarkdownRichEditor(): JSX.Element {
 			return true;
 		}
 		return executeEditorCommand(command);
-	}, [editor, executeEditorCommand]);
+	}, [editor, executeEditorCommand, selectWholeNote]);
 
 	const flushPendingEditorCommands = useCallback((allowWhileFrozen = false): void => {
 		if (session.current.structuralFrozen && !allowWhileFrozen) {
@@ -2711,7 +2730,9 @@ function MarkdownRichEditor(): JSX.Element {
 		// Intercept in the capture phase (before the editor keymap and the
 		// bootstrap forwarder) and run the editor command directly; the
 		// workbench Edit menu reaches the same command over the message
-		// protocol instead.
+		// protocol instead. Select All has one owner for the same reason: the
+		// window's would select the page's text, which leaves out fixed blocks
+		// at the note's ends (rule 71a).
 		const onKeyDown = (event: KeyboardEvent) => {
 			if ((!event.metaKey && !event.ctrlKey) || event.altKey) {
 				return;
@@ -2725,16 +2746,19 @@ function MarkdownRichEditor(): JSX.Element {
 			const isLatinLetter = key.length === 1 && key >= 'a' && key <= 'z';
 			const matchesZ = key === 'z' || (!isLatinLetter && event.code === 'KeyZ');
 			const matchesY = key === 'y' || (!isLatinLetter && event.code === 'KeyY');
+			const matchesA = key === 'a' || (!isLatinLetter && event.code === 'KeyA');
 			const command: BaseHalfMarkdownRichEditorCommand | undefined =
 				matchesZ ? (event.shiftKey ? 'redo' : 'undo')
 					: matchesY && !event.shiftKey ? 'redo'
-						: undefined;
+						: matchesA && !event.shiftKey ? 'selectAll'
+							: undefined;
 			if (!command) {
 				return;
 			}
 
 			// Native text fields (e.g. the link toolbar URL input) keep their
-			// own undo; only the document editor owns Mod+Z here.
+			// own undo and Select All; only the document editor owns Mod+Z and
+			// Mod+A here.
 			const target = event.target as HTMLElement | null;
 			if (target && !target.closest?.('.bn-editor')
 				&& (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {

@@ -17,7 +17,7 @@ import { basename, dirname, isEqual, isEqualOrParent, relativePath } from '../..
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
+import { RedoCommand, SelectAllCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
@@ -432,6 +432,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 			this._register(UndoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('undo')));
 			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
+			// Select All selects every block of the note, also fixed blocks at its ends, which the page's own Select All of text leaves out (note formats, rule 71a).
+			this._register(SelectAllCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('selectAll')));
 
 			this._register(this.textFileService.files.onDidChangeDirty(file => {
 				if (this.model && isEqual(file.resource, this.model.uri)) {
