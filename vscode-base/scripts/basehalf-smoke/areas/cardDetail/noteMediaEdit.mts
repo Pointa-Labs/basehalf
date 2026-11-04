@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { root, workspacePath } from '../../context.mts';
 import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
+import { startFramesClock } from '../../lib/framesClock.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
@@ -88,6 +89,7 @@ async function noteFrame(page) {
 
 /** Records every frame of the window: the editor, whether its media shows, its player's picture, its end handle, the page's frame, and the pointer. */
 async function startWindowFrames(page) {
+	await startFramesClock(page);
 	await page.evaluate(selector => {
 		const state = { running: true, frames: [], pointer: { x: NaN, y: NaN } };
 		globalThis.__bhNoteMediaFrames = state;
@@ -105,7 +107,7 @@ async function startWindowFrames(page) {
 			const video = stage?.querySelector('video');
 			const visible = !!stage && getComputedStyle(stage).visibility !== 'hidden';
 			state.frames.push({
-				t: performance.timeOrigin + performance.now(),
+				t: globalThis.__bhFramesNow(),
 				stage: !!stage,
 				kind: stage?.classList.contains('video') ? 'video' : stage?.classList.contains('audio') ? 'audio' : undefined,
 				shown: visible && (stage.classList.contains('video') ? !!video && video.readyState >= 2 : true),
@@ -123,12 +125,13 @@ async function startWindowFrames(page) {
 
 /** Records every frame of the page: the note's video and sound, whether each shows, and the tops of the text under them. */
 async function startPageFrames(frame) {
+	await startFramesClock(frame);
 	await frame.evaluate(() => {
 		const state = { running: true, frames: [], clicks: [] };
 		globalThis.__bhNoteMediaFrames = state;
 		document.addEventListener('click', event => {
 			if (event.target.closest?.('button, .basehalf-markdown-rich-context-menu *')?.textContent?.trim() === 'Edit') {
-				state.clicks.push(performance.timeOrigin + performance.now());
+				state.clicks.push(globalThis.__bhFramesNow());
 			}
 		}, true);
 		const top = text => [...document.querySelectorAll('.bn-block-content[data-content-type="paragraph"]')].find(paragraph => paragraph.textContent === text)?.getBoundingClientRect().top;
@@ -140,7 +143,7 @@ async function startPageFrames(frame) {
 			const sound = document.querySelector('audio.bn-audio');
 			const box = element => { const r = element?.getBoundingClientRect(); return r && { l: r.left, t: r.top, w: r.width, h: r.height }; };
 			state.frames.push({
-				t: performance.timeOrigin + performance.now(),
+				t: globalThis.__bhFramesNow(),
 				video: box(video),
 				videoShown: !!video && getComputedStyle(video).visibility !== 'hidden' && video.readyState >= 2,
 				sound: box(sound),
@@ -258,7 +261,7 @@ async function dragEnd(page, fraction, steps) {
 
 /** Done: the editor goes within the limit, and the note's media or the editor's shows on every frame. */
 async function pressDone(page, frame, kind) {
-	const done = await page.evaluate(() => performance.timeOrigin + performance.now());
+	const done = await page.evaluate(() => globalThis.__bhFramesNow());
 	await page.locator('.basehalf-note-media-done').click();
 	await page.locator(STAGE).waitFor({ state: 'detached', timeout: 10_000 });
 	await page.waitForTimeout(300);

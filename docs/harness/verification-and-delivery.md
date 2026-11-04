@@ -62,6 +62,12 @@ provider, Providers, the starter template, and Sequence). A new step goes
 into the suite of its area. A suite that needs something done first
 does it itself, never relying on another suite.
 
+A step that compares the frames of a window and of a page inside it reads one
+clock on both sides (`lib/framesClock.mts`). `performance.timeOrigin +
+performance.now()` is not one: a document keeps the wall clock of the moment it
+was made, and the system corrects its wall clock, so that two documents read
+times apart by whatever it corrected between their starts.
+
 For changes to the rich Markdown projection (what it reads, which blocks it
 edits, and what it writes back):
 

@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { workspacePath } from '../../context.mts';
 import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
+import { startFramesClock } from '../../lib/framesClock.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { patternPng } from './imageEdit.mts';
@@ -70,6 +71,7 @@ async function noteFrame(page, url = 'photo.png') {
 
 /** Records every frame of the window: the editor, its picture, its frame, its top left corner, the frame of the page, and the pointer. */
 async function startWindowFrames(page) {
+	await startFramesClock(page);
 	await page.evaluate(selector => {
 		const state = { running: true, frames: [], pointer: { x: NaN, y: NaN } };
 		globalThis.__bhNotePictureFrames = state;
@@ -86,7 +88,7 @@ async function startWindowFrames(page) {
 			const iframe = [...(layer?.parentElement?.children ?? [])].find(child => child.tagName === 'IFRAME');
 			const picture = stage?.querySelector('.basehalf-image-crop-picture');
 			state.frames.push({
-				t: performance.timeOrigin + performance.now(),
+				t: globalThis.__bhFramesNow(),
 				stage: !!stage,
 				shown: !!stage && getComputedStyle(stage).visibility !== 'hidden' && !!picture && picture.complete && picture.naturalWidth > 0,
 				editing: !!stage?.querySelector('.basehalf-image-crop:not(.viewing)'),
@@ -107,12 +109,13 @@ async function startWindowFrames(page) {
 
 /** Records every frame of the page: its picture's box, whether it is drawn, and the top of the text under it. */
 async function startPageFrames(frame, url = 'photo.png') {
+	await startFramesClock(frame);
 	await frame.evaluate(url => {
 		const state = { running: true, frames: [], clicks: [] };
 		globalThis.__bhNotePictureFrames = state;
 		document.addEventListener('click', event => {
 			if (event.target.closest?.('button')?.textContent?.trim() === 'Edit') {
-				state.clicks.push(performance.timeOrigin + performance.now());
+				state.clicks.push(globalThis.__bhFramesNow());
 			}
 		}, true);
 		const tick = () => {
@@ -122,7 +125,7 @@ async function startPageFrames(frame, url = 'photo.png') {
 			const img = document.querySelector(`.bn-block-content[data-url="${url}"] img.bn-visual-media`);
 			const r = img?.getBoundingClientRect();
 			state.frames.push({
-				t: performance.timeOrigin + performance.now(),
+				t: globalThis.__bhFramesNow(),
 				img: r && { l: r.left, t: r.top, w: r.width, h: r.height },
 				shown: !!img && getComputedStyle(img).visibility !== 'hidden' && img.complete && img.naturalWidth > 0,
 				natural: img ? `${img.naturalWidth}x${img.naturalHeight}` : undefined,
@@ -299,7 +302,7 @@ export async function assertNotePictureEditInPlace(page) {
 	}
 
 	// Criterion 33: Done.
-	const done = await page.evaluate(() => performance.timeOrigin + performance.now());
+	const done = await page.evaluate(() => globalThis.__bhFramesNow());
 	await page.locator('.basehalf-note-media-done').click();
 	await page.locator(STAGE).waitFor({ state: 'detached', timeout: 5_000 });
 	await page.waitForTimeout(300);
@@ -395,7 +398,7 @@ export async function assertNotePictureEditTallInView(page) {
 	assertAPictureOnEveryFrame(await windowFrames(page), await pageFrames(frame), pressed, fitted.t, 'Edit of a tall picture');
 
 	// Done after no change glides it back to the note's picture.
-	const done = await page.evaluate(() => performance.timeOrigin + performance.now());
+	const done = await page.evaluate(() => globalThis.__bhFramesNow());
 	await page.locator('.basehalf-note-media-done').click();
 	await page.locator(STAGE).waitFor({ state: 'detached', timeout: 5_000 });
 	await page.waitForTimeout(300);
