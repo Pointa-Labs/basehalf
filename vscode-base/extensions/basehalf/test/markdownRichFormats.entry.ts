@@ -100,15 +100,16 @@ const itemsAnswer: { next?: IBaseHalfNoteItems; delay?: number } = {};
  * and 15), as the card's host gives it after it linked or cloned them.
  */
 const requestTestItems: BaseHalfNoteItemsRequest = async (source, dropped) => {
-	itemRequests.push({ source, ...(dropped && 'uris' in dropped ? { uris: [...dropped.uris] } : {}), ...(dropped && 'files' in dropped ? { files: dropped.files.map(file => file.name) } : {}) });
+	const { uris, files } = (dropped ?? {}) as { readonly uris?: readonly string[]; readonly files?: readonly File[] };
+	itemRequests.push({ source, ...(uris ? { uris: [...uris] } : {}), ...(files ? { files: files.map(file => file.name) } : {}) });
 	if (itemsAnswer.delay) {
 		await new Promise(resolve => setTimeout(resolve, itemsAnswer.delay));
 	}
-	if (source === 'rebase' && dropped && 'uris' in dropped) {
+	if (source === 'rebase' && uris) {
 		// The host's links from the note now: a stored file of another note cloned into its folder, the rest relative.
 		const folder = noteNow.resource.slice(0, noteNow.resource.lastIndexOf('/') + 1);
 		return {
-			items: dropped.uris.map(uri => ({ kind: 'file', url: uri.includes('/.bh/attachments/') ? `${NOTE_STORE}/${uri.split('/').pop()}` : uri.startsWith(folder) ? uri.slice(folder.length) : `../${uri.slice('file:///workspace/'.length)}`, name: 'x' })),
+			items: uris.map(uri => ({ kind: 'file', url: uri.includes('/.bh/attachments/') ? `${NOTE_STORE}/${uri.split('/').pop()}` : uri.startsWith(folder) ? uri.slice(folder.length) : `../${uri.slice('file:///workspace/'.length)}`, name: 'x' })),
 			failures: [],
 		};
 	}

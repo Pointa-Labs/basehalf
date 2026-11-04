@@ -584,9 +584,9 @@ start).
     rule 20) do nothing, and nothing asks.
 54. **The gestures.** On the card at rest, in Preview, and on a fixed block
     of Rich, a click opens a link, as a page does. In Rich and in the card's
-    editor, a click puts the caret in it and Command-click or Ctrl-click, by the system,
-    opens it, as editors of text do. In Rich, Open in the
-    toolbar of a link and Mod-Enter with the caret in it open it too.
+    editor, a click puts the caret in it and Command-click or Ctrl-click, by
+    the system, opens it, as editors of text do. In Rich, Open in the toolbar
+    of a link and Mod-Enter with the caret in it open it too.
 55. **The address is read once.** `?` and `#` end the path; the path is
     percent-decoded once, so `my%20file.md` opens `my file.md`. A path that
     starts with `/` is a path on the disk; any other path is read from the
