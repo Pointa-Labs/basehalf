@@ -6003,3 +6003,49 @@ file is what the record made, so they told nobody anything to act on.
 - `copyOf` stays in `made.yaml`; the window says nothing of it.
 - [Layout controls](specs/layout-controls.md#card-detail): the header holds the
   button.
+
+## D121 — A code card is a small window on its file, and Source is VS Code's editor (NEW, 2026-11-05)
+
+**Decision.** A code card shows its file with line numbers, can be scrolled to the file's
+end where it stands, and is edited on the card with a double click, as a note is; Card
+Detail opens from its Expand. A change is a mark beside its lines, and a thin ruler at the
+card's edge says where in the file the changes are. A file has one place while the window
+is open, shared by its card and its views, so a reader who closes the Changes view finds
+the card at what they read. Source is VS Code's editor with all its features that need no
+language service, and the settings `editor.*`: minimap, Find, folding, sticky scroll,
+marks and their inline diff, the status bar, and the commands of the palette. See [a code
+file on its card and in Card Detail](specs/code-cards.md).
+
+**Why.** On 2026-11-05 the owner tried the code cards of D118 and wrote: "代码预览，我在卡片上面并不可以编辑啊，也不可以滑动", "点了 Changes 里面之后，画布上面的卡片预览要有什么变化？", and "那个很宽的滑条就没有了", and that VS Code's logic should be
+followed in its core, not to the letter, "因为我们已经是两个产品了", leaving the choices to me.
+Measured next to VS Code 1.144, the cause was one: Source was built on the simple editor
+VS Code uses for an input box, which has no Find, folding, minimap, or marks and reads no
+settings, and a card was built as a picture of a file's head. I took four things as the
+core of VS Code's editor: the file stays, a change is a mark beside its lines, you can see
+where you are, and what shows can be scrolled and edited where it shows.
+
+**What stays BaseHalf's own.** A canvas holds hundreds of files, so a card is a drawing
+until it is touched, and no editor runs on it until it is edited. A wheel gesture belongs to
+what it began on, and below 50%, where a line can no longer be read, to the canvas. A card is
+recognized by its face, so no card moves by itself because its file changed: only reading a
+change moves it.
+
+**What was set aside.**
+- A live editor on every card, or on the card under the pointer. A real editor on a card
+  would give scrolling and colors for nothing, but it costs tens of milliseconds to mount
+  while the pointer crosses a canvas, and a face needs to match it anyway for the moment
+  it comes.
+- A minimap on a card. A card's width goes to its code; the ruler says where things are, and
+  Card Detail has the real one.
+- A card that shows its first change by itself. Rejected in D119 for the reasons there, and it
+  would take a reader away from what they read.
+- Language services. D118 stands: an agent answers those questions.
+
+**Consequences.**
+- D118's "no line numbers" and "does not scroll" are revised.
+- A double click on a code card no longer opens Card Detail. Expand and Enter's neighbors are
+  as a note has them.
+- [Canvas wheel gestures](specs/canvas-wheel-gestures.md) and [the changes of a file](specs/changes-of-a-file.md)
+  follow.
+- Two of VS Code's files, the editor service and the status bar, read Card Detail's text editor
+  when no editor pane has one ([`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md)).

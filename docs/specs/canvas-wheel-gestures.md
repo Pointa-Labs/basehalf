@@ -39,8 +39,9 @@ Not in scope, and unchanged:
 - Scrolling inside a Note that is being edited, a badge face, or a toolbar
   when the scroll starts there. Such a surface takes the wheel also when it
   has nothing to scroll.
-- Previews of text files, code files, and folders. They show a short excerpt
-  and do not scroll. Reading them is Card Detail's job.
+- Previews of text files that are not code, and of folders. They show a short
+  excerpt and do not scroll. Reading them is Card Detail's job. A code card
+  scrolls by these rules ([code cards](code-cards.md), rules 6 to 9).
 - A visible scroll indicator on a Note at rest. There is none.
 
 ## Terms
@@ -54,9 +55,10 @@ Not in scope, and unchanged:
 - **Card content**: the painted box of a card, inside its outline. The
   caption above the card is not part of it.
 - **Scrollable content**: content that a card gives the canvas to scroll for
-  the user (`cardScrollableContent` of the scene delegate). Today the only
-  one is the resting projection of a Markdown Note, which holds the whole
-  note. A long note is built in parts as it is scrolled, and the canvas has
+  the user (`cardScrollableContent` of the scene delegate): the resting
+  projection of a Markdown Note, which holds the whole note, and the face of a
+  code card, from a canvas zoom of 50% up. A long note is built in parts as it
+  is scrolled, and the canvas has
   the parts a scroll needs built before it moves the note
   ([note rendering](note-rendering.md#note-size-and-parts), rule 28). A note
   above 1 MiB shows a label instead of its text and has nothing to scroll. A
@@ -64,8 +66,9 @@ Not in scope, and unchanged:
   its badge face is open.
 - **Sideways box**: an element inside scrollable content that holds more
   than it shows from left to right, and that the canvas scrolls sideways for
-  the user (the class `basehalf-canvas-scroll-sideways`). Today these are a
-  table and a code block of a Note at rest that are wider than the card.
+  the user (the class `basehalf-canvas-scroll-sideways`). These are a table and
+  a code block of a Note at rest that are wider than the card, and the text of a
+  code card.
 - **Own-scroll surface**: an element with the `nowheel` class. It handles the
   wheel by itself: a Note being edited, a badge face, a toolbar, a player.
 

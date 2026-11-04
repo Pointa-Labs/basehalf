@@ -306,11 +306,12 @@ HTML has no form in it. Read and written back, it would lose:
     shows "Binary file" when they hold a NUL byte. A result node reads the
     text of its result the same way. A text result is never reported as
     missing because it is long.
-33. The card of a code file shows the file as the editor does (D118): from its
-    first line, in the editor's colors, with its indentation and blank lines,
+33. The card of a code file shows the file as the editor does (D118, D121): from
+    its first line, in the editor's colors, with its indentation and blank lines,
     at the editor's tab width, and without wrapping, so that a long line ends
     at the edge of the card. Nothing is skipped: imports and a license header
-    stay. It has no line numbers, and its text keeps the size of a card's text.
+    stay. Its lines have numbers, and it can be scrolled and edited where it
+    stands ([a code file on its card and in Card Detail](code-cards.md)).
     A code file is one whose language the window knows, other than plain text
     and Markdown, or whose icon says it is code; a language the window has no
     grammar for shows the same way in one color. Any other text file shows as

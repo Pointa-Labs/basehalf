@@ -53,7 +53,8 @@ would stay.
 
 ## Non-goals
 
-- A card's preview showing changes. See [why not](#why-a-preview-does-not-show-changes).
+- A diff on a card. See [why not](#why-a-preview-does-not-show-changes). A code card
+  marks the lines that changed, as VS Code's editor does ([code cards](code-cards.md)).
 - Comments, approvals, or marks of files already read.
 - "What the agent changed in its last turn". BaseHalf does not own an agent's
   turns; the changes are what git says.
@@ -78,8 +79,10 @@ would stay.
 ### The card
 
 1. A card shows its file as it does without git ([note
-   rendering](note-rendering.md), rule 32). What it shows of a file never depends
-   on what git says about the file.
+   rendering](note-rendering.md), rule 32). The text it shows of a file never depends
+   on what git says about the file. Beside the lines of a code card there are marks
+   ([code cards](code-cards.md), rules 10 to 13), and after the Changes view it stands
+   at the line that view stood at (rule 16 there).
 2. The card of a changed file has a mark. Its name takes the color that Files
    gives the file, and the letter that Files gives it stands after the name.
 3. The mark has a bar on the left edge of the card's face, in that color, 3 pixels
@@ -210,9 +213,10 @@ Showing the first change on a changed card was tried in the window and set aside
   face, so one rule would no longer hold for every kind of card.
 
 VS Code's editor keeps the file and marks the lines beside it, and a diff is
-something to open. If marks alone turn out not to be enough, the next step is the
-first change floating over the card while the pointer rests on the mark, which
-changes no card.
+something to open. Since D121 a code card does the same: its text stays, its changed
+lines are marked, a thin ruler says where in the file the changes are, and a reader
+who looked at a change finds the card at that change. No card moves by itself because
+its file changed.
 
 ## Acceptance criteria
 
