@@ -5,9 +5,9 @@
 
 /*
  * The line under an editor of Card Detail (editing media, "What Card Detail
- * shows"): what the edit is and Revert to Original, "Saving…" while the file
- * is written, or why a write failed and Try Again. It keeps its height while
- * it says nothing.
+ * shows"): what nothing else can show, as "Saving…" while the file is written,
+ * or why a write failed and Try Again. It keeps its height while it says
+ * nothing.
  */
 .monaco-workbench .basehalf-media-edit-line {
 	display: flex;
@@ -42,7 +42,7 @@
 	margin: 0 6px;
 }
 
-.monaco-workbench .basehalf-media-edit-line-summary,
+.monaco-workbench .basehalf-media-edit-line-notice,
 .monaco-workbench .basehalf-media-edit-line-failure {
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -78,6 +78,57 @@
 .monaco-workbench .basehalf-media-edit-line-action:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
+}
+
+/*
+ * Revert to Original (D120): a quiet button in the header of Card Detail, in
+ * the look of Edit, and, shorter, in the line under an editor in a note.
+ */
+.monaco-workbench .basehalf-media-edit-revert {
+	flex: none;
+	height: 24px;
+	padding: 0 10px;
+	box-sizing: border-box;
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+	border: 0;
+	border-radius: 12px;
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	line-height: 24px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-media-edit-revert[hidden] {
+	display: none;
+}
+
+.monaco-workbench .basehalf-media-edit-revert:hover {
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 17%, transparent);
+}
+
+.monaco-workbench .basehalf-media-edit-line .basehalf-media-edit-revert {
+	height: 18px;
+	padding: 0 8px;
+	border-radius: 9px;
+	line-height: 18px;
+}
+
+/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
+.monaco-workbench .basehalf-media-edit-revert:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-media-edit-revert:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-media-edit-revert {
+		border: 1px solid ButtonText;
+	}
 }
 
 /* Under the crop view, which fills Card Detail, the line stands at its foot. */

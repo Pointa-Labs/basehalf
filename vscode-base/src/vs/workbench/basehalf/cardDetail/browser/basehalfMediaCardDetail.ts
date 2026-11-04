@@ -188,8 +188,6 @@ export function baseHalfGenerationProvenance(
 	];
 	return Object.freeze({
 		heading: localize('basehalf.generation.detail.generated', "Generated"),
-		// A copy keeps the original's record: what it says is what made the original.
-		...(made.copyOf !== undefined ? { note: copyNote(card.kind) } : {}),
 		rows: Object.freeze(rows.map(row => Object.freeze(row))),
 		inputs: Object.freeze(inputs)
 	});
@@ -245,6 +243,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		private readonly onSelectionChange: (selected: IBaseHalfAgentSelectionDocumentText | undefined) => void,
 		/** Where the header of Card Detail holds Edit and Done (layout controls, "Card Detail"). */
 		private readonly modeActions: HTMLElement | undefined,
+		/** Where the header of Card Detail holds Revert to Original (editing media, "Revert to Original"). */
+		private readonly editActions: HTMLElement | undefined,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
@@ -564,7 +564,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (kind === 'image') {
 			this.webviewHost.classList.remove('holds-player');
 			this.webviewHost.classList.add('holds-editor');
-			const shown = editing.show({ stage: append(this.webviewHost, $('.basehalf-card-detail-image-stage')) });
+			const shown = editing.show({ stage: append(this.webviewHost, $('.basehalf-card-detail-image-stage')), actions: this.editActions });
 			this.renderModeButton();
 			if (focused) {
 				editing.focus();
@@ -575,7 +575,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		// The waveform plays the edit itself: no player stands above it.
 		this.webviewHost.classList.remove('holds-editor');
 		this.webviewHost.classList.add('holds-player');
-		editing.show({ stage: append(this.webviewHost, $('.basehalf-card-detail-video-stage.sound')) });
+		editing.show({ stage: append(this.webviewHost, $('.basehalf-card-detail-video-stage.sound')), actions: this.editActions });
 		this.renderModeButton();
 		if (focused) {
 			editing.focus();
@@ -670,7 +670,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (session) {
 			// Viewing shows the video as large as fits; Edit glides it smaller into the space above this room (D102).
 			const room = append(stage, $('.basehalf-card-detail-video-edit-room'));
-			this.editingStore.value?.show({ stage, player, room });
+			this.editingStore.value?.show({ stage, player, room, actions: this.editActions });
 		}
 		this.renderModeButton();
 		if (focused) {
@@ -928,15 +928,6 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (voices) {
 			void this.voiceService.askOnce(voices.provider, voices.model, voices.region);
 		}
-	}
-}
-
-/** What the record of a copy says: what it shows made the original. */
-function copyNote(kind: IBaseHalfGenerationCardSnapshot['kind']): string {
-	switch (kind) {
-		case 'image': return localize('basehalf.generation.detail.copyImage', "This image is a copy of a generated image; this is what made that one.");
-		case 'video': return localize('basehalf.generation.detail.copyVideo', "This video is a copy of a generated video; this is what made that one.");
-		case 'audio': return localize('basehalf.generation.detail.copySound', "This sound is a copy of a generated sound; this is what made that one.");
 	}
 }
 

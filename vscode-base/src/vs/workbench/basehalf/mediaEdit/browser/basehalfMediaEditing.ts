@@ -15,7 +15,8 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfEditSummary, IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
+import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
+import { baseHalfMediaChoicesAreNoEdit } from '../common/basehalfMediaEditFormats.js';
 import { BaseHalfImageCropView } from './basehalfImageCropView.js';
 import { BaseHalfMediaChange, BaseHalfPlayheadMove, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { baseHalfMediaFileByteSource, IBaseHalfEditVideo, IBaseHalfMediaEditService, IBaseHalfMediaEditState } from './basehalfMediaEditService.js';
@@ -56,6 +57,8 @@ export interface IBaseHalfMediaEditingView {
 	readonly room?: HTMLElement;
 	/** The editor starts editing, as one drawn where its picture is edited at once does (D113): its first layout is that of editing. */
 	readonly editing?: boolean;
+	/** Where Revert to Original stands, apart from the line under the editor: the header of Card Detail (D120). */
+	readonly actions?: HTMLElement;
 }
 
 /** How often the copy is made anew when the file changed while it was made. */
@@ -193,7 +196,7 @@ export class BaseHalfMediaEditing extends Disposable {
 			}
 		}));
 		store.add(editor.onDidChange(change => this.change(state, editor.choices, this.stepLabel(change))));
-		this.line = this.createLine(host, store);
+		this.line = this.createLine(host, view.actions, store);
 		this.renderLine();
 		return { drawn };
 	}
@@ -217,7 +220,8 @@ export class BaseHalfMediaEditing extends Disposable {
 		// A control of editing that goes with the editing would drop the keyboard to the window's body,
 		// where Escape and Command+Z reach nothing: it goes to what viewing has instead.
 		const targetDocument = this.stage?.ownerDocument;
-		const keyboardInEditor = !!targetDocument?.activeElement && !!this.stage?.contains(targetDocument.activeElement);
+		const active = targetDocument?.activeElement;
+		const keyboardInEditor = !!active && (!!this.stage?.contains(active) || active === this.line?.revert);
 		this.editing = editing;
 		editor.setEditing(editing);
 		this.stage?.classList.toggle('basehalf-media-edit-active', editing);
@@ -326,21 +330,26 @@ export class BaseHalfMediaEditing extends Disposable {
 	// #region The line under the editor
 
 	/**
-	 * The line under the editor: what the edit is and Revert to Original, then
-	 * "Saving…" while the file is written; the failure of a write with Try
-	 * Again; nothing for a file that was never edited. Its parts stay while
-	 * their text changes, so that the keyboard stays on its buttons.
+	 * The line under the editor, which says what nothing else can show (D120):
+	 * that a video lost its sound, "Saving…" while the file is written, and the
+	 * failure of a write with Try Again. And Revert to Original for an edited
+	 * file, in `actions` where the host gives it a place, and otherwise in the
+	 * line. Its parts stay while their text changes, so that the keyboard stays
+	 * on its buttons.
 	 */
-	private createLine(stage: HTMLElement, store: DisposableStore): IEditLine {
+	private createLine(stage: HTMLElement, actions: HTMLElement | undefined, store: DisposableStore): IEditLine {
 		const element = append(stage, $('.basehalf-media-edit-line'));
 		element.setAttribute('aria-live', 'polite');
 		store.add(toDisposable(() => element.remove()));
 		// Each part stands in a span of its own, which the dot between parts goes into.
 		const part = (child: string) => append(append(element, $('span.basehalf-media-edit-line-part')), $(child));
-		const summary = part('span.basehalf-media-edit-line-summary');
-		const revert = part('button.basehalf-media-edit-line-action.revert') as HTMLButtonElement;
+		const notice = part('span.basehalf-media-edit-line-notice');
+		const revert = (actions ? append(actions, $('button.basehalf-media-edit-revert')) : part('button.basehalf-media-edit-revert')) as HTMLButtonElement;
+		store.add(toDisposable(() => revert.remove()));
 		revert.type = 'button';
-		revert.textContent = localize('basehalf.mediaEdit.line.revert', "Revert to Original");
+		revert.textContent = localize('basehalf.mediaEdit.revert', "Revert to Original");
+		// Pressed with the pointer, it leaves the keyboard on the media, as Edit and Done do (D100).
+		store.add(addDisposableListener(revert, 'mousedown', event => event.preventDefault()));
 		const saving = part('span.basehalf-media-edit-line-saving');
 		const failure = part('span.basehalf-media-edit-line-failure');
 		const retry = part('button.basehalf-media-edit-line-action.retry') as HTMLButtonElement;
@@ -354,7 +363,7 @@ export class BaseHalfMediaEditing extends Disposable {
 		const keepKeyboard = (button: HTMLElement, action: () => void) => store.add(addDisposableListener(button, 'click', () => {
 			const focused = button.ownerDocument.activeElement === button;
 			action();
-			if (focused && button.parentElement?.hidden) {
+			if (focused && shownWith(button).hidden) {
 				this.editor?.focus();
 			}
 		}));
@@ -369,7 +378,7 @@ export class BaseHalfMediaEditing extends Disposable {
 			}
 		});
 		keepKeyboard(retry, () => this.mediaEditService.retry(this.file.resource));
-		return { element, summary, revert, saving, failure, retry };
+		return { element, notice, revert, saving, failure, retry };
 	}
 
 	private renderLine(): void {
@@ -381,15 +390,13 @@ export class BaseHalfMediaEditing extends Disposable {
 		const choices = this.mediaEditService.choicesOf(this.file.resource, session.state);
 		const writing = this.mediaEditService.writing(this.file.resource);
 		const failed = writing?.state === 'failed';
-		// What the edit is, and Revert to Original, show while editing; a write and its failure concern the file, and show while viewing too.
-		let summary = this.editing ? baseHalfEditSummary(choices) : undefined;
-		if (summary && this.mediaEditService.soundDropped(this.file.resource)) {
-			summary = localize('basehalf.mediaEdit.line.withoutSound', "{0} · Without sound: BaseHalf can't write this video's sound here", summary);
-		}
-		const show = (element: HTMLElement, shown: boolean) => element.parentElement!.hidden = !shown;
-		line.summary.textContent = !failed ? summary ?? '' : '';
-		show(line.summary, !failed && !!summary);
-		show(line.revert, !failed && !!summary);
+		// Revert to Original, and what an edit lost, show while editing; a write and its failure concern the file, and show while viewing too.
+		const edited = this.editing && !baseHalfMediaChoicesAreNoEdit(choices);
+		const withoutSound = !failed && edited && this.mediaEditService.soundDropped(this.file.resource);
+		const show = (element: HTMLElement, shown: boolean) => shownWith(element).hidden = !shown;
+		line.notice.textContent = withoutSound ? localize('basehalf.mediaEdit.line.withoutSound', "Without sound: BaseHalf can't write this video's sound here") : '';
+		show(line.notice, withoutSound);
+		show(line.revert, !failed && edited);
 		// A write that ends within a second shows nothing: most do (D99).
 		const running = writing?.state === 'writing' ? Date.now() - (writing.since ?? 0) : undefined;
 		const saving = running !== undefined && running >= SAVING_TOLD_AFTER_MS;
@@ -408,11 +415,16 @@ export class BaseHalfMediaEditing extends Disposable {
 
 interface IEditLine {
 	readonly element: HTMLElement;
-	readonly summary: HTMLElement;
+	readonly notice: HTMLElement;
 	readonly revert: HTMLButtonElement;
 	readonly saving: HTMLElement;
 	readonly failure: HTMLElement;
 	readonly retry: HTMLButtonElement;
+}
+
+/** What shows and hides with a control: its part of the line, or the control itself where it stands apart from the line. */
+function shownWith(control: HTMLElement): HTMLElement {
+	return control.closest<HTMLElement>('.basehalf-media-edit-line-part') ?? control;
 }
 
 function sameChoices(a: IBaseHalfMediaChoices, b: IBaseHalfMediaChoices): boolean {

@@ -78,28 +78,32 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 		});
 	});
 
-	test('says which image of how many it is, that it is a copy, that it had no prompt, and that the record cannot be read', () => {
+	test('says which image of how many it is, says nothing of a copy but that, that it had no prompt, and that the record cannot be read', () => {
 		const image: IBaseHalfGenerationMade = { ...MADE, provider: 'corvid', region: 'north', model: 'corvid-paint', providerModel: 'paint-n-1', mode: 'reference', params: { resolution: '1k', count: 4 }, prompt: '', inputs: [], output: 2, outputs: 4 };
 		const several = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: image, inputs: [], catalog: ready });
 		assert.deepStrictEqual([several.line, several.prompt, several.inputs.length, several.model], ['Image 2 of 4', '', 0, 'Corvid Paint']);
 		const copy = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: { ...image, copyOf: '20261023T080000-made0001-2' }, inputs: [], catalog: ready });
-		assert.strictEqual(copy.line, 'A copy. This is what made the original.');
+		assert.strictEqual(copy.line, 'Image 2 of 4');
 		const one = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: { ...image, output: 1, outputs: 1 }, inputs: [], catalog: ready });
 		assert.strictEqual(one.line, undefined);
 		const unreadable = createBaseHalfGenerationRecordPresentation({ kind: 'image', inputs: [], catalog: ready });
 		assert.deepStrictEqual([unreadable.readable, unreadable.inputs.length, unreadable.model], [false, 0, '']);
 	});
 
-	test('says how an edited file differs from what was generated, after that it is a copy (D84)', () => {
+	test('says that a file is edited, and not how, after which image of how many it is (D120)', () => {
 		const trimmed = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: ready, edit: { keep: [{ start: 1, end: 4.5 }] } });
 		const copy = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: { ...MADE, copyOf: '20261023T080000-made0000' }, inputs: INPUTS, catalog: ready, edit: { keep: [{ start: 1.25, end: 3.04 }] } });
 		const cropped = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: MADE, inputs: INPUTS, catalog: ready, edit: { turn: 1, crop: { x: 800, y: 450, width: 1600, height: 900 } } });
-		assert.deepStrictEqual([trimmed.line, trimmed.settings, copy.line, cropped.line], [
-			'Edited: Trimmed to 1.0s–4.5s.',
+		const several = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: { ...MADE, output: 2, outputs: 4 }, inputs: INPUTS, catalog: ready, edit: { crop: { x: 800, y: 450, width: 1600, height: 900 } } });
+		const none = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: ready, edit: {} });
+		assert.deepStrictEqual([trimmed.line, trimmed.settings, copy.line, cropped.line, several.line, none.line], [
+			'Edited',
 			// The settings are what was sent: the generated video was 5 s.
 			'Frames · 720p · 5s · Sound',
-			'A copy. This is what made the original. Edited: Trimmed to 1.2s–3.0s.',
-			'Edited: Turned · Cropped to 1600 × 900.'
+			'Edited',
+			'Edited',
+			'Image 2 of 4 · Edited',
+			undefined
 		]);
 	});
 

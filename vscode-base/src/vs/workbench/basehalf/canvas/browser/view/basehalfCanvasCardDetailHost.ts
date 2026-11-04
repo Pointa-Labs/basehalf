@@ -681,7 +681,8 @@ export class BaseHalfCanvasCardDetailHost {
 						() => this.view.markCanvasUserInteraction(),
 						() => void this.view.canvasNavigationService.closeCardDetail(),
 						selected => this.setAgentSelectionDetailText('media', selected),
-						this.view.detailModeActions
+						this.view.detailModeActions,
+						this.view.detailEditActions
 					)
 				};
 			}

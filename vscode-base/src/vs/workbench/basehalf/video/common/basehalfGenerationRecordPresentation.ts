@@ -17,7 +17,8 @@ import {
 	IBaseHalfVideoInputSource,
 	planBaseHalfVideoInputs
 } from './basehalfVideoCatalog.js';
-import { baseHalfEditSummary, IBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
+import { IBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
+import { baseHalfMediaChoicesAreNoEdit } from '../../mediaEdit/common/basehalfMediaEditFormats.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from './basehalfGenerationInfo.js';
 import { baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
 
@@ -105,15 +106,12 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 			gone: !state.inputs[index].available
 		});
 	});
-	const base = made.copyOf !== undefined
-		? localize('basehalf.generation.record.copy', "A copy. This is what made the original.")
-		: made.output !== undefined && made.outputs !== undefined && made.outputs > 1
-			? outputLine(state.kind, made.output, made.outputs)
-			: undefined;
-	// An edited file says how it differs from what was generated (editing media, "Generation cards").
-	const summary = state.edit ? baseHalfEditSummary(state.edit) : undefined;
-	const edited = summary !== undefined ? localize('basehalf.generation.record.edited', "Edited: {0}.", summary) : undefined;
-	const line = base !== undefined && edited !== undefined ? localize('basehalf.generation.record.lineEdited', "{0} {1}", base, edited) : base ?? edited;
+	const several = made.output !== undefined && made.outputs !== undefined && made.outputs > 1
+		? outputLine(state.kind, made.output, made.outputs)
+		: undefined;
+	// An edited file says that it differs from what was generated, and not how: its card shows that (editing media, "Generation cards").
+	const edited = state.edit && !baseHalfMediaChoicesAreNoEdit(state.edit) ? localize('basehalf.generation.record.edited', "Edited") : undefined;
+	const line = several !== undefined && edited !== undefined ? localize('basehalf.generation.record.lineEdited', "{0} · {1}", several, edited) : several ?? edited;
 	const region = ref?.provider.regions.find(candidate => candidate.id === made.region);
 	const recorded = () => [made.mode, ...Object.entries(made.params).map(([name, value]) => `${name} ${String(value)}`)];
 	// As the draft's summary: a mode is named where the models of the card's kind differ in it (D90).

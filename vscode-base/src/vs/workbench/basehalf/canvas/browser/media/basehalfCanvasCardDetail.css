@@ -98,6 +98,12 @@
 	display: none;
 }
 
+.monaco-workbench .basehalf-card-detail-edit-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+}
+
 .monaco-workbench .basehalf-card-detail-actions {
 	position: relative;
 	display: flex;

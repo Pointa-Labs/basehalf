@@ -172,6 +172,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly detailProjectionActions: HTMLElement;
 	/** Edit and Done of a video, an image, or a sound that Card Detail shows (editing media). */
 	readonly detailModeActions: HTMLElement;
+	/** Revert to Original of an edited video, image, or sound, after its name and apart from Done (D120). */
+	readonly detailEditActions: HTMLElement;
 	readonly detailBadgeZone: HTMLElement;
 	readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
@@ -479,6 +481,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		const detailTitleBlock = append(detailHeader, $('.basehalf-card-detail-title-block'));
 		this.detailTitle = append(detailTitleBlock, $('.basehalf-card-detail-title'));
 		this.detailMeta = append(detailTitleBlock, $('.basehalf-card-detail-meta'));
+		this.detailEditActions = append(detailTitleBlock, $('.basehalf-card-detail-edit-actions'));
 		this.detailBadgeZone = append(detailHeader, $('.basehalf-card-detail-badge'));
 		const detailActions = append(detailHeader, $('.basehalf-card-detail-actions'));
 		// Ordinary save state stays invisible (everything auto-saves); the
