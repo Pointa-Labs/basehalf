@@ -99,6 +99,13 @@
 	white-space: pre;
 }
 
+.monaco-workbench .basehalf-canvas-code-sideways-room {
+	position: absolute;
+	top: 0;
+	left: 0;
+	height: 1px;
+}
+
 /*
  * The whole file from top to bottom: ticks for its changes, and the view while lines move (code cards, rules 8 and 11).
  * It stands between the card's rounded corners, which would cut a change near either end of the file.
@@ -112,9 +119,13 @@
 	pointer-events: none;
 }
 
-/* On the screen it is as large at every zoom, as the bar of a changed card is: at a far zoom it can still be told apart. */
+/*
+ * On the screen it is as large at every zoom, as the bar of a changed card is: at a far zoom it can still be told apart.
+ * A change at the file's end keeps that height inside the ruler.
+ */
 .monaco-workbench .basehalf-canvas-code-tick {
 	position: absolute;
+	top: min(var(--basehalf-code-ruler-top), calc(100% - 3px / var(--basehalf-canvas-zoom, 1)));
 	right: 0;
 	width: calc(4px / var(--basehalf-canvas-zoom, 1));
 	min-height: calc(3px / var(--basehalf-canvas-zoom, 1));
@@ -134,9 +145,10 @@
 
 .monaco-workbench .basehalf-canvas-code-ruler-view {
 	position: absolute;
+	top: min(var(--basehalf-code-ruler-top), calc(100% - 12px / var(--basehalf-canvas-zoom, 1)));
 	right: 0;
 	width: calc(6px / var(--basehalf-canvas-zoom, 1));
-	min-height: 12px;
+	min-height: calc(12px / var(--basehalf-canvas-zoom, 1));
 	background: var(--vscode-scrollbarSlider-background);
 	opacity: 0;
 	transition: opacity 160ms ease-out;

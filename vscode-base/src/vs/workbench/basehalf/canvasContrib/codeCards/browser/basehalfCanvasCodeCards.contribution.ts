@@ -22,7 +22,7 @@ import { BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../../../
 import { IBaseHalfCanvasItem } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfFilePlace, IBaseHalfFilePlacesService } from '../../../cardDetail/common/basehalfFilePlaces.js';
 import { IBaseHalfFileChangesService } from '../../../changes/common/basehalfFileChanges.js';
-import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasCodeCardEditor } from './basehalfCanvasCodeCardEditor.js';
 import { BaseHalfCanvasCodeFace, IBaseHalfCanvasCodeFaceHost } from './basehalfCanvasCodeFace.js';
 import { BASEHALF_CODE_CARD_LARGEST_FILE_BYTES, BASEHALF_CODE_FACE_NO_MARKS, baseHalfCodeFaceMarks } from '../common/basehalfCanvasCodeFaceLayout.js';
@@ -64,7 +64,10 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 	}
 
 	private readonly editingKey: IContextKey<boolean>;
-	private editing: { readonly path: string; readonly editor: BaseHalfCanvasCodeCardEditor } | undefined;
+	private editing: { readonly path: string; readonly editor: BaseHalfCanvasCodeCardEditor; readonly inNavigation: IBaseHalfActiveCanvasEditor | undefined } | undefined;
+	private finishing: Promise<void> | undefined;
+	/** The last card asked to be edited: one that had to wait gives way to it. */
+	private editAsked = 0;
 	private measuredFont: { readonly family: string; readonly digitWidth: number } | undefined;
 	private selectedPaths: readonly string[] = [];
 
@@ -74,7 +77,7 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 		@IQuickDiffModelService private readonly quickDiffModelService: IQuickDiffModelService,
 		@IBaseHalfFilePlacesService private readonly places: IBaseHalfFilePlacesService,
 		@IBaseHalfFileChangesService private readonly changes: IBaseHalfFileChangesService,
-		@IBaseHalfCanvasNavigationService navigation: IBaseHalfCanvasNavigationService,
+		@IBaseHalfCanvasNavigationService private readonly navigation: IBaseHalfCanvasNavigationService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILifecycleService lifecycleService: ILifecycleService,
@@ -96,7 +99,7 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 				void this.finish(false);
 			}
 		}));
-		this._register(navigation.onDidChangeState(state => {
+		this._register(this.navigation.onDidChangeState(state => {
 			if (state.cardDetail) {
 				void this.finish(false);
 			}
@@ -110,10 +113,14 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 		this._register(this.configurationService.onDidChangeConfiguration(event => {
 			if (event.affectsConfiguration('editor.fontFamily')) {
 				this.measuredFont = undefined;
-				this.canvas.requestRender();
+				for (const face of this.faces) {
+					face.fontChanged();
+				}
+				this.editing?.editor.fontChanged();
 			}
 		}));
 		this._register(toDisposable(() => {
+			void this.finish(false);
 			for (const store of this.markStores.values()) {
 				store.dispose();
 			}
@@ -148,7 +155,7 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 		}
 	}
 
-	didTakeModel(face: BaseHalfCanvasCodeFace): void {
+	didUseModel(face: BaseHalfCanvasCodeFace): void {
 		const index = this.holdingModels.indexOf(face);
 		if (index >= 0) {
 			this.holdingModels.splice(index, 1);
@@ -212,7 +219,9 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 	}
 
 	editsOnCard(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): boolean {
-		return preview?.kind === 'code' && (item.stat.size ?? 0) <= BASEHALF_CODE_CARD_LARGEST_FILE_BYTES;
+		// A file that was just written is being read again, and its card keeps its face meanwhile.
+		const code = preview?.kind === 'code' || (preview?.kind === 'loading' && this.facesByPath.has(item.path));
+		return code && (item.stat.size ?? 0) <= BASEHALF_CODE_CARD_LARGEST_FILE_BYTES;
 	}
 
 	isEditing(path: string): boolean {
@@ -223,7 +232,12 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 		if (this.editing?.path === path) {
 			return;
 		}
+		const asked = ++this.editAsked;
 		await this.finish(false);
+		// One editor stands on a canvas at a time, as a note's, which writes its text first and stays when it cannot.
+		if (!await this.navigation.flushActiveEditor() || asked !== this.editAsked) {
+			return;
+		}
 		const face = this.facesByPath.get(path);
 		if (!face) {
 			return;
@@ -233,35 +247,65 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 			onSaveState: error => this.canvas.setCardSaveError(path, error),
 			requestEnd: keyboardToCanvas => void this.finish(keyboardToCanvas)
 		});
-		this.editing = { path, editor };
+		// Whatever leaves the canvas waits for this one to write its text and leave its place.
+		const folder = this.canvas.getFolder();
+		const inNavigation: IBaseHalfActiveCanvasEditor | undefined = folder && {
+			resource: face.resource,
+			workspaceFolder: folder.workspaceFolder,
+			relativePath: path,
+			supportsCanvasProjectionHandoff: false,
+			prepareToClose: () => this.finish(false).then(() => true)
+		};
+		const editing = this.editing = { path, editor, inNavigation };
+		this.navigation.setActiveCanvasEditor(inNavigation);
 		this.editingKey.set(true);
-		if (!await editor.open(point)) {
+		const opened = await editor.open(point);
+		// The editing ended while the file was being read, as by a press elsewhere.
+		if (this.editing !== editing) {
+			return;
+		}
+		if (!opened) {
 			// The file cannot be held as text here: Card Detail says why.
-			this.editing = undefined;
-			this.editingKey.set(false);
-			editor.dispose();
+			await this.finish(false);
 			await this.canvas.openCard(path);
 		}
 	}
 
-	private async finish(keyboardToCanvas: boolean): Promise<void> {
+	private finish(keyboardToCanvas: boolean): Promise<void> {
 		const editing = this.editing;
 		if (!editing) {
-			return;
+			return this.finishing ?? Promise.resolve();
 		}
 		this.editing = undefined;
 		this.editingKey.set(false);
+		const finishing: Promise<void> = this.endEditing(editing, keyboardToCanvas).finally(() => {
+			if (this.finishing === finishing) {
+				this.finishing = undefined;
+			}
+		});
+		this.finishing = finishing;
+		return finishing;
+	}
+
+	private async endEditing(editing: NonNullable<BaseHalfCanvasCodeCards['editing']>, keyboardToCanvas: boolean): Promise<void> {
 		await editing.editor.end();
+		if (editing.inNavigation && this.navigation.activeCanvasEditor === editing.inNavigation) {
+			this.navigation.setActiveCanvasEditor(undefined);
+		}
 		if (keyboardToCanvas) {
 			// On the card itself, where its keys work.
 			editing.editor.face.container.closest<HTMLElement>('.basehalf-canvas-card')?.focus({ preventScroll: true });
 		}
-		this.canvas.requestRender();
+		if (!this._store.isDisposed) {
+			this.canvas.requestRender();
+		}
 	}
 
 	private onCanvasKey(event: KeyboardEvent): void {
 		const target = event.target;
+		// Card Detail stands over the canvas, and its keys are its own.
 		if (event.key !== 'Enter' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || this.selectedPaths.length !== 1
+			|| this.navigation.state.cardDetail
 			|| !(target instanceof Element) || target.closest('input, textarea, button, [contenteditable="true"], .monaco-editor')) {
 			return;
 		}

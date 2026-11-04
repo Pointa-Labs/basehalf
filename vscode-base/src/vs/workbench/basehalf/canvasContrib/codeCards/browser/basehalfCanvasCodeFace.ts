@@ -44,8 +44,8 @@ const PLACE_SETTLES_MS = 60;
 export interface IBaseHalfCanvasCodeFaceHost {
 	/** The file's text model, for as long as the face keeps the reference. */
 	acquireModel(resource: URI): Promise<IReference<IResolvedTextEditorModel> | undefined>;
-	/** The face holds a model now: faces beyond the limit let theirs go. */
-	didTakeModel(face: BaseHalfCanvasCodeFace): void;
+	/** The face took its model or used it: faces beyond the limit let theirs go, those used longest ago first. */
+	didUseModel(face: BaseHalfCanvasCodeFace): void;
 	/** The colored first `count` lines of what the card read of the file. */
 	headLines(preview: IBaseHalfCanvasCodePreview, count: number): readonly (readonly IBaseHalfCodePreviewPiece[])[] | undefined;
 	placeOf(resource: URI): IBaseHalfFilePlace | undefined;
@@ -73,6 +73,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 	private readonly spacer: HTMLElement;
 	private readonly gutter: HTMLElement;
 	private readonly text: HTMLElement;
+	private readonly sidewaysRoom: HTMLElement;
 	private readonly ruler: HTMLElement;
 	private readonly rulerView: HTMLElement;
 	private readonly drawn = new Map<number, IDrawnLine>();
@@ -90,7 +91,12 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 	private marks: IBaseHalfCodeFaceMarks = BASEHALF_CODE_FACE_NO_MARKS;
 	private digits = 0;
 	private lastCount = 0;
-	private lineComeTo: number | undefined;
+	private linesOfLastModel = 0;
+	private spacerHeight = -1;
+	/** A line past what was read, where the face stands until its model can draw it. */
+	private lineAwaited: number | undefined;
+	/** Where something other than a gesture left the lines: that moves no place. */
+	private settledAt: number | undefined;
 	private hasScrolled = false;
 
 	constructor(
@@ -111,11 +117,13 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		this.spacer = append(this.scrollableContent, $('.basehalf-canvas-code-spacer'));
 		this.gutter = append(this.spacer, $('.basehalf-canvas-code-gutter'));
 		this.text = append(this.spacer, $(`.basehalf-canvas-code-text.${BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS}`));
+		this.sidewaysRoom = append(this.text, $('.basehalf-canvas-code-sideways-room'));
 		this.ruler = append(container, $('.basehalf-canvas-code-ruler'));
 		this.rulerView = append(this.ruler, $('.basehalf-canvas-code-ruler-view'));
 
 		this._register(toDisposable(() => this.letModelGo()));
 		this._register(addDisposableListener(this.scrollableContent, 'scroll', () => this.onScroll()));
+		this._register(addDisposableListener(this.text, 'scroll', () => this.keepSidewaysRoom(this.text.scrollLeft)));
 		this._register(host.onDidChangePlace(resource, () => this.placeSettles.schedule(), this));
 		const resizeObserver = new ResizeObserver(() => this.setHeight());
 		resizeObserver.observe(this.scrollableContent);
@@ -131,7 +139,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 	}
 
 	get lineCount(): number {
-		return this.model?.getLineCount() ?? this.preview.lines.length;
+		return this.model?.getLineCount() ?? Math.max(this.preview.lines.length, this.linesOfLastModel);
 	}
 
 	get scrollTop(): number {
@@ -149,7 +157,16 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 
 	setHeight(): void {
 		this.layout();
+		// A face that had no height could not stand at its place yet.
+		this.goToPlace();
 		this.draw();
+	}
+
+	/** The setting of the font changed. */
+	fontChanged(): void {
+		this.container.style.setProperty('--basehalf-code-font', this.host.fontFamily);
+		this.digits = 0;
+		this.layout();
 	}
 
 	setPreview(preview: IBaseHalfCanvasCodePreview, size: number | undefined): void {
@@ -175,10 +192,16 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 
 	/** The editor of the card goes away and leaves its place here. */
 	standAt(scrollTop: number, scrollLeft: number): void {
+		const before = this.scrollTop;
 		this.layout();
 		this.scrollableContent.scrollTop = scrollTop;
+		this.settle();
+		this.keepSidewaysRoom(scrollLeft);
 		this.text.scrollLeft = scrollLeft;
 		this.redraw();
+		if (this.scrollTop !== before) {
+			this.host.setPlace(this.resource, baseHalfCodeFaceLineAt(this.scrollTop), this);
+		}
 	}
 
 	setMarks(marks: IBaseHalfCodeFaceMarks): void {
@@ -199,8 +222,11 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		return this.modelAsked;
 	}
 
-	/** Lets the model go, for a face that is used least. What it drew stays until it is used again. */
+	/** Lets the model go, for a face that was used longest ago. What it drew and where it stands stay until it is used again. */
 	letModelGo(): void {
+		if (this.model) {
+			this.linesOfLastModel = this.model.getLineCount();
+		}
 		if (this.model && this.attachedView) {
 			this.model.onBeforeDetached(this.attachedView);
 		}
@@ -215,7 +241,10 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		if (!reference) {
 			this.keepsHead = true;
 			this.modelAsked = undefined;
+			this.lineAwaited = undefined;
 			this.layout();
+			this.goToPlace();
+			this.draw();
 			return undefined;
 		}
 		if (this._store.isDisposed) {
@@ -227,6 +256,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		const model = reference.object.textEditorModel;
 		this.modelStore.value = store;
 		this.model = model;
+		this.lineAwaited = undefined;
 		store.add(model.onDidChangeContent(() => {
 			this.layout();
 			this.redraw();
@@ -241,7 +271,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 			this.container.style.tabSize = String(model.getOptions().tabSize);
 		}));
 		this.container.style.tabSize = String(model.getOptions().tabSize);
-		this.host.didTakeModel(this);
+		this.host.didUseModel(this);
 		this.layout();
 		this.goToPlace();
 		this.redraw();
@@ -249,28 +279,47 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 	}
 
 	private onScroll(): void {
-		this.hasScrolled = true;
+		const top = this.scrollTop;
+		const gesture = top !== this.settledAt;
+		if (gesture) {
+			this.settledAt = undefined;
+			this.hasScrolled = true;
+		}
 		this.draw();
 		this.drawRulerView();
+		if (!gesture) {
+			return;
+		}
 		this.ruler.classList.add('moving');
 		this.rulerFades.schedule();
-		const line = baseHalfCodeFaceLineAt(this.scrollTop);
-		// A face that came to the place another view gave it moves nothing: that view's place stands.
-		if (line !== this.lineComeTo) {
-			this.lineComeTo = undefined;
-			this.host.setPlace(this.resource, line, this);
-		}
-		if (!this.model && !this.keepsHead) {
+		this.host.setPlace(this.resource, baseHalfCodeFaceLineAt(top), this);
+		if (this.model) {
+			this.host.didUseModel(this);
+		} else if (!this.keepsHead) {
 			void this.ensureModel();
 		}
+	}
+
+	/**
+	 * The lines stand where they stand now by something other than a gesture: a place that came
+	 * from another view or a drawing, or a file that became shorter. The file's place stays as it was.
+	 */
+	private settle(): void {
+		this.settledAt = this.scrollableContent.scrollTop;
+	}
+
+	/** Lines that go out of view do not take the sideways position with them, as in an editor. */
+	private keepSidewaysRoom(scrollLeft: number): void {
+		this.sidewaysRoom.style.width = scrollLeft > 0 ? `${scrollLeft + this.text.clientWidth}px` : '';
 	}
 
 	/** Comes to the file's place: this card's own after a drawing, or what another view read. */
 	private goToPlace(): void {
 		const place = this.host.placeOf(this.resource);
 		if (!place) {
-			if (this.scrollableContent.scrollTop !== 0 && baseHalfCodeFaceLineAt(this.scrollTop) !== 1) {
+			if (baseHalfCodeFaceLineAt(this.scrollTop) !== 1) {
 				this.scrollableContent.scrollTop = 0;
+				this.settle();
 			}
 			return;
 		}
@@ -279,18 +328,19 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		if (baseHalfCodeFaceLineAt(this.scrollTop) === line) {
 			return;
 		}
-		if (line > this.preview.lines.length && !this.model) {
+		if (line > this.lineCount && !this.model && !this.keepsHead) {
+			this.lineAwaited = line;
 			void this.ensureModel();
 		}
-		this.layout(line);
-		this.lineComeTo = line;
+		this.layout();
 		this.scrollableContent.scrollTop = baseHalfCodeFaceScrollTopOfLine(line);
+		this.settle();
 		this.draw();
 		this.drawRulerView();
 	}
 
 	/** The height of what scrolls and the width of the gutter, from what is known of the file. */
-	private layout(atLeastLine?: number): void {
+	private layout(): void {
 		const count = this.lineCount;
 		// A file with more than was read scrolls on, so that a gesture can ask for the rest.
 		const knownHeight = baseHalfCodeFaceContentHeight(count);
@@ -299,9 +349,13 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		const height = Math.max(
 			knownHeight,
 			expectsMore ? clientHeight + 2 * BASEHALF_CODE_FACE_LINE_HEIGHT : 0,
-			atLeastLine && !this.model ? baseHalfCodeFaceTopOfLine(atLeastLine) + clientHeight : 0
+			this.lineAwaited !== undefined ? baseHalfCodeFaceTopOfLine(this.lineAwaited) + clientHeight : 0
 		);
-		this.spacer.style.height = `${height}px`;
+		if (height !== this.spacerHeight) {
+			this.spacerHeight = height;
+			this.spacer.style.height = `${height}px`;
+			this.settle();
+		}
 		const estimate = this.model ? count : baseHalfCodeFaceEstimatedLines(count, this.preview.text.length, this.preview.wholeFile, this.size);
 		const digits = baseHalfCodeFaceDigits(estimate);
 		if (digits !== this.digits) {
@@ -447,7 +501,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		for (const tick of this.marks.ticks) {
 			const box = baseHalfCodeFaceTickBox(tick, count);
 			const element = append(this.ruler, $(`.basehalf-canvas-code-tick.${tick.kind}`));
-			element.style.top = `${box.top * 100}%`;
+			element.style.setProperty('--basehalf-code-ruler-top', `${box.top * 100}%`);
 			element.style.height = `${box.height * 100}%`;
 			this.ticksDrawn.push(element);
 		}
@@ -455,7 +509,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 
 	private drawRulerView(): void {
 		const scrollHeight = this.scrollableContent.scrollHeight || 1;
-		this.rulerView.style.top = `${this.scrollTop / scrollHeight * 100}%`;
+		this.rulerView.style.setProperty('--basehalf-code-ruler-top', `${this.scrollTop / scrollHeight * 100}%`);
 		this.rulerView.style.height = `${this.scrollableContent.clientHeight / scrollHeight * 100}%`;
 	}
 

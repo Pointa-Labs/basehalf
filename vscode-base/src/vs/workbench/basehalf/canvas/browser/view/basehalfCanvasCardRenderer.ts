@@ -83,6 +83,8 @@ export class BaseHalfCanvasCardRenderer {
 
 	/** What a feature drew as the face of a code card, by card. */
 	private readonly codeFaces = new WeakMap<HTMLElement, IBaseHalfCanvasCodeFace>();
+	/** What a code card read last of its file, when that came after the card was built. */
+	private readonly latestCodePreviews = new WeakMap<HTMLElement, { readonly item: IBaseHalfCanvasItem; readonly preview: IBaseHalfCanvasCodePreview }>();
 	/** What draws more of a code card's lines when the card grows, by card. */
 	private readonly codePreviewDraws = new WeakMap<HTMLElement, (height: number) => void>();
 	/** What draws a code card's lines anew, while the card shows them. */
@@ -503,7 +505,9 @@ export class BaseHalfCanvasCardRenderer {
 	private renderCodePreview(container: HTMLElement, item: IBaseHalfCanvasItem, preview: IBaseHalfCanvasCodePreview, card: HTMLElement, listeners: DisposableStore): void {
 		const codeCards = this.view.codeCards;
 		if (codeCards) {
-			const face = codeCards.drawFace({ container, item, preview, listeners });
+			// A card that was kept while its file changed draws what it read last when it comes back into view.
+			const latest = this.latestCodePreviews.get(card);
+			const face = codeCards.drawFace({ container, item: latest?.item ?? item, preview: latest?.preview ?? preview, listeners });
 			const redrawFace = () => face.redraw();
 			this.codeFaces.set(card, face);
 			this.codePreviewDraws.set(card, () => face.setHeight());
@@ -552,6 +556,12 @@ export class BaseHalfCanvasCardRenderer {
 	}
 
 	/** What a code card draws at rest, which the canvas scrolls. */
+	/** A code card is kept while its file changes: this is what it read of it now. */
+	updateCodePreview(card: HTMLElement, item: IBaseHalfCanvasItem, preview: IBaseHalfCanvasCodePreview): void {
+		this.latestCodePreviews.set(card, { item, preview });
+		this.codeFaces.get(card)?.setPreview(preview, item.stat.size);
+	}
+
 	codeFaceOf(card: HTMLElement): IBaseHalfCanvasCodeFace | undefined {
 		return this.codeFaces.get(card);
 	}

@@ -124,7 +124,10 @@ both would stay what they are.
    after they stop.
 9. A card at rest shows its place. It keeps it when it is selected, when it is drawn again,
    when the file is written from outside, and when it leaves the view and comes back. If the
-   file has become shorter, it shows the last lines there are.
+   file has become shorter, it shows the last lines there are, and the file's place stays as
+   it was, for a view larger than a card. Its text stays as far sideways as it was, also when
+   the line that was longest goes out of view, as in an editor. A file above 5 MiB shows the
+   last lines of its head for a place beyond it.
 
 ### Marks
 
@@ -146,12 +149,13 @@ both would stay what they are.
 ### The place
 
 14. Card Detail of a code file opens at the card's place, unless it was opened at a selection
-    or a line, as from Search. The Changes view opened from a row or from the letter shows the
-    first change.
+    or a line, as from Search, and the caret stands in what shows. The Changes view opened from a
+    row or from the letter shows the first change.
 15. Moving between Source and Changes keeps the line in view, in both directions, as VS Code's
     Open File and Open Changes do. A line that the left side has and the right does not goes
     to the nearest line of the right.
-16. When Card Detail closes, in any view, the card shows the place the view had. It stands
+16. When Card Detail closes, in any view, the card shows the place the view had, also when the
+    view opened on a change it had in view and did not scroll. It stands
     there on the first frame of the closing, not after it. So a change read in the Changes view
     is what the card shows afterwards, with its marks, and it stays when the file is committed.
 17. A click on a row or a letter moves the place of no other file. Nothing moves a card by
@@ -176,7 +180,9 @@ both would stay what they are.
     typed is written first. The keyboard goes back to the canvas with the card still selected.
     Switching to another application does not end it.
 22. The canvas does not take the keys, the wheel, or a drag of what is being edited: Space is
-    a space, the wheel scrolls, and a drag selects text. A drag by the name moves the card.
+    a space, the wheel scrolls, and a drag selects text. A drag by the name moves the card. An
+    input method's candidates stand at the caret at any zoom, and its Escape is its own. Enter
+    with Card Detail over the canvas edits no card under it.
 23. What is selected in the card's editor reaches agents as a selection in Source does.
 
 ### Into Card Detail
@@ -212,8 +218,8 @@ both would stay what they are.
 - A face draws marks as the editor does by default. The settings `scm.diffDecorations*` apply in
   the editor only.
 - Marks need the file's text model, so a canvas with many changed files on the screen holds that
-  many models. At most 24 are kept; the marks of a face that lost its model stay as they were until
-  it is used again.
+  many models. At most 24 are kept, of the faces used last; the marks of a face that lost its model
+  stay as they were until it is used again.
 
 ## Acceptance criteria
 

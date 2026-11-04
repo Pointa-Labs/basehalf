@@ -24,13 +24,12 @@ import { TooLargeFileOperationError } from '../../../../platform/files/common/fi
 import { URI } from '../../../../base/common/uri.js';
 import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectionSource } from '../../../../platform/editor/common/editor.js';
 import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
-import { ITextEditorService } from '../../../services/textfile/common/textEditorService.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
 import { IBaseHalfFilePlacesService } from '../common/basehalfFilePlaces.js';
-import { baseHalfEditorInstantiationService } from './basehalfEditorInstantiation.js';
+import { baseHalfEditorInstantiationService, baseHalfOwnFileEditorInput } from './basehalfEditorInstantiation.js';
 import { baseHalfShownTextEditors, IBaseHalfShownTextEditor } from '../common/basehalfShownTextEditor.js';
 import { BaseHalfTextFileSaving } from './basehalfTextFileSaving.js';
 
@@ -58,7 +57,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ILogService private readonly logService: ILogService,
 		@ITextResourceConfigurationService private readonly textResourceConfigurationService: ITextResourceConfigurationService,
-		@ITextEditorService private readonly textEditorService: ITextEditorService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IBaseHalfFilePlacesService private readonly places: IBaseHalfFilePlacesService
@@ -124,7 +122,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this.shownEditor = { control: editor };
 			this.syncShownEditor();
 			// The status bar reads and changes the language and the encoding through this, once it is resolved.
-			const input = this._register(this.textEditorService.createTextEditor({ resource: state.resource }));
+			const input = this._register(baseHalfOwnFileEditorInput(this.instantiationService, state.resource));
 			void input.resolve().then(() => {
 				if (!this.disposed) {
 					this.shownEditor = { control: editor, input };
@@ -254,10 +252,17 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	/** Comes to the file's place: another view of the file, or its card, moved it (code cards, rules 14 and 15). */
 	private goToPlace(): void {
 		const resource = this.state?.resource;
-		if (resource && this.editor) {
-			const line = this.places.placeOf(resource)?.top ?? 1;
+		const editor = this.editor;
+		if (resource && editor) {
+			const place = this.places.placeOf(resource);
+			const line = place?.top ?? 1;
 			this.goingToPlace = true;
-			this.editor.setScrollTop(line <= 1 ? 0 : this.editor.getTopForLineNumber(line), ScrollType.Immediate);
+			editor.setScrollTop(line <= 1 ? 0 : editor.getTopForLineNumber(line), ScrollType.Immediate);
+			// The keyboard stands in what shows, so that a letter takes no one to another part of the file.
+			const caret = editor.getPosition();
+			if (place && caret && !editor.getVisibleRanges().some(range => range.containsPosition(caret))) {
+				editor.setPosition({ lineNumber: place.focus ?? line, column: 1 });
+			}
 			this.goingToPlace = false;
 		}
 	}

@@ -18,7 +18,7 @@ import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/def
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction } from '../../common/basehalfCanvasEditing.js';
-import { BaseHalfCardDetailProjection, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
+import { BaseHalfCardDetailProjection, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfMarkdownPreviewCardDetail } from '../../../cardDetail/browser/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from '../../../cardDetail/browser/basehalfMarkdownRichCardDetail.js';
@@ -874,10 +874,15 @@ export class BaseHalfCanvasCardDetailHost {
 				pinned: current.pinned,
 				projection,
 				changesGroup: current.changesGroup,
-				keepsPlace: true,
+				...(this.isViewWithPlace(current.projection) && this.isViewWithPlace(projection) ? { keepsPlace: true as const } : {}),
 				history: 'replace'
 			});
 		}));
+	}
+
+	/** Source and the Changes view stand at a file's place. A note's other views do not, and go on by their selection or first change. */
+	private isViewWithPlace(projection: string): boolean {
+		return projection === DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION || projection === BASEHALF_CHANGES_PROJECTION_ID;
 	}
 
 	private detailSelectionMetaFor(selection: { startLineNumber: number; startColumn: number } | undefined): string {

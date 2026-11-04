@@ -411,7 +411,8 @@ class EditorStatus extends Disposable {
 			return this.quickInputService.pick([{ label: localize('noEditor', "No text editor active at this time") }]);
 		}
 
-		if (this.editorService.activeEditor?.isReadonly()) {
+		// BaseHalf: Card Detail's text editor, which has no pane, counts.
+		if ((this.editorService.activeEditor ?? baseHalfShownTextEditors.current?.input)?.isReadonly()) {
 			return this.quickInputService.pick([{ label: localize('noWritableCodeEditor', "The active code editor is read-only.") }]);
 		}
 
@@ -925,6 +926,9 @@ class EditorStatus extends Disposable {
 
 				return this.onEncodingChange(activeEditorPane, activeCodeEditor); // only update if the encoding changed for the active resource
 			}
+		// BaseHalf: Card Detail's text editor, which has no pane.
+		} else if (baseHalfShownTextEditors.current?.input && isEqual(EditorResourceAccessor.getCanonicalUri(baseHalfShownTextEditors.current.input), resource)) {
+			return this.onEncodingChange(undefined, getCodeEditor(baseHalfShownTextEditors.current.control) ?? undefined, baseHalfShownTextEditors.current.input);
 		}
 	}
 
@@ -1404,7 +1408,8 @@ export class ChangeEOLAction extends Action2 {
 			return;
 		}
 
-		if (editorService.activeEditor?.isReadonly()) {
+		// BaseHalf: Card Detail's text editor, which has no pane, counts.
+		if ((editorService.activeEditor ?? baseHalfShownTextEditors.current?.input)?.isReadonly()) {
 			await quickInputService.pick([{ label: localize('noWritableCodeEditor', "The active code editor is read-only.") }]);
 			return;
 		}
@@ -1421,7 +1426,7 @@ export class ChangeEOLAction extends Action2 {
 		const eol = await quickInputService.pick(EOLOptions, { placeHolder: localize('pickEndOfLine', "Select End of Line Sequence"), activeItem: EOLOptions[selectedIndex] });
 		if (eol) {
 			const activeCodeEditor = getCodeEditor(editorService.activeTextEditorControl);
-			if (activeCodeEditor?.hasModel() && !editorService.activeEditor?.isReadonly()) {
+			if (activeCodeEditor?.hasModel() && !(editorService.activeEditor ?? baseHalfShownTextEditors.current?.input)?.isReadonly()) {
 				textModel = activeCodeEditor.getModel();
 				textModel.pushStackElement();
 				textModel.pushEOL(eol.eol);

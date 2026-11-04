@@ -985,7 +985,7 @@ export class BaseHalfCanvasRenderer {
 			&& this.view.cardRenderer.codeFaceOf(cached.element)
 			&& (preview?.kind === 'loading' || preview?.kind === 'code')) {
 			if (preview.kind === 'code') {
-				this.view.cardRenderer.codeFaceOf(cached.element)?.setPreview(preview, item.stat.size);
+				this.view.cardRenderer.updateCodePreview(cached.element, item, preview);
 			}
 			return true;
 		}

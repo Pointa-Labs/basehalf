@@ -18,12 +18,11 @@ import { MultiCursorSelectionController, SelectionHighlighter } from '../../../.
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
 import { ResultKind } from '../../../../../platform/keybinding/common/keybindingResolver.js';
-import { ITextEditorService } from '../../../../services/textfile/common/textEditorService.js';
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 import { MenuPreventer } from '../../../../contrib/codeEditor/browser/menuPreventer.js';
 import { SelectionClipboardContributionID } from '../../../../contrib/codeEditor/browser/selectionClipboard.js';
 import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
-import { baseHalfEditorInstantiationService } from '../../../cardDetail/browser/basehalfEditorInstantiation.js';
+import { baseHalfEditorInstantiationService, baseHalfOwnFileEditorInput } from '../../../cardDetail/browser/basehalfEditorInstantiation.js';
 import { BaseHalfTextFileSaving } from '../../../cardDetail/browser/basehalfTextFileSaving.js';
 import { baseHalfShownTextEditors } from '../../../cardDetail/common/basehalfShownTextEditor.js';
 import { BaseHalfCanvasCodeFace } from './basehalfCanvasCodeFace.js';
@@ -53,7 +52,6 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		},
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
-		@ITextEditorService private readonly textEditorService: ITextEditorService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 	) {
 		super();
@@ -71,7 +69,11 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 			status => options.onSaveState(status === 'error')
 		));
 		this._register(addDisposableListener(this.host, 'keydown', event => {
-			if (event.key === 's' && (event.metaKey || event.ctrlKey)) {
+			// An input method's own keys, as its Escape.
+			if (event.isComposing || event.keyCode === 229) {
+				return;
+			}
+			if (event.key.toLowerCase() === 's' && (event.metaKey || event.ctrlKey)) {
 				event.preventDefault();
 				event.stopPropagation();
 				void this.saving.save();
@@ -96,7 +98,7 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 	/** Comes over the face. `point` is where the card was pressed, in the window's coordinates. */
 	async open(point: { readonly clientX: number; readonly clientY: number } | undefined): Promise<boolean> {
 		const model = await this.face.ensureModel();
-		if (!model || this._store.isDisposed) {
+		if (!model || this.ended || this._store.isDisposed) {
 			return false;
 		}
 		const scoped = this._register(baseHalfEditorInstantiationService(this.instantiationService));
@@ -116,18 +118,24 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		editor.setModel(model);
 		this.layout();
 		editor.setScrollTop(this.face.scrollTop, ScrollType.Immediate);
-		editor.setScrollLeft(this.face.scrollLeft, ScrollType.Immediate);
+		// The width it can scroll sideways is known once its lines are drawn.
 		editor.render(true);
+		const stand = () => {
+			editor.setScrollTop(this.face.scrollTop, ScrollType.Immediate);
+			editor.setScrollLeft(this.face.scrollLeft, ScrollType.Immediate);
+			editor.render(true);
+		};
+		stand();
 		const target = point && editor.getTargetAtClientPoint(point.clientX, point.clientY);
 		if (target?.position) {
 			editor.setPosition(target.position);
 			// A press beyond the view's lines puts the caret there without moving them.
-			editor.setScrollTop(this.face.scrollTop, ScrollType.Immediate);
+			stand();
 		} else {
 			const visible = editor.getVisibleRanges()[0];
 			if (visible) {
 				editor.setPosition({ lineNumber: visible.startLineNumber, column: 1 });
-				editor.setScrollTop(this.face.scrollTop, ScrollType.Immediate);
+				stand();
 			}
 		}
 		// The editor is drawn in this task: the face goes in the frame the editor comes in.
@@ -135,7 +143,7 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		editor.focus();
 		baseHalfShownTextEditors.set(this, { control: editor });
 		// The status bar reads and changes the language and the encoding through this, once it is resolved.
-		const input = this._register(this.textEditorService.createTextEditor({ resource: this.face.resource }));
+		const input = this._register(baseHalfOwnFileEditorInput(this.instantiationService, this.face.resource));
 		void input.resolve().then(() => {
 			if (!this._store.isDisposed && !this.ended) {
 				baseHalfShownTextEditors.set(this, { control: editor, input });
@@ -164,9 +172,16 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		return this.ended;
 	}
 
+	/** The setting of the font changed. */
+	fontChanged(): void {
+		this.editor?.updateOptions({ fontFamily: this.face.host.fontFamily });
+	}
+
 	private editorOptions(): IEditorOptions {
 		return {
 			automaticLayout: false,
+			// A text area stands at the caret in a card of any zoom, so an input method's candidates do; the other way reports places as if nothing were scaled.
+			editContext: false,
 			readOnly: !!this.textFileService.files.get(this.face.resource)?.isReadonly(),
 			fontFamily: this.face.host.fontFamily,
 			fontSize: BASEHALF_CODE_FACE_FONT_SIZE,

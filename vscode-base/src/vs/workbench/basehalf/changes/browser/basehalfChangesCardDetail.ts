@@ -38,10 +38,9 @@ import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvas
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { BASEHALF_CHANGES_PROJECTION_ID, BASEHALF_LARGEST_COMPARED_VERSION_BYTES, BaseHalfChangesViewShownContext, IBaseHalfFileChange, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
-import { ITextEditorService } from '../../../services/textfile/common/textEditorService.js';
 import { IBaseHalfFilePlacesService } from '../../cardDetail/common/basehalfFilePlaces.js';
 import { baseHalfShownTextEditors } from '../../cardDetail/common/basehalfShownTextEditor.js';
-import { baseHalfEditorInstantiationService } from '../../cardDetail/browser/basehalfEditorInstantiation.js';
+import { baseHalfEditorInstantiationService, baseHalfOwnFileEditorInput } from '../../cardDetail/browser/basehalfEditorInstantiation.js';
 
 const RENDER_SIDE_BY_SIDE_SETTING = 'diffEditor.renderSideBySide';
 
@@ -98,7 +97,6 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@ILogService private readonly logService: ILogService,
 		@IBaseHalfFilePlacesService private readonly places: IBaseHalfFilePlacesService,
-		@ITextEditorService private readonly textEditorService: ITextEditorService,
 	) {
 		super();
 		this.shownKey = BaseHalfChangesViewShownContext.bindTo(contextKeyService);
@@ -191,7 +189,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 			this.applySelection(state.selection, ScrollType.Immediate);
 		} else {
 			// A row or the letter asked for the change.
-			this.editor?.revealFirstDiff();
+			this.goToFirstChange();
 		}
 	}
 
@@ -218,7 +216,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 			if (!this.inputAsked) {
 				// The status bar reads and changes the language and the encoding through this, once it is resolved.
 				this.inputAsked = true;
-				const input = this._register(this.textEditorService.createTextEditor({ resource: this.state.resource }));
+				const input = this._register(baseHalfOwnFileEditorInput(this.instantiationService, this.state.resource));
 				void input.resolve().then(() => {
 					if (!this.disposed) {
 						this.shownInput = input;
@@ -248,10 +246,27 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 	/** Comes to the file's place: the view it was switched from stood there (code cards, rule 15). */
 	private goToPlace(state: IBaseHalfCardDetailState): void {
 		const modified = this.editor?.getModifiedEditor();
-		const line = this.places.placeOf(state.resource)?.top ?? 1;
+		const place = this.places.placeOf(state.resource);
+		const line = place?.top ?? 1;
 		this.goingToPlace = true;
 		modified?.setScrollTop(line <= 1 ? 0 : modified.getTopForLineNumber(line), ScrollType.Immediate);
+		// The keyboard stands in what shows, as in Source.
+		const caret = modified?.getPosition();
+		if (place && caret && !modified?.getVisibleRanges().some(range => range.containsPosition(caret))) {
+			modified?.setPosition({ lineNumber: place.focus ?? line, column: 1 });
+		}
 		this.goingToPlace = false;
+	}
+
+	/** Shows the first change, and says so also when it was in view already and nothing scrolled (code cards, rule 16). */
+	private goToFirstChange(): void {
+		const editor = this.editor;
+		editor?.revealFirstDiff();
+		void editor?.waitForDiff().then(() => {
+			if (!this.disposed) {
+				this.reportPlace();
+			}
+		});
 	}
 
 	focus(): void {
@@ -364,7 +379,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 				if (state.keepsPlace) {
 					this.goToPlace(state);
 				} else {
-					editor.revealFirstDiff();
+					this.goToFirstChange();
 				}
 			});
 		}

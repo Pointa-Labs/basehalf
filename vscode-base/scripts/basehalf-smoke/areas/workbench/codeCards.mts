@@ -7,10 +7,11 @@
 // its views share, editing on the card, and Source as VS Code's editor. On a fixture repository
 // with a long file changed in three places.
 
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { app, workspacePath } from '../../context.mts';
-import { commitFixtureChanges } from '../../fixture.mts';
+import { commitFixtureChanges, createSolidPng } from '../../fixture.mts';
 import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { withTheRunsClipboard } from '../../lib/clipboard.mts';
 import { assertCanvasFolder, openRootCanvas, readCanvasView, setCanvasZoomPercent, zoomCanvas } from '../../lib/canvas.mts';
@@ -22,6 +23,9 @@ const LONG = `${FOLDER}/long.ts`;
 const SHORT = `${FOLDER}/short.ts`;
 const LARGE = `${FOLDER}/large.ts`;
 const EMPTY = `${FOLDER}/empty.ts`;
+const IGNORED = `${FOLDER}/ignored.ts`;
+const NOTE = `${FOLDER}/note.md`;
+const IMAGE = `${FOLDER}/picture.png`;
 const LINE_COUNT = 800;
 const ADDED_AT = 300;
 const MODIFIED_AT = 40;
@@ -67,6 +71,12 @@ const readFace = (page, cardPath: string) => cardOf(page, cardPath).evaluate(car
 
 const zoomText = page => readCanvasView(page).then(view => JSON.stringify(view));
 
+/** Commits one path and leaves the changes the other steps read. */
+function commitOnly(relativePath: string, message: string) {
+	execFileSync('git', ['add', '--', relativePath], { cwd: workspacePath, stdio: 'ignore' });
+	execFileSync('git', ['commit', '-m', message, '--', relativePath], { cwd: workspacePath, stdio: 'ignore' });
+}
+
 /** A committed folder with a long file and a short one, then changes in three places of the long one. */
 export async function prepareCodeCards(page) {
 	fs.mkdirSync(inWorkspace(FOLDER), { recursive: true });
@@ -84,6 +94,21 @@ export async function prepareCodeCards(page) {
 	await cardOf(page, FOLDER).dblclick({ timeout: 10_000 });
 	await assertCanvasFolder(page, FOLDER);
 	await setCanvasZoomPercent(page, 100);
+}
+
+/** Moves the canvas until the cards are out of view and back, so that they are drawn anew. */
+async function panAwayAndBack(page) {
+	const canvas = await page.locator('.react-flow').first().boundingBox();
+	await page.waitForTimeout(300);
+	const before = await readCanvasView(page);
+	// A selected card stays drawn out of view.
+	await page.mouse.click(canvas.x + 30, canvas.y + 30);
+	await page.waitForTimeout(250);
+	await page.mouse.wheel(0, 3_000);
+	await waitForReading(() => page.locator('.basehalf-canvas-code-scroller').count(), count => count === 0, 'the faces out of view', 10_000);
+	await page.waitForTimeout(300);
+	await page.mouse.wheel(0, -3_000);
+	await waitForReading(() => readCanvasView(page), view => JSON.stringify(view) === JSON.stringify(before), 'the canvas back where it was', 10_000);
 }
 
 /** The face: numbers from line 1, the editor's font, nothing faded, and a ruler with a tick for each change. */
@@ -107,6 +132,105 @@ export async function assertCodeCardFace(page) {
 	if (short.ticks.length !== 0 || short.bars.length !== 0) {
 		throw new Error(`An unchanged file has no marks: ${JSON.stringify(short)}`);
 	}
+
+	// The setting of the font reaches a face that shows.
+	const settings = inWorkspace('.vscode/settings.json');
+	const settingsBefore = fs.readFileSync(settings, 'utf8');
+	fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(settingsBefore), 'editor.fontFamily': 'Andale Mono' }, null, '\t'));
+	await waitForReading(() => readFace(page, LONG), reading => !!reading.font?.includes('Andale Mono'), 'a change of editor.fontFamily on the face', 10_000);
+	fs.writeFileSync(settings, settingsBefore);
+	await waitForReading(() => readFace(page, LONG), reading => !reading.font?.includes('Andale Mono'), 'the setting gone', 10_000);
+}
+
+/** A card read past what it read of its file stands there when it comes back into view, and a kept card draws what it read last. */
+export async function assertCardKeepsItsPlace(page) {
+	await zoomCanvas(page, 'fit');
+	await page.waitForTimeout(400);
+	await setCanvasZoomPercent(page, 100);
+	await page.waitForTimeout(300);
+	const box = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await page.waitForTimeout(250);
+	for (let index = 0; index < 6; index++) {
+		await page.mouse.wheel(0, 900);
+		await page.waitForTimeout(40);
+	}
+	const read = await waitForReading(() => readFace(page, LONG), reading => reading.topLine !== null && reading.topLine >= 295 && reading.colored > 2, 'the card read past its head', 10_000);
+	await page.waitForTimeout(300);
+
+	// Out of view and back: the face is made anew, without a model at first.
+	await panAwayAndBack(page);
+	const back = await waitForReading(() => readFace(page, LONG), reading => reading.kind && reading.colored > 2, 'the face back in view', 10_000);
+	await page.waitForTimeout(600);
+	const settled = await readFace(page, LONG);
+	// A place is a line, and the line that was cut at the top now stands whole.
+	if (Math.abs(back.topLine - read.topLine) > 1 || Math.abs(settled.topLine - read.topLine) > 1) {
+		throw new Error(`A card must stand at its place when it comes back into view: ${read.topLine}, then ${back.topLine} and ${settled.topLine}`);
+	}
+
+	// To another folder and back.
+	await openRootCanvas(page);
+	await cardOf(page, FOLDER).dblclick({ timeout: 10_000 });
+	await assertCanvasFolder(page, FOLDER);
+	await waitForReading(() => readFace(page, LONG), reading => reading.kind && reading.colored > 2, 'the face in its folder again', 10_000);
+	await page.waitForTimeout(600);
+	const again = await readFace(page, LONG);
+	if (Math.abs(again.topLine - read.topLine) > 1) {
+		throw new Error(`A card must stand at its place when its folder opens again: ${read.topLine} and ${again.topLine}`);
+	}
+
+	// A card that was kept while its file changed draws what it read last when it comes back. A file git ignores has no marks and no model.
+	await zoomCanvas(page, 'fit');
+	await page.waitForTimeout(400);
+	fs.appendFileSync(inWorkspace('.git/info/exclude'), `${IGNORED}\n`);
+	fs.writeFileSync(inWorkspace(IGNORED), 'export const first = 1;\n');
+	const textOf = () => cardOf(page, IGNORED).locator('.basehalf-canvas-code-scroller').textContent({ timeout: 5_000 }).catch(() => '');
+	await waitForReading(textOf, text => text.includes('first'), 'the first text of a file', 15_000);
+	fs.writeFileSync(inWorkspace(IGNORED), 'export const second = 2;\n');
+	await waitForReading(textOf, text => text.includes('second'), 'the second text on the card', 15_000);
+	await panAwayAndBack(page);
+	await waitForReading(textOf, text => text.includes('second'), 'the second text when the card comes back', 10_000);
+	fs.rmSync(inWorkspace(IGNORED));
+	await cardOf(page, IGNORED).waitFor({ state: 'detached', timeout: 15_000 });
+	await setCanvasZoomPercent(page, 100);
+}
+
+/** A note's views that have no place go on by the selection or the first change, as before there were places. */
+export async function assertViewsOfANoteGoOn(page) {
+	const lines = Array.from({ length: 240 }, (_, index) => `Paragraph number ${index + 1} of a long note.\n`);
+	fs.writeFileSync(inWorkspace(NOTE), lines.join('\n'));
+	commitOnly(NOTE, 'a long note');
+	const changed = [...lines];
+	changed[150] = 'Paragraph changed by an agent.\n';
+	fs.writeFileSync(inWorkspace(NOTE), changed.join('\n'));
+	await runCommand(page, 'Git: Refresh');
+	const firstLine = (selector: string) => page.evaluate(selectorOf => Number(document.querySelector(selectorOf)?.textContent ?? 0), selector);
+	const projection = name => page.locator(`.basehalf-card-detail-projection[data-projection="${name}"]`);
+
+	// From Rich to Changes: the first change, and not the first line.
+	await quickOpen(page, NOTE);
+	await projection('changes').click({ timeout: 10_000 });
+	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor .editor.modified .view-line'), undefined, { timeout: 10_000 });
+	await waitForReading(() => firstLine('.basehalf-card-detail-surface.active .editor.modified .margin-view-overlays .line-numbers'), line => line > 200, 'the Changes view at the first change of a note opened in Rich', 10_000);
+	await closeCardDetailIfOpen(page);
+
+	// From Rich to Source: the selection it was opened at.
+	await page.keyboard.press('Meta+P');
+	const search = page.locator('.quick-input-widget .quick-input-box input').first();
+	await search.waitFor({ state: 'visible', timeout: 10_000 });
+	await search.fill(`${NOTE}:400`);
+	await page.locator('.quick-input-widget .quick-input-list .monaco-list-row').first().waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForTimeout(300);
+	await page.keyboard.press('Enter');
+	await search.waitFor({ state: 'hidden', timeout: 10_000 });
+	await projection('source').click({ timeout: 10_000 });
+	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-editor .view-line'), undefined, { timeout: 10_000 });
+	await waitForReading(() => firstLine('.basehalf-card-detail-surface.active .margin-view-overlays .line-numbers'), line => line > 350, 'Source at the selection of a note opened at a line', 10_000);
+	await closeCardDetailIfOpen(page);
+	fs.rmSync(inWorkspace(NOTE));
+	commitOnly(NOTE, 'the note goes');
+	await runCommand(page, 'Git: Refresh');
+	await cardOf(page, NOTE).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
 /** The wheel over a card moves its lines to the file's end and leaves the canvas; over a short file, or below 50%, it moves the canvas. */
@@ -228,7 +352,13 @@ export async function assertSourceIsTheEditor(page) {
 	});
 	// What it computes after it opens, folding ranges and the status bar, comes by itself.
 	await waitForReading(readSource, reading => reading.open && !!reading.minimap && reading.minimap.width >= 60 && reading.folding > 0 && !!reading.language?.includes('TypeScript') && !!reading.line?.includes('Ln'), 'Source as VS Code\'s editor, with its minimap, folding, and status bar', 15_000);
-	const lines = await page.locator('.basehalf-card-detail-surface.active .monaco-editor .view-lines').boundingBox();
+	// It opens at the card's place, with the caret in what shows.
+	const opened = await readSource();
+	const caretLine = Number(/Ln (\d+)/.exec(opened.line ?? '')?.[1] ?? 0);
+	if (opened.firstLine < 280 || caretLine < opened.firstLine) {
+		throw new Error(`Source must open at the card's place with the caret in what shows: ${JSON.stringify(opened)}`);
+	}
+	const lines = await page.locator('.basehalf-card-detail-surface.active .monaco-editor').first().boundingBox();
 	await page.mouse.click(lines.x + 300, lines.y + 120);
 
 	// Find takes Escape first.
@@ -288,13 +418,42 @@ export async function assertSourceIsTheEditor(page) {
 
 	// Source and Changes keep the line, in both directions.
 	const lineOf = (selector: string) => page.evaluate(selectorOf => Number(document.querySelector(selectorOf)?.textContent ?? 0), selector);
-	const sourceLine = await lineOf('.basehalf-card-detail-surface.active .margin-view-overlays .line-numbers');
-	await page.locator('.basehalf-card-detail-projection[data-projection="changes"]').click({ timeout: 5_000 });
-	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor'), undefined, { timeout: 10_000 });
-	await page.waitForTimeout(800);
+	const lineInSource = () => lineOf('.basehalf-card-detail-surface.active .margin-view-overlays .line-numbers');
+	const toChanges = async () => {
+		await page.locator('.basehalf-card-detail-projection[data-projection="changes"]').click({ timeout: 5_000 });
+		await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor'), undefined, { timeout: 10_000 });
+		await page.waitForTimeout(800);
+	};
+	const toSource = async () => {
+		await page.locator('.basehalf-card-detail-projection[data-projection="source"]').click({ timeout: 5_000 });
+		await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor') && !!document.querySelector('.basehalf-card-detail-surface.active .monaco-editor .view-line'), undefined, { timeout: 10_000 });
+		await page.waitForTimeout(500);
+	};
+	const sourceLine = await lineInSource();
+	await toChanges();
 	const changesLine = await lineOf('.basehalf-card-detail-surface.active .editor.modified .margin-view-overlays .line-numbers');
 	if (Math.abs(changesLine - sourceLine) > 3) {
 		throw new Error(`Changes must go on at the line of Source: ${sourceLine} and ${changesLine}`);
+	}
+	await toSource();
+	const lineAgain = await lineInSource();
+	if (Math.abs(lineAgain - sourceLine) > 3) {
+		throw new Error(`Source must come back at its line: ${sourceLine} and ${lineAgain}`);
+	}
+
+	// Near the file's end the card under them stands short of what is read, and that moves no place.
+	await page.keyboard.press('Control+G');
+	await page.waitForTimeout(300);
+	await page.keyboard.type(String(LINE_COUNT - 5));
+	await page.keyboard.press('Enter');
+	await waitForReading(readSource, reading => reading.line?.includes(`Ln ${LINE_COUNT - 5}`), 'Go to Line near the end of the file', 10_000);
+	await page.waitForTimeout(500);
+	const nearTheEnd = await lineInSource();
+	await toChanges();
+	await toSource();
+	const nearTheEndAgain = await lineInSource();
+	if (Math.abs(nearTheEndAgain - nearTheEnd) > 3) {
+		throw new Error(`Source must come back at its line near the file's end: ${nearTheEnd} and ${nearTheEndAgain}`);
 	}
 	await page.keyboard.press('Escape');
 	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 10_000 });
@@ -321,6 +480,31 @@ export async function assertCardStandsAtWhatWasRead(page) {
 		await page.waitForTimeout(60);
 	}
 	await waitForReading(() => readFace(page, LONG), reading => reading.scrollTop === 0, 'the card at its first line', 5_000);
+	await page.waitForTimeout(300);
+
+	// The first change is in view when the Changes view opens at its top, and nothing scrolls there. The card still comes to it.
+	for (let index = 0; index < 6; index++) {
+		await page.mouse.wheel(0, 3_000);
+		await page.waitForTimeout(60);
+	}
+	await waitForReading(() => readFace(page, LONG), reading => reading.topLine !== null && reading.topLine > 500, 'the card far from the first change', 10_000);
+	await page.waitForTimeout(300);
+	await cardOf(page, LONG).locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 10_000 });
+	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor'), undefined, { timeout: 10_000 });
+	await page.waitForTimeout(1_000);
+	await page.keyboard.press('Escape');
+	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 10_000 });
+	const atFirstChange = await waitForReading(() => readFace(page, LONG), reading => reading.topLine !== null, 'the card after the Changes view', 5_000);
+	if (Math.abs(atFirstChange.topLine - MODIFIED_AT) > 8) {
+		throw new Error(`The card must come to the first change, in view when the Changes view opened: ${JSON.stringify(atFirstChange)}`);
+	}
+	await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+	await page.waitForTimeout(250);
+	for (let index = 0; index < 4; index++) {
+		await page.mouse.wheel(0, -20_000);
+		await page.waitForTimeout(60);
+	}
+	await waitForReading(() => readFace(page, LONG), reading => reading.scrollTop === 0, 'the card at its first line again', 5_000);
 	await page.waitForTimeout(300);
 	const shortBefore = await readFace(page, SHORT);
 	await cardOf(page, LONG).locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 10_000 });
@@ -420,6 +604,34 @@ export async function assertEditingOnTheCard(page) {
 		assertStill(await stopFrames(), `Editing at ${zoom}%`);
 	}
 
+	// The same with the text moved sideways, and it stays there, also when the file is written from outside.
+	const sideways = () => cardOf(page, LONG).evaluate(card => card.querySelector('.basehalf-canvas-code-text').scrollLeft);
+	const sidewaysBox = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();
+	await page.mouse.move(sidewaysBox.x + sidewaysBox.width * 0.6, sidewaysBox.y + sidewaysBox.height * 0.5);
+	await page.waitForTimeout(250);
+	await page.mouse.wheel(150, 0);
+	const movedSideways = await waitForReading(sideways, left => left >= 100, 'the text moved sideways', 5_000);
+	await page.waitForTimeout(300);
+	await startFrames();
+	await page.mouse.dblclick(sidewaysBox.x + sidewaysBox.width * 0.6, sidewaysBox.y + sidewaysBox.height * 0.5);
+	await waitForReading(() => readFace(page, LONG), reading => reading.editing && reading.editor, 'the card\'s editor with the text moved sideways', 10_000);
+	await page.waitForTimeout(200);
+	await page.keyboard.press('Escape');
+	await waitForReading(() => readFace(page, LONG), reading => !reading.editing && !reading.editor, 'the card at rest with the text moved sideways', 10_000);
+	await page.waitForTimeout(200);
+	assertStill(await stopFrames(), 'Editing with the text moved sideways');
+	if (await sideways() !== movedSideways) {
+		throw new Error(`The text must stay as far sideways when the editing ends: ${movedSideways} and ${await sideways()}`);
+	}
+	fs.appendFileSync(inWorkspace(LONG), '// written from outside\n');
+	await waitForReading(() => readFace(page, LONG), reading => reading.ticks.length > 3, 'the written line among the marks', 15_000);
+	if (await sideways() !== movedSideways) {
+		throw new Error(`The text must stay as far sideways when the file is written from outside: ${movedSideways} and ${await sideways()}`);
+	}
+	await page.mouse.wheel(-400, 0);
+	await waitForReading(sideways, left => left === 0, 'the text back at its start', 5_000);
+	await page.waitForTimeout(300);
+
 	// A double click at a line puts the caret on that line. What is typed is written when the editing ends.
 	const box = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();
 	const pressAt = { x: box.x + box.width * 0.6, y: box.y + 8 + 18 * 2 + 9 };
@@ -449,6 +661,17 @@ export async function assertEditingOnTheCard(page) {
 	await page.keyboard.type(' TYPED ON CARD');
 	await page.waitForTimeout(100);
 	const written = () => fs.readFileSync(inWorkspace(LONG), 'utf8');
+	// A file with unwritten text that shows on its card gets no editor of its own over the canvas (the fixture writes after an hour).
+	await page.waitForTimeout(1_200);
+	const onTheCard = await cardOf(page, LONG).evaluate((card, point) => !!card.ownerDocument.elementFromPoint(point.x, point.y)?.closest('.basehalf-canvas-code-editor'), pressAt);
+	if (!onTheCard) {
+		throw new Error('A file with unwritten text on its card must get no editor over the canvas');
+	}
+	// A write of what is typed leaves Expand there.
+	await page.keyboard.press('Meta+S');
+	await waitUntil(() => written().includes('TYPED ON CARD'), 'what is typed on the card to be written while it is edited', 10_000);
+	await page.waitForTimeout(800);
+	await page.locator('[data-toolbar-item="expand"]').waitFor({ state: 'visible', timeout: 5_000 });
 	const typedInEditor = await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${LONG}"] .basehalf-canvas-code-editor .view-lines`).textContent();
 	if (!typedInEditor.replace(/ /g, ' ').includes('TYPED ON CARD')) {
 		throw new Error('Letters and spaces typed on the card must show there');
@@ -573,6 +796,44 @@ export async function assertEditingOnTheCard(page) {
 	await page.keyboard.press('Enter');
 	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits a code card selected by a marquee', 10_000);
 
+	// An input method writes at the caret, which its text area stands at, at a zoom other than 100%.
+	await page.keyboard.press('Escape');
+	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'the end of the editing before the input method', 10_000);
+	await setCanvasZoomPercent(page, 150);
+	await page.waitForTimeout(400);
+	const atZoom = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();
+	await page.mouse.dblclick(atZoom.x + atZoom.width * 0.5, atZoom.y + 150);
+	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'the card\'s editor at 150%', 10_000);
+	const inputMethod = await page.context().newCDPSession(page);
+	await inputMethod.send('Input.imeSetComposition', { text: 'zhong', selectionStart: 5, selectionEnd: 5 });
+	await page.waitForTimeout(200);
+	const composing = await cardOf(page, LONG).evaluate(card => {
+		const input = document.activeElement;
+		const box = input.getBoundingClientRect();
+		const line = [...card.querySelectorAll('.basehalf-canvas-code-editor .view-line')].find(element => element.textContent.includes('zhong'));
+		const lineBox = line?.getBoundingClientRect();
+		return { tag: input.tagName, top: box.top, left: box.left, lineTop: lineBox?.top ?? null, lineBottom: lineBox?.bottom ?? null };
+	});
+	if (composing.tag !== 'TEXTAREA' || composing.lineTop === null || composing.top < composing.lineTop - 4 || composing.top > composing.lineBottom + 4) {
+		throw new Error(`An input method must write at the caret, with its text area there: ${JSON.stringify(composing)}`);
+	}
+	// Its Escape is its own and leaves the editing.
+	await page.keyboard.press('Escape');
+	await page.waitForTimeout(200);
+	await inputMethod.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 });
+	await inputMethod.send('Input.insertText', { text: '中' });
+	await inputMethod.detach();
+	await page.keyboard.press('Meta+S');
+	await waitUntil(() => written().includes('中'), 'what an input method writes to reach the file', 10_000);
+	await setCanvasZoomPercent(page, 100);
+	await page.waitForTimeout(300);
+	await waitForReading(() => readFace(page, LONG), reading => reading.editor || !reading.editor, 'the card', 1_000);
+	if (!(await readFace(page, LONG)).editor) {
+		await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').click({ timeout: 5_000 });
+		await page.keyboard.press('Enter');
+		await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits the card again', 10_000);
+	}
+
 	// Several cursors take Escape first, as in the editor.
 	await page.keyboard.press('Meta+Alt+ArrowDown');
 	await waitForReading(status, text => /\d+ selections/.test(text), 'a second cursor', 5_000);
@@ -583,6 +844,22 @@ export async function assertEditingOnTheCard(page) {
 	}
 	await page.keyboard.press('Escape');
 	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'the end of the editing', 10_000);
+
+	// Card Detail stands over the canvas: Enter there edits no card under it.
+	fs.writeFileSync(inWorkspace(IMAGE), createSolidPng(16, 16, [200, 120, 60]));
+	await cardOf(page, IMAGE).waitFor({ state: 'attached', timeout: 15_000 });
+	await waitForReading(() => readFace(page, LONG), reading => reading.selected, 'the card still selected', 5_000);
+	await quickOpen(page, IMAGE);
+	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 10_000 });
+	await page.waitForTimeout(400);
+	await page.keyboard.press('Enter');
+	await page.waitForTimeout(400);
+	if ((await readFace(page, LONG)).editor) {
+		throw new Error('Enter in Card Detail must not edit the card selected under it');
+	}
+	await closeCardDetailIfOpen(page);
+	fs.rmSync(inWorkspace(IMAGE));
+	await cardOf(page, IMAGE).waitFor({ state: 'detached', timeout: 15_000 });
 
 	// A file has the lines the editor has: a line after its last line break, and line 1 of an empty file, which is edited as any other.
 	const short = await readFace(page, SHORT);
@@ -642,9 +919,23 @@ export async function assertLargeFileKeepsItsHead(page) {
 	const box = await cardOf(page, LARGE).locator('.basehalf-canvas-code-scroller').boundingBox();
 	await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
 	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 15_000 });
+	// Read far beyond its head in Source: the card shows the last lines of its head, and not nothing.
+	await page.locator('.basehalf-card-detail-surface.active .monaco-editor .view-line').first().waitFor({ state: 'visible', timeout: 15_000 });
+	await page.waitForTimeout(500);
+	await page.keyboard.press('Control+G');
+	await page.waitForTimeout(300);
+	await page.keyboard.type('40000');
+	await page.keyboard.press('Enter');
+	await page.waitForTimeout(800);
 	await closeCardDetailIfOpen(page);
-	if (face.editor) {
+	const afterSource = await waitForReading(() => readFace(page, LARGE), reading => reading.kind, 'the face of a large file after Source', 5_000);
+	await page.waitForTimeout(400);
+	const shown = await readFace(page, LARGE);
+	if (face.editor || afterSource.editor) {
 		throw new Error('A file above 5 MiB is not edited on its card');
+	}
+	if (shown.lines === 0) {
+		throw new Error(`A file above 5 MiB must show the last lines of its head for a place beyond it: ${JSON.stringify(shown)}`);
 	}
 	fs.rmSync(inWorkspace(LARGE));
 }
