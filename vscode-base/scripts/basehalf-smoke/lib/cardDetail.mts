@@ -237,6 +237,36 @@ async function pressCardDetailMode(page, from, to) {
 	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible .basehalf-video-frames.gliding'), undefined, { timeout: 5_000 });
 }
 
+const REVERT = '.basehalf-card-detail.visible .basehalf-card-detail-header .basehalf-media-edit-revert';
+
+/** Whether the header of Card Detail offers Revert to Original, after the name, with nothing over it (editing media, D120). */
+export async function revertOffered(page) {
+	return page.evaluate(selector => {
+		const button = document.querySelector(selector);
+		if (!button || button.hidden) {
+			return false;
+		}
+		const box = button.getBoundingClientRect();
+		const name = document.querySelector('.basehalf-card-detail.visible .basehalf-card-detail-title')?.getBoundingClientRect();
+		return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === button && !!name && box.left >= name.right;
+	}, REVERT);
+}
+
+/** The keyboard on Revert to Original, as Tab puts it there. */
+export async function focusRevert(page) {
+	await page.locator(REVERT).focus();
+}
+
+/** Revert to Original, pressed with the pointer: it leaves the keyboard where it was (editing media, "The keyboard", D100). */
+export async function pressRevert(page) {
+	await page.evaluate(() => { globalThis.__bhKeyboardBeforeRevert = document.activeElement; });
+	await page.locator(REVERT).click();
+	const same = await page.evaluate(() => document.activeElement === globalThis.__bhKeyboardBeforeRevert);
+	if (!same) {
+		throw new Error('A press of Revert to Original leaves the keyboard where it was');
+	}
+}
+
 /** Edit, in the header of Card Detail, shows the editor of the video, the image, or the sound that it views. */
 export async function enterEditing(page) {
 	await pressCardDetailMode(page, 'Edit', 'Done');

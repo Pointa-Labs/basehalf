@@ -291,6 +291,13 @@ export async function assertNotePictureEditInPlace(page) {
 	// The frame rests a second before it glides to rest.
 	await page.waitForTimeout(1_800);
 
+	// No words say what the edit is: the line under the tools holds Revert to Original and nothing else (D120).
+	await page.waitForFunction(stage => !!document.querySelector(`${stage} .basehalf-media-edit-line-saving`)?.parentElement?.hidden, STAGE, { timeout: 15_000 });
+	const lineParts = await page.evaluate(stage => Array.from(document.querySelectorAll(`${stage} .basehalf-media-edit-line-part:not([hidden])`)).map(part => part.textContent), STAGE);
+	if (JSON.stringify(lineParts) !== '["Revert to Original"]') {
+		throw new Error(`The line under the tools of a picture edited in its note holds Revert to Original and nothing else: ${JSON.stringify(lineParts)}`);
+	}
+
 	// Criterion 33: Done.
 	const done = await page.evaluate(() => performance.timeOrigin + performance.now());
 	await page.locator('.basehalf-note-media-done').click();

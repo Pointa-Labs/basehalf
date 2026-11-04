@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { workspacePath } from '../../context.mts';
-import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing, focusRevert, pressRevert, revertOffered } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
@@ -183,8 +183,8 @@ export async function assertCardDetailSoundEdit(page) {
 		await dragHandle(page, 'end', 2.5);
 		await waitUntil(() => recordText() !== cutRecord && Math.abs(seconds(read(workspaceFile(SOUND))) - 2.5) < 0.15, 'the trim to be written', 30_000);
 		await page.waitForFunction(selector => !!document.querySelector(`${selector} .basehalf-media-edit-line-saving`)?.parentElement?.hidden, LINE, { timeout: 15_000 });
-		if (!/^Trimmed to 2 parts \| Revert to Original$/.test(await lineText(page))) {
-			throw new Error(`The line under the waveform says the edit and offers Revert to Original: ${await lineText(page)}`);
+		if (await lineText(page) !== '' || !await revertOffered(page)) {
+			throw new Error(`No words say what the edit is, and the header offers Revert to Original (D120): ${await lineText(page)}`);
 		}
 
 		// Command+Z undoes the trim, and the file is the cut again, byte for byte.
@@ -214,13 +214,18 @@ export async function assertCardDetailSoundEdit(page) {
 			throw new Error(`Card Detail of an edited sound shows its parts joined: ${JSON.stringify(again)} for ${seconds(cut)}`);
 		}
 		await enterEditing(page);
-		await page.locator(`${LINE} .basehalf-media-edit-line-action.revert`).click();
+		await pressRevert(page);
 		await waitUntil(() => !!read(workspaceFile(SOUND))?.equals(original) && !fs.existsSync(path.join(cardInformation, 'edit.yaml')), 'Revert to Original to put the original WAV back', 30_000);
 		await page.locator(`${WAVE} .basehalf-sound-waveform-play`).focus();
 		await page.keyboard.press(UNDO);
 		await waitUntil(() => !!read(workspaceFile(SOUND))?.equals(cut), 'undo to bring the edit back', 30_000);
+		// From Revert to Original in the header too, one Escape goes back to viewing and takes the keyboard to the media, and the next closes Card Detail.
+		await focusRevert(page);
 		await page.keyboard.press('Escape');
 		await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('viewing'), WAVE, { timeout: 5_000 });
+		if (await revertOffered(page) || !await page.evaluate(selector => !!document.querySelector(selector)?.contains(document.activeElement), WAVE)) {
+			throw new Error('While an edited sound is viewed, the header holds no Revert to Original, and the keyboard is on the media');
+		}
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 	} finally {

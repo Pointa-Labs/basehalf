@@ -10,7 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 import { workspacePath } from '../../context.mts';
-import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing, pressRevert, revertOffered } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
@@ -133,8 +133,8 @@ export async function assertCardDetailImageEdit(page) {
 		await page.mouse.move(2, 2);
 		await page.waitForTimeout(250);
 		const atRest = await page.evaluate(selector => getComputedStyle(document.querySelector(`${selector} .basehalf-image-crop-corner.topLeft`)).opacity, CROP);
-		if (atRest !== '0' || await lineText(page) !== '') {
-			throw new Error(`The crop view of an image that was never edited shows the picture without its frame, and an empty line: ${JSON.stringify({ atRest, line: await lineText(page) })}`);
+		if (atRest !== '0' || await lineText(page) !== '' || await revertOffered(page)) {
+			throw new Error(`The crop view of an image that was never edited shows the picture without its frame, an empty line, and no Revert to Original: ${JSON.stringify({ atRest, line: await lineText(page) })}`);
 		}
 
 		// Square is a change: the file becomes its middle 800 × 800, with nothing pressed.
@@ -145,8 +145,8 @@ export async function assertCardDetailImageEdit(page) {
 			throw new Error(`Square on a 1200 × 800 PNG keeps its middle 800 × 800, its original, and its text: ${JSON.stringify({ size: pngSize(squared), record: recordText() })}`);
 		}
 		await page.waitForFunction(selector => !!document.querySelector(`${selector} .basehalf-media-edit-line-saving`)?.parentElement?.hidden, LINE, { timeout: 15_000 });
-		if (await lineText(page) !== 'Cropped to 800 × 800 | Revert to Original') {
-			throw new Error(`The line under the crop view says the edit and offers Revert to Original: ${await lineText(page)}`);
+		if (await lineText(page) !== '' || !await revertOffered(page)) {
+			throw new Error(`No words say what the edit is, and the header offers Revert to Original (D120): ${await lineText(page)}`);
 		}
 
 		// A turn and a flip are changes of the original, each its own step.
@@ -161,8 +161,11 @@ export async function assertCardDetailImageEdit(page) {
 		}
 
 		// Revert to Original puts the original back; undo of it brings the edit back byte for byte.
-		await page.locator(`${LINE} .basehalf-media-edit-line-action.revert`).click();
+		await pressRevert(page);
 		await waitUntil(() => !!read(workspaceFile(IMAGE))?.equals(original) && !fs.existsSync(path.join(cardInformation, 'edit.yaml')), 'Revert to Original to put the original PNG back', 30_000);
+		if (await revertOffered(page)) {
+			throw new Error('Revert to Original goes once the file is as its original again');
+		}
 		await page.locator(`${CROP} .basehalf-image-crop-tool.turn`).focus();
 		await page.keyboard.press(UNDO);
 		await waitUntil(() => !!read(workspaceFile(IMAGE))?.equals(turned) && recordText() === turnedRecord, 'undo to bring the edit back', 30_000);

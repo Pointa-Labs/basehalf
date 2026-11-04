@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { root, workspacePath } from '../../context.mts';
 import { waitForViewTransitions } from '../../app.mts';
-import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing, pressRevert, revertOffered } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { showExplorer } from '../../lib/workspace.mts';
@@ -264,8 +264,8 @@ export async function assertCardDetailVideoEdit(page) {
 		// The line says "Saving…" only while the file is written.
 		await page.waitForFunction(selector => !!document.querySelector(`${selector} .basehalf-media-edit-line-saving`)?.parentElement?.hidden, LINE, { timeout: 15_000 });
 		const line = await lineText(page);
-		if (edited.equals(original) || !/^original: "original\.mp4"\nresult:\n {2}size: \d+\n {2}hash: "[0-9a-f]{64}"\nkeep:\n/.test(record) || !/^Trimmed to \d\.\ds–\d\.\ds \| Revert to Original$/.test(line) || fs.readdirSync(workspaceFile(FOLDER)).length !== 1) {
-			throw new Error(`The trim replaces the video, keeps its original, writes the record, and the line says it: ${JSON.stringify({ same: edited.equals(original), record, line })}`);
+		if (edited.equals(original) || !/^original: "original\.mp4"\nresult:\n {2}size: \d+\n {2}hash: "[0-9a-f]{64}"\nkeep:\n/.test(record) || line !== '' || !await revertOffered(page) || fs.readdirSync(workspaceFile(FOLDER)).length !== 1) {
+			throw new Error(`The trim replaces the video, keeps its original, writes the record, no words say it, and the header offers Revert to Original (D120): ${JSON.stringify({ same: edited.equals(original), record, line })}`);
 		}
 
 		// Criterion 38 (D103): only the handles change the yellow frame. A press inside it puts the playhead there at once, with
@@ -335,10 +335,10 @@ export async function assertCardDetailVideoEdit(page) {
 		}
 
 		// Revert to Original puts the original back, and removes it and the record; its undo brings the edit back byte for byte.
-		await page.locator(`${LINE} .basehalf-media-edit-line-action.revert`).click();
+		await pressRevert(page);
 		await waitUntil(() => !!read(workspaceFile(VIDEO))?.equals(original) && !fs.existsSync(path.join(cardInformation, 'original.mp4')) && !fs.existsSync(path.join(cardInformation, 'edit.yaml')), 'Revert to Original to put the original back', 30_000);
-		if (!(await readPart(page)).whole || await lineText(page) !== '') {
-			throw new Error(`After Revert to Original the viewer keeps all of the video, and the line is empty: ${await lineText(page)}`);
+		if (!(await readPart(page)).whole || await lineText(page) !== '' || await revertOffered(page)) {
+			throw new Error(`After Revert to Original the viewer keeps all of the video, the line is empty, and the button goes: ${await lineText(page)}`);
 		}
 		await page.locator(`${FRAMES} .basehalf-video-frames-handle.start`).focus();
 		await page.keyboard.press(UNDO);
@@ -426,7 +426,7 @@ export async function assertCardDetailVideoEdit(page) {
 		// Edit shows the whole original in the viewer, with the handles where the trim left them.
 		await enterEditing(page);
 		const again = await readPart(page);
-		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || !/ \| Revert to Original$/.test(await lineText(page))) {
+		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || !await revertOffered(page)) {
 			throw new Error(`Edit on an edited video shows its original with the part it kept, and Revert to Original: ${JSON.stringify({ part, again, line: await lineText(page) })}`);
 		}
 		// While editing, the keyboard is still the player's: End goes to the last frame of the part in the yellow frame and Home
