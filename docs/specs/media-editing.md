@@ -316,12 +316,18 @@ crop:
 
 ### Revert to Original
 
-- Under the editor of an edited file, its line says what the edit is and
-  offers **Revert to Original**: "Trimmed to 1.0s–4.5s · Revert to Original",
-  its times as the player shows them, "Trimmed to 4:49–75:17" from a minute
-  on (D99). It is one step, "Revert shot.mp4 to Original": the original's bytes go back
-  in the file's place, and the original and the record go. It asks nothing:
-  undo takes it back.
+- While an edited file is edited, **Revert to Original** is a button of the
+  header of Card Detail, after the file's name at its left and apart from
+  Done at its right, as a desktop photo app has it in its toolbar (D120). It
+  shows from the change that makes the file differ from its original until
+  the file is as its original again. It is one step, "Revert shot.mp4 to
+  Original": the original's bytes go back in the file's place, and the
+  original and the record go. It asks nothing: undo takes it back.
+- A picture, a video, or a sound edited in its note has it in the line under
+  the editor, in the same look: the header above it is the note's
+  ([Editing in a note](#editing-a-picture-in-its-note)).
+- **Nothing says in words what an edit is** (D120). The picture, the crop
+  frame, the handles, and the waveform show it.
 - A copy to change apart from the file is made on the canvas, with Duplicate,
   and then changed: the copy of an edited file has its original too
   ([Copies, deletes, and the Trash](#copies-deletes-and-the-trash)).
@@ -399,12 +405,11 @@ crop:
 - An edit changes a generated file, never what made it: `made.yaml` stays as
   it was written when the file landed, and New Version makes a draft from it
   as before ([generation cards, "`made.yaml`"](generation-cards.md#madeyaml)).
-- The panel of a generated card says that the file was edited, and how:
-  "Edited: Trimmed to 1.0s–4.5s.", "Edited: Turned · Cropped to 1600 × 900.",
-  "Edited: Trimmed to 3 parts."
+- The panel of a generated card says "Edited"
   ([generation cards](generation-cards.md#the-panel-of-a-card-with-its-file)),
-  while the file has the size the edit gave it. In Card Detail, the line under
-  the editor says it, and the section of what made the file does not again.
+  while the file has the size the edit gave it, and not how: the card shows
+  that (D120). The section of what made the file in Card Detail says nothing
+  of the edit.
 - The record's `id` in `made.yaml` stays, so a Sequence that names a video
   still finds it after an edit ([Video Sequence](video-sequence.md)).
 
@@ -424,7 +429,8 @@ crop:
   edited file and the choices of its edit: the crop frame and the tools of an
   image, the edit bar under the picture of a video, Play and the frame
   viewer of the whole original with its handles, the handles, the trims, and
-  the selection of the waveform, and the line under the editor. Edit becomes
+  the selection of the waveform, the line under the editor, and for an edited
+  file [Revert to Original](#revert-to-original). Edit becomes
   **Done**, drawn in the yellow of the editor, which goes back to viewing;
   Escape does too ([The keyboard](#the-keyboard)). Card Detail that closes,
   or shows another file, ends the editing: it opens to viewing again.
@@ -450,12 +456,12 @@ crop:
   why: there is no control to explain ([Failure](#failure)). So does every
   media file in a workspace folder that BaseHalf leaves alone, which keeps no
   card information ([spec-driven development](spec-driven-development.md)).
-- **The line under the editor**: while editing, for an edited file, what the
-  edit is and **Revert to Original** ([Revert to Original](#revert-to-original)).
-  While viewing and editing, "Saving…" with the share done once a write has
-  taken more than 1 s and while it goes on, after the line of an edited file
-  (D99): a write that ends sooner shows nothing. And the failure of a write,
-  with **Try Again**; nothing else. It keeps its height while it is empty,
+- **The line under the editor** says what nothing else can show (D120). While
+  viewing and editing, "Saving…" with the share done once a write has taken
+  more than 1 s and while it goes on (D99): a write that ends sooner shows
+  nothing. While editing a video that lost its sound in a write, "Without
+  sound: BaseHalf can't write this video's sound here". And the failure of a
+  write, with **Try Again**; nothing else. It keeps its height while it is empty,
   under an image and a sound. Under a video it stands in the room the
   editor takes while editing; while viewing, it floats at the foot of the
   media area, over the picture on its backing, only while it says
@@ -678,8 +684,9 @@ in Card Detail.
   (`1:02:03.40`); the start handle's time is its first frame's, the end
   handle's the end of its last frame. While the playhead is pressed and
   dragged, the bubble stands over it with its time. The bubble goes once the
-  press is let go. The length of the part shows in no label on the strip;
-  the line under the editor says what is kept.
+  press is let go. The length of the part shows in no label, and no words
+  say what is kept: the yellow frame shows it, and the player's time while
+  viewing (D120).
 - **The pictures come together**, as a phone's filmstrip shows them (D101).
   Each is the frame at the middle of its place, or, when the video has a key
   frame within half a place of that middle, the key frame nearest it, which
@@ -783,7 +790,7 @@ in Card Detail.
   and lines divide the part into thirds.
 - While editing, under the picture, a row of tools, from left to right:
   **Turn Left**, **Flip**, **Ratio**, and the **Straighten** dial. Revert to
-  Original, in the line under them, sets everything back.
+  Original, in the header, sets everything back.
 
 ### The crop frame
 
@@ -1255,7 +1262,7 @@ original goes to the Trash with it, and its record is deleted.
     frame viewer, one Escape goes back to viewing and the next closes Card
     Detail.
 12. A generated video edited keeps its `made.yaml` byte for byte, and its
-    panel and the line under its editor say how it was edited.
+    panel says "Edited" (D120).
 13. Changes, their undo and redo, Revert to Original, and then closing the
     window with the Trash on: the file holds the last change, nothing is in
     the Trash, and nothing is left in `.bh/cache/kept/` or of the copies in
@@ -1451,6 +1458,18 @@ original goes to the Trash with it, and its record is deleted.
     over the note's video within 1 px, a picture on every frame of Edit, a
     trim kept by the file with its card information, the whole edit one
     step of the note's undo, and the keys of Card Detail (D114).
+41. No words say what an edit is (D120; the user, 2026-11-04, of "Cropped to
+    368 × 380 · Revert to Original": strange, ugly, in more than one place, and
+    not clear whether to press it). While an edited
+    image, video, or sound is edited in Card Detail, Revert to Original stands
+    in the header, after the name, with nothing over it, and the line under
+    the editor is empty. One press with the pointer puts the original back,
+    leaves the keyboard on the media, and removes the button; Command+Z takes
+    it back. While viewing, and for a file never edited, the header holds no
+    such button. In a note the line under the editor holds Revert to Original
+    and nothing else. An edited generated card's panel says "Edited", and
+    "Image 2 of 4 · Edited" for one of several; a copy's panel and its section
+    in Card Detail do not say it is a copy.
 
 ## Verification
 
@@ -1554,8 +1573,8 @@ Detail, the editors, the encoding with the window's encoders, and the service
 that applies a change, writes the file after it, and keeps the steps of its
 undo, in `browser/`, with the spreading out of the time that the frame viewer
 and the waveform share, and viewing and editing of each editor. Card Detail
-gives the editors the place of its view, Edit and Done in the header that its
-host gives it, and zooms the picture of the player of every video
+gives the editors the place of its view, Edit, Done, and Revert to Original
+in the header that its host gives it, and zooms the picture of the player of every video
 (`src/vs/workbench/basehalf/cardDetail/browser/`); the
 player of a video gives the frame viewer its time, a jump to a time, and the
 playing of a range; the waveform of a sound plays the edit itself, with the

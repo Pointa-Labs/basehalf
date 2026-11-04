@@ -3449,6 +3449,9 @@ built without asking back, after research.
 
 ## D85 — Editing media is direct: a change is saved as it is made, with no edit mode (NEW, 2026-10-26)
 
+> **Revised by D120 (2026-11-04).** Revert to Original is a button of the header, and no
+> line says what the edit is.
+
 > **Revised by D96 (2026-10-27).** Card Detail opens to view the file, and
 > **Edit** in its header shows the editor, which **Done** leaves. A change
 > is still saved as it is made, and Done saves nothing. The rest of D85
@@ -4698,6 +4701,8 @@ thumbnails, and shows them together. Its editor shows the whole picture.
 
 ## D102 — A video in Card Detail is viewed and edited as a desktop photo app does it (NEW, 2026-10-28)
 
+> **Revised by D120 (2026-11-04).** No line says what is kept: the yellow frame shows it.
+
 **Decision.** Card Detail views and edits a video BaseHalf can edit as a
 desktop photo app does, which was tried by hand for it:
 - **Viewing shows the video as large as fits, with its player's own
@@ -5849,3 +5854,53 @@ menu to the theme's selection color, the same as the prompt's reference menu.
 - `extensions/basehalf/markdown-rich-src/noteBlockMenu.tsx` holds the menu and the
   add button, and `noteAddedLine.ts` the new line, so that the bundle test runs them.
 - The bundle test mounts the real menu, and the smoke has steps `note-block-menu-*`.
+
+## D120 — An editor shows what an edit is and says nothing of it, and Revert to Original is a button of the header (NEW, 2026-11-04)
+
+**Decision.** Nothing in BaseHalf says in words what an edit is. The sentence
+"Cropped to 368 × 380 · Revert to Original" under the editors is gone: the
+picture, the crop frame, the handles, and the waveform show the edit. While an
+edited file is edited in Card Detail, **Revert to Original** is a quiet button
+after the file's name at the left of the header, with Done at its right. In a
+note, where the header is the note's, it stands in the line under the editor,
+in the same look. That line says only what nothing else can show: "Saving…",
+that a video lost its sound, and the failure of a write. The panel of a
+generated card says "Edited", or "Image 2 of 4 · Edited", and not how. A copy of
+a generated file says nothing of being a copy. See
+[editing media](specs/media-editing.md#revert-to-original) and
+[generation cards](specs/generation-cards.md#the-panel-of-a-card-with-its-file).
+
+**Why.** On 2026-11-04 the owner found that line strange, in more than one
+place, and then ugly, and said of the revert: "甚至都不知道该不该还原这一步".
+Three things were behind it:
+- The sentence read the edit record aloud, as the panel did ("Edited: Turned ·
+  Cropped to 1600 × 900."). What it said is in sight while editing, and a size
+  in pixels means nothing to someone cropping by eye.
+- A link right under the last change reads as a question about that change,
+  when it takes back the whole edit.
+- A desktop photo app, which D102 follows, has a plain button at the left of
+  its toolbar, apart from Done at the right, and no words about the edit.
+
+"A copy. This is what made the original." and "This image is a copy of a
+generated image; this is what made that one." were the same kind of text: the
+file is what the record made, so they told nobody anything to act on.
+
+**What was set aside.**
+- Dropping Revert to Original: a phone's photo editor and a desktop photo app
+  both have it, and once the window has closed, undo no longer reaches an edit.
+- Beside Done: it asks nothing, so a press that misses Done would take back the
+  whole edit.
+- Under the editor, without the sentence: it would still read as being about
+  the last change.
+- Nothing in the panel: what the panel shows is what was sent, "5s" for a video
+  now trimmed to 3 s, and New Version makes a draft from it. One word says why
+  the card differs, as a file's state says "modified" and not what changed.
+
+**Consequences.**
+- Revises D85, which put Revert to Original in the line under the editor, and
+  D102, where that line said what is kept: while a video is edited no label
+  says it now, as in the app it follows. A sound keeps the length on its
+  waveform.
+- `copyOf` stays in `made.yaml`; the window says nothing of it.
+- [Layout controls](specs/layout-controls.md#card-detail): the header holds the
+  button.

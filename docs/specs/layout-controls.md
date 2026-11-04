@@ -106,7 +106,9 @@ Not in scope, and unchanged:
    **Edit** or **Done** of a video, an image, or a sound that BaseHalf can
    edit, and Close. Edit shows the editor of the file in place and becomes
    Done, which goes back to viewing it (D96,
-   [editing media](media-editing.md#editing-in-card-detail)).
+   [editing media](media-editing.md#editing-in-card-detail)). While an edited
+   file is edited, **Revert to Original** stands after the name, at the left
+   of the header ([editing media](media-editing.md#revert-to-original), D120).
 
 ### Implementation boundary
 

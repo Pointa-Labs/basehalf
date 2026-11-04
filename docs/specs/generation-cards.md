@@ -346,7 +346,8 @@ inputs:
   of how many it is.
 - `copyOf` is in the record of a copy only: the `id` of the record of the
   file it copies, the first one for a copy of a copy. The rest of the record
-  is the original's.
+  is the original's. The window says nothing of it: the file is what the
+  record made (D120).
 - `prompt` is the card's own prompt as it was sent, with its mentions as the
   paths they named then, which are the paths of `inputs`. What the provider
   module wrote for the mentions and the text of the text inputs that joined
@@ -1317,10 +1318,8 @@ top to bottom:
    without a prompt says "No prompt".
 3. **A line**, when one applies: which image or song of how many it is,
    such as "Image 2 of 4" or "Song 1 of 2", for a generation that made
-   several; "A copy. This is what made the original." for a copy. An edited
-   file adds how it was edited: "Edited: Trimmed to 1.0s–4.5s.", "Edited:
-   Turned · Cropped to 1600 × 900.", "Edited: Trimmed to 3 parts."
-   ([editing media](media-editing.md#generation-cards)).
+   several, and "Edited" for an edited file, "Image 2 of 4 · Edited" for both
+   ([editing media](media-editing.md#generation-cards), D120).
 4. **Footer**, at its right as a draft's (D106): the summary of the settings
    it was made with, the voice it spoke in for a speech model, and the
    model's name, as text, with the names
@@ -1529,9 +1528,8 @@ file of an audio card, call it a sound ("What made the sound <name>").
   sound there, with what made it, from `made.yaml`: model and the id sent to
   the provider, provider and region, mode, settings, the prompt with each
   mention as its file's name, the inputs in order by their files' names, a
-  frame with its Start or End, which image or song of how many it is, when
-  it started and finished, and for an edited file how it was edited
-  ("Edited": "Trimmed to 1.0s–4.5s"). The names of the provider,
+  frame with its Start or End, which image or song of how many it is, and when
+  it started and finished. The names of the provider,
   region, model, mode, and each parameter and value come from the catalog
   when it has them, and are the recorded ids otherwise; the voice of a
   speech model is named as the panel of the card names it, from the
@@ -1549,8 +1547,7 @@ file of an audio card, call it a sound ("What made the sound <name>").
     voices comes. An image, a video, or a sound that is no generation card
     has none.
   - A `made.yaml` that cannot be read is not shown: the section says
-    "BaseHalf could not read what made this file." A copy's section says
-    that the file is a copy and that what it shows made the original.
+    "BaseHalf could not read what made this file."
 
 ## A generation
 
