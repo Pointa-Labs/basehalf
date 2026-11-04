@@ -86,7 +86,9 @@ export class NativeEditContext extends AbstractEditContext {
 		super(context);
 
 		this.domNode = new FastDomNode(document.createElement('div'));
-		this.domNode.setClassName(`native-edit-context`);
+		// BaseHalf: `nokey` says that this element takes text, which a canvas library knows only of fields and of what is
+		// contenteditable: it holds Space for panning the canvas everywhere else, and a space typed here would be lost.
+		this.domNode.setClassName(`native-edit-context nokey`);
 		this._imeTextArea = new FastDomNode(document.createElement('textarea'));
 		this._imeTextArea.setClassName(`ime-text-area`);
 		this._imeTextArea.setAttribute('readonly', 'true');
