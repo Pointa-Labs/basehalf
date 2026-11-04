@@ -342,6 +342,20 @@ export async function assertAgentSeesSelection(page) {
 	fs.writeFileSync(changedReadme, changedReadmeBefore, 'utf8');
 	await runCommand(page, 'Git: Refresh');
 
+	// What is selected in the editor on a code card reaches agents as a selection in Source does (code cards, rule 23).
+	const codeFile = path.join(workspacePath, 'agent-code.ts');
+	fs.writeFileSync(codeFile, 'export const first = 1;\nexport const second = 2;\n', 'utf8');
+	const codeCard = page.locator('.basehalf-canvas-card[data-basehalf-card-path="agent-code.ts"]');
+	await codeCard.locator('.basehalf-canvas-code-scroller').waitFor({ state: 'visible', timeout: 15_000 });
+	await codeCard.locator('.basehalf-canvas-code-scroller').dblclick({ timeout: 10_000 });
+	await codeCard.locator('.basehalf-canvas-code-editor .monaco-editor').waitFor({ state: 'visible', timeout: 10_000 });
+	await page.keyboard.press('Meta+A');
+	await waitUntil(() => /selected: "text"[\s\S]*path: "agent-code\.ts"[\s\S]*first_line: 1[\s\S]*export const second/.test(readRecord() ?? ''), 'text selected on a code card to be recorded', 10_000);
+	await page.keyboard.press('Escape');
+	await codeCard.locator('.basehalf-canvas-code-editor').waitFor({ state: 'detached', timeout: 10_000 });
+	fs.rmSync(codeFile);
+	await codeCard.waitFor({ state: 'detached', timeout: 15_000 });
+
 	if (/\.bh\/cache/.test(gitStatusOfWorkspace())) {
 		throw new Error(`The record must stay out of git: ${gitStatusOfWorkspace()}`);
 	}
