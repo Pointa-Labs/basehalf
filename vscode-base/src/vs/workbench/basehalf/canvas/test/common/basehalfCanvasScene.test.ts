@@ -58,6 +58,7 @@ suite('BaseHalfCanvasScene', () => {
 	test('keeps selection actions structural and never exposes bulk execution', () => {
 		assert.deepStrictEqual(baseHalfCanvasSceneSelectionActions(0), []);
 		assert.deepStrictEqual(baseHalfCanvasSceneSelectionActions(1), ['rename', 'duplicate', 'delete']);
+		assert.deepStrictEqual(baseHalfCanvasSceneSelectionActions(1, true), ['expand', 'rename', 'duplicate', 'delete']);
 		assert.deepStrictEqual(baseHalfCanvasSceneSelectionActions(3), ['duplicate', 'copyReferences', 'delete']);
 	});
 

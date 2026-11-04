@@ -4,11 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../../base/common/event.js';
-import { IDisposable } from '../../../../base/common/lifecycle.js';
+import { DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { BrandedService, IConstructorSignature } from '../../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
+import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../common/basehalfCanvasCardPreview.js';
+import { IBaseHalfCodePreviewPiece } from '../common/basehalfCanvasCodePreview.js';
 import { IBaseHalfCanvasCardPick } from '../common/basehalfCanvasCardPick.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../common/basehalfCanvasScene.js';
@@ -68,6 +70,34 @@ export interface IBaseHalfCanvasCardMark extends IBaseHalfCanvasMark {
 	readonly open?: () => void;
 	/** The mark of a row of a folder's list, by the name of the file or folder on it. */
 	readonly rowMark?: (name: string, isFolder: boolean) => IBaseHalfCanvasMark | undefined;
+}
+
+/** What a code card's face is drawn from (code cards). */
+export interface IBaseHalfCanvasCodeFaceContext {
+	readonly container: HTMLElement;
+	readonly item: IBaseHalfCanvasItem;
+	readonly preview: IBaseHalfCanvasCodePreview;
+	/** What goes with the drawing. */
+	readonly listeners: DisposableStore;
+}
+
+/** What the canvas asks of a code card's face. */
+export interface IBaseHalfCanvasCodeFace {
+	/** What the canvas scrolls for a wheel gesture on the card. */
+	readonly scrollableContent: HTMLElement;
+	setHeight(): void;
+	redraw(): void;
+	/** The file was written, and this is what the card read of it now. */
+	setPreview(preview: IBaseHalfCanvasCodePreview, size: number | undefined): void;
+}
+
+/** The feature that draws code cards and edits them where they stand. */
+export interface IBaseHalfCanvasCodeCards {
+	drawFace(context: IBaseHalfCanvasCodeFaceContext): IBaseHalfCanvasCodeFace;
+	editsOnCard(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): boolean;
+	/** Edits a code card, with the caret at this point of the window or at its place. */
+	edit(path: string, point?: { readonly clientX: number; readonly clientY: number }): Promise<void>;
+	isEditing(path: string): boolean;
 }
 
 /**
@@ -191,6 +221,16 @@ export interface IBaseHalfCanvasView {
 
 	/** Replaces the marks on the cards of the canvas, by the path of the card. What a card shows of its file stays as it is. */
 	setCardMarks(marks: ReadonlyMap<string, IBaseHalfCanvasCardMark>): void;
+	/** This feature draws code cards from now on, until it is disposed. */
+	takeCodeCards(codeCards: IBaseHalfCanvasCodeCards): IDisposable;
+	/** The first `count` lines of what a code card read of its file, in the editor's colors. */
+	codePreviewLines(preview: IBaseHalfCanvasCodePreview, count: number): readonly (readonly IBaseHalfCodePreviewPiece[])[] | undefined;
+	/** What is selected in a card's editor, for agents; nothing once nothing is. */
+	setCardSelectedText(selected: IBaseHalfAgentSelectionText | undefined): void;
+	/** Whether the editor on a card could not write its file. */
+	setCardSaveError(path: string, error: boolean): void;
+	/** Opens a card in Card Detail. */
+	openCard(path: string): Promise<void>;
 
 	/** Closes the note that is being edited on its card, as a click elsewhere does. False when it stays open. */
 	closeNoteEditor(): Promise<boolean>;

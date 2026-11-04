@@ -58,7 +58,7 @@ import { TabFocus } from '../../../../editor/browser/config/tabFocus.js';
 import { IEditorGroupsService, IEditorPart } from '../../../services/editor/common/editorGroupsService.js';
 import { InputMode } from '../../../../editor/common/inputMode.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { baseHalfShownTextEditors } from '../../../basehalf/cardDetail/browser/basehalfShownTextEditor.js';
+import { baseHalfShownTextEditors } from '../../../basehalf/cardDetail/common/basehalfShownTextEditor.js';
 
 class SideBySideEditorEncodingSupport implements IEncodingSupport {
 	constructor(private primary: IEncodingSupport, private secondary: IEncodingSupport) { }

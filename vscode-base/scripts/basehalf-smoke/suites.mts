@@ -107,6 +107,7 @@ import {
 	assertTitleBarLocationOpensSearch
 } from './areas/workbench/startup.mts';
 import { app, workspacePath } from './context.mts';
+import { assertCardStandsAtWhatWasRead, assertCodeCardFace, assertCodeCardWheel, assertEditingOnTheCard, assertExpandAndCommit, assertLargeFileKeepsItsHead, assertSourceIsTheEditor, prepareCodeCards } from './areas/workbench/codeCards.mts';
 import { commitFixtureChanges } from './fixture.mts';
 import { assertCanvasEdgeVisible, assertCanvasFolder } from './lib/canvas.mts';
 import { assertCardDetail, assertNativeBackOpensPreviousCanvas, assertNativeForwardOpensCardDetail, assertNoEditorTabFor } from './lib/cardDetail.mts';
@@ -175,6 +176,14 @@ async function runWorkbenchSuite(page) {
 	await step('changes-what-opened-last-is-in-front', () => assertWhatOpenedLastIsInFront(page));
 	await step('commit-box-takes-spaces', () => assertCommitBoxTakesSpaces(page));
 	await step('changes-finish', () => finishChangedFiles(page));
+	await step('code-cards-prepare', () => prepareCodeCards(page));
+	await step('code-card-face', () => assertCodeCardFace(page));
+	await step('code-card-wheel', () => assertCodeCardWheel(page));
+	await step('source-is-the-editor', () => assertSourceIsTheEditor(page));
+	await step('code-card-stands-at-what-was-read', () => assertCardStandsAtWhatWasRead(page));
+	await step('code-card-editing', () => assertEditingOnTheCard(page));
+	await step('code-card-expand-and-commit', () => assertExpandAndCommit(page));
+	await step('code-card-large-file', () => assertLargeFileKeepsItsHead(page));
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));

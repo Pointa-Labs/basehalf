@@ -5,7 +5,7 @@
 
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { Emitter } from '../../../../../base/common/event.js';
-import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
@@ -152,6 +152,11 @@ export function createBaseHalfTestCanvasView(
 		},
 		endCardPick: () => { cardPick = undefined; },
 		setCardMarks: () => { },
+		takeCodeCards: () => Disposable.None,
+		codePreviewLines: () => undefined,
+		setCardSelectedText: () => { },
+		setCardSaveError: () => { },
+		openCard: async () => { },
 		takeFolderDrops: () => {
 			calls.push('takeFolderDrops');
 			return toDisposable(() => { });

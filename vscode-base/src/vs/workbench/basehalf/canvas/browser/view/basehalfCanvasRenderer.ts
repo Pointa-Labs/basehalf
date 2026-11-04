@@ -716,6 +716,7 @@ export class BaseHalfCanvasRenderer {
 				element,
 				updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.view.cardPresentationUpdaters.get(element)?.(presentation),
 				didMountElement: () => this.view.cardRenderer.didMountCardElement(item.path, element),
+				...(this.view.codeCards?.editsOnCard(item, preview) ? { editsOnCard: true as const } : {}),
 				...(this.view.openBadgeFaces.has(item.path) || this.view.canvasNoteSurfacePath === item.path ? { forceInteractive: true as const } : {}),
 				...(this.view.canvasNoteSurfacePath === item.path ? { noteEditing: true as const } : {}),
 				...(baseHalfCanvasCardResizes(item) ? {} : { keepsShape: true as const }),
@@ -956,6 +957,10 @@ export class BaseHalfCanvasRenderer {
 		// A card that shows the live rename editor is kept as any other card is.
 		// A card that was built for the editor and has not taken it yet is not.
 		const renameEditor = this.view.inlineRenameEditor;
+		// The card whose code is being edited keeps its element, with the editor in it, as a Note does.
+		if (cached && cached.sceneKey === sceneKey && this.view.codeCards?.isEditing(item.path) && !this.view.openBadgeFaces.has(item.path) && !renaming) {
+			return true;
+		}
 		const renameKeepsElement = !renaming
 			|| (!!cached && !!renameEditor && renameEditor.edit === this.view.inlineEdit && cached.element.contains(renameEditor.host));
 		if (cached
@@ -968,6 +973,20 @@ export class BaseHalfCanvasRenderer {
 			// The selected Note owns a live inline editor. Preserve its exact DOM identity
 			// across autosave-driven preview refreshes; selection teardown performs a
 			// stable flush before the card may return to its static preview.
+			return true;
+		}
+		// A code card keeps its face while its file changes: it reads the new text itself, stays at its
+		// place, and shows nothing of the moment the file is being read (code cards, rule 9).
+		if (cached
+			&& cached.sceneKey === sceneKey
+			&& cached.visualKey === visualKey
+			&& renameKeepsElement
+			&& !this.view.openBadgeFaces.has(item.path)
+			&& this.view.cardRenderer.codeFaceOf(cached.element)
+			&& (preview?.kind === 'loading' || preview?.kind === 'code')) {
+			if (preview.kind === 'code') {
+				this.view.cardRenderer.codeFaceOf(cached.element)?.setPreview(preview, item.stat.size);
+			}
 			return true;
 		}
 		const retainedNote = cached ? this.view.canvasNotePreviewMounts.get(cached.element) : undefined;

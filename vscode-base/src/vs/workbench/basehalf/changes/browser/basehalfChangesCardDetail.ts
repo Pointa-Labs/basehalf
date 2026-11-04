@@ -40,7 +40,7 @@ import { BASEHALF_CHANGES_PROJECTION_ID, BASEHALF_LARGEST_COMPARED_VERSION_BYTES
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { ITextEditorService } from '../../../services/textfile/common/textEditorService.js';
 import { IBaseHalfFilePlacesService } from '../../cardDetail/common/basehalfFilePlaces.js';
-import { baseHalfShownTextEditors } from '../../cardDetail/browser/basehalfShownTextEditor.js';
+import { baseHalfShownTextEditors } from '../../cardDetail/common/basehalfShownTextEditor.js';
 import { baseHalfEditorInstantiationService } from '../../cardDetail/browser/basehalfEditorInstantiation.js';
 
 const RENDER_SIDE_BY_SIDE_SETTING = 'diffEditor.renderSideBySide';
@@ -69,6 +69,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 
 	private editor: DiffEditorWidget | undefined;
 	private shownInput: EditorInput | undefined;
+	private goingToPlace = false;
 	private state: IBaseHalfCardDetailState | undefined;
 	private shown: IBaseHalfFileChange | undefined;
 	/** The comparison shown or being opened, also when it ended in a notice. */
@@ -223,16 +224,23 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 	/** The line the right side stands at, for the file's card and its other views (code cards, "The place"). */
 	private reportPlace(): void {
 		const resource = this.state?.resource;
-		const line = this.editor?.getModifiedEditor().getVisibleRanges()[0]?.startLineNumber;
-		if (this.visible && resource && line !== undefined) {
-			this.places.setPlace(resource, line, this);
+		const editor = this.editor;
+		const visible = editor?.getModifiedEditor().getVisibleRanges()[0];
+		if (this.visible && resource && editor && visible) {
+			// What is read here is the first change in view, or the middle of the view.
+			const change = editor.getLineChanges()?.find(candidate => Math.max(candidate.modifiedStartLineNumber, candidate.modifiedEndLineNumber) >= visible.startLineNumber && candidate.modifiedStartLineNumber <= visible.endLineNumber);
+			const focus = change ? Math.max(1, change.modifiedStartLineNumber) : Math.round((visible.startLineNumber + visible.endLineNumber) / 2);
+			this.places.setPlace(resource, { top: visible.startLineNumber, focus }, this);
 		}
 	}
 
 	/** Comes to the file's place: the view it was switched from stood there (code cards, rule 15). */
 	private goToPlace(state: IBaseHalfCardDetailState): void {
 		const modified = this.editor?.getModifiedEditor();
-		modified?.setScrollTop(modified.getTopForLineNumber(this.places.placeOf(state.resource) ?? 1), ScrollType.Immediate);
+		const line = this.places.placeOf(state.resource)?.top ?? 1;
+		this.goingToPlace = true;
+		modified?.setScrollTop(line <= 1 ? 0 : modified.getTopForLineNumber(line), ScrollType.Immediate);
+		this.goingToPlace = false;
 	}
 
 	focus(): void {
@@ -364,8 +372,9 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 			this._register(addDisposableListener(this.editorHost, 'copy', nameNote, true));
 			this._register(addDisposableListener(this.editorHost, 'cut', nameNote, true));
 		}
+		// What the view does by itself to come to the place moves nothing, while going to a change does.
 		this._register(editor.getModifiedEditor().onDidScrollChange(event => {
-			if (event.scrollTopChanged) {
+			if (event.scrollTopChanged && !this.goingToPlace) {
 				this.reportPlace();
 			}
 		}));

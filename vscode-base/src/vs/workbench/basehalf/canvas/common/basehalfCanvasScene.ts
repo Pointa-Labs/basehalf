@@ -134,6 +134,8 @@ export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	/** Only the Markdown Note inline editor suppresses structural controls and
 	 *  retains the static preview beneath its live editing overlay. */
 	readonly noteEditing?: true;
+	/** A code card, which a double click edits where it stands (code cards, rule 18). */
+	readonly editsOnCard?: true;
 	/** The card of an image, a video, or a sound: it keeps its shape and has no
 	 *  resize controls (canvas card resize, "Which cards resize"). */
 	readonly keepsShape?: true;
@@ -315,18 +317,19 @@ export interface IBaseHalfCanvasSceneSelection {
 	readonly edgeIds?: readonly string[];
 }
 
-export type BaseHalfCanvasSceneSelectionAction = 'rename' | 'duplicate' | 'delete' | 'copyReferences';
+export type BaseHalfCanvasSceneSelectionAction = 'expand' | 'rename' | 'duplicate' | 'delete' | 'copyReferences';
 
 /**
  * The canvas selection surface is deliberately structural. It never mirrors
  * node-local Generate, recipe, model, Result, or Attempt controls into a bulk toolbar.
  */
-export function baseHalfCanvasSceneSelectionActions(cardCount: number): readonly BaseHalfCanvasSceneSelectionAction[] {
+export function baseHalfCanvasSceneSelectionActions(cardCount: number, expands = false): readonly BaseHalfCanvasSceneSelectionAction[] {
 	if (cardCount <= 0) {
 		return [];
 	}
 	if (cardCount === 1) {
-		return ['rename', 'duplicate', 'delete'];
+		// A card edited where it stands opens by its Expand, as a double click opens any other (code cards, rule 24).
+		return expands ? ['expand', 'rename', 'duplicate', 'delete'] : ['rename', 'duplicate', 'delete'];
 	}
 	return ['duplicate', 'copyReferences', 'delete'];
 }
@@ -376,6 +379,8 @@ export interface IBaseHalfCanvasSceneDelegate {
 	didChangeSelection(sceneKey: string, structuralEpoch: number, paths: readonly string[]): void;
 	focusNoteEditor(sceneKey: string, structuralEpoch: number, path: string): void;
 	editNote(sceneKey: string, structuralEpoch: number, path: string, point?: IBaseHalfCanvasNoteEditPoint): Promise<void>;
+	/** Edits a code card where it stands, with the caret at this point of the window. */
+	editCode(sceneKey: string, structuralEpoch: number, path: string, point: { readonly clientX: number; readonly clientY: number }): Promise<void>;
 	rememberNoteEditPoint(sceneKey: string, structuralEpoch: number, path: string, point: IBaseHalfCanvasNoteEditPoint): void;
 	formatNote(sceneKey: string, structuralEpoch: number, path: string, command: BaseHalfMarkdownFormatCommand): Promise<void>;
 	copyNote(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;

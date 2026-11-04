@@ -25,18 +25,20 @@ export function baseHalfCanvasShouldOpenCreateMenu(
 		&& !event.shiftKey;
 }
 
-export type BaseHalfCanvasCardDoubleClickAction = 'rename' | 'editNote' | 'open';
+export type BaseHalfCanvasCardDoubleClickAction = 'rename' | 'editNote' | 'editCode' | 'open';
 
 /**
  * What a double click on a card does, from where it lands (canvas card name).
  * A name that can be changed in place is renamed. A Note is edited from its
- * body only, and every other card is opened.
+ * body only, a code card is edited from its body, and every other card, or a
+ * code card from its caption, is opened.
  */
 export function baseHalfCanvasCardDoubleClickAction(input: {
 	readonly onRenamableName: boolean;
 	readonly modifier: boolean;
 	readonly note: boolean;
 	readonly onNoteBody: boolean;
+	readonly editsOnCard?: boolean;
 }): BaseHalfCanvasCardDoubleClickAction | undefined {
 	if (input.onRenamableName && !input.modifier) {
 		return 'rename';
@@ -44,7 +46,7 @@ export function baseHalfCanvasCardDoubleClickAction(input: {
 	if (input.note) {
 		return input.onNoteBody ? 'editNote' : undefined;
 	}
-	return 'open';
+	return input.editsOnCard && input.onNoteBody ? 'editCode' : 'open';
 }
 
 function isDirectCardControl(target: EventTarget | null): boolean {
@@ -163,7 +165,8 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 			onRenamableName: isHTMLElement(event.target) && !!event.target.closest('.basehalf-canvas-card-label.renamable'),
 			modifier: event.shiftKey || event.metaKey || event.ctrlKey || event.altKey,
 			note: node.data.card.controls?.kind === 'note',
-			onNoteBody: !!noteBody
+			onNoteBody: !!noteBody,
+			editsOnCard: node.data.card.editsOnCard === true
 		});
 		if (!action) {
 			return;
@@ -177,6 +180,7 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 				y: Math.max(0, (event.clientY - bounds.top) * scaleY)
 			};
 		})() : undefined;
+		const pressed = { clientX: event.clientX, clientY: event.clientY };
 		// Changing a name selects no card, and it ends the selection there is.
 		void requestSelection({ cardPaths: action === 'rename' ? [] : [node.id] }).then(selected => {
 			if (!selected) {
@@ -186,7 +190,9 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 				? delegate.performSelectionAction(node.data.sceneKey, node.data.structuralEpoch, 'rename', [node.id])
 				: action === 'editNote'
 					? delegate.editNote(node.data.sceneKey, node.data.structuralEpoch, node.id, noteFocusPoint)
-					: delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
+					: action === 'editCode'
+						? delegate.editCode(node.data.sceneKey, node.data.structuralEpoch, node.id, pressed)
+						: delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
 			void result.catch(error => delegate.reportError(error));
 		});
 	}, [requestSelection]);
@@ -232,7 +238,12 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 		const wheelGestures = installBaseHalfCanvasWheelGestures(host, {
 			zoom: () => viewportRef.current.zoom,
 			card: path => nodesRef.current.find(node => node.id === path)?.data.card.element,
-			scrollableContent: card => delegate.cardScrollableContent(card)
+			scrollableContent: card => {
+				const content = delegate.cardScrollableContent(card);
+				// Content that says from which zoom it can be read leaves a gesture to the canvas below it (code cards, rule 7).
+				const lowest = content?.dataset.basehalfLowestScrollingZoom;
+				return lowest && viewportRef.current.zoom < Number(lowest) ? undefined : content;
+			}
 		});
 		// A table or a code block of a note shows one bar while it is scrolled
 		// sideways, at rest and in the card's editor (note rendering).

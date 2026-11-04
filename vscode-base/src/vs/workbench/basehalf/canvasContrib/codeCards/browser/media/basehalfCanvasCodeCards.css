@@ -1,0 +1,158 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* A face stands where an editor would: nothing fades, and a line is cut at the edge (code cards, rule 1). */
+.monaco-workbench .basehalf-canvas-card-preview.kind-code {
+	position: relative;
+	padding: 0;
+	mask-image: none;
+	-webkit-mask-image: none;
+	white-space: pre;
+	overflow-wrap: normal;
+	overflow: hidden;
+	font-family: var(--basehalf-code-font);
+	font-size: 12px;
+	line-height: 18px;
+	font-feature-settings: "liga" 0, "calt" 0;
+}
+
+.monaco-workbench .basehalf-canvas-code-scroller {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-code-spacer {
+	position: relative;
+	width: 100%;
+}
+
+.monaco-workbench .basehalf-canvas-code-gutter {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: var(--basehalf-code-gutter);
+}
+
+.monaco-workbench .basehalf-canvas-code-number {
+	position: absolute;
+	left: 0;
+	width: var(--basehalf-code-numbers);
+	height: 18px;
+	margin-left: 6px;
+	text-align: right;
+	color: var(--vscode-editorLineNumber-foreground);
+}
+
+.monaco-workbench .basehalf-canvas-code-mark {
+	position: absolute;
+	left: calc(var(--basehalf-code-numbers) + 11px);
+	width: 3px;
+	height: 18px;
+}
+
+.monaco-workbench .basehalf-canvas-code-mark.added {
+	background: var(--vscode-editorGutter-addedBackground);
+}
+
+.monaco-workbench .basehalf-canvas-code-mark.modified {
+	background: var(--vscode-editorGutter-modifiedBackground);
+}
+
+/* Lines were taken out here: a small triangle on the line between, as in the editor. */
+.monaco-workbench .basehalf-canvas-code-mark.deleted {
+	width: 0;
+	height: 0;
+	background: none;
+	margin-top: -4px;
+	border-top: 4px solid transparent;
+	border-bottom: 4px solid transparent;
+	border-left: 5px solid var(--vscode-editorGutter-deletedBackground);
+}
+
+.monaco-workbench .basehalf-canvas-code-text {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: var(--basehalf-code-gutter);
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-code-line {
+	position: absolute;
+	left: 0;
+	height: 18px;
+	white-space: pre;
+}
+
+/* The whole file from top to bottom: ticks for its changes, and the view while lines move (code cards, rules 8 and 11). */
+.monaco-workbench .basehalf-canvas-code-ruler {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 6px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-code-tick {
+	position: absolute;
+	right: 0;
+	width: 4px;
+	min-height: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-code-tick.added {
+	background: var(--vscode-editorGutter-addedBackground);
+}
+
+.monaco-workbench .basehalf-canvas-code-tick.modified {
+	background: var(--vscode-editorGutter-modifiedBackground);
+}
+
+.monaco-workbench .basehalf-canvas-code-tick.deleted {
+	background: var(--vscode-editorGutter-deletedBackground);
+}
+
+.monaco-workbench .basehalf-canvas-code-ruler-view {
+	position: absolute;
+	right: 0;
+	width: 6px;
+	min-height: 12px;
+	background: var(--vscode-scrollbarSlider-background);
+	opacity: 0;
+	transition: opacity 160ms ease-out;
+}
+
+.monaco-workbench .basehalf-canvas-code-ruler.moving .basehalf-canvas-code-ruler-view {
+	opacity: 1;
+	transition: none;
+}
+
+/* The editor of the card stands exactly over the face, which waits under it. */
+.monaco-workbench .basehalf-canvas-card-preview.kind-code.editing .basehalf-canvas-code-scroller,
+.monaco-workbench .basehalf-canvas-card-preview.kind-code.editing .basehalf-canvas-code-ruler {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-code-editor {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 6px;
+	--vscode-editor-background: transparent;
+	--vscode-editorGutter-background: transparent;
+	--vscode-editorStickyScroll-background: transparent;
+}
+
+/* The editor's text input stands over the line of the caret: the window's focus ring is not for it. */
+.monaco-workbench .basehalf-canvas-code-editor .monaco-editor .native-edit-context:focus,
+.monaco-workbench .basehalf-canvas-code-editor .monaco-editor textarea:focus {
+	outline: 0 !important;
+}
+

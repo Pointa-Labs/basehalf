@@ -54,24 +54,29 @@ export function baseHalfTokenizeCodePreview(
 	for (const line of lines.slice(0, count)) {
 		const tokenized = support.tokenizeEncoded(line, true, state);
 		LineTokens.convertToEndOffset(tokenized.tokens, line.length);
-		const tokens = new LineTokens(tokenized.tokens, line, languageIdCodec).inflate();
-		const pieces: IBaseHalfCodePreviewPiece[] = [];
-		let start = 0;
-		for (let index = 0, tokenCount = tokens.getCount(); index < tokenCount; index++) {
-			const end = tokens.getEndOffset(index);
-			const className = tokens.getClassName(index);
-			const last = pieces[pieces.length - 1];
-			if (last?.className === className) {
-				pieces[pieces.length - 1] = { text: last.text + line.substring(start, end), className };
-			} else if (end > start) {
-				pieces.push({ text: line.substring(start, end), className });
-			}
-			start = end;
-		}
-		result.push(pieces);
+		result.push([...baseHalfCodePiecesOfLine(line, new LineTokens(tokenized.tokens, line, languageIdCodec))]);
 		state = tokenized.endState;
 	}
 	return result;
+}
+
+/** The colored runs of a line, which may be cut short of what `lineTokens` were read from. */
+export function baseHalfCodePiecesOfLine(line: string, lineTokens: LineTokens): readonly IBaseHalfCodePreviewPiece[] {
+	const tokens = lineTokens.inflate();
+	const pieces: IBaseHalfCodePreviewPiece[] = [];
+	let start = 0;
+	for (let index = 0, tokenCount = tokens.getCount(); index < tokenCount && start < line.length; index++) {
+		const end = Math.min(tokens.getEndOffset(index), line.length);
+		const className = tokens.getClassName(index);
+		const last = pieces[pieces.length - 1];
+		if (last?.className === className) {
+			pieces[pieces.length - 1] = { text: last.text + line.substring(start, end), className };
+		} else if (end > start) {
+			pieces.push({ text: line.substring(start, end), className });
+		}
+		start = end;
+	}
+	return pieces;
 }
 
 /**

@@ -40,7 +40,7 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 		readonly arrange: (arrangement: BaseHalfCanvasArrangement) => void;
 		readonly suppressed: boolean;
 	}): ReactElement {
-		const actions = baseHalfCanvasSceneSelectionActions(nodes.length);
+		const actions = baseHalfCanvasSceneSelectionActions(nodes.length, nodes.length === 1 && nodes[0].data.card.editsOnCard === true);
 		// A set can be arranged. One card has nothing to arrange.
 		const arranges = nodes.length >= 2;
 		const firstAction = arranges ? 1 : 0;
@@ -102,6 +102,7 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 			toolbarWidth: measuredWidth ?? (arranges ? 380 : 96)
 		});
 		const metadata: Record<BaseHalfCanvasSceneSelectionAction, { readonly label: string; readonly icon: string }> = {
+			expand: { label: localize('basehalf.canvas.selection.expand', "Expand"), icon: 'screen-full' },
 			rename: { label: baseHalfCanvasSceneSelectionRenameLabel(nodes.length === 1 && nodes[0].data.card.renameChangesPathOnly === true), icon: 'edit' },
 			duplicate: { label: localize('basehalf.canvas.selection.duplicate', "Duplicate"), icon: 'files' },
 			copyReferences: { label: localize('basehalf.canvas.selection.copyPaths', "Copy Paths"), icon: 'copy' },

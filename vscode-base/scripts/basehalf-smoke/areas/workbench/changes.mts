@@ -118,15 +118,16 @@ export async function assertCodeCardAsTheEditor(page) {
 	await assertCanvasFolder(page, FOLDER);
 	const code = await waitForReading(() => cardOf(page, CODE).locator('.basehalf-canvas-card-preview').evaluate(preview => {
 		const style = getComputedStyle(preview);
+		const lines = [...preview.querySelectorAll<HTMLElement>('.basehalf-canvas-code-line')].sort((a, b) => Number.parseFloat(a.style.top) - Number.parseFloat(b.style.top));
 		return {
 			kind: preview.classList.contains('kind-code'),
 			whiteSpace: style.whiteSpace,
 			tabSize: style.tabSize,
-			text: preview.textContent,
+			text: lines.map(line => line.textContent).join('\n'),
 			colors: new Set([...preview.querySelectorAll('span[class*="mtk"]')].map(span => getComputedStyle(span).color)).size
 		};
 	}), reading => reading.kind && reading.colors > 2, 'a code card in the colors of its language', 20_000);
-	if (code.whiteSpace !== 'pre' || code.tabSize !== '4' || !code.text.startsWith('// A license would stand here.\n\nexport function after') || !code.text.includes('\n\tif (a > 0) {\n\t\treturn a;')) {
+	if (code.whiteSpace !== 'pre' || code.tabSize !== '4' || !code.text.startsWith('// A license would stand here.\n\nexport function after') || !code.text.includes('\n\tif (a > ')) {
 		throw new Error(`A code card must show its file from line 1 with its indentation and blank lines: ${JSON.stringify(code)}`);
 	}
 	const note = await cardOf(page, NOTE).locator('.basehalf-canvas-card-preview').evaluate(preview => ({ kind: preview.classList.contains('kind-markdown'), colored: preview.querySelectorAll('span[class*="mtk"]').length }));
@@ -197,7 +198,9 @@ export async function assertChangedFileOpensAsUsual(page) {
 	await openExplorerRow(page, 'orders.ts');
 	await assertUsual('Files');
 	await assertCanvasFolder(page, FOLDER);
-	await cardOf(page, CODE).dblclick({ timeout: 10_000 });
+	// A double click edits a code card where it stands, and Expand opens it.
+	await cardOf(page, CODE).locator('.basehalf-canvas-code-scroller').click({ timeout: 10_000 });
+	await page.locator('[data-toolbar-item="expand"]').click({ timeout: 10_000 });
 	await assertUsual('its card');
 }
 

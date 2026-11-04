@@ -25,13 +25,13 @@ import { URI } from '../../../../base/common/uri.js';
 import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectionSource } from '../../../../platform/editor/common/editor.js';
 import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
 import { ITextEditorService } from '../../../services/textfile/common/textEditorService.js';
-import { TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
+import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
 import { IBaseHalfFilePlacesService } from '../common/basehalfFilePlaces.js';
 import { baseHalfEditorInstantiationService } from './basehalfEditorInstantiation.js';
-import { baseHalfShownTextEditors, IBaseHalfShownTextEditor } from './basehalfShownTextEditor.js';
+import { baseHalfShownTextEditors, IBaseHalfShownTextEditor } from '../common/basehalfShownTextEditor.js';
 import { BaseHalfTextFileSaving } from './basehalfTextFileSaving.js';
 
 /** What Escape does in an editor without keeping Card Detail open: it closes from these, also with text selected. */
@@ -47,6 +47,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private visible = false;
 	private disposed = false;
 	private shownEditor: IBaseHalfShownTextEditor | undefined;
+	private goingToPlace = false;
 	private state: IBaseHalfCardDetailState | undefined;
 	constructor(
 		private readonly container: HTMLElement,
@@ -58,6 +59,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		@ILogService private readonly logService: ILogService,
 		@ITextResourceConfigurationService private readonly textResourceConfigurationService: ITextResourceConfigurationService,
 		@ITextEditorService private readonly textEditorService: ITextEditorService,
+		@ITextFileService private readonly textFileService: ITextFileService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IBaseHalfFilePlacesService private readonly places: IBaseHalfFilePlacesService
 	) {
@@ -107,6 +109,11 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			}
 			this._register(modelReference);
 
+			this._register(this.textFileService.files.onDidChangeReadonly(model => {
+				if (model.resource.toString() === state.resource.toString()) {
+					this.editor?.updateOptions({ readOnly: !!model.isReadonly() });
+				}
+			}));
 			// VS Code's editor with all its features, as a text file's tab has it (code cards, rule 25).
 			const scoped = this._register(baseHalfEditorInstantiationService(this.instantiationService));
 			const editor = this._register(scoped.createInstance(CodeEditorWidget, this.editorHost, this.editorOptions(state.resource), {
@@ -116,8 +123,14 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			editor.setModel(modelReference.object.textEditorModel);
 			this.shownEditor = { control: editor, input: this._register(this.textEditorService.createTextEditor({ resource: state.resource })) };
 			this.syncShownEditor();
+			// What the view does by itself to come to the place moves nothing.
 			this._register(editor.onDidScrollChange(event => {
-				if (event.scrollTopChanged) {
+				if (event.scrollTopChanged && !this.goingToPlace) {
+					this.reportPlace();
+				}
+			}));
+			this._register(editor.onDidChangeCursorPosition(event => {
+				if (event.source !== 'api' && event.source !== 'modelChange') {
 					this.reportPlace();
 				}
 			}));
@@ -180,6 +193,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private editorOptions(resource: URI): IEditorOptions {
 		return {
 			...deepClone(this.textResourceConfigurationService.getValue<IEditorOptions>(resource, 'editor')),
+			readOnly: !!this.textFileService.files.get(resource)?.isReadonly(),
 			automaticLayout: false,
 			overviewRulerLanes: 3,
 			lineNumbersMinChars: 3,
@@ -205,9 +219,12 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	/** The line the view stands at, for the file's card and its other views (code cards, "The place"). */
 	private reportPlace(): void {
 		const resource = this.state?.resource;
-		const line = this.editor?.getVisibleRanges()[0]?.startLineNumber;
-		if (this.visible && resource && line !== undefined) {
-			this.places.setPlace(resource, line, this);
+		const visible = this.editor?.getVisibleRanges()[0];
+		if (this.visible && resource && visible) {
+			// What is read here is the line of the caret when it is in view, or the middle of the view.
+			const caret = this.editor?.getPosition()?.lineNumber;
+			const focus = caret !== undefined && caret >= visible.startLineNumber && caret <= visible.endLineNumber ? caret : Math.round((visible.startLineNumber + visible.endLineNumber) / 2);
+			this.places.setPlace(resource, { top: visible.startLineNumber, focus }, this);
 		}
 	}
 
@@ -230,7 +247,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private goToPlace(): void {
 		const resource = this.state?.resource;
 		if (resource && this.editor) {
-			this.editor.setScrollTop(this.editor.getTopForLineNumber(this.places.placeOf(resource) ?? 1), ScrollType.Immediate);
+			const line = this.places.placeOf(resource)?.top ?? 1;
+			this.goingToPlace = true;
+			this.editor.setScrollTop(line <= 1 ? 0 : this.editor.getTopForLineNumber(line), ScrollType.Immediate);
+			this.goingToPlace = false;
 		}
 	}
 

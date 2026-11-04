@@ -40,6 +40,7 @@ import { BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../../com
 import { BaseHalfCodePreviewTokens, baseHalfCodePreviewLinesFor } from '../../common/basehalfCanvasCodePreview.js';
 import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
+import { IBaseHalfCanvasCodeFace } from '../basehalfCanvasExtensions.js';
 import { appendCanvasNoteFullEditorLabel, badgeType, cardDisplayName, isVideoMediaPreview } from './basehalfCanvasViewShared.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../../markdown/browser/basehalfNoteLinkRouter.js';
 
@@ -80,6 +81,8 @@ export class BaseHalfCanvasCardRenderer {
 	/** The image or the video that each card element shows, and the version of its file. */
 	private readonly cardPictures = new WeakMap<HTMLElement, { readonly picture: HTMLImageElement | HTMLVideoElement; readonly version: string }>();
 
+	/** What a feature drew as the face of a code card, by card. */
+	private readonly codeFaces = new WeakMap<HTMLElement, IBaseHalfCanvasCodeFace>();
 	/** What draws more of a code card's lines when the card grows, by card. */
 	private readonly codePreviewDraws = new WeakMap<HTMLElement, (height: number) => void>();
 	/** What draws a code card's lines anew, while the card shows them. */
@@ -309,7 +312,7 @@ export class BaseHalfCanvasCardRenderer {
 		const updatePresentation = (presentation: IBaseHalfCanvasSceneCardPresentation): void => {
 			// A live Note editor is an overlay on the retained preview. Even a stale
 			// scene callback must not dispose that preview's rendering/listener owner.
-			const presentationLevel = this.view.activeCanvasNoteEditor?.card === card
+			const presentationLevel = this.view.activeCanvasNoteEditor?.card === card || this.view.codeCards?.isEditing(item.path)
 				? 'preview'
 				: presentation.level;
 			this.view.previews.updateCardPreviewHydrationPresentation(item.path, presentationLevel, sceneKey);
@@ -329,7 +332,7 @@ export class BaseHalfCanvasCardRenderer {
 			// deselected keeps what it shows: only the player's controls come and go.
 			const mediaPlayer = this.mediaVideoPlayers.get(card);
 			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell' && !badgeOpen
-				&& ((isVideoMediaPreview(preview) && mediaPlayer) || preview?.kind === 'draft')) {
+				&& ((isVideoMediaPreview(preview) && mediaPlayer) || preview?.kind === 'draft' || (preview?.kind === 'code' && this.codeFaces.has(card)))) {
 				renderedPresentation = presentationLevel;
 				card.dataset.previewLevel = presentationLevel;
 				mediaPlayer?.setSelected(presentationLevel === 'interactive');
@@ -379,6 +382,9 @@ export class BaseHalfCanvasCardRenderer {
 				if (draft) {
 					// A draft has no file to open: Enter selects it, and its panel shows.
 					this.view.selectionActions.selectCard(item.path);
+				} else if (this.view.codeCards?.editsOnCard(item, preview)) {
+					this.view.selectionActions.selectCard(item.path);
+					void this.view.codeCards.edit(item.path);
 				} else if (markdownNote) {
 					this.view.selectionActions.selectCard(item.path);
 					const structuralEpoch = this.view.canvasScene.structuralEpochOf(sceneKey);
@@ -479,7 +485,7 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		if (preview.kind === 'code') {
-			this.renderCodePreview(previewNode, preview, card, listeners);
+			this.renderCodePreview(previewNode, item, preview, card, listeners);
 			return;
 		}
 		previewNode.textContent = preview.text;
@@ -490,7 +496,23 @@ export class BaseHalfCanvasCardRenderer {
 	 * rule 33). Only the lines the card has room for are drawn; a card that grows
 	 * draws the next ones.
 	 */
-	private renderCodePreview(container: HTMLElement, preview: IBaseHalfCanvasCodePreview, card: HTMLElement, listeners: DisposableStore): void {
+	private renderCodePreview(container: HTMLElement, item: IBaseHalfCanvasItem, preview: IBaseHalfCanvasCodePreview, card: HTMLElement, listeners: DisposableStore): void {
+		const codeCards = this.view.codeCards;
+		if (codeCards) {
+			const face = codeCards.drawFace({ container, item, preview, listeners });
+			const redrawFace = () => face.redraw();
+			this.codeFaces.set(card, face);
+			this.codePreviewDraws.set(card, () => face.setHeight());
+			this.codePreviewRedraws.add(redrawFace);
+			listeners.add(toDisposable(() => {
+				if (this.codeFaces.get(card) === face) {
+					this.codeFaces.delete(card);
+					this.codePreviewDraws.delete(card);
+				}
+				this.codePreviewRedraws.delete(redrawFace);
+			}));
+			return;
+		}
 		container.style.tabSize = String(preview.tabSize);
 		let drawn = 0;
 		const draw = (height: number): void => {
@@ -523,6 +545,11 @@ export class BaseHalfCanvasCardRenderer {
 			this.codePreviewDraws.delete(card);
 			this.codePreviewRedraws.delete(redraw);
 		}));
+	}
+
+	/** What a code card draws at rest, which the canvas scrolls. */
+	codeFaceOf(card: HTMLElement): IBaseHalfCanvasCodeFace | undefined {
+		return this.codeFaces.get(card);
 	}
 
 	/** The theme changed: the code cards that show are colored anew, and the others when they draw. */

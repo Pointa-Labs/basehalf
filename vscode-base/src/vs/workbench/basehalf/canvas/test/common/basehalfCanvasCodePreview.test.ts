@@ -8,8 +8,9 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { EncodedTokenizationResult, ILanguageIdCodec, IState, ITokenizationSupport, TokenizationResult } from '../../../../../editor/common/languages.js';
 import { NullState } from '../../../../../editor/common/languages/nullTokenize.js';
 import { MetadataConsts } from '../../../../../editor/common/encodedTokenAttributes.js';
+import { LineTokens } from '../../../../../editor/common/tokens/lineTokens.js';
 import { IBaseHalfCanvasCodePreview } from '../../common/basehalfCanvasCardPreview.js';
-import { BaseHalfCodePreviewTokens, baseHalfCodePreviewLines, baseHalfCodePreviewLinesFor, baseHalfTokenizeCodePreview } from '../../common/basehalfCanvasCodePreview.js';
+import { BaseHalfCodePreviewTokens, baseHalfCodePiecesOfLine, baseHalfCodePreviewLines, baseHalfCodePreviewLinesFor, baseHalfTokenizeCodePreview } from '../../common/basehalfCanvasCodePreview.js';
 
 const CODEC: ILanguageIdCodec = {
 	encodeLanguageId: () => 1,
@@ -80,7 +81,7 @@ suite('BaseHalf code card preview', () => {
 	test('colors as many lines as are asked for, and only once', () => {
 		const support = wordSupport();
 		const tokens = new BaseHalfCodePreviewTokens(CODEC, () => support);
-		const preview: IBaseHalfCanvasCodePreview = { kind: 'code', text: 'a\nb\nc', lines: ['a', 'b', 'c'], languageId: 'test', tabSize: 4 };
+		const preview: IBaseHalfCanvasCodePreview = { kind: 'code', wholeFile: true, text: 'a\nb\nc', lines: ['a', 'b', 'c'], languageId: 'test', tabSize: 4 };
 		assert.strictEqual(tokens.linesOf(preview, 2)?.length, 2);
 		assert.strictEqual(support.calls, 2);
 		assert.strictEqual(tokens.linesOf(preview, 2)?.length, 2);
@@ -93,7 +94,16 @@ suite('BaseHalf code card preview', () => {
 
 	test('a language without a grammar has no colors', () => {
 		const tokens = new BaseHalfCodePreviewTokens(CODEC, () => null);
-		assert.strictEqual(tokens.linesOf({ kind: 'code', text: 'a', lines: ['a'], languageId: 'zig', tabSize: 4 }, 1), undefined);
-		assert.strictEqual(tokens.linesOf({ kind: 'code', text: 'a', lines: ['a'], tabSize: 4 }, 1), undefined);
+		assert.strictEqual(tokens.linesOf({ kind: 'code', wholeFile: true, text: 'a', lines: ['a'], languageId: 'zig', tabSize: 4 }, 1), undefined);
+		assert.strictEqual(tokens.linesOf({ kind: 'code', wholeFile: true, text: 'a', lines: ['a'], tabSize: 4 }, 1), undefined);
+	});
+
+	test('a line cut short of what its tokens were read from has the colors of what is left of it', () => {
+		const line = 'abcdefgh';
+		const tokens = new Uint32Array([4, 1 << MetadataConsts.FOREGROUND_OFFSET, 8, 2 << MetadataConsts.FOREGROUND_OFFSET]);
+		const lineTokens = new LineTokens(tokens, line, CODEC);
+		assert.deepStrictEqual(baseHalfCodePiecesOfLine('abcdef', lineTokens).map(piece => piece.text), ['abcd', 'ef']);
+		assert.deepStrictEqual(baseHalfCodePiecesOfLine('abc', lineTokens).map(piece => piece.text), ['abc']);
+		assert.deepStrictEqual(baseHalfCodePiecesOfLine('', lineTokens), []);
 	});
 });

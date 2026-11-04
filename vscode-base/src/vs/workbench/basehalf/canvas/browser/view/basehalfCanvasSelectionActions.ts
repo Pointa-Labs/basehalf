@@ -178,6 +178,12 @@ export class BaseHalfCanvasSelectionActions {
 			return;
 		}
 		this.cancelPendingNodeActivation();
+		if (action === 'expand') {
+			if (items.length === 1) {
+				await this.openSceneCard(sceneKey, structuralEpoch, items[0].path);
+			}
+			return;
+		}
 		if (action === 'rename') {
 			if (items.length !== 1) {
 				return;
@@ -728,7 +734,7 @@ export class BaseHalfCanvasSelectionActions {
 			text = detailText?.path === detail.relativePath ? detailText : undefined;
 		} else {
 			const cardText = this.view.agentSelectionCardText;
-			text = cardText && this.view.activeCanvasNoteEditor?.path === cardText.path ? cardText : undefined;
+			text = cardText && (this.view.activeCanvasNoteEditor?.path === cardText.path || this.view.codeCards?.isEditing(cardText.path)) ? cardText : undefined;
 		}
 		const workspaceFolder = this.view.workspaceContextService.getWorkspaceFolder(folder.workspaceFolder);
 		this.view.agentSelectionService.update({

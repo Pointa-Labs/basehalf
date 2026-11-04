@@ -53,8 +53,9 @@ export class BaseHalfTextFileSaving extends Disposable {
 		this._register(this.editorFlushService.registerDocumentFlusher(documentKey, options => this.flush(options)));
 	}
 
-	async save(): Promise<void> {
-		await this.flush({ forceSerialize: true });
+	/** Whether the file holds what the view shows now. */
+	save(): Promise<boolean> {
+		return this.flush({ forceSerialize: true });
 	}
 
 	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {

@@ -35,7 +35,7 @@ import { IHostService } from '../../host/browser/host.js';
 import { findGroup } from '../common/editorGroupFinder.js';
 import { ITextEditorService } from '../../textfile/common/textEditorService.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { baseHalfShownTextEditors } from '../../../basehalf/cardDetail/browser/basehalfShownTextEditor.js';
+import { baseHalfShownTextEditors } from '../../../basehalf/cardDetail/common/basehalfShownTextEditor.js';
 
 export class EditorService extends Disposable implements EditorServiceImpl {
 
@@ -437,7 +437,8 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 		}
 
 		// BaseHalf: with no editor over the canvas, the text editor of Card Detail is the window's (code cards, rule 27).
-		return baseHalfShownTextEditors.current?.control;
+		const shown = baseHalfShownTextEditors.current?.control;
+		return isCodeEditor(shown) || isDiffEditor(shown) ? shown : undefined;
 	}
 
 	get activeTextEditorLanguageId(): string | undefined {
@@ -499,7 +500,7 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 		const controls = this.doGetVisibleTextEditorControls(this.visibleEditorPanes);
 		// BaseHalf: the text editor of Card Detail gets what a visible editor gets, as the marks of changed lines (code cards, rule 25).
 		const shown = baseHalfShownTextEditors.current?.control;
-		return shown && !controls.includes(shown) ? [...controls, shown] : controls;
+		return (isCodeEditor(shown) || isDiffEditor(shown)) && !controls.includes(shown) ? [...controls, shown] : controls;
 	}
 
 	private doGetVisibleTextEditorControls(editorPanes: IVisibleEditorPane[]): Array<ICodeEditor | IDiffEditor> {

@@ -747,7 +747,10 @@ suite('BaseHalfCanvasReactScene', () => {
 			noteCaption: baseHalfCanvasCardDoubleClickAction(offName),
 			noteBody: baseHalfCanvasCardDoubleClickAction({ ...offName, onNoteBody: true }),
 			folderCaption: baseHalfCanvasCardDoubleClickAction({ ...offName, note: false }),
-			folderBody: baseHalfCanvasCardDoubleClickAction({ ...offName, note: false, onNoteBody: true })
+			folderBody: baseHalfCanvasCardDoubleClickAction({ ...offName, note: false, onNoteBody: true }),
+			codeName: baseHalfCanvasCardDoubleClickAction({ ...onName, note: false, editsOnCard: true }),
+			codeCaption: baseHalfCanvasCardDoubleClickAction({ ...offName, note: false, editsOnCard: true }),
+			codeBody: baseHalfCanvasCardDoubleClickAction({ ...offName, note: false, onNoteBody: true, editsOnCard: true })
 		}, {
 			noteName: 'rename',
 			folderName: 'rename',
@@ -756,7 +759,10 @@ suite('BaseHalfCanvasReactScene', () => {
 			noteCaption: undefined,
 			noteBody: 'editNote',
 			folderCaption: 'open',
-			folderBody: 'open'
+			folderBody: 'open',
+			codeName: 'rename',
+			codeCaption: 'open',
+			codeBody: 'editCode'
 		});
 	});
 

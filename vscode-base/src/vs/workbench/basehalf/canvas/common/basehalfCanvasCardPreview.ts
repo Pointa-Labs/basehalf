@@ -21,6 +21,8 @@ export interface IBaseHalfCanvasCodePreview {
 	readonly kind: 'code';
 	readonly text: string;
 	readonly lines: readonly string[];
+	/** Whether `lines` are all there is. Otherwise they are the head of a longer file. */
+	readonly wholeFile: boolean;
 	readonly languageId?: string;
 	readonly tabSize: number;
 }

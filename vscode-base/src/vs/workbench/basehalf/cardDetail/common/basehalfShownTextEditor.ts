@@ -4,12 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { ICodeEditor, IDiffEditor } from '../../../../editor/browser/editorBrowser.js';
+import { IEditor } from '../../../../editor/common/editorCommon.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 
 /** What a surface says of the text editor it shows. */
 export interface IBaseHalfShownTextEditor {
-	readonly control: ICodeEditor | IDiffEditor;
+	/** A code editor or a diff editor. */
+	readonly control: IEditor;
 	/** What the status bar and its pickers read and change the file through. */
 	readonly input?: EditorInput;
 }

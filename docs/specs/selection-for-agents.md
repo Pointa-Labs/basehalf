@@ -79,6 +79,7 @@ says what differs in this record.
 | Selected one card, of any kind | the card | the card's icon and name, as its caption shows them |
 | Opened a card for editing, or opened it in Card Detail, and selected no text | the card | the same |
 | Selected text in a note, on its card or in Card Detail | the text, its note, and the lines it is on | a text icon and the start of the text |
+| Selected text in a code file, on its card or in Card Detail | the text, its file, and the lines it is on | the same |
 | Selected text in a PDF or a book in Card Detail | the text, its document, and the pages or the chapter it is in | the same |
 | Selected two or more cards | every selected card | "N cards selected" |
 

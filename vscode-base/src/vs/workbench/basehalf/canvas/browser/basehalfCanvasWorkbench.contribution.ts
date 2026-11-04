@@ -90,7 +90,7 @@ import {
 import { layoutBaseHalfCanvasCardVideoPlayers } from './basehalfCanvasCardVideoPlayer.js';
 import { playBaseHalfCanvasMediaOneAtATime } from './basehalfCanvasCardMedia.js';
 import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
-import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
+import { IBaseHalfCanvasCodeCards, BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
 import { IBaseHalfKeptVersionsService } from '../../workspace/browser/basehalfKeptVersions.js';
 import { baseHalfStructuralResourceOutcome, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationStamp, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfCanvasRenderer } from './view/basehalfCanvasRenderer.js';
@@ -286,6 +286,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	agentSelectionCards: { readonly sceneKey: string; readonly paths: readonly string[] } = { sceneKey: '', paths: [] };
 	/** Text selected in the note being edited on its card. */
 	agentSelectionCardText: IBaseHalfAgentSelectionText | undefined;
+	/** The feature that draws code cards and edits them where they stand. */
+	codeCards: IBaseHalfCanvasCodeCards | undefined;
 	/** Text selected in each projection of Card Detail, in a note, a PDF, or a book; the one shown counts. */
 	readonly agentSelectionDetailText = new Map<BaseHalfCardDetailProjection, IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText>();
 	pendingCanvasNoteFocus: IBaseHalfPendingCanvasNoteFocus | undefined;
@@ -438,6 +440,9 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			},
 			focusNoteEditor: (sceneKey, structuralEpoch, path) => this.noteEditing.focusSceneNoteEditor(sceneKey, structuralEpoch, path),
 			editNote: (sceneKey, structuralEpoch, path, point) => this.noteEditing.beginSceneNoteEdit(sceneKey, structuralEpoch, path, point),
+			editCode: async (_sceneKey, _structuralEpoch, path, point) => {
+				await this.codeCards?.edit(path, point);
+			},
 			rememberNoteEditPoint: (sceneKey, structuralEpoch, path, point) => this.noteEditing.rememberSceneNoteEditPoint(sceneKey, structuralEpoch, path, point),
 			formatNote: (sceneKey, structuralEpoch, path, command) => this.noteEditing.formatSceneNote(sceneKey, structuralEpoch, path, command),
 			copyNote: (sceneKey, structuralEpoch, path) => this.noteEditing.copySceneNote(sceneKey, structuralEpoch, path),
@@ -452,8 +457,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			),
 			showContextMenu: (sceneKey, structuralEpoch, request) => this.selectionActions.showSceneContextMenu(sceneKey, structuralEpoch, request),
 			reportViewport: (sceneKey, viewport, final) => this.geometry.onSceneViewport(sceneKey, viewport, final),
-			// The resting projection of a Note holds the whole note.
-			cardScrollableContent: card => this.canvasNotePreviewMounts.get(card)?.fallback,
+			// The resting projection of a Note holds the whole note, and the face of a code card scrolls over the whole file.
+			cardScrollableContent: card => this.canvasNotePreviewMounts.get(card)?.fallback ?? this.cardRenderer.codeFaceOf(card)?.scrollableContent,
 			didStartViewportInteraction: () => {
 				this.viewportRestoreGeneration++;
 				this.markCanvasUserInteraction();
@@ -828,6 +833,35 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			restoreCardPlaces: (sceneKey, rows, undoLabel) => this.geometry.restoreCanvasCardPlaces(sceneKey, rows, undoLabel),
 			takeFolderDrops: drops => this.folderDrops.take(drops),
 			setCardMarks: marks => this.cardMarks.set(marks),
+			takeCodeCards: codeCards => {
+				this.codeCards = codeCards;
+				return toDisposable(() => {
+					if (this.codeCards === codeCards) {
+						this.codeCards = undefined;
+					}
+				});
+			},
+			codePreviewLines: (preview, count) => this.cardRenderer.codePreviewTokens.linesOf(preview, count),
+			setCardSelectedText: selected => {
+				this.agentSelectionCardText = selected;
+				this.selectionActions.reportAgentSelection();
+			},
+			setCardSaveError: (path, error) => {
+				const card = this.renderedCardElementsByPath.get(path);
+				if (card && error) {
+					card.dataset.noteSaveState = 'error';
+				} else if (card) {
+					delete card.dataset.noteSaveState;
+				}
+			},
+			openCard: async path => {
+				const folder = this.getCurrentFolder();
+				const sceneKey = folder && this.sceneKey(folder);
+				const structuralEpoch = sceneKey !== undefined ? this.canvasScene.structuralEpochOf(sceneKey) : undefined;
+				if (sceneKey !== undefined && structuralEpoch !== undefined) {
+					await this.selectionActions.openSceneCard(sceneKey, structuralEpoch, path);
+				}
+			},
 			closeNoteEditor: () => this.noteEditing.closeActiveCanvasNoteEditorAfterFormats(),
 			focus: () => this.cards.focus({ preventScroll: true }),
 			onKeyDown: this.onKeyDownEmitter.event,

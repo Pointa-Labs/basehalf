@@ -212,7 +212,8 @@ export class BaseHalfCanvasPreviews {
 			}
 			const languageId = await this.languageOfCode(item.stat.resource, raw);
 			if (languageId || kind === 'code') {
-				const lines = baseHalfCodePreviewLines(raw, contents.value.byteLength < CARD_EXCERPT_READ_BYTES);
+				const wholeFile = contents.value.byteLength < CARD_EXCERPT_READ_BYTES;
+				const lines = baseHalfCodePreviewLines(raw, wholeFile);
 				if (lines.length === 0) {
 					return { kind: 'empty', text: 'Empty file' };
 				}
@@ -220,6 +221,7 @@ export class BaseHalfCanvasPreviews {
 					kind: 'code',
 					text: lines.join('\n'),
 					lines,
+					wholeFile,
 					languageId,
 					tabSize: this.view.configurationService.getValue<number>('editor.tabSize', { resource: item.stat.resource, overrideIdentifier: languageId }) ?? 4
 				};
@@ -445,7 +447,7 @@ export class BaseHalfCanvasPreviews {
 					continue;
 				}
 				this.view.renderedCardPreviewsByPath.set(item.path, { item: currentItem, preview });
-				if (this.view.activeCanvasNoteEditor?.path === currentItem.path) {
+				if (this.view.activeCanvasNoteEditor?.path === currentItem.path || this.view.codeCards?.isEditing(currentItem.path)) {
 					continue;
 				}
 				const badge = this.view.badgeEditor.badgeMetadataWithDraft(
@@ -481,6 +483,7 @@ export class BaseHalfCanvasPreviews {
 					element,
 					updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.view.cardPresentationUpdaters.get(element)?.(presentation),
 					didMountElement: () => this.view.cardRenderer.didMountCardElement(currentItem.path, element),
+					editsOnCard: this.view.codeCards?.editsOnCard(currentItem, preview) ? true : undefined,
 					...(this.view.openBadgeFaces.has(currentItem.path) || this.view.canvasNoteSurfacePath === currentItem.path ? { forceInteractive: true as const } : {}),
 					...(this.view.canvasNoteSurfacePath === currentItem.path ? { noteEditing: true as const } : {})
 				});
