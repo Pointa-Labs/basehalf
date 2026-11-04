@@ -122,8 +122,9 @@ export class DocumentDiffItemViewModel extends Disposable {
 		{ contentHeight: 500, selections: undefined, }
 	);
 
-	public get originalUri(): URI | undefined { return this.documentDiffItem.original?.uri; }
-	public get modifiedUri(): URI | undefined { return this.documentDiffItem.modified?.uri; }
+	public get originalUri(): URI | undefined { return this.documentDiffItem.original?.uri ?? this.documentDiffItem.binary?.original; }
+	public get modifiedUri(): URI | undefined { return this.documentDiffItem.modified?.uri ?? this.documentDiffItem.binary?.modified; }
+	public get isBinary(): boolean { return !!this.documentDiffItem.binary; }
 
 	public readonly isActive: IObservable<boolean> = derived(this, reader => this._editorViewModel.activeDiffItem.read(reader) === this);
 

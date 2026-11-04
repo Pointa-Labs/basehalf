@@ -143,6 +143,20 @@
 			overflow: hidden;
 		}
 
+		.binary-file-placeholder {
+			display: none;
+			height: 100%;
+			place-items: center;
+			color: var(--vscode-descriptionForeground);
+		}
+
+		.binary-file-placeholder-content {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 8px;
+		}
+
 		.editorContainer {
 			flex: 1;
 		}

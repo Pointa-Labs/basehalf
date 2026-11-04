@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 import { addDisposableListener, EventType, h } from '../../../../base/browser/dom.js';
 import { Button } from '../../../../base/browser/ui/button/button.js';
+import { defaultButtonStyles } from '../../../../platform/theme/browser/defaultStyles.js';
+import { localize } from '../../../../nls.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { autorun, derived, globalTransaction, observableValue } from '../../../../base/common/observable.js';
@@ -21,6 +23,9 @@ import { DocumentDiffItemViewModel } from './multiDiffEditorViewModel.js';
 import { IObjectData, IPooledObject } from './objectPool.js';
 import { ActionRunnerWithContext } from './utils.js';
 import { IWorkbenchUIElementFactory } from './workbenchUIElementFactory.js';
+
+/** The height of what a binary file shows in the list instead of its text. */
+const binaryFilePlaceholderContentHeight = 100;
 
 export class TemplateData implements IObjectData {
 	constructor(
@@ -109,6 +114,12 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 
 			h('div.editorParent', [
 				h('div.editorContainer@editor'),
+				h('div.binary-file-placeholder@binaryFilePlaceholder', { role: 'group', 'aria-label': localize('binaryFileChanged', "Binary file changed") }, [
+					h('div.binary-file-placeholder-content', [
+						h('span', [localize('binaryFileChanged', "Binary file changed")]),
+						h('div.binary-file-placeholder-actions@binaryFilePlaceholderActions'),
+					]),
+				]),
 			])
 		]) as Record<string, HTMLElement>;
 		this.editor = this._register(this._instantiationService.createInstance(DiffEditorWidget, this._elements.editor, {
@@ -168,9 +179,22 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 			}));
 		}
 
+		if (this._workbenchUIElementFactory.openFile) {
+			const openFile = this._register(new Button(this._elements.binaryFilePlaceholderActions, { ...defaultButtonStyles, secondary: true }));
+			openFile.label = localize('basehalf.multiDiff.openBinary', "Open");
+			this._register(openFile.onDidClick(() => {
+				const uri = this._viewModel.get()?.modifiedUri ?? this._viewModel.get()?.originalUri;
+				if (uri) {
+					this._workbenchUIElementFactory.openFile?.(uri);
+				}
+			}));
+		}
+
 		this._register(autorun(reader => {
 			const collapsed = this._collapsed.read(reader);
-			this._elements.editor.style.display = collapsed ? 'none' : 'block';
+			const isBinary = this._viewModel.read(reader)?.isBinary === true;
+			this._elements.editor.style.display = collapsed || isBinary ? 'none' : 'block';
+			this._elements.binaryFilePlaceholder.style.display = !collapsed && isBinary ? 'grid' : 'none';
 			if (this._workbenchUIElementFactory.headerClickToCollapse) {
 				this._elements.header.setAttribute('aria-expanded', String(!collapsed));
 			}
@@ -188,7 +212,7 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 
 		this._register(this.editor.onDidContentSizeChange(e => {
 			globalTransaction(tx => {
-				this._editorContentHeight.set(e.contentHeight, tx);
+				this._editorContentHeight.set(this._viewModel.get()?.isBinary ? binaryFilePlaceholderContentHeight : e.contentHeight, tx);
 				this._modifiedContentWidth.set(this.editor.getModifiedEditor().getContentWidth(), tx);
 				this._originalContentWidth.set(this.editor.getOriginalEditor().getContentWidth(), tx);
 			});
@@ -296,6 +320,9 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 
 			this._dataStore.clear();
 			this._viewModel.set(data.viewModel, tx);
+			if (data.viewModel.isBinary) {
+				this._editorContentHeight.set(binaryFilePlaceholderContentHeight, tx);
+			}
 			this.editor.setDiffModel(data.viewModel.diffEditorViewModelRef, tx);
 			this.editor.updateOptions(updateOptions(value.options ?? {}));
 		});

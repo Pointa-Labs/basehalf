@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { URI } from '../../../../base/common/uri.js';
 import { Event, IValueWithChangeEvent } from '../../../../base/common/event.js';
 import { RefCounted } from '../diffEditor/utils.js';
 import { IDiffEditorOptions } from '../../../common/config/editorOptions.js';
@@ -24,6 +25,11 @@ export interface IDocumentDiffItem {
 	 * undefined if the file was deleted.
 	 */
 	readonly modified: ITextModel | undefined;
+	/**
+	 * A file that cannot be shown as text: its versions by name, without text models, as VS Code does in 1.144.
+	 * BaseHalf ports this so that no changed file is left out silently (the changes of a file, rule 25).
+	 */
+	readonly binary?: { readonly original: URI | undefined; readonly modified: URI | undefined };
 	readonly options?: IDiffEditorOptions;
 	readonly onOptionsDidChange?: Event<void>;
 	readonly contextKeys?: Record<string, ContextKeyValue>;

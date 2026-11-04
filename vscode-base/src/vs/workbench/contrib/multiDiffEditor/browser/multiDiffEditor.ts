@@ -26,6 +26,8 @@ import { IDocumentDiffItemWithMultiDiffEditorItem, MultiDiffEditorInput } from '
 import { IEditorGroup, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { URI } from '../../../../base/common/uri.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { BASEHALF_OPEN_FILE_CHANGES_COMMAND_ID } from '../../../basehalf/changes/common/basehalfFileChanges.js';
 import { MultiDiffEditorViewModel } from '../../../../editor/browser/widget/multiDiffEditor/multiDiffEditorViewModel.js';
 import { IMultiDiffEditorOptions, IMultiDiffEditorViewState } from '../../../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.js';
 import { ICodeEditor } from '../../../../editor/browser/editorBrowser.js';
@@ -229,8 +231,14 @@ class WorkbenchUIElementFactory implements IWorkbenchUIElementFactory {
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IContextKeyService contextKeyService: IContextKeyService,
+		@ICommandService private readonly _commandService: ICommandService,
 	) {
 		this.headerClickToCollapse = IsSessionsWindowContext.getValue(contextKeyService) === true;
+	}
+
+	/** BaseHalf: a binary file of the list opens where a file opens, Card Detail (the changes of a file, rule 25). */
+	openFile(uri: URI): void {
+		void this._commandService.executeCommand(BASEHALF_OPEN_FILE_CHANGES_COMMAND_ID, uri);
 	}
 
 	createResourceLabel(element: HTMLElement): IResourceLabel {

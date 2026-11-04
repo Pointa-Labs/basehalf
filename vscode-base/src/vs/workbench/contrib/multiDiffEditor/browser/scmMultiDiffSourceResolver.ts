@@ -173,7 +173,8 @@ class ScmResolvedMultiDiffSource implements IResolvedMultiDiffSource {
 	) {
 		this._resources = observableFromEvent<MultiDiffEditorItem[]>(
 			this._group.onDidChangeResources,
-			() => /** @description resources */ this._group.resources.map(e => new MultiDiffEditorItem(e.multiDiffEditorOriginalUri, e.multiDiffEditorModifiedUri, e.sourceUri))
+			// BaseHalf: `.bh` holds BaseHalf's own files, hidden everywhere else in the window (the changes of a file, rule 24).
+			() => /** @description resources */ this._group.resources.filter(e => !/\/\.bh(\/|$)/.test(e.sourceUri.path)).map(e => new MultiDiffEditorItem(e.multiDiffEditorOriginalUri, e.multiDiffEditorModifiedUri, e.sourceUri))
 		);
 		this.resources = new ValueWithChangeEventFromObservable(this._resources);
 		this.contextKeys = {

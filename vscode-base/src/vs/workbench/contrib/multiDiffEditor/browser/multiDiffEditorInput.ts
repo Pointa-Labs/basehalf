@@ -28,7 +28,7 @@ import { IEditorConfiguration } from '../../../browser/parts/editor/textEditor.j
 import { DEFAULT_EDITOR_ASSOCIATION, EditorInputCapabilities, EditorInputWithOptions, GroupIdentifier, IEditorSerializer, IResourceMultiDiffEditorInput, IRevertOptions, ISaveOptions, IUntypedEditorInput } from '../../../common/editor.js';
 import { EditorInput, IEditorCloseHandler } from '../../../common/editor/editorInput.js';
 import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
-import { ILanguageSupport, ITextFileEditorModel, ITextFileService } from '../../../services/textfile/common/textfiles.js';
+import { ILanguageSupport, ITextFileEditorModel, ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { MultiDiffEditorIcon } from './icons.contribution.js';
 import { IMultiDiffSourceResolverService, IResolvedMultiDiffSource, MultiDiffEditorItem } from './multiDiffSourceResolverService.js';
 
@@ -191,18 +191,33 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 
 			const multiDiffItemStore = new DisposableStore();
 
-			try {
-				[original, modified] = await Promise.all([
-					r.originalUri ? this._textModelService.createModelReference(r.originalUri) : undefined,
-					r.modifiedUri ? this._textModelService.createModelReference(r.modifiedUri) : undefined,
-				]);
+			// BaseHalf: as VS Code does in 1.144, a binary file stands in the list with its name
+			// instead of being left out silently (the changes of a file, rule 25).
+			const [originalResult, modifiedResult] = await Promise.allSettled([
+				r.originalUri ? this._textModelService.createModelReference(r.originalUri) : undefined,
+				r.modifiedUri ? this._textModelService.createModelReference(r.modifiedUri) : undefined,
+			]);
+			if (originalResult.status === 'fulfilled') {
+				original = originalResult.value;
 				if (original) { multiDiffItemStore.add(original); }
+			}
+			if (modifiedResult.status === 'fulfilled') {
+				modified = modifiedResult.value;
 				if (modified) { multiDiffItemStore.add(modified); }
-			} catch (e) {
-				// e.g. "File seems to be binary and cannot be opened as text"
-				console.error(e);
-				onUnexpectedError(e);
+			}
+			const errors = [originalResult, modifiedResult].filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+			const otherError = errors.find(result => !(TextFileOperationError.isTextFileOperationError(result.reason) && result.reason.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY));
+			if (otherError) {
+				multiDiffItemStore.dispose();
+				console.error(otherError.reason);
+				onUnexpectedError(otherError.reason);
 				return undefined;
+			}
+			const isBinary = errors.length > 0;
+			if (isBinary) {
+				multiDiffItemStore.clear();
+				original = undefined;
+				modified = undefined;
 			}
 
 			const uri = (r.modifiedUri ?? r.originalUri)!;
@@ -210,6 +225,7 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 				multiDiffEditorItem: r,
 				original: original?.object.textEditorModel,
 				modified: modified?.object.textEditorModel,
+				binary: isBinary ? { original: r.originalUri, modified: r.modifiedUri } : undefined,
 				contextKeys: r.contextKeys,
 				get options() {
 					return {
