@@ -199,6 +199,36 @@ has to carry it over:
   `basehalf.files.showHiddenFolder` on, the filter of Files leaves `**/.bh` out of
   `files.exclude`, for Files alone.
 
+## The changes of a file (2026-11-04)
+
+BaseHalf's own change, with one part ported. See public decision D119 and
+`docs/specs/changes-of-a-file.md`. An update of the whole tree has to carry it
+over:
+
+- `src/vs/workbench/contrib/scm/browser/scmViewPane.ts`: a click on a row goes to
+  `tryOpenBaseHalfSourceControlRow` first, and with the multi-file diff active it
+  reveals the file there instead.
+- `src/vs/workbench/contrib/multiDiffEditor/browser/scmMultiDiffSourceResolver.ts`:
+  the list leaves out files under `.bh`.
+- `src/vs/workbench/contrib/multiDiffEditor/browser/multiDiffEditor.ts` and
+  `src/vs/editor/browser/widget/multiDiffEditor/workbenchUIElementFactory.ts`:
+  `openFile`, which the button of a binary file calls.
+
+A binary file standing in the multi-file diff with its name is VS Code's own since
+release 1.144.0, ported in part, in `multiDiffEditorInput.ts`, `model.ts`,
+`multiDiffEditorViewModel.ts`, `diffEditorItemTemplate.ts`, and `style.css`. Take
+upstream's version at an update and put the button back.
+
+## Space in an editor over the canvas (2026-11-04)
+
+BaseHalf's own change. See "The Changes view" in
+`docs/specs/changes-of-a-file.md`. An update of the whole tree has to carry it
+over:
+
+- `src/vs/editor/browser/controller/editContext/native/nativeEditContext.ts`: the
+  element has the class `nokey`, without which the canvas library takes the Space
+  key from it.
+
 ## The location in the title bar (2026-07-12, revised 2026-10-24)
 
 BaseHalf's own change. See public decision D73 and

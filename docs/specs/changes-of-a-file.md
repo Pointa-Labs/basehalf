@@ -113,7 +113,10 @@ would stay.
     900 px, the whole file with the first change in sight. Its left side is the
     file's version in git and cannot be edited. Its right side is the file: the
     same text model as Source, saved as Source saves it, and each change has VS
-    Code's Revert Block and, where VS Code has it, Stage Block.
+    Code's Revert Block and, where VS Code has it, Stage Block. A space typed in it
+    arrives: the canvas holds Space for panning only outside what takes text, and
+    every VS Code editor over a canvas, also Source and the commit message box,
+    counts as taking text.
 11. The header holds Previous Change, Next Change, and the switch between one
     column and two while the Changes view shows. Alt-F5 and Shift-Alt-F5
     move between changes, as in VS Code. Escape closes Card Detail as it does from
@@ -152,13 +155,17 @@ would stay.
 21. These go on as VS Code has them: a deleted file (there is no file to open), a
     file under `.bh`, a conflict, a file outside the workspace folders, and a row
     opened to the side. So do the files of a commit in Graph.
-22. A diff that VS Code's editor shows over Card Detail of the same file stays
-    open. Closing it comes back to Card Detail.
+22. What was opened last is in front. A diff that VS Code's editor shows over Card
+    Detail stays open, also of the same file, and closing it comes back to Card
+    Detail. Card Detail that opens under such an editor, from a row, Files, or a card,
+    takes its place and the editor closes.
 
 ### All changes
 
 23. Open Changes on a group of Source Control opens VS Code's multi-file diff over
-    the canvas, with the Agent Area beside it.
+    the canvas, with the Agent Area beside it. While it is open, a click on a row shows
+    that file in it instead of opening Card Detail, so that reading it stays one
+    place.
 24. It leaves out files under `.bh`, which are BaseHalf's own and hidden everywhere
     else in the window. Its title counts what it shows. Commit and Stage All
     Changes are not affected.
@@ -209,8 +216,9 @@ changes no card.
    its folder, and the arrow keys still walk the rows. This also holds with Card
    Detail of the same file open, and of another file open.
 9. The view is side by side at 1036 px and one column at 836 px.
-10. Typing on the right side of the view changes the file and what Source shows,
-    and Revert Block and Stage Block change the file and the index as in VS Code.
+10. Typing on the right side of the view, spaces too, changes the file and what
+    Source shows, and Revert Block and Stage Block change the file and the index as
+    in VS Code. A space reaches the commit message box.
 11. Previous Change, Next Change, Alt-F5, and Shift-Alt-F5 move between
     changes; Escape closes Card Detail.
 12. A file written from outside shows in the view without a click. After the last
@@ -223,9 +231,11 @@ changes no card.
     row its reader. A deleted file's row, a row under `.bh`, and a commit's file row
     open VS Code's editor as before.
 16. A diff of a commit's file over Card Detail of that file stays open, and closing
-    it shows Card Detail.
+    it shows Card Detail. A click in Files under a diff over the canvas shows Card
+    Detail, and the diff is closed.
 17. The multi-file diff lists every changed file outside `.bh`, with binary files
-    as placeholders whose button opens them, and its title counts them.
+    as placeholders whose button opens them, and its title counts them. A click on a
+    row while it is open shows that file in it.
 18. Escape closes a diff and a multi-file diff over the canvas, but ends a selection
     first when there is one.
 

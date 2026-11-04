@@ -5926,7 +5926,13 @@ diff widget that the multi-file diff embeds has working Stage Block and Revert B
 embedding it in Card Detail keeps them; a diff goes to one column by itself in a center
 of 836 px. Card Detail's views can be registered, so Changes is one more of them. Among
 2,803 changes of code files in this repository's history, the first change is in a
-card's first 12 lines in 21%, and the whole change fits 12 lines in 31%.
+card's first 12 lines in 21%, and the whole change fits 12 lines in 31%. Typing in the
+view also showed that spaces never arrived in a VS Code editor while a canvas was
+shown, in Source and in the commit message box too: the canvas library holds Space for
+panning everywhere but in fields and what is contenteditable, and the editor's input
+element is neither. That is a fault on main as well, keyed over CDP and not from a
+physical keyboard. The element now says that it takes text, with the library's own
+class `nokey`.
 
 **What was set aside.**
 - Patching VS Code's editor for each of the ten. Each is small, but two surfaces for one
