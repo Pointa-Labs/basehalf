@@ -192,6 +192,15 @@ export async function assertCodeCardWheel(page) {
 	if (atFar.scrollTop !== 0) {
 		throw new Error(`At 40% a gesture on a card must move the canvas and not its lines: ${JSON.stringify(atFar)}`);
 	}
+	// A tick is as large on the screen at every zoom, and the rounded corners cut none.
+	const tick = await cardOf(page, LONG).evaluate(card => {
+		const box = card.querySelector('.basehalf-canvas-code-tick').getBoundingClientRect();
+		const content = card.querySelector('.basehalf-canvas-card-preview').getBoundingClientRect();
+		return { width: box.width, height: box.height, belowTheCorner: box.top - content.top };
+	});
+	if (Math.abs(tick.width - 4) > 0.5 || tick.height < 2.5 || tick.belowTheCorner < 3) {
+		throw new Error(`A tick must be as large at 40% as at 100%, and below the card's corner: ${JSON.stringify(tick)}`);
+	}
 	await page.waitForTimeout(300);
 	await setCanvasZoomPercent(page, 100);
 }
@@ -459,6 +468,34 @@ export async function assertEditingOnTheCard(page) {
 	// Command-W ends the editing, and does not close the window.
 	await page.keyboard.press('Meta+W');
 	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'Command-W ends the editing', 10_000);
+
+	// The wheel moves the lines of the card's editor and not the canvas, and the face takes the place the editor leaves.
+	await page.keyboard.press('Enter');
+	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits a selected code card', 10_000);
+	const faceBefore = await readFace(page, LONG);
+	const canvasBeforeWheel = await zoomText(page);
+	await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
+	for (let index = 0; index < 8; index++) {
+		await page.mouse.wheel(0, 200);
+		await page.waitForTimeout(40);
+	}
+	await page.waitForTimeout(400);
+	if (await zoomText(page) !== canvasBeforeWheel) {
+		throw new Error('The wheel over the card\'s editor must not move the canvas');
+	}
+	const topInEditor = await cardOf(page, LONG).evaluate(card => {
+		const scroller = card.querySelector('.basehalf-canvas-code-editor').getBoundingClientRect();
+		const numbers = [...card.querySelectorAll('.basehalf-canvas-code-editor .margin-view-overlays .line-numbers')]
+			.map(number => ({ line: Number(number.textContent), top: number.getBoundingClientRect().top }))
+			.filter(number => number.top >= scroller.top - 2)
+			.sort((a, b) => a.top - b.top);
+		return numbers[0].line;
+	});
+	await page.keyboard.press('Escape');
+	const faceAfter = await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'the end of the editing after the wheel', 10_000);
+	if (faceAfter.scrollTop <= faceBefore.scrollTop || Math.abs(faceAfter.topLine - topInEditor) > 1) {
+		throw new Error(`The face must stand where the editor left it: the editor at line ${topInEditor}, ${JSON.stringify({ before: faceBefore.scrollTop, after: faceAfter })}`);
+	}
 
 	// A press outside ends it too, and writes what was typed first.
 	await page.keyboard.press('Enter');
