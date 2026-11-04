@@ -121,8 +121,16 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			}));
 			this.editor = editor;
 			editor.setModel(modelReference.object.textEditorModel);
-			this.shownEditor = { control: editor, input: this._register(this.textEditorService.createTextEditor({ resource: state.resource })) };
+			this.shownEditor = { control: editor };
 			this.syncShownEditor();
+			// The status bar reads and changes the language and the encoding through this, once it is resolved.
+			const input = this._register(this.textEditorService.createTextEditor({ resource: state.resource }));
+			void input.resolve().then(() => {
+				if (!this.disposed) {
+					this.shownEditor = { control: editor, input };
+					this.syncShownEditor();
+				}
+			}, () => undefined);
 			// What the view does by itself to come to the place moves nothing.
 			this._register(editor.onDidScrollChange(event => {
 				if (event.scrollTopChanged && !this.goingToPlace) {

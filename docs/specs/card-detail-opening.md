@@ -114,6 +114,8 @@ rule 26).
   Detail the keyboard is ([editing media](media-editing.md#the-keyboard)).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the canvas, where the keys of the selected card work again.
+- Command-W closes Card Detail, as it closes a tab in VS Code, and not the
+  window, which it closes when nothing at all is open.
 
 ### Motion and the window
 

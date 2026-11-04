@@ -69,6 +69,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 
 	private editor: DiffEditorWidget | undefined;
 	private shownInput: EditorInput | undefined;
+	private inputAsked = false;
 	private goingToPlace = false;
 	private state: IBaseHalfCardDetailState | undefined;
 	private shown: IBaseHalfFileChange | undefined;
@@ -214,7 +215,17 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 	/** It is the window's text editor while it shows (code cards, rule 27). */
 	private syncShownEditor(): void {
 		if (this.visible && this.editor && this.state) {
-			this.shownInput ??= this._register(this.textEditorService.createTextEditor({ resource: this.state.resource }));
+			if (!this.inputAsked) {
+				// The status bar reads and changes the language and the encoding through this, once it is resolved.
+				this.inputAsked = true;
+				const input = this._register(this.textEditorService.createTextEditor({ resource: this.state.resource }));
+				void input.resolve().then(() => {
+					if (!this.disposed) {
+						this.shownInput = input;
+						this.syncShownEditor();
+					}
+				}, () => undefined);
+			}
 			baseHalfShownTextEditors.set(this, { control: this.editor, input: this.shownInput });
 		} else {
 			baseHalfShownTextEditors.clear(this);

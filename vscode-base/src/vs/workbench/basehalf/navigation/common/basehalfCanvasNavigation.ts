@@ -11,6 +11,7 @@ import { BaseHalfCardDetailProjection } from '../../cardDetail/common/basehalfCa
 
 export const IBaseHalfCanvasNavigationService = createDecorator<IBaseHalfCanvasNavigationService>('baseHalfCanvasNavigationService');
 export const BaseHalfSurfaceActiveContext = 'basehalf.surfaceActive';
+export const BaseHalfCardDetailOpenContext = 'basehalf.cardDetailOpen';
 export const BaseHalfCanNavigateBackContext = 'basehalf.canNavigateBack';
 export const BaseHalfCanNavigateForwardContext = 'basehalf.canNavigateForward';
 

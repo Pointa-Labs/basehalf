@@ -133,7 +133,14 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		// The editor is drawn in this task: the face goes in the frame the editor comes in.
 		this.face.container.classList.add('editing');
 		editor.focus();
-		baseHalfShownTextEditors.set(this, { control: editor, input: this._register(this.textEditorService.createTextEditor({ resource: this.face.resource })) });
+		baseHalfShownTextEditors.set(this, { control: editor });
+		// The status bar reads and changes the language and the encoding through this, once it is resolved.
+		const input = this._register(this.textEditorService.createTextEditor({ resource: this.face.resource }));
+		void input.resolve().then(() => {
+			if (!this._store.isDisposed && !this.ended) {
+				baseHalfShownTextEditors.set(this, { control: editor, input });
+			}
+		}, () => undefined);
 		this.saving.registerFlushers(this.face.resource.toString());
 		this._register(editor.onDidChangeModelContent(() => this.saving.updateStatus()));
 		this._register(editor.onDidChangeCursorSelection(() => this.selectionSettled.schedule()));
@@ -189,7 +196,9 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 			bracketPairColorization: { enabled: false },
 			occurrencesHighlight: 'off',
 			dragAndDrop: false,
+			// Its widgets scale with the card, and its menus stand over the window, not inside the card.
 			fixedOverflowWidgets: false,
+			useShadowDOM: false,
 			fontLigatures: false,
 			renderValidationDecorations: 'off',
 			ariaLabel: this.face.path

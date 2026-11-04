@@ -9,9 +9,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import { workspacePath } from '../../context.mts';
+import { app, workspacePath } from '../../context.mts';
 import { commitFixtureChanges } from '../../fixture.mts';
 import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
+import { withTheRunsClipboard } from '../../lib/clipboard.mts';
 import { assertCanvasFolder, openRootCanvas, readCanvasView, setCanvasZoomPercent, zoomCanvas } from '../../lib/canvas.mts';
 import { quickOpen, runCommand } from '../../lib/quickInput.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
@@ -143,6 +144,33 @@ export async function assertCodeCardWheel(page) {
 	await waitForReading(() => readFace(page, LONG), reading => reading.scrollTop === 0 && reading.firstNumber === 1, 'back at the first line', 10_000);
 	await page.waitForTimeout(300);
 
+	// A sideways gesture moves the text and leaves the numbers and the canvas.
+	const readSideways = () => cardOf(page, LONG).evaluate(card => ({
+		text: card.querySelector('.basehalf-canvas-code-text').scrollLeft,
+		numbers: Math.round(card.querySelector('.basehalf-canvas-code-gutter').getBoundingClientRect().left - card.getBoundingClientRect().left)
+	}));
+	const sidewaysBefore = await readSideways();
+	await page.mouse.wheel(150, 0);
+	const sideways = await waitForReading(readSideways, reading => reading.text >= 100, 'the text moved sideways', 5_000);
+	if (sideways.numbers !== sidewaysBefore.numbers || await zoomText(page) !== canvasBefore) {
+		throw new Error(`A sideways gesture must move only the text: ${JSON.stringify({ sidewaysBefore, sideways })}`);
+	}
+	await page.waitForTimeout(250);
+	await page.mouse.wheel(-400, 0);
+	await waitForReading(readSideways, reading => reading.text === 0, 'the text back at its start', 5_000);
+	await page.waitForTimeout(300);
+
+	// A drag from a face moves the card, as from a note at rest, and selects no text.
+	const place = await cardOf(page, LONG).boundingBox();
+	await page.mouse.move(place.x + place.width / 2, place.y + place.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(place.x + place.width / 2 + 40, place.y + place.height / 2 + 30, { steps: 6 });
+	await page.mouse.up();
+	const dragged = await waitForReading(() => cardOf(page, LONG).boundingBox(), found => Math.abs(found.x - place.x) + Math.abs(found.y - place.y) > 20, 'the card moved by a drag from its face', 5_000);
+	if (await page.evaluate(() => getSelection()?.toString().length ?? 0)) {
+		throw new Error(`A drag from a face must select no text: ${JSON.stringify(dragged)}`);
+	}
+	await page.waitForTimeout(300);
 	// What fits its card leaves the wheel to the canvas.
 	const short = await cardOf(page, SHORT).boundingBox();
 	await page.mouse.move(short.x + short.width / 2, short.y + short.height / 2);
@@ -399,6 +427,37 @@ export async function assertEditingOnTheCard(page) {
 		throw new Error('The keyboard must go back to the canvas when the editing ends');
 	}
 
+	// The menu of the editor stands over the window, not inside the card.
+	await page.keyboard.press('Enter');
+	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits a selected code card', 10_000);
+	const lines = await cardOf(page, LONG).locator('.basehalf-canvas-code-editor .view-lines').boundingBox();
+	await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.5, { button: 'right' });
+	const menu = await waitForReading(() => page.evaluate(cardPath => {
+		const found = document.querySelector('.monaco-menu-container .monaco-menu, .context-view .monaco-menu');
+		const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`);
+		return found ? { inCard: card.contains(found), text: found.textContent } : null;
+	}, LONG), found => !!found, 'the menu of the editor', 5_000);
+	if (menu.inCard || !menu.text.includes('Copy')) {
+		throw new Error(`The menu of the card's editor must stand over the window: ${JSON.stringify(menu)}`);
+	}
+	await page.keyboard.press('Escape');
+	await page.waitForTimeout(300);
+	if (!(await readFace(page, LONG)).editor || lines === null) {
+		throw new Error('Escape must close the menu before it ends the editing');
+	}
+
+	// A copy in the card's editor is the text selected, as in any editor.
+	await withTheRunsClipboard('code card copy', async () => {
+		await page.keyboard.press('Home');
+		await page.keyboard.press('Shift+End');
+		await page.keyboard.press('Meta+C');
+		await waitForReading(() => app.evaluate(({ clipboard }) => clipboard.readText()), text => text.trim().length > 0 && !text.includes('code-cards-smoke'), 'the text selected on the clipboard', 5_000);
+	});
+
+	// Command-W ends the editing, and does not close the window.
+	await page.keyboard.press('Meta+W');
+	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'Command-W ends the editing', 10_000);
+
 	// A press outside ends it too, and writes what was typed first.
 	await page.keyboard.press('Enter');
 	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits a selected code card', 10_000);
@@ -425,7 +484,9 @@ export async function assertExpandAndCommit(page) {
 	if (Math.abs(shown - scrolled.topLine) > 3) {
 		throw new Error(`Expand must open at the card's place: the card at ${scrolled.topLine}, Source at ${shown}`);
 	}
-	await closeCardDetailIfOpen(page);
+	// Command-W closes Card Detail, as it closes a tab, and leaves the window.
+	await page.keyboard.press('Meta+W');
+	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 10_000 });
 	await page.waitForTimeout(300);
 	const atPlace = await readFace(page, LONG);
 	commitFixtureChanges(workspacePath, 'the changes of the long file');

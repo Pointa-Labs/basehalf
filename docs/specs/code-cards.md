@@ -167,7 +167,8 @@ both would stay what they are.
     not fit a card. Undo, redo, the clipboard, Find, and many cursors are as in any editor.
 20. It writes the file as Source does. A letter typed there shows in Source, on the card's
     next drawing, and in the marks.
-21. Escape ends the editing once the editor has no other use for it, such as a Find. A press
+21. Escape ends the editing once the editor has no other use for it, such as a Find, and so does
+    Command-W, which does not close the window from there. A press
     outside the card, opening Card Detail, and going to another folder end it
     too, and what was typed is written first. The keyboard goes back to the canvas with the card
     still selected. Switching to another application does not end it.

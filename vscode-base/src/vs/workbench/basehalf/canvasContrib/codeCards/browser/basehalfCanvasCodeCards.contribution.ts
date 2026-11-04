@@ -6,10 +6,13 @@
 import './media/basehalfCanvasCodeCards.css';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { Limiter, RunOnceScheduler } from '../../../../../base/common/async.js';
+import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IReference, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IResolvedTextEditorModel, ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../../../platform/contextkey/common/contextkey.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { ILifecycleService } from '../../../../services/lifecycle/common/lifecycle.js';
 import { IQuickDiffModelService } from '../../../../contrib/scm/browser/quickDiffModel.js';
@@ -25,6 +28,9 @@ import { BASEHALF_CODE_CARD_LARGEST_FILE_BYTES, BASEHALF_CODE_FACE_NO_MARKS, bas
 
 /** Text models that faces hold at most: a canvas can show hundreds of files (code cards, "Limits"). */
 const MOST_MODELS_HELD = 24;
+/** Whether a code card is being edited where it stands. */
+const BaseHalfCodeCardEditingContext = new RawContextKey<boolean>('basehalfCodeCardEditing', false);
+
 /** What Source Control knows comes in bursts. */
 const CHANGES_SETTLE_MS = 100;
 
@@ -44,6 +50,13 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 	private readonly marksAsked = this._register(new Limiter<void>(1));
 	private readonly changesSettled = this._register(new RunOnceScheduler(() => this.followChanges(), CHANGES_SETTLE_MS));
 
+	private static current: BaseHalfCanvasCodeCards | undefined;
+	/** Command-W ends the editing on a card, as it closes Card Detail: with no editor open it would close the window. */
+	static endEditing(): void {
+		void BaseHalfCanvasCodeCards.current?.finish(true);
+	}
+
+	private readonly editingKey: IContextKey<boolean>;
 	private editing: { readonly path: string; readonly editor: BaseHalfCanvasCodeCardEditor } | undefined;
 	private measuredFont: { readonly family: string; readonly digitWidth: number } | undefined;
 	private selectedPaths: readonly string[] = [];
@@ -58,9 +71,17 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILifecycleService lifecycleService: ILifecycleService,
+		@IContextKeyService contextKeyService: IContextKeyService,
 	) {
 		super();
 		this.canvas = context.canvas;
+		BaseHalfCanvasCodeCards.current = this;
+		this._register(toDisposable(() => {
+			if (BaseHalfCanvasCodeCards.current === this) {
+				BaseHalfCanvasCodeCards.current = undefined;
+			}
+		}));
+		this.editingKey = BaseHalfCodeCardEditingContext.bindTo(contextKeyService);
 		this._register(this.canvas.takeCodeCards(this));
 		this._register(this.changes.onDidChange(() => this.changesSettled.schedule()));
 		this._register(this.canvas.onDidChangeScene(() => {
@@ -201,9 +222,11 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 			requestEnd: keyboardToCanvas => void this.finish(keyboardToCanvas)
 		});
 		this.editing = { path, editor };
+		this.editingKey.set(true);
 		if (!await editor.open(point)) {
 			// The file cannot be held as text here: Card Detail says why.
 			this.editing = undefined;
+			this.editingKey.set(false);
 			editor.dispose();
 			await this.canvas.openCard(path);
 		}
@@ -215,6 +238,7 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 			return;
 		}
 		this.editing = undefined;
+		this.editingKey.set(false);
 		await editing.editor.end();
 		if (keyboardToCanvas) {
 			// On the card itself, where its keys work.
@@ -281,3 +305,12 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 }
 
 registerBaseHalfCanvasContribution(BaseHalfCanvasCodeCards.ID, BaseHalfCanvasCodeCards);
+
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'basehalf.codeCards.endEditing',
+	weight: KeybindingWeight.WorkbenchContrib + 50,
+	primary: KeyMod.CtrlCmd | KeyCode.KeyW,
+	win: { primary: KeyMod.CtrlCmd | KeyCode.F4, secondary: [KeyMod.CtrlCmd | KeyCode.KeyW] },
+	when: ContextKeyExpr.has('basehalfCodeCardEditing'),
+	handler: () => BaseHalfCanvasCodeCards.endEditing()
+});
