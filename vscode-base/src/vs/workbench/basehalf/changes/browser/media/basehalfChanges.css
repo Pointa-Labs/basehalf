@@ -13,3 +13,49 @@
 .monaco-workbench .basehalf-card-detail-changes-actions[hidden] {
 	display: none;
 }
+
+/* A picture, a video, or a sound: the earlier version and the file next to each other. */
+.monaco-workbench .basehalf-card-detail-changes-media {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	gap: 16px;
+	padding: 24px;
+	box-sizing: border-box;
+	background: var(--vscode-editor-background);
+}
+
+.monaco-workbench .basehalf-card-detail-changes-version {
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+	margin: 0;
+}
+
+/* The space the player of Card Detail fits its picture into. */
+.monaco-workbench .basehalf-card-detail-changes-stage {
+	container-type: size;
+	position: relative;
+	display: flex;
+	flex: 1 1 0;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-card-detail-changes-picture {
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+	border-radius: 6px;
+}
+
+.monaco-workbench .basehalf-card-detail-changes-caption {
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	line-height: 18px;
+	text-align: center;
+}

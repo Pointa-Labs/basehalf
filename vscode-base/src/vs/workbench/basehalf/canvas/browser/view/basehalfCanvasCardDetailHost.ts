@@ -24,7 +24,9 @@ import { BaseHalfMarkdownPreviewCardDetail } from '../../../cardDetail/browser/b
 import { BaseHalfMarkdownRichCardDetail } from '../../../cardDetail/browser/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from '../../../cardDetail/browser/basehalfSourceCardDetail.js';
 import { BaseHalfChangesCardDetail } from '../../../changes/browser/basehalfChangesCardDetail.js';
+import { BaseHalfMediaChangesCardDetail } from '../../../changes/browser/basehalfMediaChangesCardDetail.js';
 import { BASEHALF_CHANGES_PROJECTION_ID } from '../../../changes/common/basehalfFileChanges.js';
+import { baseHalfRenderableContentKind } from '../../../cardDetail/common/basehalfContentRendering.js';
 import { IBaseHalfCardDetailSurfaceInstance } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { BaseHalfMediaCardDetail } from '../../../cardDetail/browser/basehalfMediaCardDetail.js';
 import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
@@ -708,8 +710,12 @@ export class BaseHalfCanvasCardDetailHost {
 			}
 		}));
 		this.view.register(this.view.cardDetailSurfaceRegistryService.registerProvider(BASEHALF_CHANGES_PROJECTION_ID, {
-			create: parent => {
+			create: (parent, state) => {
 				const host = append(parent, $('.basehalf-card-detail-surface'));
+				if (baseHalfRenderableContentKind(state.resource)) {
+					this.setDetailSaveStatus('saved');
+					return { host, instance: this.view.instantiationService.createInstance(BaseHalfMediaChangesCardDetail, host) };
+				}
 				return {
 					host,
 					instance: this.view.instantiationService.createInstance(

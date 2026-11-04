@@ -10,6 +10,8 @@ import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.j
 import { localize } from '../../../../nls.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ActiveEditorContext } from '../../../common/contextkeys.js';
@@ -17,6 +19,7 @@ import { TEXT_DIFF_EDITOR_ID } from '../../../common/editor.js';
 import { IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CHANGES_PROJECTION_ID, BASEHALF_OPEN_FILE_CHANGES_COMMAND_ID, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
+import { baseHalfChangesVersionsFolder } from './basehalfMediaChangesCardDetail.js';
 
 /** The pane of VS Code's multi-file diff (`MultiDiffEditor.ID`). */
 const MULTI_DIFF_EDITOR_ID = 'multiDiffEditor';
@@ -35,6 +38,8 @@ export class BaseHalfChangesContribution extends Disposable implements IWorkbenc
 	constructor(
 		@IBaseHalfCardProjectionRegistryService projectionRegistryService: IBaseHalfCardProjectionRegistryService,
 		@IBaseHalfFileChangesService changes: IBaseHalfFileChangesService,
+		@IFileService fileService: IFileService,
+		@IEnvironmentService environmentService: IEnvironmentService,
 	) {
 		super();
 		this._register(projectionRegistryService.registerProjection({
@@ -45,6 +50,8 @@ export class BaseHalfChangesContribution extends Disposable implements IWorkbenc
 			isAvailable: resource => changes.hasChangesView(resource),
 			onDidChangeAvailability: changes.onDidChange
 		}));
+		// A window that ended without closing its views leaves their versions behind.
+		void fileService.del(baseHalfChangesVersionsFolder(environmentService), { recursive: true }).catch(() => { /* There were none. */ });
 	}
 }
 

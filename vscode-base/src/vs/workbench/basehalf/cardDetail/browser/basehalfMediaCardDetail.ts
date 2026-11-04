@@ -441,6 +441,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	 *  suspend or resume. The keys of the playhead are only the shown one's. */
 	setVisible(visible: boolean): void {
 		this.visible = visible;
+		// The button of Edit in the header is this view's, and another view of the file shows without it.
+		this.renderModeButton();
 	}
 
 	/** The keyboard goes to the media (D100): the player, the waveform or the picture where no player stands, or into the page. */
@@ -607,7 +609,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				current?.setEditing(!current.isEditing);
 			}));
 		}
-		button.hidden = !editing?.hasEditor;
+		button.hidden = !this.visible || !editing?.hasEditor;
 		if (!editing?.hasEditor) {
 			return;
 		}
