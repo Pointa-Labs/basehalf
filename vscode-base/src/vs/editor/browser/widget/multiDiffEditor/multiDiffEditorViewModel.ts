@@ -122,9 +122,11 @@ export class DocumentDiffItemViewModel extends Disposable {
 		{ contentHeight: 500, selections: undefined, }
 	);
 
+	// BaseHalf: a binary file stands in the list by its name (the changes of a file, rule 25).
 	public get originalUri(): URI | undefined { return this.documentDiffItem.original?.uri ?? this.documentDiffItem.binary?.original; }
 	public get modifiedUri(): URI | undefined { return this.documentDiffItem.modified?.uri ?? this.documentDiffItem.binary?.modified; }
 	public get isBinary(): boolean { return !!this.documentDiffItem.binary; }
+	public get binary() { return this.documentDiffItem.binary; }
 
 	public readonly isActive: IObservable<boolean> = derived(this, reader => this._editorViewModel.activeDiffItem.read(reader) === this);
 

@@ -27,9 +27,10 @@ export interface IDocumentDiffItem {
 	readonly modified: ITextModel | undefined;
 	/**
 	 * A file that cannot be shown as text: its versions by name, without text models, as VS Code does in 1.144.
-	 * BaseHalf ports this so that no changed file is left out silently (the changes of a file, rule 25).
+	 * BaseHalf ports this so that no changed file is left out silently (the changes of a file, rule 25): `file` is
+	 * the file its row stands for, also when both versions are in git, and `unreadable` says that reading it failed.
 	 */
-	readonly binary?: { readonly original: URI | undefined; readonly modified: URI | undefined };
+	readonly binary?: { readonly original: URI | undefined; readonly modified: URI | undefined; readonly file?: URI; readonly unreadable?: boolean };
 	readonly options?: IDiffEditorOptions;
 	readonly onOptionsDidChange?: Event<void>;
 	readonly contextKeys?: Record<string, ContextKeyValue>;

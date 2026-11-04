@@ -302,7 +302,8 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 				&& item.viewModel.modifiedUri?.toString() === resource.modified?.toString()
 		);
 		if (index === -1) {
-			throw new BugIndicatingError('Resource not found in diff editor');
+			// BaseHalf: a row can ask for a file the list leaves out or has not read yet, which would replace the whole diff with an error (the changes of a file, rule 23).
+			return;
 		}
 		const viewItem = viewItems[index];
 		this._viewModel.get()!.activeDiffItem.setCache(viewItem.viewModel, undefined);

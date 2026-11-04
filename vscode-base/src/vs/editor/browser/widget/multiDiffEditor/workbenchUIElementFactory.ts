@@ -13,7 +13,7 @@ import { URI } from '../../../../base/common/uri.js';
  * This would make monaco-editor consumption much more difficult though.
  */
 export interface IWorkbenchUIElementFactory {
-	/** Opens a file of the list that cannot be shown here, such as a binary file. */
+	/** BaseHalf: opens a file of the list that cannot be shown here, such as a binary file (the changes of a file, rule 25). */
 	openFile?(uri: URI): void;
 	createResourceLabel?(element: HTMLElement): IResourceLabel;
 

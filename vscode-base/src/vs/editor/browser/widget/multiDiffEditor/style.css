@@ -143,6 +143,7 @@
 			overflow: hidden;
 		}
 
+		/* BaseHalf: what a binary file shows in the list (the changes of a file, rule 25). */
 		.binary-file-placeholder {
 			display: none;
 			height: 100%;

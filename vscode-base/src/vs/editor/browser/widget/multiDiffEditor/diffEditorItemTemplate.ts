@@ -24,7 +24,7 @@ import { IObjectData, IPooledObject } from './objectPool.js';
 import { ActionRunnerWithContext } from './utils.js';
 import { IWorkbenchUIElementFactory } from './workbenchUIElementFactory.js';
 
-/** The height of what a binary file shows in the list instead of its text. */
+/** BaseHalf: the height of what a binary file shows in the list instead of its text (the changes of a file, rule 25). */
 const binaryFilePlaceholderContentHeight = 100;
 
 export class TemplateData implements IObjectData {
@@ -114,9 +114,9 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 
 			h('div.editorParent', [
 				h('div.editorContainer@editor'),
-				h('div.binary-file-placeholder@binaryFilePlaceholder', { role: 'group', 'aria-label': localize('binaryFileChanged', "Binary file changed") }, [
+				h('div.binary-file-placeholder@binaryFilePlaceholder', { role: 'group' }, [
 					h('div.binary-file-placeholder-content', [
-						h('span', [localize('binaryFileChanged', "Binary file changed")]),
+						h('span@binaryFilePlaceholderLabel'),
 						h('div.binary-file-placeholder-actions@binaryFilePlaceholderActions'),
 					]),
 				]),
@@ -183,9 +183,9 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 			const openFile = this._register(new Button(this._elements.binaryFilePlaceholderActions, { ...defaultButtonStyles, secondary: true }));
 			openFile.label = localize('basehalf.multiDiff.openBinary', "Open");
 			this._register(openFile.onDidClick(() => {
-				const uri = this._viewModel.get()?.modifiedUri ?? this._viewModel.get()?.originalUri;
-				if (uri) {
-					this._workbenchUIElementFactory.openFile?.(uri);
+				const file = this._viewModel.get()?.binary?.file;
+				if (file) {
+					this._workbenchUIElementFactory.openFile?.(file);
 				}
 			}));
 		}
@@ -322,6 +322,11 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 			this._viewModel.set(data.viewModel, tx);
 			if (data.viewModel.isBinary) {
 				this._editorContentHeight.set(binaryFilePlaceholderContentHeight, tx);
+				const label = data.viewModel.binary?.unreadable ? localize('basehalf.multiDiff.unreadable', "This file could not be read") : localize('binaryFileChanged', "Binary file changed");
+				this._elements.binaryFilePlaceholderLabel.textContent = label;
+				this._elements.binaryFilePlaceholder.setAttribute('aria-label', label);
+				// A deleted file has nothing to open.
+				this._elements.binaryFilePlaceholderActions.style.display = data.viewModel.modifiedUri ? '' : 'none';
 			}
 			this.editor.setDiffModel(data.viewModel.diffEditorViewModelRef, tx);
 			this.editor.updateOptions(updateOptions(value.options ?? {}));

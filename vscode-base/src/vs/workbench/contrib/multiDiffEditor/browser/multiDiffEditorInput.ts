@@ -208,10 +208,8 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 			const errors = [originalResult, modifiedResult].filter((result): result is PromiseRejectedResult => result.status === 'rejected');
 			const otherError = errors.find(result => !(TextFileOperationError.isTextFileOperationError(result.reason) && result.reason.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY));
 			if (otherError) {
-				multiDiffItemStore.dispose();
 				console.error(otherError.reason);
 				onUnexpectedError(otherError.reason);
-				return undefined;
 			}
 			const isBinary = errors.length > 0;
 			if (isBinary) {
@@ -225,7 +223,7 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 				multiDiffEditorItem: r,
 				original: original?.object.textEditorModel,
 				modified: modified?.object.textEditorModel,
-				binary: isBinary ? { original: r.originalUri, modified: r.modifiedUri } : undefined,
+				binary: isBinary ? { original: r.originalUri, modified: r.modifiedUri, file: r.goToFileUri, unreadable: !!otherError } : undefined,
 				contextKeys: r.contextKeys,
 				get options() {
 					return {
