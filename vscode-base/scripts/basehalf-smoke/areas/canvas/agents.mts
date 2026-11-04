@@ -12,7 +12,7 @@ import { frameCanvasCardsForConnection } from './connections.mts';
 import { centerCanvasCards } from './creation.mts';
 import { root, smokeHome, workspacePath } from '../../context.mts';
 import { gitStatusOfWorkspace } from '../../fixture.mts';
-import { assertCanvasEdgeVisible, waitForCanvasCardSelection, waitForCanvasNoteInlineEditor, zoomCanvas } from '../../lib/canvas.mts';
+import { assertCanvasEdgeVisible, openRootCanvas, waitForCanvasCardSelection, waitForCanvasNoteInlineEditor, zoomCanvas } from '../../lib/canvas.mts';
 import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
 import { clickNotificationAction } from '../../lib/notifications.mts';
@@ -336,6 +336,27 @@ export async function assertAgentSeesSelection(page) {
 	}
 	fs.writeFileSync(settingsPath, settingsBefore, 'utf8');
 	await pane.click({ position: { x: 16, y: 16 } });
+	// Text in the Changes view of a file: on its right side lines of the file, on its
+	// left side lines of the earlier version, which the record says (the changes of a
+	// file, rule 15).
+	const changedReadme = path.join(workspacePath, 'README.md');
+	const changedReadmeBefore = fs.readFileSync(changedReadme, 'utf8');
+	fs.writeFileSync(changedReadme, `${changedReadmeBefore}\nA line an agent wrote.\n`, 'utf8');
+	await runCommand(page, 'Git: Refresh');
+	await openRootCanvas(page);
+	await readme.locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 20_000 });
+	const changesSide = side => page.locator(`.basehalf-card-detail-surface.active .editor.${side} .view-lines`);
+	await changesSide('modified').waitFor({ state: 'visible', timeout: 10_000 });
+	await changesSide('modified').click({ position: { x: 100, y: 10 } });
+	await page.keyboard.press('Meta+A');
+	await waitUntil(() => /selected: "text"[\s\S]*first_line: 1[\s\S]*A line an agent wrote/.test(readRecord() ?? '') && !/committed: true/.test(readRecord() ?? ''), 'text on the right side of the Changes view in the record', 10_000);
+	await changesSide('original').click({ position: { x: 100, y: 10 } });
+	await page.keyboard.press('Meta+A');
+	await waitUntil(() => /first_line: 1[\s\S]*committed: true/.test(readRecord() ?? '') && !/A line an agent wrote/.test(readRecord() ?? ''), 'text on the left side of the Changes view in the record, as an earlier version', 10_000);
+	await closeCardDetailIfOpen(page);
+	fs.writeFileSync(changedReadme, changedReadmeBefore, 'utf8');
+	await runCommand(page, 'Git: Refresh');
+
 }
 
 // An AGENT creates a user file with its own tools. BaseHalf observes the real

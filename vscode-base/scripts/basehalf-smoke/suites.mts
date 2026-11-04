@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { assertChangedCardsAreMarked, assertCodeCardAsTheEditor, assertCommitBoxTakesSpaces, assertMultiFileDiff, assertRowOpensTheChangesView, assertRowsOfOtherKinds, assertWhatOpenedLastIsInFront, finishChangedFiles, prepareChangedFiles } from './areas/workbench/changes.mts';
 import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentSeesSelection, assertAgentUpstreamEditDrawsEdge } from './areas/canvas/agents.mts';
 import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndConnectors, assertCanvasUnreadableBadgeRecovers } from './areas/canvas/badges.mts';
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
@@ -161,6 +162,15 @@ async function runWorkbenchSuite(page) {
 	await step('source-control-leaves-out-system-files', () => assertSourceControlLeavesOutSystemFiles(page));
 	commitFixtureChanges(workspacePath, 'smoke changes');
 	await step('git-refresh', () => runCommand(page, 'Git: Refresh'));
+	await step('changes-prepare', () => prepareChangedFiles(page));
+	await step('changes-code-card-as-the-editor', () => assertCodeCardAsTheEditor(page));
+	await step('changes-marks-on-cards', () => assertChangedCardsAreMarked(page));
+	await step('changes-row-opens-the-view', () => assertRowOpensTheChangesView(page));
+	await step('changes-rows-of-other-kinds', () => assertRowsOfOtherKinds(page));
+	await step('changes-multi-file-diff', () => assertMultiFileDiff(page));
+	await step('changes-what-opened-last-is-in-front', () => assertWhatOpenedLastIsInFront(page));
+	await step('commit-box-takes-spaces', () => assertCommitBoxTakesSpaces(page));
+	await step('changes-finish', () => finishChangedFiles(page));
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
