@@ -1,0 +1,44 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The mark of a changed file (the changes of a file, rules 2 to 4). The color comes
+ * from the class VS Code's decorations give the file, set on what holds the name.
+ */
+.monaco-workbench .basehalf-canvas-card-changed .basehalf-canvas-card-label,
+.monaco-workbench .basehalf-canvas-card-changed .basehalf-canvas-folder-preview-label {
+	color: inherit;
+}
+
+.monaco-workbench .basehalf-canvas-card-change {
+	flex: none;
+	margin-left: 6px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-card-change.passive {
+	cursor: inherit;
+	pointer-events: none;
+}
+
+/* A folder's dot, which VS Code's decorations draw for a list with room to its right. */
+.monaco-workbench .basehalf-canvas-card-change::after {
+	margin-right: 0;
+}
+
+/* On the screen it is as wide at every zoom: at a far zoom it is what can be seen of a mark. */
+.monaco-workbench .basehalf-canvas-card-change-bar {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 3;
+	width: calc(3px / var(--basehalf-canvas-zoom, 1));
+	background-color: currentColor;
+	pointer-events: none;
+}

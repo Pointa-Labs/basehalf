@@ -289,6 +289,7 @@ export class BaseHalfCanvasCardRenderer {
 		const content = append(card, $('.basehalf-canvas-card-content'));
 		this.view.creation.renderInlineRenameEditor(card, item);
 		this.view.renderedCardElementsByPath.set(item.path, card);
+		this.view.cardMarks.attachCard(card, item.path, captionIdentity, content, listeners);
 		// The card of a file that was just saved says Saving until its picture can be drawn.
 		let carried = item.generation && !draft ? this.generationFaces.get(item.path)?.saving : undefined;
 
@@ -355,6 +356,7 @@ export class BaseHalfCanvasCardRenderer {
 			}
 			this.renderFolderCoverage(active, item, preview);
 			this.view.badgeEditor.restorePendingCanvasBadgeFocus(card, item.path);
+			this.view.cardMarks.faceDrawn(card);
 		};
 		this.view.cardPresentationUpdaters.set(card, updatePresentation);
 		updatePresentation({
@@ -447,7 +449,7 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		if (preview.kind === 'folder') {
-			this.renderFolderPreview(previewNode, preview, item.badge?.description);
+			this.renderFolderPreview(previewNode, preview, item.badge?.description, card);
 			return;
 		}
 		if (preview.kind === 'markdown') {
@@ -883,14 +885,16 @@ export class BaseHalfCanvasCardRenderer {
 		}
 	}
 
-	private renderFolderPreview(container: HTMLElement, preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'folder' }>, description: string | undefined): void {
+	private renderFolderPreview(container: HTMLElement, preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'folder' }>, description: string | undefined, card: HTMLElement): void {
 		if (preview.total === 0) {
 			const empty = append(container, $('span.basehalf-canvas-folder-empty'));
 			empty.textContent = 'Empty folder';
 		} else {
 			const list = append(container, $('.basehalf-canvas-folder-preview-list'));
+			const rows = new Map<string, { readonly row: HTMLElement; readonly isFolder: boolean }>();
 			for (const child of preview.items) {
 				const row = append(list, $('.basehalf-canvas-folder-preview-row'));
+				rows.set(child.name, { row, isFolder: child.kind === 'folder' });
 				const glyph = append(row, $('.basehalf-canvas-folder-preview-glyph'));
 				this.renderGlyph(glyph, badgeType(child.name, child.kind === 'folder'), child.kind === 'folder' ? 'var(--bh-card-folder-glyph)' : 'var(--bh-card-text-tertiary)', 12);
 				const label = append(row, $('.basehalf-canvas-folder-preview-label'));
@@ -898,6 +902,7 @@ export class BaseHalfCanvasCardRenderer {
 				label.textContent = child.kind === 'folder' ? `${name}/` : name;
 				label.classList.toggle('folder', child.kind === 'folder');
 			}
+			this.view.cardMarks.attachFolderRows(card, rows);
 			const remaining = preview.total - preview.items.length;
 			if (remaining > 0) {
 				const more = append(list, $('.basehalf-canvas-folder-preview-more'));

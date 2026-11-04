@@ -93,6 +93,7 @@ import { baseHalfStructuralResourceOutcome, IBaseHalfWorkspaceMutationCoordinato
 import { BaseHalfCanvasRenderer } from './view/basehalfCanvasRenderer.js';
 import { BaseHalfCanvasPreviews } from './view/basehalfCanvasPreviews.js';
 import { BaseHalfCanvasCardRenderer } from './view/basehalfCanvasCardRenderer.js';
+import { BaseHalfCanvasCardMarks } from './view/basehalfCanvasCardMarks.js';
 import { BaseHalfCanvasBadgeEditor } from './view/basehalfCanvasBadgeEditor.js';
 import { BaseHalfCanvasNoteEditing } from './view/basehalfCanvasNoteEditing.js';
 import { BaseHalfCanvasConnections } from './view/basehalfCanvasConnections.js';
@@ -149,6 +150,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly renderer = new BaseHalfCanvasRenderer(this);
 	readonly previews = new BaseHalfCanvasPreviews(this);
 	readonly cardRenderer = new BaseHalfCanvasCardRenderer(this);
+	readonly cardMarks = new BaseHalfCanvasCardMarks(this);
 	readonly badgeEditor = new BaseHalfCanvasBadgeEditor(this);
 	readonly noteEditing = new BaseHalfCanvasNoteEditing(this);
 	readonly connections = new BaseHalfCanvasConnections(this);
@@ -815,6 +817,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			moveCards: (scene, places, undoLabel, onUndoOrRedo) => this.geometry.moveCanvasCards(scene, places, undoLabel, onUndoOrRedo),
 			restoreCardPlaces: (sceneKey, rows, undoLabel) => this.geometry.restoreCanvasCardPlaces(sceneKey, rows, undoLabel),
 			takeFolderDrops: drops => this.folderDrops.take(drops),
+			setCardMarks: marks => this.cardMarks.set(marks),
 			closeNoteEditor: () => this.noteEditing.closeActiveCanvasNoteEditorAfterFormats(),
 			focus: () => this.cards.focus({ preventScroll: true }),
 			onKeyDown: this.onKeyDownEmitter.event,

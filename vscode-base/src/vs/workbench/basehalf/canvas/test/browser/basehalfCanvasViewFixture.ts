@@ -151,6 +151,7 @@ export function createBaseHalfTestCanvasView(
 			});
 		},
 		endCardPick: () => { cardPick = undefined; },
+		setCardMarks: () => { },
 		takeFolderDrops: () => {
 			calls.push('takeFolderDrops');
 			return toDisposable(() => { });

@@ -55,6 +55,21 @@ export interface IBaseHalfCanvasFolderDrops {
 	drop(resources: readonly URI[], folder: URI, operation: 'move' | 'copy'): Promise<void>;
 }
 
+/** What a feature marks on a card or a row: the classes that VS Code's decorations give its name and its letter. */
+export interface IBaseHalfCanvasMark {
+	readonly labelClassName: string;
+	readonly badgeClassName: string;
+}
+
+/** What a feature marks on a card (IBaseHalfCanvasView.setCardMarks). */
+export interface IBaseHalfCanvasCardMark extends IBaseHalfCanvasMark {
+	readonly title: string;
+	/** A click on the letter does this; without it the letter does nothing. */
+	readonly open?: () => void;
+	/** The mark of a row of a folder's list, by the name of the file or folder on it. */
+	readonly rowMark?: (name: string, isFolder: boolean) => IBaseHalfCanvasMark | undefined;
+}
+
 /**
  * The canvas as its features see it (docs/harness/code-organization.md, "The
  * canvas: a core and its features"). The canvas view implements it; a feature
@@ -173,6 +188,9 @@ export interface IBaseHalfCanvasView {
 	 * window let go on a folder's card. Disposing the result stops it.
 	 */
 	takeFolderDrops(drops: IBaseHalfCanvasFolderDrops): IDisposable;
+
+	/** Replaces the marks on the cards of the canvas, by the path of the card. What a card shows of its file stays as it is. */
+	setCardMarks(marks: ReadonlyMap<string, IBaseHalfCanvasCardMark>): void;
 
 	/** Closes the note that is being edited on its card, as a click elsewhere does. False when it stays open. */
 	closeNoteEditor(): Promise<boolean>;
