@@ -16,7 +16,8 @@ import { ResourceLabels, IResourceLabel, IFileLabelOptions } from '../../../brow
 import { CountBadge } from '../../../../base/browser/ui/countBadge/countBadge.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfSourceControlRow } from '../../../basehalf/changes/browser/basehalfSourceControlRows.js';
+import { tryOpenBaseHalfSourceControlRow } from '../../../basehalf/changes/common/basehalfSourceControlRows.js';
+import { baseHalfIsUnderBhFolder } from '../../../basehalf/workspace/common/basehalfBhFolder.js';
 import { IBaseHalfFileChangesService } from '../../../basehalf/changes/common/basehalfFileChanges.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
@@ -1718,8 +1719,8 @@ export class SCMViewPane extends ViewPane {
 			return;
 		} else if (isSCMResource(e.element)) {
 			if (e.element.command?.id === API_OPEN_EDITOR_COMMAND_ID || e.element.command?.id === API_OPEN_DIFF_EDITOR_COMMAND_ID) {
-				// BaseHalf: while the multi-file diff is open, a row shows its file in it (the changes of a file, rule 23).
-				if ((isPointerEvent(e.browserEvent) && e.browserEvent.button === 1) || this.editorService.activeEditorPane?.getId() === MultiDiffEditor.ID) {
+				// BaseHalf: while the multi-file diff is open, a row shows its file in it, but for a file it leaves out (the changes of a file, rule 23).
+				if ((isPointerEvent(e.browserEvent) && e.browserEvent.button === 1) || (this.editorService.activeEditorPane?.getId() === MultiDiffEditor.ID && !baseHalfIsUnderBhFolder(e.element.sourceUri.path))) {
 					const resourceGroup = e.element.resourceGroup;
 					const title = `${resourceGroup.provider.label}: ${resourceGroup.label}`;
 					await OpenScmGroupAction.openMultiFileDiffEditor(this.editorService, title, resourceGroup.provider.rootUri, resourceGroup.id, {

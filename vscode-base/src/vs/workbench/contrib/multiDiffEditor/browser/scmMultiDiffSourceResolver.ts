@@ -17,6 +17,7 @@ import { IActivityService, ProgressBadge } from '../../../services/activity/comm
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ISCMProvider, ISCMRepository, ISCMResourceGroup, ISCMService } from '../../scm/common/scm.js';
 import { IMultiDiffSourceResolver, IMultiDiffSourceResolverService, IResolvedMultiDiffSource, MultiDiffEditorItem } from './multiDiffSourceResolverService.js';
+import { baseHalfIsUnderBhFolder } from '../../../basehalf/workspace/common/basehalfBhFolder.js';
 
 export class ScmMultiDiffSourceResolver implements IMultiDiffSourceResolver {
 	private static readonly _scheme = 'scm-multi-diff-source';
@@ -174,7 +175,7 @@ class ScmResolvedMultiDiffSource implements IResolvedMultiDiffSource {
 		this._resources = observableFromEvent<MultiDiffEditorItem[]>(
 			this._group.onDidChangeResources,
 			// BaseHalf: `.bh` holds BaseHalf's own files, hidden everywhere else in the window (the changes of a file, rule 24).
-			() => /** @description resources */ this._group.resources.filter(e => !/\/\.bh(\/|$)/.test(e.sourceUri.path)).map(e => new MultiDiffEditorItem(e.multiDiffEditorOriginalUri, e.multiDiffEditorModifiedUri, e.sourceUri))
+			() => /** @description resources */ this._group.resources.filter(e => !baseHalfIsUnderBhFolder(e.sourceUri.path)).map(e => new MultiDiffEditorItem(e.multiDiffEditorOriginalUri, e.multiDiffEditorModifiedUri, e.sourceUri))
 		);
 		this.resources = new ValueWithChangeEventFromObservable(this._resources);
 		this.contextKeys = {

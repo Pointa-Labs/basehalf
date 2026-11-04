@@ -4,10 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Schemas } from '../../../../base/common/network.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting } from '../../navigation/common/basehalfOpenRouting.js';
-import { BASEHALF_CHANGES_PROJECTION_ID, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
+import { baseHalfIsUnderBhFolder } from '../../workspace/common/basehalfBhFolder.js';
+import { BASEHALF_CHANGES_PROJECTION_ID, IBaseHalfFileChangesService } from './basehalfFileChanges.js';
 
 export interface IBaseHalfSourceControlRow {
 	readonly resource: URI;
@@ -22,14 +24,19 @@ export interface IBaseHalfSourceControlRow {
  * Detail, at the Changes view when the file has one (the changes of a file, rules
  * 19 to 21). False leaves the row to VS Code: a deleted file, which has nothing to
  * open, a file under `.bh`, a conflict, a file outside the workspace folders, and a
- * row opened to the side.
+ * row opened to the side. Card Detail of that file gives way first, or it would close
+ * what VS Code opens as its duplicate.
  */
 export async function tryOpenBaseHalfSourceControlRow(
 	row: IBaseHalfSourceControlRow,
 	navigation: IBaseHalfCanvasNavigationService,
 	changes: IBaseHalfFileChangesService
 ): Promise<boolean> {
-	if (row.sideBySide || row.resource.scheme !== Schemas.file || row.groupId === 'merge' || /\/\.bh(\/|$)/.test(row.resource.path)) {
+	if (row.sideBySide || row.resource.scheme !== Schemas.file || row.groupId === 'merge' || baseHalfIsUnderBhFolder(row.resource.path)) {
+		const open = navigation.state.cardDetail;
+		if (open && isEqual(open.resource, row.resource)) {
+			await navigation.closeCardDetail();
+		}
 		return false;
 	}
 	const options = { source: 'api', preserveFocus: row.preserveFocus, pinned: row.pinned } as const;

@@ -8,10 +8,13 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableMap, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { ResourceMap, ResourceSet } from '../../../../base/common/map.js';
 import { URI } from '../../../../base/common/uri.js';
+import { RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
+import { baseHalfIsUnderBhFolder } from '../../workspace/common/basehalfBhFolder.js';
 import { ISCMRepository, ISCMResource, ISCMService } from '../../../contrib/scm/common/scm.js';
 
 /** The projection of Card Detail that shows a file's changes (the changes of a file). */
@@ -19,6 +22,12 @@ export const BASEHALF_CHANGES_PROJECTION_ID = 'changes';
 
 /** Opens a file in Card Detail at its Changes view, or at its usual view when it has none. */
 export const BASEHALF_OPEN_FILE_CHANGES_COMMAND_ID = 'basehalf.changes.openFile';
+
+/** Whether the Changes view of a text file shows, whose keys work wherever the keyboard is. */
+export const BaseHalfChangesViewShownContext = new RawContextKey<boolean>('basehalfChangesViewShown', false);
+
+/** Git hands a version to the window whole, so a larger one stays unread (the changes of a file, rules 14 and 18). */
+export const BASEHALF_LARGEST_COMPARED_VERSION_BYTES = 256 * 1024 * 1024;
 
 /** Source Control's group of a file changed since what is staged, and of what is staged. */
 const WORKING_TREE_GROUP = 'workingTree';
@@ -59,10 +68,6 @@ export interface IBaseHalfFileChangesService {
 	markNotText(resource: URI): void;
 }
 
-function isUnderBhFolder(resource: URI): boolean {
-	return /\/\.bh(\/|$)/.test(resource.path);
-}
-
 export class BaseHalfFileChangesService extends Disposable implements IBaseHalfFileChangesService {
 	declare readonly _serviceBrand: undefined;
 
@@ -79,9 +84,19 @@ export class BaseHalfFileChangesService extends Disposable implements IBaseHalfF
 	constructor(
 		@ISCMService private readonly scmService: ISCMService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
+		@IFileService fileService: IFileService,
 	) {
 		super();
 		this.notText = new ResourceSet(uri => this.uriIdentityService.extUri.getComparisonKey(uri));
+		// A file written anew may be text now, as when an agent changed its encoding.
+		this._register(fileService.onDidFilesChange(event => {
+			for (const uri of [...this.notText]) {
+				if (event.contains(uri)) {
+					this.notText.delete(uri);
+					this.announce.schedule();
+				}
+			}
+		}));
 		for (const repository of this.scmService.repositories) {
 			this.watchRepository(repository);
 		}
@@ -116,7 +131,6 @@ export class BaseHalfFileChangesService extends Disposable implements IBaseHalfF
 		const resources = new ResourceMap<ISCMResource[]>(toKey);
 		const folders = new ResourceSet(toKey);
 		for (const repository of this.scmService.repositories) {
-			const root = repository.provider.rootUri;
 			for (const group of repository.provider.groups) {
 				for (const resource of group.resources) {
 					const uri = resource.sourceUri;
@@ -126,12 +140,13 @@ export class BaseHalfFileChangesService extends Disposable implements IBaseHalfF
 					} else {
 						resources.set(uri, [resource]);
 					}
-					if (isUnderBhFolder(uri)) {
+					if (baseHalfIsUnderBhFolder(uri.path)) {
 						continue;
 					}
+					// All the way up: a folder above a nested repository holds its changes too, as Files shows.
 					for (let folder = extUri.dirname(uri); !folders.has(folder); folder = extUri.dirname(folder)) {
 						folders.add(folder);
-						if ((root && extUri.isEqual(folder, root)) || extUri.isEqual(folder, extUri.dirname(folder))) {
+						if (extUri.isEqual(folder, extUri.dirname(folder))) {
 							break;
 						}
 					}
@@ -170,7 +185,7 @@ export class BaseHalfFileChangesService extends Disposable implements IBaseHalfF
 	}
 
 	hasChangesView(resource: URI): boolean {
-		if (isUnderBhFolder(resource) || !this.changeOf(resource) || this.notText.has(resource)) {
+		if (baseHalfIsUnderBhFolder(resource.path) || !this.changeOf(resource) || this.notText.has(resource)) {
 			return false;
 		}
 		const kind = baseHalfRenderableContentKind(resource);

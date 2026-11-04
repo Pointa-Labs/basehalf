@@ -7,8 +7,8 @@ import assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { BaseHalfNavigationResult, IBaseHalfCanvasNavigationService, IBaseHalfOpenResourceOptions } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfSourceControlRow } from '../../browser/basehalfSourceControlRows.js';
 import { IBaseHalfFileChange, IBaseHalfFileChangesService } from '../../common/basehalfFileChanges.js';
+import { tryOpenBaseHalfSourceControlRow } from '../../common/basehalfSourceControlRows.js';
 
 const FILE = URI.file('/work/src/a.ts');
 const CHANGE = (groupId: string): IBaseHalfFileChange => ({ groupId, original: FILE.with({ scheme: 'git' }), modified: FILE });
@@ -17,9 +17,12 @@ suite('BaseHalf rows of Source Control', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	function create(result: BaseHalfNavigationResult = { handled: true } as BaseHalfNavigationResult, change?: IBaseHalfFileChange) {
+	function create(result: BaseHalfNavigationResult = { handled: true } as BaseHalfNavigationResult, change?: IBaseHalfFileChange, openFile?: URI) {
 		const calls: [string, string, IBaseHalfOpenResourceOptions][] = [];
+		const closed: string[] = [];
 		const navigation = {
+			state: { cardDetail: openFile ? { resource: openFile } : undefined },
+			closeCardDetail: async () => { closed.push('closed'); return true; },
 			openCardDetail: async (resource: URI, options: IBaseHalfOpenResourceOptions) => { calls.push(['detail', resource.path, options]); return result; },
 			openResource: async (resource: URI, options: IBaseHalfOpenResourceOptions) => { calls.push(['resource', resource.path, options]); return result; }
 		} as unknown as IBaseHalfCanvasNavigationService;
@@ -27,7 +30,7 @@ suite('BaseHalf rows of Source Control', () => {
 			hasChangesView: () => !!change,
 			changeOf: () => change
 		} as unknown as IBaseHalfFileChangesService;
-		return { calls, navigation, changes };
+		return { calls, closed, navigation, changes };
 	}
 
 	test('a changed file opens at the Changes view of its group, with the keyboard left where it is', async () => {
@@ -71,5 +74,15 @@ suite('BaseHalf rows of Source Control', () => {
 			assert.strictEqual(await tryOpenBaseHalfSourceControlRow(row, navigation, changes), false);
 		}
 		assert.deepStrictEqual(calls, []);
+	});
+
+	test('what stays VS Code\'s comes in front of Card Detail of that file, which would close it as its duplicate, and of no other', async () => {
+		const same = create(undefined, CHANGE('workingTree'), FILE);
+		assert.strictEqual(await tryOpenBaseHalfSourceControlRow({ resource: FILE, groupId: 'merge' }, same.navigation, same.changes), false);
+		assert.deepStrictEqual(same.closed, ['closed']);
+
+		const other = create(undefined, CHANGE('workingTree'), URI.file('/work/src/b.ts'));
+		assert.strictEqual(await tryOpenBaseHalfSourceControlRow({ resource: FILE, groupId: 'merge' }, other.navigation, other.changes), false);
+		assert.deepStrictEqual(other.closed, []);
 	});
 });

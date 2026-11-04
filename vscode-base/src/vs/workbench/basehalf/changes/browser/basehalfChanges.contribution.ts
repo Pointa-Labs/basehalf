@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { KeyCode } from '../../../../base/common/keyCodes.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
@@ -13,12 +13,14 @@ import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextke
 import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ActiveEditorContext } from '../../../common/contextkeys.js';
 import { TEXT_DIFF_EDITOR_ID } from '../../../common/editor.js';
 import { IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { BASEHALF_CHANGES_PROJECTION_ID, BASEHALF_OPEN_FILE_CHANGES_COMMAND_ID, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
+import { BaseHalfSurfaceActiveContext, IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
+import { BASEHALF_CHANGES_PROJECTION_ID, BASEHALF_OPEN_FILE_CHANGES_COMMAND_ID, BaseHalfChangesViewShownContext, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
+import { BaseHalfChangesCardDetail } from './basehalfChangesCardDetail.js';
 import { baseHalfChangesVersionsFolder } from './basehalfMediaChangesCardDetail.js';
 
 /** The pane of VS Code's multi-file diff (`MultiDiffEditor.ID`). */
@@ -40,6 +42,7 @@ export class BaseHalfChangesContribution extends Disposable implements IWorkbenc
 		@IBaseHalfFileChangesService changes: IBaseHalfFileChangesService,
 		@IFileService fileService: IFileService,
 		@IEnvironmentService environmentService: IEnvironmentService,
+		@IWorkspaceContextService workspaceContextService: IWorkspaceContextService,
 	) {
 		super();
 		this._register(projectionRegistryService.registerProjection({
@@ -51,7 +54,7 @@ export class BaseHalfChangesContribution extends Disposable implements IWorkbenc
 			onDidChangeAvailability: changes.onDidChange
 		}));
 		// A window that ended without closing its views leaves their versions behind.
-		void fileService.del(baseHalfChangesVersionsFolder(environmentService), { recursive: true }).catch(() => { /* There were none. */ });
+		void fileService.del(baseHalfChangesVersionsFolder(environmentService, workspaceContextService), { recursive: true }).catch(() => { /* There were none. */ });
 	}
 }
 
@@ -59,6 +62,21 @@ registerWorkbenchContribution2(BaseHalfChangesContribution.ID, BaseHalfChangesCo
 
 CommandsRegistry.registerCommand(BASEHALF_OPEN_FILE_CHANGES_COMMAND_ID, (accessor, resource: URI) =>
 	accessor.get(IBaseHalfCanvasNavigationService).openCardDetail(resource, { source: 'api', pinned: true, projection: BASEHALF_CHANGES_PROJECTION_ID }));
+
+// Next Change and Previous Change work wherever the keyboard is, as in VS Code, unless
+// an editor over the view has its own use for these keys (the changes of a file, rule 11).
+for (const [id, direction, primary] of [
+	['basehalf.changes.nextChange', 'next', KeyMod.Alt | KeyCode.F5],
+	['basehalf.changes.previousChange', 'previous', KeyMod.Shift | KeyMod.Alt | KeyCode.F5]
+] as const) {
+	KeybindingsRegistry.registerCommandAndKeybindingRule({
+		id,
+		weight: KeybindingWeight.WorkbenchContrib,
+		primary,
+		when: ContextKeyExpr.and(BaseHalfChangesViewShownContext, ContextKeyExpr.has(BaseHalfSurfaceActiveContext)),
+		handler: () => BaseHalfChangesCardDetail.shown?.goToChange(direction)
+	});
+}
 
 // Card Detail closes with Escape, so what covers the canvas like it does too, once
 // the editor has nothing else to do with the key: its own uses weigh more (the

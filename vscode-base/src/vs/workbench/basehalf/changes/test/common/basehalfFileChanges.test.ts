@@ -6,9 +6,11 @@
 import assert from 'assert';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { dirname, isEqual } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { FileChangesEvent, IFileService } from '../../../../../platform/files/common/files.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
@@ -59,6 +61,7 @@ class FakeRepository {
 }
 
 let repository: FakeRepository;
+let filesChanged: Emitter<FileChangesEvent>;
 
 suite('BaseHalf file changes', () => {
 
@@ -74,10 +77,11 @@ suite('BaseHalf file changes', () => {
 			onDidRemoveRepository: Event.None,
 		} as unknown as ISCMService;
 		const fileService = disposables.add(new FileService(new NullLogService()));
-		return disposables.add(new BaseHalfFileChangesService(scmService, disposables.add(new UriIdentityService(fileService))));
+		filesChanged = disposables.add(new Emitter<FileChangesEvent>());
+		return disposables.add(new BaseHalfFileChangesService(scmService, disposables.add(new UriIdentityService(fileService)), { onDidFilesChange: filesChanged.event } as unknown as IFileService));
 	}
 
-	test('a modified file, a new file, and the folders above them, up to the repository', () => {
+	test('a modified file, a new file, and the folders above them, also above the repository, as Files shows', () => {
 		const service = createService();
 		repository.setGroups({
 			workingTree: [
@@ -92,6 +96,7 @@ suite('BaseHalf file changes', () => {
 		assert.strictEqual(service.holdsChange(file('src/deep')), true);
 		assert.strictEqual(service.holdsChange(file('notes')), true);
 		assert.strictEqual(service.holdsChange(file('pics')), false);
+		assert.strictEqual(service.holdsChange(dirname(ROOT)), true);
 	});
 
 	test('a file under .bh holds no folder as changed, and has no Changes view', () => {
@@ -146,6 +151,17 @@ suite('BaseHalf file changes', () => {
 		repository.setGroups({ workingTree: [] });
 		assert.strictEqual(service.isChanged(file('x.bin')), false);
 		repository.setGroups({ workingTree: [row] });
+		assert.strictEqual(service.hasChangesView(file('x.bin')), true);
+	});
+
+	test('what turned out not to be text may be text once it is written anew', () => {
+		const service = createService();
+		repository.setGroups({ workingTree: [{ path: 'x.bin', original: git('x.bin', '~'), modified: file('x.bin') }] });
+		service.markNotText(file('x.bin'));
+		assert.strictEqual(service.hasChangesView(file('x.bin')), false);
+		filesChanged.fire({ contains: (resource: URI) => isEqual(resource, file('other.bin')) } as FileChangesEvent);
+		assert.strictEqual(service.hasChangesView(file('x.bin')), false);
+		filesChanged.fire({ contains: (resource: URI) => isEqual(resource, file('x.bin')) } as FileChangesEvent);
 		assert.strictEqual(service.hasChangesView(file('x.bin')), true);
 	});
 

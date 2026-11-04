@@ -68,6 +68,9 @@ export class BaseHalfCanvasCardDetailHost {
 	private surfaceOutOfTransition: HTMLElement | undefined;
 	/** Card Detail that has opened, and where the keyboard was then, until it takes the keyboard. */
 	private keyboardPending: { readonly cardDetail: IBaseHalfCardDetailState; readonly activeAtOpen: Element | null } | undefined;
+	/** What the header's switch was drawn for, and what it now acts on. */
+	private projectionActionsShown: string | undefined;
+	private projectionActionsCardDetail: IBaseHalfCardDetailState | undefined;
 	private drewOnce = false;
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
@@ -377,6 +380,7 @@ export class BaseHalfCanvasCardDetailHost {
 			preserveFocus: cardDetail.preserveFocus,
 			pinned: cardDetail.pinned,
 			projection,
+			changesGroup: cardDetail.changesGroup,
 			history: 'replace'
 		});
 	}
@@ -611,6 +615,8 @@ export class BaseHalfCanvasCardDetailHost {
 		const existing = this.detailSurfaces.get(projection);
 		if (existing) {
 			if (this.view.activeDetailProjection === projection) {
+				// A swap to another view that still waits for its first frame is off: this one stays.
+				this.detailSwapSeq++;
 				existing.instance.update?.(cardDetail);
 				existing.instance.applySelection(cardDetail.selection);
 			} else {
@@ -744,12 +750,28 @@ export class BaseHalfCanvasCardDetailHost {
 		}));
 	}
 
+	/** To the view, or where a press on the header's blank part leaves it when the view takes none: on nothing, no key reaches Card Detail. */
+	private giveKeyboardToView(projection: BaseHalfCardDetailProjection): void {
+		this.detailSurfaces.get(projection)?.instance.focus?.();
+		const ownerDocument = this.view.detail.ownerDocument;
+		if (!ownerDocument.activeElement || ownerDocument.activeElement === ownerDocument.body) {
+			this.view.root.focus({ preventScroll: true });
+		}
+	}
+
 	private setActiveDetailSurface(projection: BaseHalfCardDetailProjection): void {
+		// What is hidden cannot hold the keyboard, and with it on nothing no key reaches Card Detail.
+		const going = this.view.activeDetailProjection;
+		const goingSurface = going === undefined || going === projection ? undefined : this.detailSurfaces.get(going);
+		const keyboardFollows = !!goingSurface?.host.contains(this.view.detail.ownerDocument.activeElement);
 		this.view.activeDetailProjection = projection;
 		for (const [key, surface] of this.detailSurfaces) {
 			const active = key === projection;
 			surface.host.classList.toggle('active', active);
 			surface.instance.setVisible(active);
+		}
+		if (keyboardFollows) {
+			this.giveKeyboardToView(projection);
 		}
 		// The projection shown now decides what agents can see.
 		this.view.selectionActions.reportAgentSelection();
@@ -803,37 +825,55 @@ export class BaseHalfCanvasCardDetailHost {
 	}
 
 	private renderProjectionActions(cardDetail: IBaseHalfCardDetailState): void {
-		this.detailChromeDisposables.clear();
-		clearNode(this.view.detailProjectionActions);
+		const actions = this.view.detailProjectionActions;
 		const projections = this.view.cardProjectionRegistryService.getProjections(cardDetail.resource);
-		this.view.detailProjectionActions.classList.toggle('visible', projections.length > 1);
-		if (projections.length <= 1) {
+		const shown = `${cardDetail.resource.toString()} ${projections.map(projection => projection.id).join()}`;
+		this.projectionActionsCardDetail = cardDetail;
+		if (shown === this.projectionActionsShown && actions.childElementCount > 0) {
+			// The same buttons: a press that spans this keeps its click, and the keyboard stays on the one pressed.
+			for (const button of actions.children) {
+				const pressed = (button as HTMLElement).dataset.projection === cardDetail.projection;
+				button.setAttribute('aria-pressed', String(pressed));
+				button.classList.toggle('checked', pressed);
+			}
 			return;
 		}
-
-		for (const projection of projections) {
-			this.renderProjectionButton(cardDetail, projection.id, projection.label, projection.icon);
+		const hadKeyboard = actions.contains(actions.ownerDocument.activeElement);
+		this.projectionActionsShown = shown;
+		this.detailChromeDisposables.clear();
+		clearNode(actions);
+		actions.classList.toggle('visible', projections.length > 1);
+		if (projections.length > 1) {
+			for (const projection of projections) {
+				this.renderProjectionButton(cardDetail, projection.id, projection.label, projection.icon);
+			}
+		}
+		if (hadKeyboard) {
+			this.giveKeyboardToView(cardDetail.projection);
 		}
 	}
 
 	private renderProjectionButton(cardDetail: IBaseHalfCardDetailState, projection: BaseHalfCardDetailProjection, title: string, icon: string): void {
 		const button = append(this.view.detailProjectionActions, $(`button.basehalf-card-detail-projection.codicon.${icon}`)) as HTMLButtonElement;
 		button.type = 'button';
+		button.dataset.projection = projection;
 		setBaseHalfHover(button, title);
 		button.setAttribute('aria-label', title);
 		button.setAttribute('aria-pressed', String(cardDetail.projection === projection));
 		button.classList.toggle('checked', cardDetail.projection === projection);
 		this.detailChromeDisposables.add(this.view.addDisposableListener(button, 'click', () => {
-			if (cardDetail.projection === projection) {
+			const current = this.projectionActionsCardDetail;
+			if (!current || current.projection === projection) {
 				return;
 			}
 
-			void this.view.canvasNavigationService.openCardDetail(cardDetail.resource, {
+			void this.view.canvasNavigationService.openCardDetail(current.resource, {
 				source: 'api',
-				selection: cardDetail.selection,
-				preserveFocus: cardDetail.preserveFocus,
-				pinned: cardDetail.pinned,
+				selection: current.selection,
+				preserveFocus: current.preserveFocus,
+				pinned: current.pinned,
 				projection,
+				changesGroup: current.changesGroup,
 				history: 'replace'
 			});
 		}));

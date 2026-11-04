@@ -16,21 +16,20 @@ import { IEnvironmentService } from '../../../../platform/environment/common/env
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { baseHalfCanvasMediaUrl, baseHalfCanvasMediaVersionQuery, playBaseHalfCanvasMediaOneAtATime } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCardDetailSurfaceInstance } from '../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfFileChange, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
-
-/** Git hands a version to the window whole, so a larger one stays unread (the changes of a file, rule 18). */
-const LARGEST_EARLIER_VERSION_BYTES = 256 * 1024 * 1024;
+import { BASEHALF_LARGEST_COMPARED_VERSION_BYTES, IBaseHalfFileChange, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
 
 /** Where a version in git waits to be shown: the window plays media only from files it may serve. */
 const VERSIONS_FOLDER = 'basehalf-changes';
 
-export function baseHalfChangesVersionsFolder(environmentService: IEnvironmentService): URI {
-	return joinPath(environmentService.workspaceStorageHome, VERSIONS_FOLDER).with({ scheme: Schemas.file });
+/** This workspace's own: a folder opens in one window, so no other window's start clears what this one shows. */
+export function baseHalfChangesVersionsFolder(environmentService: IEnvironmentService, workspaceContextService: IWorkspaceContextService): URI {
+	return joinPath(environmentService.workspaceStorageHome, workspaceContextService.getWorkspace().id, VERSIONS_FOLDER).with({ scheme: Schemas.file });
 }
 
 /**
@@ -46,14 +45,17 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 	private readonly redraw = this._register(new RunOnceScheduler(() => this.state && void this.show(this.state), 200));
 	private players: IBaseHalfCanvasCardVideoPlayer[] = [];
 	private state: IBaseHalfCardDetailState | undefined;
-	private shown: IBaseHalfFileChange | undefined;
+	/** The comparison shown or being read; nothing when what stands here is old. */
+	private asked: IBaseHalfFileChange | undefined;
 	private showSeq = 0;
+	private visible = true;
 	private disposed = false;
 
 	constructor(
 		container: HTMLElement,
 		@IFileService private readonly fileService: IFileService,
 		@IEnvironmentService private readonly environmentService: IEnvironmentService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IBaseHalfFileChangesService private readonly changes: IBaseHalfFileChangesService,
 		@IHoverService private readonly hoverService: IHoverService,
 		@ILogService private readonly logService: ILogService,
@@ -64,7 +66,11 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 		// An agent can write the file while the view shows, and staging moves what it is compared with.
 		this._register(this.fileService.onDidFilesChange(event => {
 			if (this.state && event.contains(this.state.resource)) {
-				this.redraw.schedule();
+				this.asked = undefined;
+				// While another view shows, nothing is read until this one shows again.
+				if (this.visible) {
+					this.redraw.schedule();
+				}
 			}
 		}));
 		this._register(this.changes.onDidChange(() => this.followChange()));
@@ -77,7 +83,7 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 
 	activate(state: IBaseHalfCardDetailState): void {
 		this.state = state;
-		this.followChange();
+		this.followChange(true);
 	}
 
 	update(state: IBaseHalfCardDetailState): void {
@@ -89,6 +95,7 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 	}
 
 	setVisible(visible: boolean): void {
+		this.visible = visible;
 		if (!visible) {
 			for (const player of this.players) {
 				player.pause();
@@ -101,13 +108,16 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 		super.dispose();
 	}
 
-	private followChange(): void {
+	private followChange(comesIntoView = false): void {
 		const state = this.state;
 		if (!state) {
 			return;
 		}
 		const change = this.changes.changeOf(state.resource, state.changesGroup);
-		if (change && (!isEqual(change.original, this.shown?.original) || !isEqual(change.modified, this.shown?.modified))) {
+		if (!change) {
+			// The change went: what stands here is old by the time one comes back.
+			this.asked = undefined;
+		} else if ((comesIntoView || this.visible) && (!this.asked || !isEqual(change.original, this.asked.original) || !isEqual(change.modified, this.asked.modified))) {
 			void this.show(state);
 		}
 	}
@@ -118,13 +128,13 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 			return;
 		}
 		const seq = ++this.showSeq;
+		this.asked = change;
 		const store = new DisposableStore();
 		const [before, now] = await Promise.all([this.versionFile(change.original, state.resource, store), this.versionFile(change.modified, state.resource, store)]);
 		if (this.disposed || seq !== this.showSeq) {
 			store.dispose();
 			return;
 		}
-		this.shown = change;
 		this.players = [];
 		clearNode(this.root);
 		this.shownStore.value = store;
@@ -139,11 +149,11 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 			if (version.scheme === Schemas.file) {
 				return version.with({ query: baseHalfCanvasMediaVersionQuery(stat) });
 			}
-			if (stat.size > LARGEST_EARLIER_VERSION_BYTES) {
+			if (stat.size > BASEHALF_LARGEST_COMPARED_VERSION_BYTES) {
 				return { notice: localize('basehalf.changes.versionTooLarge', "This version is too large to show here.") };
 			}
 			const contents = await this.fileService.readFile(version);
-			const file = joinPath(baseHalfChangesVersionsFolder(this.environmentService), `${generateUuid()}${extname(resource)}`);
+			const file = joinPath(baseHalfChangesVersionsFolder(this.environmentService, this.workspaceContextService), `${generateUuid()}${extname(resource)}`);
 			await this.fileService.writeFile(file, contents.value);
 			store.add(toDisposable(() => void this.fileService.del(file).catch(() => { /* The next window clears the folder. */ })));
 			return file;
