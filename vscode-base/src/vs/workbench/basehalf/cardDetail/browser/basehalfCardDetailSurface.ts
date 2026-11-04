@@ -18,6 +18,8 @@ import { BaseHalfCardDetailProjection } from '../common/basehalfCardDetail.js';
 export interface IBaseHalfCardDetailSurfaceInstance extends IDisposable {
 	open(state: IBaseHalfCardDetailState): Promise<void>;
 	activate(state: IBaseHalfCardDetailState): void;
+	/** The file was opened again in the view that shows it, perhaps with other options. */
+	update?(state: IBaseHalfCardDetailState): void;
 	applySelection(selection: ITextEditorSelection | undefined): void;
 	setVisible(visible: boolean): void;
 	/** Takes the keyboard where the projection last had it (opening and closing Card Detail, "The keyboard"). */

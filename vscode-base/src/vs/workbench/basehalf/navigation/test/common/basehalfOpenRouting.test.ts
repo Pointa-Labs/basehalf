@@ -128,6 +128,7 @@ suite('BaseHalfOpenRouting', () => {
 });
 
 class TestCanvasNavigationService implements IBaseHalfCanvasNavigationService {
+	readonly onDidOpenCardDetail = Event.None;
 	declare readonly _serviceBrand: undefined;
 
 	readonly onDidChangeState = Event.None;

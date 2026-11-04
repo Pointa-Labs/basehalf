@@ -15,6 +15,9 @@ import { ISCMResourceGroup, ISCMResource, ISCMRepository, ISCMInput, ISCMViewSer
 import { ResourceLabels, IResourceLabel, IFileLabelOptions } from '../../../browser/labels.js';
 import { CountBadge } from '../../../../base/browser/ui/countBadge/countBadge.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IBaseHalfCanvasNavigationService } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
+import { tryOpenBaseHalfSourceControlRow } from '../../../basehalf/changes/browser/basehalfSourceControlRows.js';
+import { IBaseHalfFileChangesService } from '../../../basehalf/changes/common/basehalfFileChanges.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IContextKeyService, IContextKey, ContextKeyExpr, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
@@ -68,6 +71,7 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { WorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
 import { rot } from '../../../../base/common/numbers.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { MultiDiffEditor } from '../../multiDiffEditor/browser/multiDiffEditor.js';
 import { OpenScmGroupAction } from '../../multiDiffEditor/browser/scmMultiDiffSourceResolver.js';
 import { autorun } from '../../../../base/common/observable.js';
 import { observableConfigValue } from '../../../../platform/observable/common/platformObservableUtils.js';
@@ -1437,6 +1441,8 @@ export class SCMViewPane extends ViewPane {
 		options: IViewPaneOptions,
 		@ICommandService private readonly commandService: ICommandService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService,
+		@IBaseHalfFileChangesService private readonly baseHalfFileChangesService: IBaseHalfFileChangesService,
 		@IMenuService private readonly menuService: IMenuService,
 		@ISCMService private readonly scmService: ISCMService,
 		@ISCMViewService private readonly scmViewService: ISCMViewService,
@@ -1712,7 +1718,8 @@ export class SCMViewPane extends ViewPane {
 			return;
 		} else if (isSCMResource(e.element)) {
 			if (e.element.command?.id === API_OPEN_EDITOR_COMMAND_ID || e.element.command?.id === API_OPEN_DIFF_EDITOR_COMMAND_ID) {
-				if (isPointerEvent(e.browserEvent) && e.browserEvent.button === 1) {
+				// BaseHalf: while the multi-file diff is open, a row shows its file in it (the changes of a file, rule 23).
+				if ((isPointerEvent(e.browserEvent) && e.browserEvent.button === 1) || this.editorService.activeEditorPane?.getId() === MultiDiffEditor.ID) {
 					const resourceGroup = e.element.resourceGroup;
 					const title = `${resourceGroup.provider.label}: ${resourceGroup.label}`;
 					await OpenScmGroupAction.openMultiFileDiffEditor(this.editorService, title, resourceGroup.provider.rootUri, resourceGroup.id, {
@@ -1727,7 +1734,14 @@ export class SCMViewPane extends ViewPane {
 						},
 						preserveFocus: true,
 					});
-				} else {
+				} else if (!await tryOpenBaseHalfSourceControlRow({
+					// BaseHalf: a row opens its file where a file opens, Card Detail (the changes of a file).
+					resource: e.element.sourceUri,
+					groupId: e.element.resourceGroup.id,
+					preserveFocus: e.editorOptions.preserveFocus,
+					pinned: e.editorOptions.pinned,
+					sideBySide: e.sideBySide
+				}, this.baseHalfCanvasNavigationService, this.baseHalfFileChangesService)) {
 					await this.commandService.executeCommand(e.element.command.id, ...(e.element.command.arguments || []), e);
 				}
 			} else {

@@ -23,6 +23,8 @@ import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from
 import { BaseHalfMarkdownPreviewCardDetail } from '../../../cardDetail/browser/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from '../../../cardDetail/browser/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from '../../../cardDetail/browser/basehalfSourceCardDetail.js';
+import { BaseHalfChangesCardDetail } from '../../../changes/browser/basehalfChangesCardDetail.js';
+import { BASEHALF_CHANGES_PROJECTION_ID } from '../../../changes/common/basehalfFileChanges.js';
 import { IBaseHalfCardDetailSurfaceInstance } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { BaseHalfMediaCardDetail } from '../../../cardDetail/browser/basehalfMediaCardDetail.js';
 import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
@@ -377,6 +379,23 @@ export class BaseHalfCanvasCardDetailHost {
 		});
 	}
 
+	/**
+	 * The open file may have got or lost a projection, as when its last change
+	 * went: its header says so, and a projection it lost gives way to its usual
+	 * one (the changes of a file, rule 13). Nothing else of the window is drawn.
+	 */
+	reconcileCardProjectionAvailability(): void {
+		const cardDetail = this.view.canvasNavigationService.state.cardDetail;
+		if (this.view.disposed || !cardDetail) {
+			return;
+		}
+		if (this.view.cardProjectionRegistryService.normalizeProjection(cardDetail.resource, cardDetail.projection) !== cardDetail.projection) {
+			this.reconcileCardProjectionRegistrations();
+			return;
+		}
+		this.renderProjectionActions(cardDetail);
+	}
+
 	private renderDetailTitle(cardDetail: IBaseHalfCardDetailState): void {
 		this.detailTitleDisposables.clear();
 		clearNode(this.view.detailTitle);
@@ -590,6 +609,7 @@ export class BaseHalfCanvasCardDetailHost {
 		const existing = this.detailSurfaces.get(projection);
 		if (existing) {
 			if (this.view.activeDetailProjection === projection) {
+				existing.instance.update?.(cardDetail);
 				existing.instance.applySelection(cardDetail.selection);
 			} else {
 				this.detailSwapSeq++;
@@ -683,6 +703,21 @@ export class BaseHalfCanvasCardDetailHost {
 						selected => this.setAgentSelectionDetailText('media', selected),
 						this.view.detailModeActions,
 						this.view.detailEditActions
+					)
+				};
+			}
+		}));
+		this.view.register(this.view.cardDetailSurfaceRegistryService.registerProvider(BASEHALF_CHANGES_PROJECTION_ID, {
+			create: parent => {
+				const host = append(parent, $('.basehalf-card-detail-surface'));
+				return {
+					host,
+					instance: this.view.instantiationService.createInstance(
+						BaseHalfChangesCardDetail,
+						host,
+						status => this.setDetailSaveStatus(status),
+						selected => this.setAgentSelectionDetailText(BASEHALF_CHANGES_PROJECTION_ID, selected),
+						this.view.detailModeActions
 					)
 				};
 			}

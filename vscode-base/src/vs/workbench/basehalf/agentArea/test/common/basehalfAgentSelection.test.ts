@@ -80,6 +80,14 @@ suite('BaseHalfAgentSelection', () => {
 		]);
 	});
 
+	test('text selected in the earlier version of a file says so (the changes of a file, rule 15)', () => {
+		const earlier = baseHalfAgentSelectionFor({ ...canvas, text: { ...text, committed: true } });
+		const now = baseHalfAgentSelectionFor({ ...canvas, text });
+		const fieldsOf = (selection: typeof now) => toPlain(parseYaml(serializeBaseHalfAgentSelection(selection))) as Record<string, unknown>;
+		assert.strictEqual(fieldsOf(earlier).committed, 'true');
+		assert.strictEqual(fieldsOf(now).committed, undefined);
+	});
+
 	test('text selected in a PDF names its pages, and in a book its chapter (PDFs and books, "What agents can see")', () => {
 		const pdf = { path: 'sources/strang.pdf', isFolder: false };
 		const records = [

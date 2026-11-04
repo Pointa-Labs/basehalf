@@ -8,8 +8,6 @@ import { $, append, addDisposableListener, EventType } from '../../../../base/br
 import { mainWindow } from '../../../../base/browser/window.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { toErrorMessage } from '../../../../base/common/errorMessage.js';
-import { isEqual } from '../../../../base/common/resources.js';
-import { URI } from '../../../../base/common/uri.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { CodeEditorWidget } from '../../../../editor/browser/widget/codeEditor/codeEditorWidget.js';
 import { IEditorOptions } from '../../../../editor/common/config/editorOptions.js';
@@ -21,21 +19,19 @@ import { TooLargeFileOperationError } from '../../../../platform/files/common/fi
 import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectionSource } from '../../../../platform/editor/common/editor.js';
 import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
 import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/browser/simpleEditorOptions.js';
-import { ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
+import { TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
+import { BaseHalfTextFileSaving } from './basehalfTextFileSaving.js';
 
 export class BaseHalfSourceCardDetail extends Disposable {
-	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
-
 	private readonly root: HTMLElement;
 	private readonly editorHost: HTMLElement;
 
 	private editor: CodeEditorWidget | undefined;
 	private resourceKey: string | undefined;
-	private saving = false;
+	private readonly saving: BaseHalfTextFileSaving;
 	private visible = false;
 	private disposed = false;
 	private readonly editorOptions: IEditorOptions = {
@@ -55,8 +51,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		private readonly onSelectionChange: ((selected: IBaseHalfAgentSelectionText | undefined) => void) | undefined,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ITextModelService private readonly textModelService: ITextModelService,
-		@ITextFileService private readonly textFileService: ITextFileService,
-		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -64,6 +58,13 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		this.root = append(this.container, $('.basehalf-card-detail-source'));
 		const root = this.root;
 		this.editorHost = append(root, $('.basehalf-card-detail-source-editor'));
+		this.saving = this._register(this.instantiationService.createInstance(
+			BaseHalfTextFileSaving,
+			'source',
+			() => this.editor?.getModel()?.uri,
+			() => this.visible,
+			status => this.setSaveStatus(status)
+		));
 		this.setSaveStatus('saving');
 
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
@@ -73,32 +74,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 				void this.save();
 			}
 		}));
-		this._register(this.textFileService.files.onDidChangeDirty(model => {
-			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
-				this.updateStatus();
-			}
-		}));
-		this._register(this.textFileService.files.onDidChangeReadonly(model => {
-			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
-				this.updateStatus();
-			}
-		}));
-		this._register(this.textFileService.files.onDidSaveError(model => {
-			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
-				this.updateStatus();
-			}
-		}));
-		this._register(this.textFileService.files.onDidSave(event => {
-			if (this.resourceKey && isEqual(event.model.resource, this.editor?.getModel()?.uri)) {
-				this.updateStatus();
-			}
-		}));
-		this._register(this.textFileService.files.onDidRevert(model => {
-			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
-				this.updateStatus();
-			}
-		}));
-
 		this.registerLayoutObserver();
 	}
 
@@ -127,7 +102,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 				this._register(addDisposableListener(this.editorHost, 'copy', nameNote, true));
 				this._register(addDisposableListener(this.editorHost, 'cut', nameNote, true));
 			}
-			this._register(editor.onDidChangeModelContent(() => this.updateStatus()));
+			this._register(editor.onDidChangeModelContent(() => this.saving.updateStatus()));
 			// Read once the selection settles: a drag over a long note changes it
 			// with every move.
 			const reportSelection = this._register(new RunOnceScheduler(() => {
@@ -146,10 +121,9 @@ export class BaseHalfSourceCardDetail extends Disposable {
 				this.onSelectionChange?.(text.trim().length > 0 ? { path: state.relativePath, text, firstLine: selection.startLineNumber, lastLine } : undefined);
 			}, 30));
 			this._register(editor.onDidChangeCursorSelection(() => reportSelection.schedule()));
-			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
-			this._register(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
+			this.saving.registerFlushers(this.resourceKey);
 			this.applySelection(state.selection, ScrollType.Immediate);
-			this.updateStatus();
+			this.saving.updateStatus();
 			// open() resolves at the first meaningful frame: wait for the
 			// layout pass so a projection swap held on this promise never
 			// reveals an unmeasured, unpainted editor.
@@ -203,129 +177,11 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	}
 
 	async save(): Promise<void> {
-		await this.flush({ forceSerialize: true });
-	}
-
-	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
-		if (!baseHalfEditorProjectionCanFlush('source', this.visible, options)) {
-			return true;
-		}
-		const resource = this.editor?.getModel()?.uri;
-		if (!resource) {
-			this.updateStatus();
-			return true;
-		}
-
-		if (!this.textFileService.isDirty(resource)) {
-			this.updateStatus();
-			return true;
-		}
-
-		if (this.isReadonly()) {
-			this.updateStatus();
-			return false;
-		}
-
-		this.saving = true;
-		this.setSaveStatus('saving');
-		try {
-			const savedResource = await this.textFileService.save(resource);
-			if (!savedResource && this.textFileService.isDirty(resource)) {
-				this.saving = false;
-				this.updateStatus();
-				return false;
-			}
-			// A conflicted/erroring model never settles on its own (auto saves
-			// are skipped in these states), so fail fast instead of burning the
-			// settle timeout before refusing.
-			if (this.hasUnsavableState(resource)) {
-				this.saving = false;
-				this.updateStatus();
-				return false;
-			}
-			const clean = await this.waitForClean(resource);
-			this.saving = false;
-			this.updateStatus();
-			return clean;
-		} catch (error) {
-			this.logService.error('[BaseHalf] source card detail save failed', error);
-			this.saving = false;
-			this.setSaveStatus('error');
-			return false;
-		}
-	}
-
-	private hasUnsavableState(resource: URI): boolean {
-		const textFileModel = this.textFileService.files.get(resource);
-		return !!textFileModel && (textFileModel.hasState(TextFileEditorModelState.CONFLICT) || textFileModel.hasState(TextFileEditorModelState.ERROR));
-	}
-
-	private async waitForClean(resource: URI): Promise<boolean> {
-		if (!this.textFileService.isDirty(resource)) {
-			return true;
-		}
-
-		return new Promise<boolean>(resolve => {
-			let settled = false;
-			const timer = mainWindow.setTimeout(() => settle(!this.textFileService.isDirty(resource)), BaseHalfSourceCardDetail.SAVE_SETTLE_TIMEOUT);
-			const disposable = this.textFileService.files.onDidChangeDirty(model => {
-				if (isEqual(model.resource, resource) && !model.isDirty()) {
-					settle(true);
-				}
-			});
-
-			const settle = (value: boolean) => {
-				if (settled) {
-					return;
-				}
-				settled = true;
-				mainWindow.clearTimeout(timer);
-				disposable.dispose();
-				resolve(value);
-			};
-		});
-	}
-
-	private updateStatus(): void {
-		const resource = this.editor?.getModel()?.uri;
-		if (!resource) {
-			this.setSaveStatus('saving');
-			return;
-		}
-
-		if (this.isReadonly()) {
-			this.setSaveStatus('saved');
-			return;
-		}
-
-		if (this.saving) {
-			this.setSaveStatus('saving');
-			return;
-		}
-
-		// CONFLICT/ERROR models skip all auto saves, so without a visible state
-		// the user would keep typing into a card that silently stopped
-		// persisting. Surface it and let the header indicator offer a retry.
-		if (this.hasUnsavableState(resource)) {
-			this.setSaveStatus('error');
-			return;
-		}
-
-		this.setSaveStatus(this.saving || this.textFileService.isDirty(resource) ? 'saving' : 'saved');
+		await this.saving.save();
 	}
 
 	private setSaveStatus(status: 'saving' | 'saved' | 'error'): void {
 		this.onSaveStatusChange(status);
-	}
-
-	private isReadonly(): boolean {
-		const model = this.editor?.getModel();
-		if (!model) {
-			return false;
-		}
-
-		const textFileModel = this.textFileService.files.get(model.uri);
-		return !!textFileModel?.isReadonly();
 	}
 
 	private renderError(error: unknown): void {

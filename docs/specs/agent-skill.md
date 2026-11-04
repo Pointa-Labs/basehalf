@@ -13,7 +13,8 @@ version 10, 2026-10-25, D81: selected text in a PDF names its pages and in
 a book its chapter; installed as a link to BaseHalf's own copy, which
 follows every release, and offered until the user answers, 2026-10-26, D83;
 version 11, 2026-11-02, D110: the formats a note keeps; version 12,
-2026-11-03, D111: the files inside a note)
+2026-11-03, D111: the files inside a note; version 13, 2026-11-04, D119: text
+selected in the earlier version of a file)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),

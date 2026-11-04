@@ -32,6 +32,8 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 	readonly onDidChangeState: Event<IBaseHalfCanvasNavigationState> = this._onDidChangeState.event;
 	private readonly _onDidChangeSurfaceActive = this._register(new Emitter<boolean>());
 	readonly onDidChangeSurfaceActive: Event<boolean> = this._onDidChangeSurfaceActive.event;
+	private readonly _onDidOpenCardDetail = this._register(new Emitter<void>());
+	readonly onDidOpenCardDetail = this._onDidOpenCardDetail.event;
 	private readonly backStack: IBaseHalfCanvasNavigationState[] = [];
 	private readonly forwardStack: IBaseHalfCanvasNavigationState[] = [];
 	private _isSurfaceActive = false;
@@ -185,7 +187,8 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			selection: options.selection,
 			preserveFocus: options.preserveFocus,
 			pinned: options.pinned,
-			projection: this.cardProjectionRegistryService.normalizeProjection(resource, options.projection)
+			projection: this.cardProjectionRegistryService.normalizeProjection(resource, options.projection),
+			...(options.changesGroup ? { changesGroup: options.changesGroup } : {})
 		};
 		this.updateState({
 			canvasFolder,
@@ -194,6 +197,9 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			recordHistory: options.history !== 'replace',
 			collapseHistoryBoundary: options.history === 'replace'
 		});
+		if (options.history !== 'replace') {
+			this._onDidOpenCardDetail.fire();
+		}
 		return { handled: true, target: 'cardDetail', state: cardDetail };
 	}
 

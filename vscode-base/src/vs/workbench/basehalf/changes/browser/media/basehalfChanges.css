@@ -1,0 +1,15 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Previous Change, Next Change, and one column or two, in the header of Card Detail. */
+.monaco-workbench .basehalf-card-detail-changes-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.monaco-workbench .basehalf-card-detail-changes-actions[hidden] {
+	display: none;
+}

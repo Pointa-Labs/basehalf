@@ -17,7 +17,7 @@ export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** A whole number that grows whenever the skill text changes. BaseHalf's own
  * copy never takes the text of a lower version (agent skill, "Keeping it
  * current"). */
-export const BASEHALF_AGENT_SKILL_VERSION = '12';
+export const BASEHALF_AGENT_SKILL_VERSION = '13';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -45,6 +45,7 @@ export const BASEHALF_AGENT_SELECTION_SECTION: readonly string[] = [
 	'  - `cards`: two or more cards, listed under `paths`;',
 	'  - `text`: text in the note at `path`, on lines `first_line` to `last_line` of the file, counted from 1 with the frontmatter. `text` is the selected text as the note shows it, without Markdown marks. `text_is_cut: true` means the selection was longer and the text is cut; the lines are complete.',
 	'  - `text` in a PDF or a book: `path` is the PDF or the book. A PDF\'s text is on pages `first_page` to `last_page`, counted from 1. A book\'s text begins in the chapter of its contents named by `chapter`, which is missing when the book names none there. `text` is the text as BaseHalf\'s reader shows it.',
+	'  - `committed: true` on `text`: the user selected it in the earlier version of the file, while comparing the two. `first_line` and `last_line` are lines of that version in git, not of the file now.',
 	'- Paths are relative to the workspace folder and use forward slashes. The workspace folder itself is `.`.'
 ];
 

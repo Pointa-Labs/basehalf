@@ -43,6 +43,8 @@ export interface IBaseHalfOpenResourceOptions extends IBaseHalfNavigationHistory
 	readonly preserveFocus?: boolean;
 	readonly pinned?: boolean;
 	readonly projection?: BaseHalfCardDetailProjection;
+	/** The group of Source Control whose comparison the Changes view shows, for a row of it. */
+	readonly changesGroup?: string;
 	/** The caller already froze the inline author and adopted its current
 	 * projection into the shared working copy. */
 	readonly canvasProjectionHandoff?: true;
@@ -78,6 +80,7 @@ export interface IBaseHalfCardDetailState extends IBaseHalfWorkspaceResource {
 	readonly preserveFocus?: boolean;
 	readonly pinned?: boolean;
 	readonly projection: BaseHalfCardDetailProjection;
+	readonly changesGroup?: string;
 }
 
 export interface IBaseHalfCanvasNavigationState {
@@ -112,6 +115,8 @@ export interface IBaseHalfCanvasNavigationService {
 
 	openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
+	/** The user opened Card Detail: it is to be seen, also where VS Code's editor covers the canvas. */
+	readonly onDidOpenCardDetail: Event<void>;
 	openCardDetail(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	closeCardDetail(options?: IBaseHalfCloseCardDetailOptions): Promise<boolean>;
 	goBack(): Promise<boolean>;

@@ -41,6 +41,9 @@ export interface IBaseHalfCardProjectionDescriptor {
 	readonly order: number;
 	/** Higher values win when a resource is opened without an explicit projection. */
 	readonly defaultPriority?: number;
+	/** Offered only while this says so, such as the view of a file's changes. */
+	readonly isAvailable?: (resource: URI) => boolean;
+	readonly onDidChangeAvailability?: Event<void>;
 }
 
 export const BASEHALF_BUILTIN_CARD_PROJECTIONS: readonly IBaseHalfCardProjectionDescriptor[] = [
@@ -84,6 +87,8 @@ export const IBaseHalfCardProjectionRegistryService = createDecorator<IBaseHalfC
 export interface IBaseHalfCardProjectionRegistryService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeProjections: Event<void>;
+	/** Which projections a file has may have changed, with no projection registered or removed. */
+	readonly onDidChangeAvailability: Event<void>;
 
 	registerProjection(descriptor: IBaseHalfCardProjectionDescriptor): IDisposable;
 	getProjection(id: BaseHalfCardDetailProjection): IBaseHalfCardProjectionDescriptor | undefined;
@@ -98,6 +103,8 @@ export class BaseHalfCardProjectionRegistryService extends Disposable implements
 	private readonly projections = new Map<BaseHalfCardDetailProjection, IBaseHalfCardProjectionDescriptor>();
 	private readonly _onDidChangeProjections = this._register(new Emitter<void>());
 	readonly onDidChangeProjections = this._onDidChangeProjections.event;
+	private readonly _onDidChangeAvailability = this._register(new Emitter<void>());
+	readonly onDidChangeAvailability = this._onDidChangeAvailability.event;
 
 	constructor() {
 		super();
@@ -114,7 +121,9 @@ export class BaseHalfCardProjectionRegistryService extends Disposable implements
 
 		const normalized = this.addProjection(descriptor);
 		this._onDidChangeProjections.fire();
+		const availability = descriptor.onDidChangeAvailability?.(() => this._onDidChangeAvailability.fire());
 		return toDisposable(() => {
+			availability?.dispose();
 			if (this.projections.get(normalized.id) === normalized) {
 				this.projections.delete(normalized.id);
 				this._onDidChangeProjections.fire();
@@ -189,6 +198,9 @@ export class BaseHalfCardProjectionRegistryService extends Disposable implements
 }
 
 export function baseHalfCardProjectionMatches(resource: URI, descriptor: IBaseHalfCardProjectionDescriptor): boolean {
+	if (descriptor.isAvailable && !descriptor.isAvailable(resource)) {
+		return false;
+	}
 	const extension = extname(resource).toLowerCase();
 	if (descriptor.selector?.excludedExtensions?.includes(extension)) {
 		return false;

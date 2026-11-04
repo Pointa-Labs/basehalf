@@ -65,6 +65,7 @@ import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionService, IB
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { DiffEditorInput } from '../../../common/editor/diffEditorInput.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
@@ -526,6 +527,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.onDidChangeZoomEmitter.event(() => layoutBaseHalfCanvasCardVideoPlayers()));
 		this._register(playBaseHalfCanvasMediaOneAtATime(this.cards));
 		this._register(this.cardProjectionRegistryService.onDidChangeProjections(() => this.cardDetailHost.reconcileCardProjectionRegistrations()));
+		this._register(this.cardProjectionRegistryService.onDidChangeAvailability(() => this.cardDetailHost.reconcileCardProjectionAvailability()));
 		this._register(this.cardDetailSurfaceRegistryService.onDidChangeProviders(() => this.cardDetailHost.reconcileCardProjectionRegistrations()));
 		this._register(this.canvasEditingService.registerHandler(request => this.creation.beginCanvasInlineEdit(request)));
 		this._register(this.fileService.onDidFilesChange(event => {
@@ -583,6 +585,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				this.renderer.scheduleBackgroundRender();
 			}
 		}));
+		this._register(this.canvasNavigationService.onDidOpenCardDetail(() => this.closeEditorsOverCanvas()));
 		this._register(this.editorService.onDidVisibleEditorsChange(() => this.reconcileActiveEditor()));
 		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
@@ -1165,13 +1168,23 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	private reconcileActiveEditor(): void {
 		const cardDetail = this.canvasNavigationService.state.cardDetail;
 		if (cardDetail) {
-			const duplicateEditors = this.editorService.findEditors(cardDetail.resource, { supportSideBySide: SideBySideEditor.ANY });
+			// A diff of the file shows something Card Detail does not, and closing it comes back here (the changes of a file, rule 22).
+			const duplicateEditors = this.editorService.findEditors(cardDetail.resource, { supportSideBySide: SideBySideEditor.ANY })
+				.filter(identifier => !(identifier.editor instanceof DiffEditorInput));
 			if (duplicateEditors.length > 0) {
 				void this.editorService.closeEditors(duplicateEditors, { preserveFocus: true })
 					.finally(() => this.updateCanvasLayer());
 			}
 		}
 		this.updateCanvasLayer();
+	}
+
+	/** What was opened last is in front: Card Detail, opened under an editor over the canvas, takes its place (the changes of a file, rule 22). */
+	private closeEditorsOverCanvas(): void {
+		const editors = this.editorService.visibleEditorPanes.flatMap(pane => pane.input ? [{ editor: pane.input, groupId: pane.group.id }] : []);
+		if (editors.length > 0) {
+			void this.editorService.closeEditors(editors, { preserveFocus: true }).finally(() => this.updateCanvasLayer());
+		}
 	}
 
 	private updateCanvasLayer(): void {

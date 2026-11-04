@@ -42,6 +42,8 @@ export interface IBaseHalfAgentSelectionText {
 	readonly lastLine: number;
 	/** The selected text as the note shows it: no Markdown marks, one line break between blocks. */
 	readonly text: string;
+	/** The lines are of the file's earlier version, as on the left side of its Changes view, not of the file now. */
+	readonly committed?: boolean;
 }
 
 /** Text selected in a PDF or a book in Card Detail (PDFs and books, "What agents can see"). */
@@ -85,6 +87,8 @@ export type BaseHalfAgentSelection =
 		/** The lines of a note's file. */
 		readonly firstLine?: number;
 		readonly lastLine?: number;
+		/** The lines are of the file's earlier version, not of the file now. */
+		readonly committed?: boolean;
 		/** The pages of a PDF. */
 		readonly firstPage?: number;
 		readonly lastPage?: number;
@@ -105,7 +109,7 @@ export function baseHalfAgentSelectionFor(input: IBaseHalfAgentSelectionInput): 
 		// A cut never splits a character in two.
 		const limit = /[\ud800-\udbff]/.test(input.text.text.charAt(BASEHALF_AGENT_SELECTION_TEXT_LIMIT - 1)) ? BASEHALF_AGENT_SELECTION_TEXT_LIMIT - 1 : BASEHALF_AGENT_SELECTION_TEXT_LIMIT;
 		const place = hasKey(input.text, { firstLine: true })
-			? { firstLine: input.text.firstLine, lastLine: input.text.lastLine }
+			? { firstLine: input.text.firstLine, lastLine: input.text.lastLine, ...(input.text.committed ? { committed: true } : {}) }
 			: {
 				...(input.text.pages ? { firstPage: input.text.pages.first, lastPage: input.text.pages.last } : {}),
 				...(input.text.chapter ? { chapter: input.text.chapter } : {})
@@ -167,6 +171,9 @@ export function serializeBaseHalfAgentSelection(selection: BaseHalfAgentSelectio
 			// A note's text is on lines, a PDF's on pages, and a book's in a chapter.
 			if (selection.firstLine !== undefined && selection.lastLine !== undefined) {
 				lines.push(`first_line: ${selection.firstLine}`, `last_line: ${selection.lastLine}`);
+			}
+			if (selection.committed) {
+				lines.push('committed: true');
 			}
 			if (selection.firstPage !== undefined && selection.lastPage !== undefined) {
 				lines.push(`first_page: ${selection.firstPage}`, `last_page: ${selection.lastPage}`);
