@@ -102,7 +102,8 @@ rule 26).
   in the player, in a note's editor, in an image, in a PDF, in a book, or in
   the Sequence view ([Video Sequence](video-sequence.md#the-sequence-view)).
   What uses Escape itself takes it first: a menu or a list of the editor
-  (slash, files, emoji, a block's or a table's menu), a field of its own,
+  (slash, files, emoji, a block's or a table's menu), the Find and the lists of
+  a diff in the [Changes view](changes-of-a-file.md), a field of its own,
   such as that of a link or the page number of a PDF, a menu or a dialog of
   the PDF viewer, the contents and the search of the book reader
   ([PDFs and books](documents-and-books.md#the-book-reader)), the

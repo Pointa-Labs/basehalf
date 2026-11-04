@@ -213,6 +213,11 @@ over:
 - `src/vs/workbench/contrib/multiDiffEditor/browser/multiDiffEditor.ts` and
   `src/vs/editor/browser/widget/multiDiffEditor/workbenchUIElementFactory.ts`:
   `openFile`, which the button of a binary file calls.
+- `src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.ts`:
+  `reveal` of a file that is not in the list does nothing instead of throwing, which
+  replaced the whole diff with an error.
+- `src/vs/workbench/contrib/search/browser/quickTextSearch/textSearchQuickAccess.ts`:
+  the preview of a result is `transient`, so that it closes no editor over the canvas.
 
 A binary file standing in the multi-file diff with its name is VS Code's own since
 release 1.144.0, ported in part, in `multiDiffEditorInput.ts`, `model.ts`,

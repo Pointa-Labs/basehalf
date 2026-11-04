@@ -86,7 +86,8 @@ would stay.
    wide on the screen at every zoom. It takes no room from what the card shows
    and the face's rounded corners cut it. At 27% of a folder of 113 files a
    colored name alone can hardly be seen, and the bar is found at once.
-4. The card of a folder that holds a changed file, at any depth, has the mark
+4. The card of a folder that holds a changed file, at any depth, also inside a
+   nested repository, has the mark
    with Files' dot instead of a letter. A row of its list takes the color and the
    letter of that file, or the dot of that folder, as Files shows them.
 5. A file that git ignores, and a draft, which has no file yet, have no mark.
@@ -94,7 +95,7 @@ would stay.
    usual view when it has no Changes view. It selects no card, and a drag from it
    moves the card, as with the name. The dot and the bar do nothing.
 7. Marks come from what Source Control knows, as in Files, so they appear when it
-   does: about 4 s after a file is written, while the preview follows in about
+   does: 1.5 to 4 s after a file is written, while the preview follows in about
    0.2 s (measured 2026-11-04). BaseHalf asks git nothing of its own for them.
 
 ### The Changes view
@@ -118,22 +119,30 @@ would stay.
     every VS Code editor over a canvas, also Source and the commit message box,
     counts as taking text.
 11. The header holds Previous Change, Next Change, and the switch between one
-    column and two while the Changes view shows. Alt-F5 and Shift-Alt-F5
-    move between changes, as in VS Code. Escape closes Card Detail as it does from
-    Source.
+    column and two while the Changes view shows. Alt-F5 and Shift-Alt-F5 move between
+    changes wherever the keyboard is, as in VS Code, also in the list of Source
+    Control after a click on a row. Escape closes Card Detail as it does from Source,
+    also with text selected. What in the editor uses Escape takes it first, as its
+    Find or a list of suggestions ([opening and closing Card
+    Detail](card-detail-opening.md)).
 12. The view compares what a row of Source Control would: a file under Changes
     with what is staged or committed, a file only under Staged Changes with what
     is committed. A row opens the comparison of its own group.
 13. The diff follows the file while an agent writes it. When the file no longer
-    has changes, Card Detail goes to the file's usual view by itself, and keeps
-    what is selected nowhere.
-14. A file that is too large or cannot be read as text says so in the view, in
-    words, as Source does.
+    has changes, Card Detail goes to the file's usual view by itself, keeps what is
+    selected nowhere, and the keyboard goes with the view if it was in the diff. Going
+    back or forward in the window's history to a Changes view that is gone shows the
+    usual view too.
+14. A version above 256 MiB is not read, on either side: git would hand it to the
+    window whole. The view says so in words. A file that turns out not to be text, or
+    cannot be read, loses the view or says so as Source does; the file is read first,
+    so that a binary file is known by its first bytes before git hands over anything.
 15. What is selected on the right side reaches agents as text in the file: `path`,
     `first_line`, `last_line`, and `text`. What is selected on the left side
     reaches them with `committed: true`: its lines are those of that earlier
     version, not of the file now ([the selection agents can
-    see](selection-for-agents.md)).
+    see](selection-for-agents.md)). The side is the one that last had the keyboard, so
+    that it holds while the keyboard is in a terminal and an agent writes the file.
 
 ### Pictures, videos, and sounds
 
@@ -156,24 +165,31 @@ would stay.
     new note in Rich, a new picture in its viewer, a changed PDF in its reader.
 21. These go on as VS Code has them: a deleted file (there is no file to open), a
     file under `.bh`, a conflict, a file outside the workspace folders, and a row
-    opened to the side. So do the files of a commit in Graph.
+    opened to the side. So do the files of a commit in Graph. Card Detail of the same
+    file closes first, or it would close what VS Code opened as its duplicate.
 22. What was opened last is in front. A diff that VS Code's editor shows over Card
     Detail stays open, also of the same file, and closing it comes back to Card
     Detail. Card Detail that opens under such an editor, from a row, Files, or a card,
-    takes its place and the editor closes.
+    takes its place, and every editor over the canvas closes, also those behind it,
+    which with no tabs would otherwise come to the front. A change that saves by itself
+    is saved first. Walking the results of Quick Search closes nothing until one is
+    opened. A window of its own and the settings overlay are not over the canvas.
 
 ### All changes
 
 23. Open Changes on a group of Source Control opens VS Code's multi-file diff over
     the canvas, with the Agent Area beside it. While it is open, a click on a row shows
     that file in it instead of opening Card Detail, so that reading it stays one
-    place.
+    place. A row of a file it leaves out opens as rule 21 says; a file it does not
+    list is never an error in its place.
 24. It leaves out files under `.bh`, which are BaseHalf's own and hidden everywhere
     else in the window. Its title counts what it shows. Commit and Stage All
     Changes are not affected.
 25. A binary file stands in it with its name and "Binary file changed", and a
-    button that opens it: at the Changes view when it has one, otherwise in its
-    usual view. No file of the list is left out silently.
+    button that opens the file of its row: at the Changes view when it has one,
+    otherwise in its usual view. A deleted one has no button. A file that could not be
+    read stands in it the same way and says so. No file of the list is left out
+    silently.
 26. Escape closes a diff or a multi-file diff over the canvas when the editor has
     nothing else to do with the key, such as ending a selection.
 
@@ -213,18 +229,20 @@ changes no card.
    Preview, Source, and Changes; a modified picture offers View and Changes; a new
    file, a PDF, and an unchanged file do not offer Changes.
 7. Opening a changed file from its card, Files, Search, or Quick Open shows its
-   usual view.
+   usual view. Going back to a Changes view whose last change went shows it too.
 8. A click on a modified file's row opens Card Detail at Changes, with the canvas at
    its folder, and the arrow keys still walk the rows. This also holds with Card
-   Detail of the same file open, and of another file open.
+   Detail of the same file open, and of another file open, and with several editors
+   over the canvas, of which none stays.
 9. The view is side by side at 1036 px and one column at 836 px.
 10. Typing on the right side of the view, spaces too, changes the file and what
     Source shows, and Revert Block and Stage Block change the file and the index as
     in VS Code. A space reaches the commit message box.
 11. Previous Change, Next Change, Alt-F5, and Shift-Alt-F5 move between
-    changes; Escape closes Card Detail.
+    changes, the keys also with the keyboard in the list; Escape closes Card Detail,
+    after Find if it is open.
 12. A file written from outside shows in the view without a click. After the last
-    change is reverted, Card Detail shows the usual view.
+    change is reverted, Card Detail shows the usual view, with the keyboard in it.
 13. Text selected on the right side is recorded with the file's lines, and text
     selected on the left with `committed: true`.
 14. A modified picture shows both versions with Before and Now right under them and
@@ -238,8 +256,9 @@ changes no card.
     it shows Card Detail. A click in Files under a diff over the canvas shows Card
     Detail, and the diff is closed.
 17. The multi-file diff lists every changed file outside `.bh`, with binary files
-    as placeholders whose button opens them, and its title counts them. A click on a
-    row while it is open shows that file in it.
+    as placeholders whose button opens them, also when staged, and its title counts
+    them. A click on a row while it is open shows that file in it, and a row under
+    `.bh` opens VS Code's editor of that file.
 18. Escape closes a diff and a multi-file diff over the canvas, but ends a selection
     first when there is one.
 
@@ -247,8 +266,9 @@ changes no card.
 
 - Unit tests of the changes service, of which files have a Changes view, and of the
   marks a canvas gets.
-- The smoke's steps in the `workbench` suite (rows, the multi-file diff), `canvas`
-  (marks), and `cardDetail` (the view), on a fixture repository with every kind of
-  change.
+- The smoke's steps in the `workbench` suite (the card of a code file, marks, what
+  opens as usual, rows, the view, the views of a sound, the multi-file diff, what
+  opened last, and spaces), on a fixture repository with every kind of change, and in
+  `canvas` (what agents see of each side of a diff).
 - Once in a real window, on a folder of real files: criteria 3, 9, 12, and 14, with
   frames sampled while panning a canvas of many marked cards.
