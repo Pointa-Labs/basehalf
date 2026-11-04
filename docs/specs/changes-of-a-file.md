@@ -139,9 +139,11 @@ would stay.
 
 16. The Changes view of a picture, a video, or a sound shows the earlier version
     and the file next to each other, each as large as it fits, with what they are
-    under them: Before and Now, and the size of a picture in pixels.
+    right under them: Before and Now, and the size of a picture in pixels.
 17. A video and a sound play in place with their own controls. Starting one pauses
-    the other.
+    the other. Going to another view of the file stops what plays, in either
+    direction, and nothing of one view shows over the other: neither a player's
+    controls nor Edit and Revert to Original.
 18. An earlier version above 256 MiB is not read: git would hand it to the window
     whole. The view says so and shows the file.
 
@@ -225,8 +227,10 @@ changes no card.
     change is reverted, Card Detail shows the usual view.
 13. Text selected on the right side is recorded with the file's lines, and text
     selected on the left with `committed: true`.
-14. A modified picture shows both versions with Before and Now and their sizes; a
-    video and a sound play, one at a time; a version above 256 MiB says so.
+14. A modified picture shows both versions with Before and Now right under them and
+    their sizes; a video and a sound play, one at a time; going to View stops them,
+    and going back to Changes stops what View plays, with no controls of the other
+    view showing; a version above 256 MiB says so.
 15. A new note's row opens Rich, a new picture's row its viewer, and a changed PDF's
     row its reader. A deleted file's row, a row under `.bh`, and a commit's file row
     open VS Code's editor as before.

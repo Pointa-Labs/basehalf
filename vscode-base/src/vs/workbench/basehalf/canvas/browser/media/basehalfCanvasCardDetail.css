@@ -104,6 +104,10 @@
 	align-items: center;
 }
 
+.monaco-workbench .basehalf-card-detail-edit-actions[hidden] {
+	display: none;
+}
+
 .monaco-workbench .basehalf-card-detail-actions {
 	position: relative;
 	display: flex;
@@ -254,6 +258,14 @@
 
 .monaco-workbench .basehalf-card-detail-surface.active {
 	visibility: visible;
+}
+
+/* The controls of a player and the pictures of the edit bar set a visibility of their own, which a view that is not shown does not let through. */
+.monaco-workbench .basehalf-card-detail-surface:not(.active) .basehalf-canvas-video-player .basehalf-canvas-video-player-top,
+.monaco-workbench .basehalf-card-detail-surface:not(.active) .basehalf-canvas-video-player .basehalf-canvas-video-player-bar,
+.monaco-workbench .basehalf-card-detail-surface:not(.active) .basehalf-video-frames .basehalf-video-frames-pictures.spread,
+.monaco-workbench .basehalf-card-detail-surface:not(.active) .basehalf-video-frames .basehalf-video-frames-time {
+	visibility: hidden;
 }
 
 @keyframes basehalf-detail-save-status-fade-in {

@@ -438,11 +438,19 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	applySelection(): void { }
 
 	/** The isolated webview retains its own context while hidden; nothing to
-	 *  suspend or resume. The keys of the playhead are only the shown one's. */
+	 *  suspend or resume. A player stops, as another view shows in its place. The
+	 *  keys of the playhead are only the shown one's. */
 	setVisible(visible: boolean): void {
 		this.visible = visible;
-		// The button of Edit in the header is this view's, and another view of the file shows without it.
+		if (!visible) {
+			this.player?.pause();
+			this.editingStore.value?.pause();
+		}
+		// What this view holds in the header is its own, and another view of the file shows without it.
 		this.renderModeButton();
+		if (this.editActions) {
+			this.editActions.hidden = !visible;
+		}
 	}
 
 	/** The keyboard goes to the media (D100): the player, the waveform or the picture where no player stands, or into the page. */

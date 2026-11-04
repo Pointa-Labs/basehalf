@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfChanges.css';
-import { $, append, clearNode } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode } from '../../../../base/browser/dom.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
@@ -162,26 +162,42 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 			append(stage, $('.basehalf-card-detail-source-notice')).textContent = version.notice;
 			return;
 		}
+		// The stage takes the shape of the version, so that what it is stands right under it.
+		const takeShape = (width: number, height: number) => {
+			if (width > 0 && height > 0) {
+				stage.style.aspectRatio = `${width} / ${height}`;
+				stage.classList.add('shaped');
+			}
+		};
+		const undecodable = () => {
+			clearNode(stage);
+			stage.classList.remove('shaped', 'sound');
+			append(stage, $('.basehalf-card-detail-source-notice')).textContent = localize('basehalf.changes.versionUndecodable', "This version could not be decoded by this system.");
+		};
 		const kind = baseHalfRenderableContentKind(resource);
 		if (kind === 'image') {
 			const image = append(stage, $<HTMLImageElement>('img.basehalf-card-detail-changes-picture'));
 			image.alt = name;
 			image.onload = () => {
 				caption.textContent = localize('basehalf.changes.pictureSize', "{0} · {1} × {2}", name, image.naturalWidth, image.naturalHeight);
+				takeShape(image.naturalWidth, image.naturalHeight);
 			};
+			image.onerror = undecodable;
 			image.src = baseHalfCanvasMediaUrl(version);
 			return;
 		}
+		stage.classList.toggle('sound', kind === 'audio');
+		store.add(addDisposableListener(stage, 'loadedmetadata', event => {
+			const video = event.target as HTMLVideoElement;
+			takeShape(video.videoWidth, video.videoHeight);
+		}, true));
 		const player = store.add(createBaseHalfCanvasCardVideoPlayer(stage, null, {
 			source: version,
 			videoClasses: [],
 			detail: true,
 			sound: kind === 'audio',
 			open: () => { /* Card Detail is open already. */ },
-			onError: () => {
-				clearNode(stage);
-				append(stage, $('.basehalf-card-detail-source-notice')).textContent = localize('basehalf.changes.versionUndecodable', "This version could not be decoded by this system.");
-			},
+			onError: undecodable,
 			hoverService: this.hoverService
 		}));
 		this.players.push(player);

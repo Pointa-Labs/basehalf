@@ -568,6 +568,10 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 	}
 
+	pause(): void {
+		this.stop();
+	}
+
 	// #endregion
 
 	// #region Changes

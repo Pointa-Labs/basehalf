@@ -19,7 +19,7 @@
 	position: absolute;
 	inset: 0;
 	display: flex;
-	gap: 16px;
+	gap: 24px;
 	padding: 24px;
 	box-sizing: border-box;
 	background: var(--vscode-editor-background);
@@ -29,12 +29,13 @@
 	display: flex;
 	flex: 1 1 0;
 	flex-direction: column;
+	justify-content: center;
 	gap: 10px;
 	min-width: 0;
 	margin: 0;
 }
 
-/* The space the player of Card Detail fits its picture into. */
+/* The space a version fits into, which takes its shape once that is known. */
 .monaco-workbench .basehalf-card-detail-changes-stage {
 	container-type: size;
 	position: relative;
@@ -46,14 +47,33 @@
 	overflow: hidden;
 }
 
+.monaco-workbench .basehalf-card-detail-changes-stage.shaped {
+	flex: 0 1 auto;
+}
+
+.monaco-workbench .basehalf-card-detail-changes-stage.sound {
+	flex: none;
+	height: 200px;
+}
+
 .monaco-workbench .basehalf-card-detail-changes-picture {
-	max-width: 100%;
-	max-height: 100%;
+	width: 100%;
+	height: 100%;
 	object-fit: contain;
 	border-radius: 6px;
 }
 
+/* The player of Card Detail keeps a margin in the space it is given, which here already has one. */
+.monaco-workbench .basehalf-card-detail-changes-stage .basehalf-canvas-video-player.detail:not(:fullscreen) {
+	width: min(100cqw, calc(100cqh * var(--basehalf-video-aspect, 1.7778)));
+}
+
+.monaco-workbench .basehalf-card-detail-changes-stage .basehalf-canvas-video-player.detail.sound:not(:fullscreen) {
+	width: min(100cqw, 640px);
+}
+
 .monaco-workbench .basehalf-card-detail-changes-caption {
+	flex: none;
 	color: var(--vscode-descriptionForeground);
 	font-size: 12px;
 	line-height: 18px;

@@ -12,7 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 import { workspacePath } from '../../context.mts';
-import { commitFixtureChanges } from '../../fixture.mts';
+import { commitFixtureChanges, createSilentWav } from '../../fixture.mts';
 import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { assertCanvasFolder, openRootCanvas, setCanvasZoomPercent } from '../../lib/canvas.mts';
 import { runCommand } from '../../lib/quickInput.mts';
@@ -22,6 +22,7 @@ const FOLDER = 'changes-smoke';
 const CODE = `${FOLDER}/orders.ts`;
 const NOTE = `${FOLDER}/plan.md`;
 const PICTURE = `${FOLDER}/logo.png`;
+const SOUND = `${FOLDER}/tone.wav`;
 const NEW_NOTE = `${FOLDER}/new-note.md`;
 const NEW_PICTURE = `${FOLDER}/new-logo.png`;
 const UNDER_BH = '.bh/mirror/changes-smoke-record.yaml';
@@ -88,10 +89,12 @@ export async function prepareChangedFiles(page) {
 	fs.writeFileSync(inWorkspace(CODE), CODE_LINES('before'), 'utf8');
 	fs.writeFileSync(inWorkspace(NOTE), '# Plan\n\nThe first line.\n\nThe second line.\n', 'utf8');
 	fs.writeFileSync(inWorkspace(PICTURE), png(40));
+	fs.writeFileSync(inWorkspace(SOUND), createSilentWav(1));
 	commitFixtureChanges(workspacePath, 'changes smoke: first version');
 	fs.writeFileSync(inWorkspace(CODE), CODE_LINES('after'), 'utf8');
 	fs.writeFileSync(inWorkspace(NOTE), '# Plan\n\nThe first line, changed.\n\nThe second line.\n', 'utf8');
 	fs.writeFileSync(inWorkspace(PICTURE), png(220));
+	fs.writeFileSync(inWorkspace(SOUND), createSilentWav(2));
 	fs.writeFileSync(inWorkspace(NEW_NOTE), '# New note\n\nAn agent wrote it.\n', 'utf8');
 	fs.writeFileSync(inWorkspace(NEW_PICTURE), png(120));
 	fs.mkdirSync(path.dirname(inWorkspace(UNDER_BH)), { recursive: true });
@@ -240,6 +243,57 @@ export async function assertRowsOfOtherKinds(page) {
 	const newPicture = await waitForReading(() => readDetail(page), reading => reading.title === 'new-logo.png', 'a new picture from its row', 10_000);
 	if (newPicture.views.includes('Changes') || newPicture.overCanvas) {
 		throw new Error(`A new picture must open in its viewer: ${JSON.stringify(newPicture)}`);
+	}
+	await closeCardDetailIfOpen(page);
+}
+
+/** The two views of a changed sound take turns: neither's controls show over the other, each version plays in place, one at a time, and what plays stops with its view. */
+export async function assertViewsOfASoundTakeTurns(page) {
+	const readViews = () => page.evaluate(() => {
+		const shown = element => element.getClientRects().length > 0 && getComputedStyle(element).visibility === 'visible';
+		const bars = selector => [...document.querySelectorAll(`.basehalf-card-detail-surface${selector} .basehalf-canvas-video-player-bar`)].filter(shown).length;
+		return {
+			barsOfShownView: bars('.active'),
+			barsOfOtherView: bars(':not(.active)'),
+			waveformPlay: document.querySelector('.basehalf-sound-waveform-play')?.getAttribute('aria-label') ?? null,
+			waveformReady: document.querySelector('.basehalf-sound-waveform-play')?.getAttribute('aria-disabled') === 'false',
+			// What it is stands right under each version.
+			captionGaps: [...document.querySelectorAll('.basehalf-card-detail-surface.active .basehalf-card-detail-changes-version')].map(version => {
+				const player = version.querySelector('.basehalf-canvas-video-player').getBoundingClientRect();
+				return Math.round(version.querySelector('.basehalf-card-detail-changes-caption').getBoundingClientRect().top - player.bottom);
+			})
+		};
+	});
+	const choose = view => page.locator(`.basehalf-card-detail.visible .basehalf-card-detail-projection[aria-label="${view}"]`).click({ timeout: 5_000 });
+
+	await (await showRow(page, 'tone.wav')).click({ timeout: 10_000 });
+	const changes = await waitForReading(readViews, reading => reading.barsOfShownView === 2, 'the two players of a changed sound', 10_000);
+	if (!changes.captionGaps.every(gap => gap >= 0 && gap <= 16)) {
+		throw new Error(`Before and Now must stand right under their versions: ${JSON.stringify(changes)}`);
+	}
+	const played = await page.evaluate(async () => {
+		const media = [...document.querySelectorAll('.basehalf-card-detail-surface.active .basehalf-card-detail-changes-stage video')];
+		media.forEach(element => { element.muted = true; });
+		await media[0].play();
+		await media[1].play();
+		await new Promise(resolve => setTimeout(resolve, 300));
+		return media.map(element => element.paused);
+	});
+	if (played.join() !== 'true,false') {
+		throw new Error(`Starting one version must pause the other: ${JSON.stringify(played)}`);
+	}
+
+	await choose('View');
+	const view = await waitForReading(readViews, reading => reading.waveformReady, 'the waveform of the changed sound', 10_000);
+	if (view.barsOfOtherView !== 0) {
+		throw new Error(`The controls of the Changes view must not show over the file's view: ${JSON.stringify(view)}`);
+	}
+	await page.locator('.basehalf-card-detail-surface.active .basehalf-sound-waveform-play').click({ timeout: 5_000 });
+	await waitForReading(readViews, reading => reading.waveformPlay === 'Pause', 'the waveform playing', 5_000);
+	await choose('Changes');
+	const back = await waitForReading(readViews, reading => reading.barsOfShownView === 2, 'the players of Changes again', 5_000);
+	if (back.waveformPlay !== 'Play') {
+		throw new Error(`What plays must stop with its view: ${JSON.stringify(back)}`);
 	}
 	await closeCardDetailIfOpen(page);
 }

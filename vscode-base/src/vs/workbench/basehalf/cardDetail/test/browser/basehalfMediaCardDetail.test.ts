@@ -115,6 +115,22 @@ suite('BaseHalfMediaCardDetail', () => {
 		}
 	}
 
+	test('what the view holds in the header goes while another view of the file shows, and comes back with it (the changes of a file)', async () => {
+		const container = mainWindow.document.createElement('div');
+		mainWindow.document.body.append(container);
+		mounted.push(container);
+		const modeActions = mainWindow.document.createElement('div');
+		const editActions = mainWindow.document.createElement('div');
+		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }, modeActions, editActions));
+		void detail.open({ resource: SOUND, workspaceFolder: WORKSPACE, relativePath: 'shots/speech.mp3', source: 'explorer', projection: 'media' });
+		await settle();
+		detail.setVisible(false);
+		assert.strictEqual(editActions.hidden, true);
+		assert.ok([...modeActions.children].every(button => (button as HTMLElement).hidden));
+		detail.setVisible(true);
+		assert.strictEqual(editActions.hidden, false);
+	});
+
 	/** The Settings row of what made the file. */
 	function settingsOf(container: HTMLElement): string | null | undefined {
 		return [...container.querySelectorAll('.bh-generation-provenance-rows > dt')].find(term => term.textContent === 'Settings')?.nextElementSibling?.textContent;

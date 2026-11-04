@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { assertChangedCardsAreMarked, assertCodeCardAsTheEditor, assertCommitBoxTakesSpaces, assertMultiFileDiff, assertRowOpensTheChangesView, assertRowsOfOtherKinds, assertWhatOpenedLastIsInFront, finishChangedFiles, prepareChangedFiles } from './areas/workbench/changes.mts';
+import { assertChangedCardsAreMarked, assertCodeCardAsTheEditor, assertCommitBoxTakesSpaces, assertMultiFileDiff, assertViewsOfASoundTakeTurns, assertRowOpensTheChangesView, assertRowsOfOtherKinds, assertWhatOpenedLastIsInFront, finishChangedFiles, prepareChangedFiles } from './areas/workbench/changes.mts';
 import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentSeesSelection, assertAgentUpstreamEditDrawsEdge } from './areas/canvas/agents.mts';
 import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndConnectors, assertCanvasUnreadableBadgeRecovers } from './areas/canvas/badges.mts';
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
@@ -167,6 +167,7 @@ async function runWorkbenchSuite(page) {
 	await step('changes-marks-on-cards', () => assertChangedCardsAreMarked(page));
 	await step('changes-row-opens-the-view', () => assertRowOpensTheChangesView(page));
 	await step('changes-rows-of-other-kinds', () => assertRowsOfOtherKinds(page));
+	await step('changes-views-of-a-sound', () => assertViewsOfASoundTakeTurns(page));
 	await step('changes-multi-file-diff', () => assertMultiFileDiff(page));
 	await step('changes-what-opened-last-is-in-front', () => assertWhatOpenedLastIsInFront(page));
 	await step('commit-box-takes-spaces', () => assertCommitBoxTakesSpaces(page));

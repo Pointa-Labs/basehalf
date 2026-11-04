@@ -252,6 +252,11 @@ export class BaseHalfMediaEditing extends Disposable {
 		return true;
 	}
 
+	/** Stops what the editor plays, as another view of the file takes its place. */
+	pause(): void {
+		this.editor?.pause?.();
+	}
+
 	/** Puts the keyboard on the media (D100). */
 	focus(): void {
 		this.editor?.focus();
