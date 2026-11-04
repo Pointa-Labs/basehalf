@@ -282,7 +282,8 @@ export async function assertCardDetailCompactHeader(page) {
 		const buttons = Array.from(document.querySelectorAll('.basehalf-card-detail-projection'));
 		const activeButton = document.querySelector('.basehalf-card-detail-projection.checked');
 		const close = document.querySelector('.basehalf-card-detail-close');
-		if (!(header instanceof HTMLElement) || !(projections instanceof HTMLElement) || !(activeButton instanceof HTMLElement) || !(close instanceof HTMLElement) || buttons.length !== 3) {
+		// The fixture's README has changes, so Changes stands with the three once Source Control knows them.
+		if (!(header instanceof HTMLElement) || !(projections instanceof HTMLElement) || !(activeButton instanceof HTMLElement) || !(close instanceof HTMLElement) || buttons.length < 3) {
 			throw new Error('Missing Markdown card detail header projection controls');
 		}
 

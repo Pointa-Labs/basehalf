@@ -15,19 +15,22 @@ import { workspacePath } from '../../context.mts';
 import { commitFixtureChanges, createSilentWav } from '../../fixture.mts';
 import { closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { assertCanvasFolder, openRootCanvas, setCanvasZoomPercent } from '../../lib/canvas.mts';
-import { runCommand } from '../../lib/quickInput.mts';
+import { quickOpen, runCommand } from '../../lib/quickInput.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
+import { openExplorerRow } from '../../lib/workspace.mts';
 
 const FOLDER = 'changes-smoke';
 const CODE = `${FOLDER}/orders.ts`;
 const NOTE = `${FOLDER}/plan.md`;
 const PICTURE = `${FOLDER}/logo.png`;
 const SOUND = `${FOLDER}/tone.wav`;
+const LAST_CHANGE = `${FOLDER}/last-change.txt`;
+const BINARY = `${FOLDER}/pack.bin`;
 const NEW_NOTE = `${FOLDER}/new-note.md`;
 const NEW_PICTURE = `${FOLDER}/new-logo.png`;
 const UNDER_BH = '.bh/mirror/changes-smoke-record.yaml';
 
-const CODE_LINES = (first: string) => `// A license would stand here.\n\nexport function ${first}(a: number): number {\n\tif (a > 0) {\n\t\treturn a;\n\t}\n\n\treturn 0;\n}\n`;
+const CODE_LINES = (first: string) => `// A license would stand here.\n\nexport function ${first}(a: number): number {\n\tif (a > 0) {\n\t\treturn a;\n\t}\n\n\treturn ${first}Result;\n}\n`;
 
 function png(red: number): Buffer {
 	const chunk = (kind: string, data: Buffer) => {
@@ -90,11 +93,15 @@ export async function prepareChangedFiles(page) {
 	fs.writeFileSync(inWorkspace(NOTE), '# Plan\n\nThe first line.\n\nThe second line.\n', 'utf8');
 	fs.writeFileSync(inWorkspace(PICTURE), png(40));
 	fs.writeFileSync(inWorkspace(SOUND), createSilentWav(1));
+	fs.writeFileSync(inWorkspace(LAST_CHANGE), 'a line\n', 'utf8');
+	fs.writeFileSync(inWorkspace(BINARY), Buffer.from([0, 1, 2, 0, 3]));
 	commitFixtureChanges(workspacePath, 'changes smoke: first version');
 	fs.writeFileSync(inWorkspace(CODE), CODE_LINES('after'), 'utf8');
 	fs.writeFileSync(inWorkspace(NOTE), '# Plan\n\nThe first line, changed.\n\nThe second line.\n', 'utf8');
 	fs.writeFileSync(inWorkspace(PICTURE), png(220));
 	fs.writeFileSync(inWorkspace(SOUND), createSilentWav(2));
+	fs.writeFileSync(inWorkspace(LAST_CHANGE), 'a line, changed\n', 'utf8');
+	fs.writeFileSync(inWorkspace(BINARY), Buffer.from([0, 4, 5, 0, 6]));
 	fs.writeFileSync(inWorkspace(NEW_NOTE), '# New note\n\nAn agent wrote it.\n', 'utf8');
 	fs.writeFileSync(inWorkspace(NEW_PICTURE), png(120));
 	fs.mkdirSync(path.dirname(inWorkspace(UNDER_BH)), { recursive: true });
@@ -165,12 +172,33 @@ export async function assertChangedCardsAreMarked(page) {
 	// A click on the letter opens the Changes view and selects no card.
 	await cardOf(page, FOLDER).dblclick({ timeout: 10_000 });
 	await assertCanvasFolder(page, FOLDER);
+	// All the cards in the view, away from the side bar.
+	await setCanvasZoomPercent(page, 50);
 	await cardOf(page, CODE).locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 10_000 });
 	const opened = await waitForReading(() => readDetail(page), reading => reading.diff, 'the Changes view from the letter', 10_000);
 	if (opened.title !== 'orders.ts' || opened.views.join() !== 'Source,Changes*') {
 		throw new Error(`The letter must open the Changes view: ${JSON.stringify(opened)}`);
 	}
 	await closeCardDetailIfOpen(page);
+}
+
+/** A changed file opens at its usual view from everywhere but its row and its letter: Quick Open, Files, and its card. */
+export async function assertChangedFileOpensAsUsual(page) {
+	const assertUsual = async (from: string) => {
+		const shown = await waitForReading(() => readDetail(page), reading => reading.title === 'orders.ts' && reading.views.length > 0, `the changed file from ${from}`, 10_000);
+		if (shown.views.join() !== 'Source*,Changes') {
+			throw new Error(`A changed file must open at its usual view from ${from}: ${JSON.stringify(shown)}`);
+		}
+		await closeCardDetailIfOpen(page);
+	};
+	await quickOpen(page, CODE);
+	await assertUsual('Quick Open');
+	await openExplorerRow(page, FOLDER);
+	await openExplorerRow(page, 'orders.ts');
+	await assertUsual('Files');
+	await assertCanvasFolder(page, FOLDER);
+	await cardOf(page, CODE).dblclick({ timeout: 10_000 });
+	await assertUsual('its card');
 }
 
 /** A row opens the Changes view; the view shows the diff, and typing, Revert Block, and Escape work in it. */
@@ -184,6 +212,18 @@ export async function assertRowOpensTheChangesView(page) {
 	if (!await page.evaluate(() => !!document.activeElement?.closest('.scm-view'))) {
 		throw new Error('The keyboard must stay in the list after a click on a row');
 	}
+	// Next Change works from there too, as in VS Code.
+	const cursorOn = (text: string) => page.evaluate(wanted => {
+		const editor = document.querySelector('.basehalf-card-detail-surface.active .editor.modified');
+		const cursor = editor?.querySelector('.cursors-layer .cursor')?.getBoundingClientRect();
+		const line = [...(editor?.querySelectorAll('.view-line') ?? [])].find(element => element.textContent?.includes(wanted))?.getBoundingClientRect();
+		return !!cursor && !!line && Math.abs(cursor.top - line.top) < 4;
+	}, text);
+	await waitForReading(() => cursorOn('after('), onIt => onIt, 'the first change in sight', 5_000);
+	await page.keyboard.press('Alt+F5');
+	await waitForReading(() => cursorOn('afterResult'), onIt => onIt, 'Alt-F5 to go to the next change with the keyboard in the list', 5_000);
+	await page.keyboard.press('Shift+Alt+F5');
+	await waitForReading(() => cursorOn('after('), onIt => onIt, 'Shift-Alt-F5 to go back with the keyboard in the list', 5_000);
 	// The same row again, with Card Detail of the file open: the view stays.
 	await (await showRow(page, 'orders.ts')).click({ timeout: 10_000 });
 	await page.waitForTimeout(800);
@@ -217,10 +257,33 @@ export async function assertRowOpensTheChangesView(page) {
 	await page.keyboard.press('Meta+S');
 	await waitUntil(() => fs.readFileSync(inWorkspace(CODE), 'utf8').length !== lengthBefore, 'Revert Block to change the file', 10_000);
 
-	// Escape from the diff closes Card Detail.
+	// Find takes Escape first, and then Escape from the diff closes Card Detail.
 	await modified.click({ position: { x: 300, y: 10 } });
+	await page.keyboard.press('Meta+F');
+	const find = page.locator('.basehalf-card-detail-surface.active .find-widget.visible');
+	await find.first().waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await waitForReading(() => find.count(), count => count === 0, 'Escape to close Find', 5_000);
+	if (!(await readDetail(page)).open) {
+		throw new Error('Escape must close Find and leave Card Detail open');
+	}
 	await page.keyboard.press('Escape');
 	await waitForReading(() => readDetail(page), reading => !reading.open, 'Escape to close Card Detail', 5_000);
+}
+
+/** When the last change goes, the file's usual view shows, with the keyboard in it. */
+export async function assertLastChangeGoes(page) {
+	await (await showRow(page, 'last-change.txt')).click({ timeout: 10_000 });
+	await waitForReading(() => readDetail(page), reading => reading.diff && reading.title === 'last-change.txt', 'the Changes view of a file with one change', 10_000);
+	await page.locator('.basehalf-card-detail-surface.active .editor.modified .view-lines').click({ position: { x: 100, y: 10 } });
+	// Written back from outside, as an agent or Revert Block leaves it.
+	fs.writeFileSync(inWorkspace(LAST_CHANGE), 'a line\n', 'utf8');
+	await waitForReading(() => readDetail(page), reading => reading.open && !reading.diff, 'the usual view once the last change went', 15_000);
+	if (!await page.evaluate(() => !!document.activeElement?.closest('.basehalf-card-detail-surface.active'))) {
+		throw new Error('The keyboard must go with the view when the last change goes');
+	}
+	await page.keyboard.press('Escape');
+	await waitForReading(() => readDetail(page), reading => !reading.open, 'Escape to close Card Detail after the last change went', 5_000);
 }
 
 /** A new file opens as usual, and a picture shows its two versions; a file under `.bh` stays VS Code's. */
@@ -245,6 +308,22 @@ export async function assertRowsOfOtherKinds(page) {
 		throw new Error(`A new picture must open in its viewer: ${JSON.stringify(newPicture)}`);
 	}
 	await closeCardDetailIfOpen(page);
+
+	// A file that turns out not to be text: Changes gives way to its usual view, which shows, and a press on the switch leaves Escape working.
+	await quickOpen(page, BINARY);
+	await waitForReading(() => readDetail(page), reading => reading.title === 'pack.bin' && reading.views.join() === 'Source*,Changes', 'a changed binary file at its usual view', 10_000);
+	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-projection[aria-label="Changes"]').click({ timeout: 5_000 });
+	await waitForReading(() => readDetail(page), reading => reading.views.length === 0, 'a binary file to lose the Changes view', 10_000);
+	await page.waitForTimeout(500);
+	const binary = await page.evaluate(() => ({
+		active: document.querySelector('.basehalf-card-detail-surface.active .basehalf-card-detail-source-notice')?.textContent ?? null,
+		actions: [...document.querySelectorAll('.basehalf-card-detail-changes-actions:not([hidden]) button')].length
+	}));
+	if (!binary.active?.includes('binary') || binary.actions !== 0) {
+		throw new Error(`A binary file must show its usual view, not an empty Changes view: ${JSON.stringify(binary)}`);
+	}
+	await page.keyboard.press('Escape');
+	await waitForReading(() => readDetail(page), reading => !reading.open, 'Escape to close Card Detail after a press on the switch', 5_000);
 }
 
 /** The two views of a changed sound take turns: neither's controls show over the other, each version plays in place, one at a time, and what plays stops with its view. */
@@ -298,16 +377,22 @@ export async function assertViewsOfASoundTakeTurns(page) {
 	await closeCardDetailIfOpen(page);
 }
 
-/** The multi-file diff lists every changed file but those under `.bh`, a row shows its file in it, and Escape closes it. */
-export async function assertMultiFileDiff(page) {
+/** Open Changes on a group of Source Control. */
+async function openChangesOfGroup(page, title: RegExp) {
 	const groups = page.locator('.scm-view .monaco-list-row:has(.resource-group)');
 	for (let index = 0; index < await groups.count(); index++) {
-		if (/^Changes/m.test(await groups.nth(index).innerText())) {
+		if (title.test(await groups.nth(index).innerText())) {
 			await groups.nth(index).hover();
-			await groups.nth(index).locator('.action-label[aria-label^="Open Changes"]').first().click({ timeout: 10_000 });
-			break;
+			await groups.nth(index).locator('.action-label[aria-label^="Open"]').first().click({ timeout: 10_000 });
+			return;
 		}
 	}
+	throw new Error(`No group of Source Control matches ${title}`);
+}
+
+/** The multi-file diff lists every changed file but those under `.bh`, a row shows its file in it, and Escape closes it. */
+export async function assertMultiFileDiff(page) {
+	await openChangesOfGroup(page, /^Changes/m);
 	await page.locator('.multiDiffEntry').first().waitFor({ state: 'visible', timeout: 15_000 });
 	const box = await page.locator('.multiDiffEditor').first().boundingBox();
 	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -356,26 +441,76 @@ export async function assertMultiFileDiff(page) {
 	await page.mouse.click(line.x, line.y);
 	await page.keyboard.press('Escape');
 	await page.waitForFunction(() => !!document.querySelector('.basehalf-canvas-on-top'), null, { timeout: 5_000 });
+
+	// A row of what it leaves out opens VS Code's editor of that file, not an error in its place.
+	await openChangesOfGroup(page, /^Changes/m);
+	await page.locator('.multiDiffEntry').first().waitFor({ state: 'visible', timeout: 15_000 });
+	await (await showRow(page, '.bh')).click({ timeout: 10_000 });
+	await (await showRow(page, 'changes-smoke-record')).click({ timeout: 10_000 });
+	const underBh = page.locator('.part.editor .editor-instance .monaco-editor .view-line', { hasText: 'a: 1' });
+	await underBh.first().waitFor({ state: 'visible', timeout: 10_000 });
+	await page.locator('.part.titlebar .action-label[aria-label^="Close"]').first().click({ timeout: 10_000 });
+	await page.waitForFunction(() => !!document.querySelector('.basehalf-canvas-on-top'), null, { timeout: 5_000 });
 }
 
-/** Under an editor over the canvas Card Detail comes to the front; over Card Detail a diff of its file stays. */
-export async function assertWhatOpenedLastIsInFront(page) {
-	// A deleted file's row leaves VS Code's editor over the canvas.
-	const deleted = inWorkspace(`${FOLDER}/deleted.txt`);
-	fs.writeFileSync(deleted, 'a line\n', 'utf8');
-	// Only this file: the other changes stay, for the row that follows.
-	execFileSync('git', ['add', deleted], { cwd: workspacePath, stdio: 'ignore' });
-	execFileSync('git', ['commit', '-m', 'changes smoke: a file to delete', '--', deleted], { cwd: workspacePath, stdio: 'ignore' });
-	fs.rmSync(deleted);
+/** A picture only under Staged Changes, whose versions are both in git: its button in the multi-file diff opens the file. */
+export async function assertStagedBinaryOpens(page) {
+	execFileSync('git', ['add', PICTURE], { cwd: workspacePath, stdio: 'ignore' });
 	await runCommand(page, 'Git: Refresh');
 	await runCommand(page, 'Source Control: Focus on Changes View');
-	await (await showRow(page, 'deleted.txt')).click({ timeout: 20_000 });
+	const groups = page.locator('.scm-view .monaco-list-row:has(.resource-group)');
+	await waitForReading(() => groups.first().innerText(), text => /^Staged Changes/m.test(text), 'the group of what is staged', 15_000);
+	await openChangesOfGroup(page, /^Staged Changes/m);
+	const entry = page.locator('.multiDiffEntry', { hasText: 'logo.png' }).first();
+	await entry.locator('.binary-file-placeholder-actions .monaco-text-button').click({ timeout: 15_000 });
+	const opened = await waitForReading(() => readDetail(page), reading => reading.title === 'logo.png' && reading.views.length > 0, 'the staged picture from its button', 10_000);
+	if (opened.views.join() !== 'View,Changes*' || opened.overCanvas) {
+		throw new Error(`The button of a staged picture must open its Changes view: ${JSON.stringify(opened)}`);
+	}
+	await closeCardDetailIfOpen(page);
+	execFileSync('git', ['reset', '-q', '--', PICTURE], { cwd: workspacePath, stdio: 'ignore' });
+	await runCommand(page, 'Git: Refresh');
+}
+
+/** Under an editor over the canvas Card Detail comes to the front, and none stays behind it; walking the results of Quick Search closes nothing. */
+export async function assertWhatOpenedLastIsInFront(page) {
+	// A deleted file's row leaves VS Code's editor over the canvas, and with no tabs a pinned one stays behind the next.
+	const deletedFiles = ['deleted.txt', 'deleted-2.txt'].map(name => inWorkspace(`${FOLDER}/${name}`));
+	for (const deleted of deletedFiles) {
+		fs.writeFileSync(deleted, 'a line\n', 'utf8');
+	}
+	// Only these files: the other changes stay, for the row that follows.
+	execFileSync('git', ['add', ...deletedFiles], { cwd: workspacePath, stdio: 'ignore' });
+	execFileSync('git', ['commit', '-m', 'changes smoke: files to delete', '--', ...deletedFiles], { cwd: workspacePath, stdio: 'ignore' });
+	deletedFiles.forEach(deleted => fs.rmSync(deleted));
+	await runCommand(page, 'Git: Refresh');
+	await runCommand(page, 'Source Control: Focus on Changes View');
+	await (await showRow(page, 'deleted.txt')).dblclick({ timeout: 20_000 });
 	await waitForReading(() => readDetail(page), reading => reading.overCanvas && !reading.open, 'the editor of a deleted file over the canvas', 10_000);
+	await (await showRow(page, 'deleted-2.txt')).click({ timeout: 10_000 });
+	await page.waitForTimeout(500);
+
+	await page.keyboard.press('Meta+P');
+	const search = page.locator('.quick-input-widget input').first();
+	await search.waitFor({ state: 'visible', timeout: 10_000 });
+	await search.fill('%The second line');
+	await page.waitForTimeout(1_500);
+	await page.keyboard.press('ArrowDown');
+	await page.waitForTimeout(800);
+	const walking = await readDetail(page);
+	await page.keyboard.press('Escape');
+	await search.waitFor({ state: 'hidden', timeout: 10_000 });
+	const walked = await readDetail(page);
+	if (!walking.overCanvas || !walked.overCanvas) {
+		throw new Error(`Walking the results of Quick Search must close no editor over the canvas: ${JSON.stringify({ walking, walked })}`);
+	}
 
 	await (await showRow(page, 'plan')).click({ timeout: 10_000 });
-	const detail = await waitForReading(() => readDetail(page), reading => reading.diff, 'Card Detail over that editor', 10_000);
-	if (detail.overCanvas) {
-		throw new Error(`Card Detail must come to the front of an editor over the canvas: ${JSON.stringify(detail)}`);
+	await waitForReading(() => readDetail(page), reading => reading.diff, 'Card Detail over that editor', 10_000);
+	await page.waitForTimeout(800);
+	const detail = await readDetail(page);
+	if (detail.overCanvas || !detail.diff) {
+		throw new Error(`Card Detail must come to the front, with no editor left behind it: ${JSON.stringify(detail)}`);
 	}
 	await closeCardDetailIfOpen(page);
 }
@@ -383,6 +518,11 @@ export async function assertWhatOpenedLastIsInFront(page) {
 /** A space reaches the commit message box, an editor of the kind the canvas library used to take the key from. */
 export async function assertCommitBoxTakesSpaces(page) {
 	await runCommand(page, 'Source Control: Focus on Changes View');
+	// The rows walked before may have scrolled it away.
+	const list = await page.locator('.scm-view').first().boundingBox();
+	await page.mouse.move(list.x + 60, list.y + 200);
+	await page.mouse.wheel(0, -4000);
+	await page.waitForTimeout(300);
 	await page.locator('.scm-editor').first().click({ timeout: 10_000 });
 	await page.keyboard.type('a message with spaces');
 	const text = await waitForReading(() => page.evaluate(() => document.querySelector('.scm-editor .view-line')?.textContent?.replace(/ /g, ' ')), value => value === 'a message with spaces', 'spaces in the commit message box', 5_000);

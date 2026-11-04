@@ -321,21 +321,6 @@ export async function assertAgentSeesSelection(page) {
 	await expectSelection(`${header}selected: "card"\npath: "README.md"\n`, 'README', 'a press on the page around the document ends the selection');
 	await closeCardDetailIfOpen(page);
 
-	if (/\.bh\/cache/.test(gitStatusOfWorkspace())) {
-		throw new Error(`The record must stay out of git: ${gitStatusOfWorkspace()}`);
-	}
-
-	// Without the skill the record and the entry go: a removal answers the
-	// offer, so the entry does not show the offer either. The link and
-	// BaseHalf's own copy go with it.
-	await runCommand(page, 'BaseHalf: Remove Agent Skill');
-	await waitUntil(() => readRecord() === undefined, 'the record to go with the skill', 10_000);
-	await page.waitForFunction(() => document.getElementById('basehalf.agentSelection') === null, null, { timeout: 10_000 });
-	if (isLink(skillLink) || isLink(sharedSkillLink) || fs.existsSync(skillCopy)) {
-		throw new Error(`Remove Agent Skill must take away the links and BaseHalf's own copy: ${JSON.stringify({ link: isLink(skillLink), sharedLink: isLink(sharedSkillLink), copy: fs.existsSync(skillCopy) })}`);
-	}
-	fs.writeFileSync(settingsPath, settingsBefore, 'utf8');
-	await pane.click({ position: { x: 16, y: 16 } });
 	// Text in the Changes view of a file: on its right side lines of the file, on its
 	// left side lines of the earlier version, which the record says (the changes of a
 	// file, rule 15).
@@ -357,6 +342,21 @@ export async function assertAgentSeesSelection(page) {
 	fs.writeFileSync(changedReadme, changedReadmeBefore, 'utf8');
 	await runCommand(page, 'Git: Refresh');
 
+	if (/\.bh\/cache/.test(gitStatusOfWorkspace())) {
+		throw new Error(`The record must stay out of git: ${gitStatusOfWorkspace()}`);
+	}
+
+	// Without the skill the record and the entry go: a removal answers the
+	// offer, so the entry does not show the offer either. The link and
+	// BaseHalf's own copy go with it.
+	await runCommand(page, 'BaseHalf: Remove Agent Skill');
+	await waitUntil(() => readRecord() === undefined, 'the record to go with the skill', 10_000);
+	await page.waitForFunction(() => document.getElementById('basehalf.agentSelection') === null, null, { timeout: 10_000 });
+	if (isLink(skillLink) || isLink(sharedSkillLink) || fs.existsSync(skillCopy)) {
+		throw new Error(`Remove Agent Skill must take away the links and BaseHalf's own copy: ${JSON.stringify({ link: isLink(skillLink), sharedLink: isLink(sharedSkillLink), copy: fs.existsSync(skillCopy) })}`);
+	}
+	fs.writeFileSync(settingsPath, settingsBefore, 'utf8');
+	await pane.click({ position: { x: 16, y: 16 } });
 }
 
 // An AGENT creates a user file with its own tools. BaseHalf observes the real
