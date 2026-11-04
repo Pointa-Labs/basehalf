@@ -21,17 +21,14 @@ export interface IBaseHalfCodePreviewPiece {
 
 /**
  * The lines of a code file that its card can show, from the head the card read
- * (note rendering, rule 33): nothing is trimmed or skipped, as in the editor. A
- * head that a read cut off ends inside a line, perhaps inside a character, so
- * that line goes, unless the head is that one line, as in a minified file, which
- * is cut far before its end. Blank lines at the end show nothing.
+ * (note rendering, rule 33): the lines the editor has, so that nothing is trimmed
+ * or skipped. An empty file has one line. A head that a read cut off ends inside
+ * a line, perhaps inside a character, so that line goes, unless the head is that
+ * one line, as in a minified file, which is cut far before its end.
  */
 export function baseHalfCodePreviewLines(head: string, wholeFile: boolean): readonly string[] {
 	const lines = head.replace(/\r\n?/g, '\n').split('\n');
 	if (!wholeFile && lines.length > 1) {
-		lines.pop();
-	}
-	while (lines.length > 0 && lines[lines.length - 1].trim().length === 0) {
 		lines.pop();
 	}
 	return lines.map(line => line.length > CODE_PREVIEW_LINE_LENGTH_LIMIT ? line.slice(0, CODE_PREVIEW_LINE_LENGTH_LIMIT) : line);

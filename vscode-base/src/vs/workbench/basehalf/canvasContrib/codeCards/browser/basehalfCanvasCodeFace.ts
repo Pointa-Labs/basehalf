@@ -77,6 +77,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 	private readonly rulerView: HTMLElement;
 	private readonly drawn = new Map<number, IDrawnLine>();
 	private readonly marksDrawn: HTMLElement[] = [];
+	private readonly ticksDrawn: HTMLElement[] = [];
 	private readonly modelStore = this._register(new MutableDisposable<DisposableStore>());
 	private readonly rulerFades = this._register(new RunOnceScheduler(() => this.ruler.classList.remove('moving'), RULER_FADES_AFTER_MS));
 	private readonly placeSettles = this._register(new RunOnceScheduler(() => this.goToPlace(), PLACE_SETTLES_MS));
@@ -183,7 +184,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 	setMarks(marks: IBaseHalfCodeFaceMarks): void {
 		this.marks = marks;
 		this.drawMarks();
-		this.drawRuler();
+		this.drawTicks();
 	}
 
 	/** The text model of the file, which comes once. Nothing while the file is too large or is not text. */
@@ -250,7 +251,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 	private onScroll(): void {
 		this.hasScrolled = true;
 		this.draw();
-		this.drawRuler();
+		this.drawRulerView();
 		this.ruler.classList.add('moving');
 		this.rulerFades.schedule();
 		const line = baseHalfCodeFaceLineAt(this.scrollTop);
@@ -285,7 +286,7 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		this.lineComeTo = line;
 		this.scrollableContent.scrollTop = baseHalfCodeFaceScrollTopOfLine(line);
 		this.draw();
-		this.drawRuler();
+		this.drawRulerView();
 	}
 
 	/** The height of what scrolls and the width of the gutter, from what is known of the file. */
@@ -311,7 +312,8 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		}
 		if (count !== this.lastCount) {
 			this.lastCount = count;
-			this.drawRuler();
+			this.drawTicks();
+			this.drawRulerView();
 		}
 	}
 
@@ -437,9 +439,9 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 		this.marksDrawn.push(mark);
 	}
 
-	private drawRuler(): void {
+	private drawTicks(): void {
 		const count = Math.max(1, this.lineCount);
-		for (const tick of [...this.ruler.querySelectorAll('.basehalf-canvas-code-tick')]) {
+		for (const tick of this.ticksDrawn.splice(0)) {
 			tick.remove();
 		}
 		for (const tick of this.marks.ticks) {
@@ -447,7 +449,11 @@ export class BaseHalfCanvasCodeFace extends Disposable implements IBaseHalfCanva
 			const element = append(this.ruler, $(`.basehalf-canvas-code-tick.${tick.kind}`));
 			element.style.top = `${box.top * 100}%`;
 			element.style.height = `${box.height * 100}%`;
+			this.ticksDrawn.push(element);
 		}
+	}
+
+	private drawRulerView(): void {
 		const scrollHeight = this.scrollableContent.scrollHeight || 1;
 		this.rulerView.style.top = `${this.scrollTop / scrollHeight * 100}%`;
 		this.rulerView.style.height = `${this.scrollableContent.clientHeight / scrollHeight * 100}%`;

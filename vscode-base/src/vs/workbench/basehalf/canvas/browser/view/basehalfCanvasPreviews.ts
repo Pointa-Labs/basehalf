@@ -214,9 +214,6 @@ export class BaseHalfCanvasPreviews {
 			if (languageId || kind === 'code') {
 				const wholeFile = contents.value.byteLength < CARD_EXCERPT_READ_BYTES;
 				const lines = baseHalfCodePreviewLines(raw, wholeFile);
-				if (lines.length === 0) {
-					return { kind: 'empty', text: 'Empty file' };
-				}
 				return {
 					kind: 'code',
 					text: lines.join('\n'),

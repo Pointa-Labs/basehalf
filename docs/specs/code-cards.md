@@ -100,7 +100,8 @@ both would stay what they are.
    nothing fades: the last line that fits is as bright as the first.
 2. Each line has its number, right-aligned in a gutter that is as wide as the editor's for
    that many lines, with at least 3 digits. The gutter stays where it is when the text
-   moves sideways.
+   moves sideways. A face has the lines the editor has: a last line break has an empty line
+   after it, and an empty file has line 1, which can be edited as any other.
 3. A face draws only the lines in view and a few around them, whatever the length of the
    file. Without a place, marks, or a gesture it needs only the head of the file it read,
    and no text model.
@@ -134,10 +135,10 @@ both would stay what they are.
     there are as many as it has. A file git does not know has none, as in VS Code.
 11. The ruler of a changed file stays, with a tick in those colors for each change, at its
     place in the whole file. It says where the changes are while the card shows something
-    else. At 27% the ticks can still be told apart from the card's edge. An unchanged file
-    has no ruler at rest.
+    else. A tick is as large on the screen at every zoom, 4 px wide and at least 3 px high,
+    and the card's rounded corners cut none. An unchanged file has no ruler at rest.
 12. A face asks for marks only while it is on the screen and its file is listed as changed,
-    one file at a time. They appear when Source Control knows of the change, or a moment
+    a few files at a time. They appear when Source Control knows of the change, or a moment
     later. The text does not depend on them.
 13. The bar and the letter of [the changes of a file](changes-of-a-file.md), rules 2 and 3,
     stay as they are: they say at any zoom that the file changed.
@@ -161,7 +162,8 @@ both would stay what they are.
 
 18. A double click on a face edits the file on the card, with the caret at the point of the
     click. The name still renames. Enter on a selected code card edits it from its place. No
-    line moves on any frame when the editor comes and when it goes.
+    line moves or changes its colors on any frame when the editor comes and when it goes, and
+    the marks stand where they stood.
 19. The card's editor is VS Code's editor of the same text model as Source, with the same
     gutter as the face and without a minimap, folding, sticky scroll, or suggestions, which do
     not fit a card. Undo, redo, the clipboard, Find, and many cursors are as in any editor.
@@ -198,11 +200,13 @@ both would stay what they are.
 
 ## Limits
 
-- A face colors with the language's grammar. The editor adds colors of brackets and, with a
-  language service, of meanings, which a face does not have.
+- A face and the card's editor color with the language's grammar. Source adds colors of brackets
+  and, with a language service, of meanings.
 - A line ends after 400 characters on a face, because a card is far narrower. The card's editor
   and Source show all of it.
 - A place is a line. A wrapped view in Source comes back at the start of the line.
+- A face draws marks as the editor does by default. The settings `scm.diffDecorations*` apply in
+  the editor only.
 - Marks need the file's text model, so a canvas with many changed files on the screen holds that
   many models. At most 24 are kept; the marks of a face that lost its model stay as they were until
   it is used again.

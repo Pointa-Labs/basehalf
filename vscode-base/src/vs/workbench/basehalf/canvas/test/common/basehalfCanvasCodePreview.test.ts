@@ -44,7 +44,7 @@ suite('BaseHalf code card preview', () => {
 
 	test('keeps a file as it is: indentation, blank lines, and its first line', () => {
 		const head = '/* Copyright */\n\nimport a;\n\n\tif (a) {\n\t\tb();\n\t}\n';
-		assert.deepStrictEqual(baseHalfCodePreviewLines(head, true), ['/* Copyright */', '', 'import a;', '', '\tif (a) {', '\t\tb();', '\t}']);
+		assert.deepStrictEqual(baseHalfCodePreviewLines(head, true), ['/* Copyright */', '', 'import a;', '', '\tif (a) {', '\t\tb();', '\t}', '']);
 	});
 
 	test('a head that a read cut off loses the line it ends in', () => {
@@ -52,9 +52,10 @@ suite('BaseHalf code card preview', () => {
 		assert.deepStrictEqual(baseHalfCodePreviewLines('one\ntwo\nthr', true), ['one', 'two', 'thr']);
 	});
 
-	test('reads every kind of line ending, and blank lines at the end show nothing', () => {
-		assert.deepStrictEqual(baseHalfCodePreviewLines('a\r\nb\rc\n  \n\n', true), ['a', 'b', 'c']);
-		assert.deepStrictEqual(baseHalfCodePreviewLines(' \n\n', true), []);
+	test('has the lines the editor has: every kind of line ending, blank lines at the end, and line 1 of an empty file', () => {
+		assert.deepStrictEqual(baseHalfCodePreviewLines('a\r\nb\rc\n  \n\n', true), ['a', 'b', 'c', '  ', '', '']);
+		assert.deepStrictEqual(baseHalfCodePreviewLines(' \n\n', true), [' ', '', '']);
+		assert.deepStrictEqual(baseHalfCodePreviewLines('', true), ['']);
 	});
 
 	test('a minified line stops far past the edge of any card', () => {

@@ -21,6 +21,7 @@ const FOLDER = 'code-cards-smoke';
 const LONG = `${FOLDER}/long.ts`;
 const SHORT = `${FOLDER}/short.ts`;
 const LARGE = `${FOLDER}/large.ts`;
+const EMPTY = `${FOLDER}/empty.ts`;
 const LINE_COUNT = 800;
 const ADDED_AT = 300;
 const MODIFIED_AT = 40;
@@ -71,6 +72,7 @@ export async function prepareCodeCards(page) {
 	fs.mkdirSync(inWorkspace(FOLDER), { recursive: true });
 	fs.writeFileSync(inWorkspace(LONG), longFile().join('\n') + '\n');
 	fs.writeFileSync(inWorkspace(SHORT), 'export const short = 1;\n');
+	fs.writeFileSync(inWorkspace(EMPTY), '');
 	commitFixtureChanges(workspacePath, 'code cards');
 	const lines = longFile();
 	lines[MODIFIED_AT - 1] = `${lines[MODIFIED_AT - 1]} // changed`;
@@ -466,6 +468,23 @@ export async function assertEditingOnTheCard(page) {
 	await page.mouse.click(canvas.x + 40, canvas.y + 40);
 	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'a press outside ends the editing', 10_000);
 	await waitUntil(() => written().includes('X2'), 'what was typed before the press to be written', 10_000);
+
+	// A file has the lines the editor has: a line after its last line break, and line 1 of an empty file, which is edited as any other.
+	const short = await readFace(page, SHORT);
+	if (short.firstNumber !== 1 || short.lines !== 2) {
+		throw new Error(`A face must have the lines the editor has: ${JSON.stringify(short)}`);
+	}
+	await zoomCanvas(page, 'fit');
+	await page.waitForTimeout(500);
+	await waitForReading(() => readFace(page, EMPTY), reading => reading.kind && reading.firstNumber === 1 && reading.lines === 1, 'line 1 of an empty file', 10_000);
+	const empty = await cardOf(page, EMPTY).locator('.basehalf-canvas-code-scroller').boundingBox();
+	await page.mouse.dblclick(empty.x + empty.width / 2, empty.y + empty.height / 2);
+	await waitForReading(() => readFace(page, EMPTY), reading => reading.editor, 'the editor of an empty file on its card', 10_000);
+	await page.keyboard.type('export {};');
+	await page.keyboard.press('Escape');
+	await waitForReading(() => readFace(page, EMPTY), reading => !reading.editor, 'the end of editing an empty file', 10_000);
+	await waitUntil(() => fs.readFileSync(inWorkspace(EMPTY), 'utf8') === 'export {};', 'what was typed in an empty file to be written', 10_000);
+	await setCanvasZoomPercent(page, 100);
 }
 
 /** Expand opens Card Detail at the card's place, and a commit takes the marks and leaves the text and the place. */

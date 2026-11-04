@@ -58,8 +58,11 @@
 	background: var(--vscode-editorGutter-addedBackground);
 }
 
+/* In stripes, as the editor draws it by default: it stands where the bar of the card's editor comes. */
 .monaco-workbench .basehalf-canvas-code-mark.modified {
-	background: var(--vscode-editorGutter-modifiedBackground);
+	background-image: linear-gradient(-45deg, var(--vscode-editorGutter-modifiedBackground) 25%, transparent 25%, transparent 50%, var(--vscode-editorGutter-modifiedBackground) 50%, var(--vscode-editorGutter-modifiedBackground) 75%, transparent 75%, transparent);
+	background-size: 3px 3px;
+	background-repeat: repeat-y;
 }
 
 /* Lines were taken out here: a small triangle on the line between, as in the editor. */
@@ -70,7 +73,7 @@
 	margin-top: -4px;
 	border-top: 4px solid transparent;
 	border-bottom: 4px solid transparent;
-	border-left: 5px solid var(--vscode-editorGutter-deletedBackground);
+	border-left: 4px solid var(--vscode-editorGutter-deletedBackground);
 }
 
 .monaco-workbench .basehalf-canvas-code-text {
@@ -89,21 +92,25 @@
 	white-space: pre;
 }
 
-/* The whole file from top to bottom: ticks for its changes, and the view while lines move (code cards, rules 8 and 11). */
+/*
+ * The whole file from top to bottom: ticks for its changes, and the view while lines move (code cards, rules 8 and 11).
+ * It stands between the card's rounded corners, which would cut a change near either end of the file.
+ */
 .monaco-workbench .basehalf-canvas-code-ruler {
 	position: absolute;
-	top: 0;
+	top: var(--bh-card-inner-radius);
 	right: 0;
-	bottom: 0;
-	width: 6px;
+	bottom: var(--bh-card-inner-radius);
+	width: calc(6px / var(--basehalf-canvas-zoom, 1));
 	pointer-events: none;
 }
 
+/* On the screen it is as large at every zoom, as the bar of a changed card is: at a far zoom it can still be told apart. */
 .monaco-workbench .basehalf-canvas-code-tick {
 	position: absolute;
 	right: 0;
-	width: 4px;
-	min-height: 2px;
+	width: calc(4px / var(--basehalf-canvas-zoom, 1));
+	min-height: calc(3px / var(--basehalf-canvas-zoom, 1));
 }
 
 .monaco-workbench .basehalf-canvas-code-tick.added {
@@ -121,7 +128,7 @@
 .monaco-workbench .basehalf-canvas-code-ruler-view {
 	position: absolute;
 	right: 0;
-	width: 6px;
+	width: calc(6px / var(--basehalf-canvas-zoom, 1));
 	min-height: 12px;
 	background: var(--vscode-scrollbarSlider-background);
 	opacity: 0;
@@ -148,6 +155,15 @@
 	--vscode-editor-background: transparent;
 	--vscode-editorGutter-background: transparent;
 	--vscode-editorStickyScroll-background: transparent;
+}
+
+/*
+ * A text model colors its brackets for every editor of it. A face has no such colors, as it colors with the grammar alone,
+ * and no letter changes when the editor comes over it (code cards, rule 18).
+ */
+.monaco-workbench .basehalf-canvas-code-editor .monaco-editor [class*="bracket-highlighting-"],
+.monaco-workbench .basehalf-canvas-code-editor .monaco-editor .unexpected-closing-bracket {
+	color: var(--vscode-editor-foreground);
 }
 
 /* The editor's text input stands over the line of the caret: the window's focus ring is not for it. */

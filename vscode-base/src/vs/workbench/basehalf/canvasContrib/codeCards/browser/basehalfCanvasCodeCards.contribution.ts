@@ -5,7 +5,8 @@
 
 import './media/basehalfCanvasCodeCards.css';
 import { mainWindow } from '../../../../../base/browser/window.js';
-import { Limiter, RunOnceScheduler } from '../../../../../base/common/async.js';
+import { Limiter, raceTimeout, RunOnceScheduler } from '../../../../../base/common/async.js';
+import { Event } from '../../../../../base/common/event.js';
 import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IReference, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -33,6 +34,10 @@ const BaseHalfCodeCardEditingContext = new RawContextKey<boolean>('basehalfCodeC
 
 /** What Source Control knows comes in bursts. */
 const CHANGES_SETTLE_MS = 100;
+/** Files whose marks are worked out at once: each reads its earlier version from git, and a canvas can show many (code cards, rule 12). */
+const MARKS_ASKED_AT_ONCE = 4;
+/** How long a file's first marks are waited for before the next file's turn: a file git says nothing about has none to give. */
+const MARKS_COME_WITHIN_MS = 3_000;
 
 /**
  * Code cards: what they draw at rest, their text models and marks, and editing on the card
@@ -47,7 +52,9 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 	/** Faces that hold a model, used last at the end. */
 	private readonly holdingModels: BaseHalfCanvasCodeFace[] = [];
 	private readonly markStores = new Map<BaseHalfCanvasCodeFace, DisposableStore>();
-	private readonly marksAsked = this._register(new Limiter<void>(1));
+	/** Faces that lost their model to the limit: their marks stay as they were until they are used again (code cards, "Limits"). */
+	private readonly marksAtRest = new Set<BaseHalfCanvasCodeFace>();
+	private readonly marksAsked = this._register(new Limiter<void>(MARKS_ASKED_AT_ONCE));
 	private readonly changesSettled = this._register(new RunOnceScheduler(() => this.followChanges(), CHANGES_SETTLE_MS));
 
 	private static current: BaseHalfCanvasCodeCards | undefined;
@@ -152,7 +159,11 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 			if (oldest && oldest !== this.editing?.editor.face) {
 				this.letMarksGo(oldest);
 				oldest.letModelGo();
+				this.marksAtRest.add(oldest);
 			}
+		}
+		if (this.marksAtRest.delete(face)) {
+			this.followChangesOf(face);
 		}
 	}
 
@@ -193,6 +204,7 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 			if (index >= 0) {
 				this.holdingModels.splice(index, 1);
 			}
+			this.marksAtRest.delete(face);
 			this.letMarksGo(face);
 		}));
 		this.followChangesOf(face);
@@ -273,16 +285,16 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 	private followChangesOf(face: BaseHalfCanvasCodeFace): void {
 		const changed = this.changes.isChanged(face.resource);
 		if (!changed) {
+			this.marksAtRest.delete(face);
 			this.letMarksGo(face);
 			face.setMarks(BASEHALF_CODE_FACE_NO_MARKS);
 			return;
 		}
-		if (this.markStores.has(face) || !face.canHoldModel) {
+		if (this.markStores.has(face) || this.marksAtRest.has(face) || !face.canHoldModel) {
 			return;
 		}
 		const store = new DisposableStore();
 		this.markStores.set(face, store);
-		// One file at a time: each reads its earlier version from git.
 		void this.marksAsked.queue(async () => {
 			if (this.markStores.get(face) !== store || !await face.ensureModel() || this.markStores.get(face) !== store) {
 				return;
@@ -295,6 +307,10 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 			const draw = () => face.setMarks(baseHalfCodeFaceMarks(reference.object.changes.map(change => change.change)));
 			store.add(reference.object.onDidChange(draw));
 			draw();
+			// The turn ends when its marks are there, which is what a face must have before the limit takes its model.
+			if (reference.object.changes.length === 0) {
+				await raceTimeout(Event.toPromise(reference.object.onDidChange, store), MARKS_COME_WITHIN_MS);
+			}
 		});
 	}
 
