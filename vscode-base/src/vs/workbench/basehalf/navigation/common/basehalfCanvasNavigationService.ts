@@ -197,7 +197,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			recordHistory: options.history !== 'replace',
 			collapseHistoryBoundary: options.history === 'replace'
 		});
-		if (options.history !== 'replace') {
+		if (options.history !== 'replace' && !options.transient) {
 			this._onDidOpenCardDetail.fire();
 		}
 		return { handled: true, target: 'cardDetail', state: cardDetail };
@@ -240,7 +240,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		}
 
 		this.forwardStack.push(this._state);
-		this.updateState(previous, { recordHistory: false });
+		this.updateState(this.withAvailableProjection(previous), { recordHistory: false });
 		return true;
 	}
 
@@ -255,7 +255,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		}
 
 		this.backStack.push(this._state);
-		this.updateState(next, { recordHistory: false });
+		this.updateState(this.withAvailableProjection(next), { recordHistory: false });
 		return true;
 	}
 
@@ -367,6 +367,13 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return this.uriIdentityService.extUri.isEqual(left.resource, right.resource)
 			&& this.uriIdentityService.extUri.isEqual(left.workspaceFolder, right.workspaceFolder)
 			&& left.relativePath === right.relativePath;
+	}
+
+	/** A state of the history may name a view the file no longer offers, as Changes once its last change went. */
+	private withAvailableProjection(state: IBaseHalfCanvasNavigationState): IBaseHalfCanvasNavigationState {
+		const cardDetail = state.cardDetail;
+		const projection = cardDetail && this.cardProjectionRegistryService.normalizeProjection(cardDetail.resource, cardDetail.projection);
+		return !cardDetail || !projection || projection === cardDetail.projection ? state : { ...state, cardDetail: { ...cardDetail, projection } };
 	}
 
 	private cardDetailStatesEqual(left: IBaseHalfCardDetailState | undefined, right: IBaseHalfCardDetailState | undefined): boolean {

@@ -32,6 +32,8 @@ export interface IBaseHalfOpenRoutingOptions {
 	readonly projection?: BaseHalfCardDetailProjection;
 	readonly sideBySide?: boolean;
 	readonly forceVSCodeEditor?: boolean;
+	/** Shown while a picker is open, which an Escape takes back (`IBaseHalfOpenResourceOptions`). */
+	readonly transient?: true;
 }
 
 export type BaseHalfOpenRoutingDecision =
@@ -54,7 +56,8 @@ export function getBaseHalfOpenRoutingDecision(options: IBaseHalfOpenRoutingOpti
 			selection: options.selection,
 			preserveFocus: options.preserveFocus,
 			pinned: options.pinned,
-			projection: options.projection
+			projection: options.projection,
+			...(options.transient ? { transient: true } : {})
 		}
 	};
 }

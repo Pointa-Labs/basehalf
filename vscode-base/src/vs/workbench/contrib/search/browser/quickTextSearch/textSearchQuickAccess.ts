@@ -415,6 +415,8 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 		const result = await tryOpenBaseHalfResource(this._baseHalfCanvasNavigationService, resource, {
 			source: 'quickAccess',
 			preserveFocus: true,
+			// BaseHalf: walking the results closes no editor over the canvas (the changes of a file, rule 22).
+			transient: true,
 			selection: getEditorSelectionFromMatch(itemMatch, this.searchModel)
 		});
 
@@ -434,7 +436,10 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 				selection: state.cardDetail.selection,
 				preserveFocus: state.cardDetail.preserveFocus,
 				pinned: state.cardDetail.pinned,
-				projection: state.cardDetail.projection
+				projection: state.cardDetail.projection,
+				// BaseHalf: taking a preview back is not opening anything (the changes of a file, rule 22).
+				changesGroup: state.cardDetail.changesGroup,
+				transient: true
 			});
 			return;
 		}

@@ -24,6 +24,35 @@ suite('BaseHalfCanvasNavigationService', () => {
 
 	const workspaceFolder = URI.file('/workspace');
 
+	test('going back to a view the file no longer offers shows its usual one', async () => {
+		let hasChanges = true;
+		const projections = disposables.add(new BaseHalfCardProjectionRegistryService());
+		disposables.add(projections.registerProjection({ id: 'changes', label: 'Changes', icon: 'codicon-diff', order: 50, isAvailable: () => hasChanges }));
+		const service = createService(new Map([
+			['/workspace/a.ts', aFileStat(URI.file('/workspace/a.ts'), FileType.File)],
+			['/workspace/b.ts', aFileStat(URI.file('/workspace/b.ts'), FileType.File)]
+		]), [workspaceFolder], new BaseHalfEditorFlushService(), projections);
+		await service.openCardDetail(URI.file('/workspace/a.ts'), { source: 'api', projection: 'changes' });
+		assert.strictEqual(service.state.cardDetail?.projection, 'changes');
+		await service.openCardDetail(URI.file('/workspace/b.ts'), { source: 'api' });
+
+		hasChanges = false;
+		assert.strictEqual(await service.goBack(), true);
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'a.ts');
+		assert.strictEqual(service.state.cardDetail?.projection, 'source');
+	});
+
+	test('only what the user opened takes the place of an editor over the canvas: no transient preview and no change of view', async () => {
+		const service = createService(new Map([['/workspace/a.ts', aFileStat(URI.file('/workspace/a.ts'), FileType.File)]]));
+		let opened = 0;
+		disposables.add(service.onDidOpenCardDetail(() => opened++));
+		await service.openCardDetail(URI.file('/workspace/a.ts'), { source: 'quickAccess', transient: true });
+		await service.openCardDetail(URI.file('/workspace/a.ts'), { source: 'api', history: 'replace' });
+		assert.strictEqual(opened, 0);
+		await service.openCardDetail(URI.file('/workspace/a.ts'), { source: 'quickAccess' });
+		assert.strictEqual(opened, 1);
+	});
+
 	test('starts on the visible workspace root canvas', () => {
 		const service = createService(new Map());
 
@@ -953,7 +982,8 @@ suite('BaseHalfCanvasNavigationService', () => {
 	function createService(
 		files: Map<string, IFileStat>,
 		workspaceFolders: URI[] = [workspaceFolder],
-		editorFlushService = new BaseHalfEditorFlushService()
+		editorFlushService = new BaseHalfEditorFlushService(),
+		projections = disposables.add(new BaseHalfCardProjectionRegistryService())
 	): BaseHalfCanvasNavigationService {
 		const fileService = {
 			onDidFilesChange: Event.None,
@@ -984,7 +1014,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 				}) as IWorkspace
 			} as Partial<IWorkspaceContextService> as IWorkspaceContextService,
 			editorFlushService,
-			disposables.add(new BaseHalfCardProjectionRegistryService()),
+			projections,
 			new TestNotificationService()
 		));
 	}

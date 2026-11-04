@@ -45,6 +45,8 @@ export interface IBaseHalfOpenResourceOptions extends IBaseHalfNavigationHistory
 	readonly projection?: BaseHalfCardDetailProjection;
 	/** The group of Source Control whose comparison the Changes view shows, for a row of it. */
 	readonly changesGroup?: string;
+	/** Shown while a picker is open, which an Escape takes back: it is not yet what the user opened. */
+	readonly transient?: true;
 	/** The caller already froze the inline author and adopted its current
 	 * projection into the shared working copy. */
 	readonly canvasProjectionHandoff?: true;

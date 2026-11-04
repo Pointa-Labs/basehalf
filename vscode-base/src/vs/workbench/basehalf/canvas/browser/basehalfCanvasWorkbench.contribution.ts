@@ -34,8 +34,10 @@ import { IExplorerService } from '../../../contrib/files/browser/files.js';
 import { setExplorerFileClipboard } from '../../../contrib/files/browser/fileActions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { EditorsOrder, SideBySideEditor } from '../../../common/editor.js';
+import { EditorInputCapabilities, EditorsOrder, SaveReason, SideBySideEditor } from '../../../common/editor.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { AutoSaveMode, IFilesConfigurationService } from '../../../services/filesConfiguration/common/filesConfigurationService.js';
 import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
@@ -308,6 +310,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IInstantiationService public readonly instantiationService: IInstantiationService,
 		@ILogService public readonly logService: ILogService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IEditorGroupsService private readonly editorGroupsService: IEditorGroupsService,
+		@IFilesConfigurationService private readonly filesConfigurationService: IFilesConfigurationService,
 		@IWorkingCopyService public readonly workingCopyService: IWorkingCopyService,
 		@IWorkingCopyFileService public readonly workingCopyFileService: IWorkingCopyFileService,
 		@ITextFileService public readonly textFileService: ITextFileService,
@@ -588,7 +592,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				this.renderer.scheduleBackgroundRender();
 			}
 		}));
-		this._register(this.canvasNavigationService.onDidOpenCardDetail(() => this.closeEditorsOverCanvas()));
+		this._register(this.canvasNavigationService.onDidOpenCardDetail(() => void this.closeEditorsOverCanvas()));
 		this._register(TokenizationRegistry.onDidChange(event => {
 			if (event.changedColorMap) {
 				this.cardRenderer.recolorCodePreviews();
@@ -1188,11 +1192,26 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.updateCanvasLayer();
 	}
 
-	/** What was opened last is in front: Card Detail, opened under an editor over the canvas, takes its place (the changes of a file, rule 22). */
-	private closeEditorsOverCanvas(): void {
-		const editors = this.editorService.visibleEditorPanes.flatMap(pane => pane.input ? [{ editor: pane.input, groupId: pane.group.id }] : []);
-		if (editors.length > 0) {
-			void this.editorService.closeEditors(editors, { preserveFocus: true }).finally(() => this.updateCanvasLayer());
+	/**
+	 * What was opened last is in front: Card Detail, opened under an editor over
+	 * the canvas, takes its place (the changes of a file, rule 22). All of them
+	 * go: with no tabs, one behind would come to the front and no one could tell
+	 * why. A window of its own and the settings overlay are not over the canvas.
+	 */
+	private async closeEditorsOverCanvas(): Promise<void> {
+		const editors = this.editorGroupsService.mainPart.groups.flatMap(group => group.editors.map(editor => ({ editor, groupId: group.id })));
+		if (editors.length === 0) {
+			return;
+		}
+		try {
+			// What saves itself in a moment is not asked about.
+			const dirty = editors.filter(({ editor }) => editor.isDirty() && !editor.isSaving() && !editor.hasCapability(EditorInputCapabilities.Untitled) && this.filesConfigurationService.getAutoSaveMode(editor).mode !== AutoSaveMode.OFF);
+			if (dirty.length > 0) {
+				await this.editorService.save(dirty, { reason: SaveReason.AUTO });
+			}
+			await this.editorService.closeEditors(editors, { preserveFocus: true });
+		} finally {
+			this.updateCanvasLayer();
 		}
 	}
 
