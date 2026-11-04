@@ -6043,9 +6043,13 @@ change moves it.
 
 **Consequences.**
 - D118's "no line numbers" and "does not scroll" are revised.
-- A double click on a code card no longer opens Card Detail. Expand and Enter's neighbors are
-  as a note has them.
+- A double click on a code card no longer opens Card Detail, and neither does one on an empty
+  code file, which has line 1 as in the editor. Enter edits a selected code card, and Expand opens
+  Card Detail, as a note has them.
 - [Canvas wheel gestures](specs/canvas-wheel-gestures.md) and [the changes of a file](specs/changes-of-a-file.md)
   follow.
 - Two of VS Code's files, the editor service and the status bar, read Card Detail's text editor
   when no editor pane has one ([`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md)).
+- The card's editor is the canvas's active editor to navigation, as a note's is, so what leaves the
+  canvas waits for it to write its text and leave its place.
+- Several cursors take Escape before Card Detail goes. A selection still does not (D119).

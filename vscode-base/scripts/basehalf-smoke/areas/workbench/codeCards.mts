@@ -24,6 +24,7 @@ const SHORT = `${FOLDER}/short.ts`;
 const LARGE = `${FOLDER}/large.ts`;
 const EMPTY = `${FOLDER}/empty.ts`;
 const IGNORED = `${FOLDER}/ignored.ts`;
+const NEAR_TOP = `${FOLDER}/near-top.ts`;
 const NOTE = `${FOLDER}/note.md`;
 const IMAGE = `${FOLDER}/picture.png`;
 const LINE_COUNT = 800;
@@ -97,7 +98,7 @@ export async function prepareCodeCards(page) {
 }
 
 /** Moves the canvas until the cards are out of view and back, so that they are drawn anew. */
-async function panAwayAndBack(page) {
+async function panAwayAndBack(page, whileItComesBack?: () => Promise<void>) {
 	const canvas = await page.locator('.react-flow').first().boundingBox();
 	await page.waitForTimeout(300);
 	const before = await readCanvasView(page);
@@ -107,6 +108,7 @@ async function panAwayAndBack(page) {
 	await page.mouse.wheel(0, 3_000);
 	await waitForReading(() => page.locator('.basehalf-canvas-code-scroller').count(), count => count === 0, 'the faces out of view', 10_000);
 	await page.waitForTimeout(300);
+	await whileItComesBack?.();
 	await page.mouse.wheel(0, -3_000);
 	await waitForReading(() => readCanvasView(page), view => JSON.stringify(view) === JSON.stringify(before), 'the canvas back where it was', 10_000);
 }
@@ -158,11 +160,29 @@ export async function assertCardKeepsItsPlace(page) {
 	const read = await waitForReading(() => readFace(page, LONG), reading => reading.topLine !== null && reading.topLine >= 295 && reading.colored > 2, 'the card read past its head', 10_000);
 	await page.waitForTimeout(300);
 
-	// Out of view and back: the face is made anew, without a model at first.
-	await panAwayAndBack(page);
+	// Out of view and back: the face is made anew, without a model at first, and on no frame does it show other lines.
+	await panAwayAndBack(page, () => page.evaluate(cardPath => {
+		const state = { numbers: [] as number[], running: true };
+		globalThis.__bhCodeCardNumbers = state;
+		const tick = () => {
+			if (state.running) {
+				const numbers = [...document.querySelectorAll(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"] .basehalf-canvas-code-number`)].map(number => Number(number.textContent));
+				state.numbers.push(...numbers);
+				requestAnimationFrame(tick);
+			}
+		};
+		requestAnimationFrame(tick);
+	}, LONG));
 	const back = await waitForReading(() => readFace(page, LONG), reading => reading.kind && reading.colored > 2, 'the face back in view', 10_000);
 	await page.waitForTimeout(600);
 	const settled = await readFace(page, LONG);
+	const numbersShown = await page.evaluate(() => {
+		globalThis.__bhCodeCardNumbers.running = false;
+		return globalThis.__bhCodeCardNumbers.numbers;
+	});
+	if (numbersShown.some(number => number < read.topLine - 8)) {
+		throw new Error(`A face that comes back must show no lines but those at its place: it stands at ${read.topLine} and showed ${Math.min(...numbersShown)}`);
+	}
 	// A place is a line, and the line that was cut at the top now stands whole.
 	if (Math.abs(back.topLine - read.topLine) > 1 || Math.abs(settled.topLine - read.topLine) > 1) {
 		throw new Error(`A card must stand at its place when it comes back into view: ${read.topLine}, then ${back.topLine} and ${settled.topLine}`);
@@ -193,6 +213,45 @@ export async function assertCardKeepsItsPlace(page) {
 	fs.rmSync(inWorkspace(IGNORED));
 	await cardOf(page, IGNORED).waitFor({ state: 'detached', timeout: 15_000 });
 	await setCanvasZoomPercent(page, 100);
+}
+
+/** A change near a file's top is in view when the Changes view opens there, and nothing scrolls. The card still comes to it. */
+export async function assertCardComesToAChangeInView(page) {
+	const lines = Array.from({ length: 400 }, (_, index) => `export const line${index} = ${index};`);
+	fs.writeFileSync(inWorkspace(NEAR_TOP), lines.join('\n') + '\n');
+	commitOnly(NEAR_TOP, 'a file with a change near its top');
+	lines[4] = '// changed near the top';
+	fs.writeFileSync(inWorkspace(NEAR_TOP), lines.join('\n') + '\n');
+	await runCommand(page, 'Git: Refresh');
+	await cardOf(page, NEAR_TOP).waitFor({ state: 'attached', timeout: 15_000 });
+	await zoomCanvas(page, 'fit');
+	await page.waitForTimeout(400);
+	await setCanvasZoomPercent(page, 100);
+	await page.waitForTimeout(300);
+	await waitForReading(() => readFace(page, NEAR_TOP), reading => reading.kind && reading.ticks.length === 1, 'the tick of the change near the top', 20_000);
+	const box = await cardOf(page, NEAR_TOP).locator('.basehalf-canvas-code-scroller').boundingBox();
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await page.waitForTimeout(250);
+	for (let index = 0; index < 4; index++) {
+		await page.mouse.wheel(0, 1_500);
+		await page.waitForTimeout(60);
+	}
+	await waitForReading(() => readFace(page, NEAR_TOP), reading => reading.topLine !== null && reading.topLine > 150, 'the card far from the change', 10_000);
+	await page.waitForTimeout(300);
+	await cardOf(page, NEAR_TOP).locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 10_000 });
+	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor'), undefined, { timeout: 10_000 });
+	await page.waitForTimeout(1_000);
+	await page.keyboard.press('Escape');
+	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 10_000 });
+	await page.waitForTimeout(200);
+	const atChange = await readFace(page, NEAR_TOP);
+	if (atChange.topLine === null || atChange.topLine > 6 || !atChange.bars.includes('modified')) {
+		throw new Error(`The card must come to a change that was in view when the Changes view opened: ${JSON.stringify(atChange)}`);
+	}
+	fs.rmSync(inWorkspace(NEAR_TOP));
+	commitOnly(NEAR_TOP, 'the file with a change near its top goes');
+	await runCommand(page, 'Git: Refresh');
+	await cardOf(page, NEAR_TOP).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
 /** A note's views that have no place go on by the selection or the first change, as before there were places. */
@@ -482,30 +541,6 @@ export async function assertCardStandsAtWhatWasRead(page) {
 	await waitForReading(() => readFace(page, LONG), reading => reading.scrollTop === 0, 'the card at its first line', 5_000);
 	await page.waitForTimeout(300);
 
-	// The first change is in view when the Changes view opens at its top, and nothing scrolls there. The card still comes to it.
-	for (let index = 0; index < 6; index++) {
-		await page.mouse.wheel(0, 3_000);
-		await page.waitForTimeout(60);
-	}
-	await waitForReading(() => readFace(page, LONG), reading => reading.topLine !== null && reading.topLine > 500, 'the card far from the first change', 10_000);
-	await page.waitForTimeout(300);
-	await cardOf(page, LONG).locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 10_000 });
-	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor'), undefined, { timeout: 10_000 });
-	await page.waitForTimeout(1_000);
-	await page.keyboard.press('Escape');
-	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 10_000 });
-	const atFirstChange = await waitForReading(() => readFace(page, LONG), reading => reading.topLine !== null, 'the card after the Changes view', 5_000);
-	if (Math.abs(atFirstChange.topLine - MODIFIED_AT) > 8) {
-		throw new Error(`The card must come to the first change, in view when the Changes view opened: ${JSON.stringify(atFirstChange)}`);
-	}
-	await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
-	await page.waitForTimeout(250);
-	for (let index = 0; index < 4; index++) {
-		await page.mouse.wheel(0, -20_000);
-		await page.waitForTimeout(60);
-	}
-	await waitForReading(() => readFace(page, LONG), reading => reading.scrollTop === 0, 'the card at its first line again', 5_000);
-	await page.waitForTimeout(300);
 	const shortBefore = await readFace(page, SHORT);
 	await cardOf(page, LONG).locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 10_000 });
 	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor'), undefined, { timeout: 10_000 });
