@@ -1,7 +1,7 @@
 # Note rendering
 
 Status: Active (2026-10-13; the sound element, colors, toggles, links, and
-which blocks Rich edits, 2026-11-02)
+which blocks Rich edits, 2026-11-02; a code file's card, 2026-11-04 for D118)
 Decision: [D54](../decisions.md#d54--a-note-is-shown-rendered-wherever-it-is-read-new-2026-10-13);
 what Rich writes and reads back, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
 Related: [formats of a note](note-formats.md) (what Rich writes and reads
@@ -73,8 +73,8 @@ Not in scope, and unchanged:
   ([formats of a note](note-formats.md#the-card-preview-and-the-cards-editor)).
 - Everything else in Card Detail's projections, and how a block that is not
   edited is saved: byte for byte, as before.
-- What the excerpt of a text file, a code file, or a folder shows: the first
-  lines, as before.
+- What the excerpt of a text file or a folder shows: the first lines, as
+  before. What a code file shows is rule 33 (D118).
 - Front matter. It is not part of the shown note.
 
 ## Terms
@@ -306,6 +306,16 @@ HTML has no form in it. Read and written back, it would lose:
     shows "Binary file" when they hold a NUL byte. A result node reads the
     text of its result the same way. A text result is never reported as
     missing because it is long.
+33. The card of a code file shows the file as the editor does (D118): from its
+    first line, in the editor's colors, with its indentation and blank lines,
+    at the editor's tab width, and without wrapping, so that a long line ends
+    at the edge of the card. Nothing is skipped: imports and a license header
+    stay. It has no line numbers, and its text keeps the size of a card's text.
+    A code file is one whose language the window knows, other than plain text
+    and Markdown, or whose icon says it is code; a language the window has no
+    grammar for shows the same way in one color. Any other text file shows as
+    before: its lines trimmed, without blank lines, wrapped, in one color. A
+    note is not a code file, and neither its card nor its Source has colors.
 
 ## Limits
 

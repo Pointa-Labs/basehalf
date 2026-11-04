@@ -5855,6 +5855,99 @@ menu to the theme's selection color, the same as the prompt's reference menu.
   add button, and `noteAddedLine.ts` the new line, so that the bundle test runs them.
 - The bundle test mounts the real menu, and the smoke has steps `note-block-menu-*`.
 
+## D118 — A code card shows its file as the editor does, and the languages' grammars run (NEW, 2026-11-04)
+
+**Decision.** The card of a code file shows the file from its first line in the
+editor's colors, with its indentation and blank lines, at the editor's tab width,
+and without wrapping. Nothing is skipped: imports and a license header stay. A note
+and any other text keep their cards. For the colors, BaseHalf runs the 46 of VS
+Code's own extensions that hold only a language and its grammar and have no code to
+run. Markdown's and the prompt language's stay out, so that a note has no colors,
+neither on its card nor in Source. No language service runs. See [note
+rendering](specs/note-rendering.md), rule 33.
+
+**Why.** On 2026-11-04 the owner said that code and notes had run together on the
+canvas, because notes are in one color, and asked whether code should have color. A
+code card and a `.txt` card had no style between them, and every line was trimmed, so
+that code had lost its shape. All code was also Plain Text in Card Detail and in a
+diff, for a reason no decision asked for: the allowlist of D22 and D76 was written
+for extensions that run code, and left out extensions that have none. The owner then
+settled the two questions I raised. About imports on a card: "笔记是笔记，代码文件是代码文件".
+About skipping a license header: "代码文件我们像 VS Code 那样显示就可以了呀". Skipping it had
+looked needed because nearly every card of this repository showed only that header,
+but that was the wrapping: without it the header takes 5 of a card's 12 lines.
+
+**What the check showed.** In a dev window with a load of 3 to 4: 46 grammars left the
+window's start within noise (ready at 1173 to 1232 ms against 1186 to 1231 ms), with
+24 ms more for loading extensions. The first card of a language cost 1 to 28 ms for
+its grammar and 0.3 to 46 ms for the first tokenizing, once per window, and later
+cards at most 0.5 ms. Pan and zoom over 107 colored cards, 3 alternating rounds of
+about 640 frames: median 8.3 ms on both sides, and 2 to 4 frames over 33 ms on both.
+
+**What was set aside.**
+- A darker face for code cards. At 27% the card merges into the canvas, and a note's
+  background already means something.
+- Skipping imports, or going to the first function. It needs a rule per language, and
+  a code file is what it is.
+- Coloring a note's Source. A note is not code.
+
+**Consequences.**
+- [Built-in AI Video and no plugins](specs/built-in-ai-video-and-no-plugins.md): rule
+  10 names what runs, which revises D22 and D76 for these extensions only.
+- Card Detail's editor and every diff have the colors of their language.
+
+## D119 — A change is a state of a file, and its diff is a view of its Card Detail (NEW, 2026-11-04)
+
+**Decision.** A card goes on showing its file, and a changed file's card has the letter
+and color of Files on its name and a bar on its left edge of 3 screen pixels at every
+zoom. Card Detail has a Changes view while the file has an earlier version to compare,
+never as where a file opens by itself: VS Code's diff for text, and the two versions
+side by side for a picture, a video, or a sound. A click on a changed file's row in
+Source Control opens that view, and a click on the letter does too. The changes of all
+files stay VS Code's multi-file diff, without files under `.bh` and with no file left
+out silently. See [the changes of a file](specs/changes-of-a-file.md).
+
+**Why.** On 2026-11-04 the owner asked how a diff should work in the product, and asked
+for a study of VS Code's source. VS Code separates where the
+changes are (colors and letters), one file (a row, a title action, and marks beside
+lines), and all files (the multi-file diff). Its window for agents makes the multi-file
+diff the first thing a click opens, and does not use a modal editor on the desktop; a
+modal editor here would cover the Agent Area. BaseHalf's text diff was already good.
+What was wrong was around it, and a measurement in a window listed ten things: warnings
+for pictures, a plain editor for new notes, 9 of 12 files in the multi-file diff, a
+click on a file's row that closed its own diff after 7 frames, Escape, the path, no
+trace in Card Detail or on cards, and no selection for agents. They have one cause: a
+file opens in Card Detail (D20, D22), and the rows of Source Control were the one
+common way left to the fallback editor. The owner then left the choice to me ("我相信你的
+判断，你来决定吧").
+
+**What the check showed.** In a window on a repository with every kind of change: the
+diff widget that the multi-file diff embeds has working Stage Block and Revert Block, so
+embedding it in Card Detail keeps them; a diff goes to one column by itself in a center
+of 836 px. Card Detail's views can be registered, so Changes is one more of them. Among
+2,803 changes of code files in this repository's history, the first change is in a
+card's first 12 lines in 21%, and the whole change fits 12 lines in 31%.
+
+**What was set aside.**
+- Patching VS Code's editor for each of the ten. Each is small, but two surfaces for one
+  file stay, and notes, pictures, and selections each need an exception.
+- A modal editor, which needs almost no code and covers the Agent Area.
+- A card's preview showing its first change. Cards would change face at each commit, a
+  person who rarely commits would have a canvas of diffs, and it cannot work for notes
+  and pictures. See [why a preview does not show changes](specs/changes-of-a-file.md#why-a-preview-does-not-show-changes).
+- Admitting VS Code's image and video preview extension, which works without code but
+  only in the fallback editor, and is more than a grammar.
+- A canvas for reviewing a change across folders. It breaks a folder being a canvas, and
+  nothing yet shows that it is needed.
+
+**Consequences.**
+- [Git, SCM, GitHub, and GitGraph](git-scm-github-gitgraph.md) says what rows open;
+  [the selection agents can see](specs/selection-for-agents.md) gets `committed: true`,
+  and the agent skill says what it means.
+- A new folder `changes/` in the [code organization](harness/code-organization.md).
+- The first change floating over a card while the pointer rests on its mark is the next
+  step if marks turn out not to be enough. It changes no card.
+
 ## D120 — An editor shows what an edit is and says nothing of it, and Revert to Original is a button of the header (NEW, 2026-11-04)
 
 **Decision.** Nothing in BaseHalf says in words what an edit is. The sentence

@@ -51,6 +51,16 @@ Everything else stays VS Code's:
   take the files under it as they take any other, and the count in the header
   counts them.
 
+## What A Row And Open Changes Open
+
+Source Control stays VS Code's, and what its rows open follows BaseHalf's way to a
+file ([the changes of a file](specs/changes-of-a-file.md), D119): a click on a
+changed file's row opens Card Detail at the Changes view, and a new file's row its
+usual view. A deleted file, a file under `.bh`, a conflict, a file outside the
+workspace folders, a row opened to the side, and the files of a commit in Graph go
+on opening VS Code's editor. Open Changes on a group opens VS Code's multi-file
+diff, without files under `.bh`.
+
 ## Files The System Makes
 
 Systems make files in a folder by themselves: a file manager's `.DS_Store`,

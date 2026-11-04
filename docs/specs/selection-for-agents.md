@@ -2,7 +2,8 @@
 
 Status: Active (2026-10-14; a selected draft, 2026-10-22 for D63; text in a
 PDF or a book, 2026-10-25 for D81; the entry while the skill is not
-installed, 2026-10-26 for D83; a toggle's child, 2026-11-02 for D110)
+installed, 2026-10-26 for D83; a toggle's child, 2026-11-02 for D110; the
+Changes view, 2026-11-04 for D119)
 Decisions: [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
 [D81](../decisions.md),
@@ -163,6 +164,11 @@ text: "核心概念\nIR（原始需求）：用户想要什么（业务导向、
   note's file that hold the selection, counted from 1 and including the
   frontmatter, and `text`, the selected text as the note shows it: without
   Markdown marks, with one line break between blocks.
+- Text selected on the left side of a file's Changes view adds `committed: true`:
+  `first_line` and `last_line` are lines of that earlier version, which is the
+  file's version in git and not the file now
+  ([the changes of a file](changes-of-a-file.md), rule 15). Text on its right side
+  is text in the file, as in Source.
 - Text in a PDF adds `first_page` and `last_page` instead of the lines: the
   pages the selection begins and ends on, counted from 1. Text in a book adds
   `chapter`, the entry of the book's contents that the selection begins in,

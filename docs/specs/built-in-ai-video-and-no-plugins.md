@@ -108,7 +108,10 @@ longer described anything the product does.
 10. BaseHalf runs its built-in extensions, the agent extensions, and the
     extension that an Extension Development Host was started with, from the
     location it was started with. Any other extension does not run, and
-    BaseHalf says why where VS Code would show it.
+    BaseHalf says why where VS Code would show it. Of VS Code's own extensions
+    it runs the theme, Git and GitHub, and the 46 that hold only a language and
+    its grammar, with no code to run (D118). Markdown's and the prompt language's
+    are left out, so that a note has no colors. Language services are not run.
 11. BaseHalf installs nothing but the agent extensions, from the gallery by
     their exact identity. A file, a folder, or another extension from the
     gallery is refused, with a message that says BaseHalf runs only its
