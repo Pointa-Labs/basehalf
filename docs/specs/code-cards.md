@@ -245,12 +245,26 @@ both would stay what they are.
    place; Go to Line goes to the line; the palette lists Format Document and Fold All.
 10. The status bar shows line, column, and language while Source shows, follows the caret, and shows
     none of them on the canvas.
-11. A file above 5 MiB shows its head, its gesture ends there, and a double click opens Card Detail.
+11. A file above 5 MiB shows its head, its gesture ends there, a double click opens Card Detail, and a place
+    beyond its head shows the head's last lines.
 12. A note's card and every other card behave as before.
+13. A card read past its head that leaves the view and comes back stands at its place, and on no frame shows
+    other lines. Going to another folder and back does the same.
+14. With the text moved sideways, criterion 4 holds, the text stays there when the editing ends and when the
+    file is written from outside, and the marks of the face stand where the editor's come.
+15. An empty code file has line 1, and a double click edits it. A file ending in a line break has the same
+    numbers on its face as in its editor.
+16. A press during the reading of a file for the card's editor opens nothing, and a second card asked for then
+    is the one edited. Enter under Card Detail edits no card. A file with unwritten text on its card gets no
+    editor over the canvas.
+17. An input method writes at the caret at 150%, and its Escape leaves the editing.
+18. A change near a file's top, in view when the Changes view opens there, is what the card shows afterwards.
+    In a note, Rich to Changes shows the first change, and Rich to Source shows the selection it was opened at.
 
 ## Verification
 
 - Unit tests of the lines a face draws, of the double click's action, and of the place.
-- The smoke's steps in `canvas` (face, scrolling, marks, editing) and `workbench` (Source, its marks,
-  commands, and status bar, the place after Changes).
-- Once in a real window on a folder of real files, with frames sampled: criteria 2, 3, and 4.
+- The smoke's `code-card-*` and `source-is-the-editor` steps in `workbench`, and `agent-sees-selection` in
+  `canvas`.
+- Once in a real window on a folder of real files, with frames sampled: criteria 2, 3, and 4, and the timing
+  of criterion 16, which a smoke step cannot hold still.
