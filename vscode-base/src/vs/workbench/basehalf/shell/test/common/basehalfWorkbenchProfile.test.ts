@@ -316,6 +316,13 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('github.copilot'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('ms-python.python'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('basehalf.basehalf'), false);
+		// A language's grammar runs no code (D118), a language service does, and a note has no colors.
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.typescript'), true);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.python'), true);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.typescript-language-features'), false);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.markdown'), false);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.prompt'), false);
+		assert.strictEqual(BASEHALF_ALLOWED_EXTENSION_FAMILIES.find(family => family.family === 'languages')?.builtInExtensionIds.length, 46);
 
 		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.git'), true);
 		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.git-base'), true);
@@ -342,7 +349,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 		assert.deepStrictEqual(
 			BASEHALF_ALLOWED_EXTENSION_FAMILIES.map(family => family.family),
-			['theme', 'git', 'github', 'github-authentication', 'codex', 'claude']
+			['theme', 'languages', 'git', 'github', 'github-authentication', 'codex', 'claude']
 		);
 	});
 

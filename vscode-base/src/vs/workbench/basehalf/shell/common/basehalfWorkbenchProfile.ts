@@ -417,7 +417,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'theme' | 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
+export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -632,6 +632,17 @@ export interface IBaseHalfAllowedExtensionFamily {
 	readonly reason: string;
 }
 
+/**
+ * VS Code's extensions that hold only a language and its grammar, with no code
+ * to run (D118). Markdown's and the prompt language's are left out, so that a
+ * note has no colors.
+ */
+const BASEHALF_LANGUAGE_EXTENSION_IDS: readonly string[] = [
+	'bat', 'clojure', 'coffeescript', 'cpp', 'csharp', 'css', 'dart', 'diff', 'docker', 'dotenv', 'fsharp', 'go', 'groovy', 'handlebars', 'hlsl', 'html',
+	'ini', 'java', 'javascript', 'json', 'julia', 'latex', 'less', 'log', 'lua', 'make', 'objective-c', 'perl', 'php', 'powershell', 'pug', 'python',
+	'r', 'razor', 'restructuredtext', 'ruby', 'rust', 'scss', 'shaderlab', 'shellscript', 'sql', 'swift', 'typescript', 'vb', 'xml', 'yaml'
+].map(name => `vscode.${name}`);
+
 export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	{
 		family: 'theme',
@@ -640,6 +651,14 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 		externalSlotIds: [],
 		source: 'extensions/theme-defaults/package.json',
 		reason: 'VS Code default themes supply the product color theme. Without it the window keeps its startup colors, and colors that extensions contribute, such as the Git status colors, have no value.'
+	},
+	{
+		family: 'languages',
+		builtInExtensionIds: BASEHALF_LANGUAGE_EXTENSION_IDS,
+		externalExtensionIds: [],
+		externalSlotIds: [],
+		source: 'extensions/<language>/package.json',
+		reason: 'A language and its grammar give a code card, an editor, and a diff the colors of the language. These extensions run no code.'
 	},
 	{
 		family: 'git',
@@ -954,7 +973,7 @@ const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 );
 const REQUIRED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES
-		.filter(family => family.family === 'theme' || family.family === 'git' || family.family === 'github' || family.family === 'github-authentication')
+		.filter(family => family.family === 'theme' || family.family === 'languages' || family.family === 'git' || family.family === 'github' || family.family === 'github-authentication')
 		.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))
 );
 const ALLOWED_EXTERNAL_EXTENSION_IDS = new Set<string>(
