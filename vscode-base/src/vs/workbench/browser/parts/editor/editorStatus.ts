@@ -58,6 +58,7 @@ import { TabFocus } from '../../../../editor/browser/config/tabFocus.js';
 import { IEditorGroupsService, IEditorPart } from '../../../services/editor/common/editorGroupsService.js';
 import { InputMode } from '../../../../editor/common/inputMode.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { baseHalfShownTextEditors } from '../../../basehalf/cardDetail/browser/basehalfShownTextEditor.js';
 
 class SideBySideEditorEncodingSupport implements IEncodingSupport {
 	constructor(private primary: IEncodingSupport, private secondary: IEncodingSupport) { }
@@ -386,6 +387,8 @@ class EditorStatus extends Disposable {
 
 	private registerListeners(): void {
 		this._register(this.editorService.onDidActiveEditorChange(() => this.updateStatusBar()));
+		// BaseHalf: what shows in Card Detail, which no editor pane says.
+		this._register(baseHalfShownTextEditors.onDidChange(() => this.updateStatusBar()));
 		this._register(this.textFileService.untitled.onDidChangeEncoding(model => this.onResourceEncodingChange(model.resource)));
 		this._register(this.textFileService.files.onDidChangeEncoding(model => this.onResourceEncodingChange((model.resource))));
 		this._register(Event.runAndSubscribe(this.tabFocusMode.onDidChange, (tabFocusMode) => {
@@ -675,16 +678,18 @@ class EditorStatus extends Disposable {
 	}
 
 	private updateStatusBar(): void {
-		const activeInput = this.editorService.activeEditor;
 		const activeEditorPane = this.editorService.activeEditorPane;
-		const activeCodeEditor = activeEditorPane ? getCodeEditor(activeEditorPane.getControl()) ?? undefined : undefined;
+		// BaseHalf: Card Detail has no editor pane, and its text editor is the window's (code cards, rule 28).
+		const shown = activeEditorPane ? undefined : baseHalfShownTextEditors.current;
+		const activeInput = this.editorService.activeEditor ?? shown?.input;
+		const activeCodeEditor = activeEditorPane ? getCodeEditor(activeEditorPane.getControl()) ?? undefined : getCodeEditor(shown?.control) ?? undefined;
 
 		// Update all states
 		this.onColumnSelectionModeChange(activeCodeEditor);
 		this.onSelectionChange(activeCodeEditor);
 		this.onLanguageChange(activeCodeEditor, activeInput);
 		this.onEOLChange(activeCodeEditor);
-		this.onEncodingChange(activeEditorPane, activeCodeEditor);
+		this.onEncodingChange(activeEditorPane, activeCodeEditor, shown?.input);
 		this.onIndentationChange(activeCodeEditor);
 		this.onMetadataChange(activeEditorPane);
 		this.currentMarkerStatus.update(activeCodeEditor);
@@ -884,7 +889,7 @@ class EditorStatus extends Disposable {
 		this.updateState(info);
 	}
 
-	private onEncodingChange(editor: IEditorPane | undefined, editorWidget: ICodeEditor | undefined): void {
+	private onEncodingChange(editor: IEditorPane | undefined, editorWidget: ICodeEditor | undefined, shownInput?: EditorInput): void {
 		if (editor && !this.isActiveEditor(editor)) {
 			return;
 		}
@@ -894,8 +899,9 @@ class EditorStatus extends Disposable {
 		// We only support text based editors that have a model associated
 		// This ensures we do not show the encoding picker while an editor
 		// is still loading.
-		if (editor && editorWidget?.hasModel()) {
-			const encodingSupport: IEncodingSupport | null = editor.input ? toEditorWithEncodingSupport(editor.input) : null;
+		const input = editor?.input ?? shownInput;
+		if (input && editorWidget?.hasModel()) {
+			const encodingSupport: IEncodingSupport | null = toEditorWithEncodingSupport(input);
 			if (encodingSupport) {
 				const rawEncoding = encodingSupport.getEncoding();
 				const encodingInfo = typeof rawEncoding === 'string' ? SUPPORTED_ENCODINGS[rawEncoding] : undefined;
@@ -1152,7 +1158,7 @@ export class ChangeLanguageAction extends Action2 {
 		}
 
 		const textModel = activeTextEditorControl.getModel();
-		const resource = EditorResourceAccessor.getOriginalUri(editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY });
+		const resource = EditorResourceAccessor.getOriginalUri(editorService.activeEditor ?? baseHalfShownTextEditors.current?.input, { supportSideBySide: SideBySideEditor.PRIMARY });
 
 		// Compute language
 		let currentLanguageName: string | undefined;
@@ -1243,7 +1249,7 @@ export class ChangeLanguageAction extends Action2 {
 		}
 
 		// Change language for active editor
-		const activeEditor = editorService.activeEditor;
+		const activeEditor = editorService.activeEditor ?? baseHalfShownTextEditors.current?.input;
 		if (activeEditor) {
 			const languageSupport = toEditorWithLanguageSupport(activeEditor);
 			if (languageSupport) {
@@ -1451,13 +1457,14 @@ export class ChangeEncodingAction extends Action2 {
 			return;
 		}
 
-		const activeEditorPane = editorService.activeEditorPane;
-		if (!activeEditorPane) {
+		// BaseHalf: Card Detail has no editor pane, and the input of its text editor stands for one here.
+		const activeInput = editorService.activeEditorPane?.input ?? baseHalfShownTextEditors.current?.input;
+		if (!activeInput) {
 			await quickInputService.pick([{ label: localize('noEditor', "No text editor active at this time") }]);
 			return;
 		}
 
-		const encodingSupport: IEncodingSupport | null = toEditorWithEncodingSupport(activeEditorPane.input);
+		const encodingSupport: IEncodingSupport | null = toEditorWithEncodingSupport(activeInput);
 		if (!encodingSupport) {
 			await quickInputService.pick([{ label: localize('noFileEditor', "No file active at this time") }]);
 			return;
@@ -1481,7 +1488,7 @@ export class ChangeEncodingAction extends Action2 {
 		let action: IQuickPickItem | undefined;
 		if (encodingSupport instanceof UntitledTextEditorInput) {
 			action = saveWithEncodingPick;
-		} else if (activeEditorPane.input.isReadonly()) {
+		} else if (activeInput.isReadonly()) {
 			action = reopenWithEncodingPick;
 		} else {
 			action = await quickInputService.pick([reopenWithEncodingPick, saveWithEncodingPick], { placeHolder: localize('pickAction', "Select Action"), matchOnDetail: true });
@@ -1493,7 +1500,7 @@ export class ChangeEncodingAction extends Action2 {
 
 		await timeout(50); // quick input is sensitive to being opened so soon after another
 
-		const resource = EditorResourceAccessor.getOriginalUri(activeEditorPane.input, { supportSideBySide: SideBySideEditor.PRIMARY });
+		const resource = EditorResourceAccessor.getOriginalUri(activeInput, { supportSideBySide: SideBySideEditor.PRIMARY });
 		if (!resource || (!fileService.hasProvider(resource) && resource.scheme !== Schemas.untitled)) {
 			return; // encoding detection only possible for resources the file service can handle or that are untitled
 		}
@@ -1559,15 +1566,16 @@ export class ChangeEncodingAction extends Action2 {
 			return;
 		}
 
-		if (!editorService.activeEditorPane) {
+		const inputNow = editorService.activeEditorPane?.input ?? baseHalfShownTextEditors.current?.input;
+		if (!inputNow) {
 			return;
 		}
 
-		const activeEncodingSupport = toEditorWithEncodingSupport(editorService.activeEditorPane.input);
+		const activeEncodingSupport = toEditorWithEncodingSupport(inputNow);
 		if (typeof encoding.id !== 'undefined' && activeEncodingSupport) {
 
 			// Re-open with encoding does not work on dirty editors, ask to revert
-			if (isReopenWithEncoding && editorService.activeEditorPane.input.isDirty()) {
+			if (isReopenWithEncoding && inputNow.isDirty()) {
 				const { confirmed } = await dialogService.confirm({
 					message: localize('reopenWithEncodingWarning', "Do you want to revert the active text editor and reopen with a different encoding?"),
 					detail: localize('reopenWithEncodingDetail', "This will discard any unsaved changes."),
@@ -1578,7 +1586,7 @@ export class ChangeEncodingAction extends Action2 {
 					return;
 				}
 
-				await editorService.activeEditorPane.input.revert(editorService.activeEditorPane.group.id);
+				await inputNow.revert(editorService.activeEditorPane?.group.id ?? -1);
 			}
 
 			// Set new encoding

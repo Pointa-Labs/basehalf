@@ -25,11 +25,9 @@ import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectio
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { ResultKind } from '../../../../platform/keybinding/common/keybindingResolver.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { emptyProgressRunner, IEditorProgressService, IProgressRunner } from '../../../../platform/progress/common/progress.js';
 import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
 import { TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
@@ -39,6 +37,11 @@ import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFil
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { BASEHALF_CHANGES_PROJECTION_ID, BASEHALF_LARGEST_COMPARED_VERSION_BYTES, BaseHalfChangesViewShownContext, IBaseHalfFileChange, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
+import { EditorInput } from '../../../common/editor/editorInput.js';
+import { ITextEditorService } from '../../../services/textfile/common/textEditorService.js';
+import { IBaseHalfFilePlacesService } from '../../cardDetail/common/basehalfFilePlaces.js';
+import { baseHalfShownTextEditors } from '../../cardDetail/browser/basehalfShownTextEditor.js';
+import { baseHalfEditorInstantiationService } from '../../cardDetail/browser/basehalfEditorInstantiation.js';
 
 const RENDER_SIDE_BY_SIDE_SETTING = 'diffEditor.renderSideBySide';
 
@@ -65,6 +68,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 	private readonly selectionSettled = this._register(new RunOnceScheduler(() => this.reportSelection(), 30));
 
 	private editor: DiffEditorWidget | undefined;
+	private shownInput: EditorInput | undefined;
 	private state: IBaseHalfCardDetailState | undefined;
 	private shown: IBaseHalfFileChange | undefined;
 	/** The comparison shown or being opened, also when it ended in a notice. */
@@ -91,6 +95,8 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@ILogService private readonly logService: ILogService,
+		@IBaseHalfFilePlacesService private readonly places: IBaseHalfFilePlacesService,
+		@ITextEditorService private readonly textEditorService: ITextEditorService,
 	) {
 		super();
 		this.shownKey = BaseHalfChangesViewShownContext.bindTo(contextKeyService);
@@ -177,7 +183,14 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 		this.state = state;
 		this.layout();
 		this.followChange();
-		this.applySelection(state.selection, ScrollType.Immediate);
+		if (state.keepsPlace) {
+			this.goToPlace(state);
+		} else if (state.selection) {
+			this.applySelection(state.selection, ScrollType.Immediate);
+		} else {
+			// A row or the letter asked for the change.
+			this.editor?.revealFirstDiff();
+		}
 	}
 
 	update(state: IBaseHalfCardDetailState): void {
@@ -194,6 +207,32 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 			BaseHalfChangesCardDetail.shown = undefined;
 		}
 		this.shownKey.set(!!BaseHalfChangesCardDetail.shown);
+		this.syncShownEditor();
+	}
+
+	/** It is the window's text editor while it shows (code cards, rule 27). */
+	private syncShownEditor(): void {
+		if (this.visible && this.editor && this.state) {
+			this.shownInput ??= this._register(this.textEditorService.createTextEditor({ resource: this.state.resource }));
+			baseHalfShownTextEditors.set(this, { control: this.editor, input: this.shownInput });
+		} else {
+			baseHalfShownTextEditors.clear(this);
+		}
+	}
+
+	/** The line the right side stands at, for the file's card and its other views (code cards, "The place"). */
+	private reportPlace(): void {
+		const resource = this.state?.resource;
+		const line = this.editor?.getModifiedEditor().getVisibleRanges()[0]?.startLineNumber;
+		if (this.visible && resource && line !== undefined) {
+			this.places.setPlace(resource, line, this);
+		}
+	}
+
+	/** Comes to the file's place: the view it was switched from stood there (code cards, rule 15). */
+	private goToPlace(state: IBaseHalfCardDetailState): void {
+		const modified = this.editor?.getModifiedEditor();
+		modified?.setScrollTop(modified.getTopForLineNumber(this.places.placeOf(state.resource) ?? 1), ScrollType.Immediate);
 	}
 
 	focus(): void {
@@ -221,6 +260,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 			BaseHalfChangesCardDetail.shown = undefined;
 			this.shownKey.set(false);
 		}
+		baseHalfShownTextEditors.clear(this);
 		this.onSelectionChange(undefined);
 		super.dispose();
 	}
@@ -293,14 +333,20 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 		if (firstOpen) {
 			this.saving.registerFlushers(state.resource.toString());
 		}
-		if (firstOpen && state.selection) {
+		this.syncShownEditor();
+		if (firstOpen && state.selection && !state.keepsPlace) {
 			this.applySelection(state.selection, ScrollType.Immediate);
 		} else {
-			// The first change in sight, as VS Code's diff opens; its changes are computed after this.
+			// The first change in sight, as VS Code's diff opens, or the line another view stood at;
+			// its changes are computed after this, and they move lines in the view.
 			const reveal = store.add(new MutableDisposable());
 			reveal.value = editor.onDidUpdateDiff(() => {
 				reveal.clear();
-				editor.revealFirstDiff();
+				if (state.keepsPlace) {
+					this.goToPlace(state);
+				} else {
+					editor.revealFirstDiff();
+				}
 			});
 		}
 		// Other versions have no selection, and setting them tells no one.
@@ -309,16 +355,7 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 	}
 
 	private createEditor(state: IBaseHalfCardDetailState): DiffEditorWidget {
-		// VS Code's editor panes give their editors this service; here nothing shows a progress bar.
-		const scoped = this._register(this.instantiationService.createChild(new ServiceCollection([IEditorProgressService, new class implements IEditorProgressService {
-			declare readonly _serviceBrand: undefined;
-			show(): IProgressRunner {
-				return emptyProgressRunner;
-			}
-			async showWhile(promise: Promise<unknown>): Promise<void> {
-				await promise;
-			}
-		}])));
+		const scoped = this._register(baseHalfEditorInstantiationService(this.instantiationService));
 		const editor = this._register(scoped.createInstance(DiffEditorWidget, this.editorHost, this.editorOptions(), {}));
 		if (/\.(?:md|markdown)$/i.test(state.resource.path)) {
 			// A copy of a note's text names the note, so that Rich in another note rebases its links (files in notes, rule 35).
@@ -327,6 +364,11 @@ export class BaseHalfChangesCardDetail extends Disposable implements IBaseHalfCa
 			this._register(addDisposableListener(this.editorHost, 'copy', nameNote, true));
 			this._register(addDisposableListener(this.editorHost, 'cut', nameNote, true));
 		}
+		this._register(editor.getModifiedEditor().onDidScrollChange(event => {
+			if (event.scrollTopChanged) {
+				this.reportPlace();
+			}
+		}));
 		this._register(editor.getModifiedEditor().onDidChangeCursorSelection(() => this.selectionSettled.schedule()));
 		this._register(editor.getOriginalEditor().onDidChangeCursorSelection(() => this.selectionSettled.schedule()));
 		this._register(editor.getModifiedEditor().onDidFocusEditorText(() => {

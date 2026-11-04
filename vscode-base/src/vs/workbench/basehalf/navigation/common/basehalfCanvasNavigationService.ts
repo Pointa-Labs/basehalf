@@ -188,7 +188,8 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			preserveFocus: options.preserveFocus,
 			pinned: options.pinned,
 			projection: this.cardProjectionRegistryService.normalizeProjection(resource, options.projection),
-			...(options.changesGroup ? { changesGroup: options.changesGroup } : {})
+			...(options.changesGroup ? { changesGroup: options.changesGroup } : {}),
+			...(options.keepsPlace ? { keepsPlace: true as const } : {})
 		};
 		this.updateState({
 			canvasFolder,

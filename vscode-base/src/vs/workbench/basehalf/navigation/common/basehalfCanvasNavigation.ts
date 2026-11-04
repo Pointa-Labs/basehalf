@@ -45,6 +45,8 @@ export interface IBaseHalfOpenResourceOptions extends IBaseHalfNavigationHistory
 	readonly projection?: BaseHalfCardDetailProjection;
 	/** The group of Source Control whose comparison the Changes view shows, for a row of it. */
 	readonly changesGroup?: string;
+	/** Another view of the same file, which goes on at the line this one stands at (code cards, rule 15). */
+	readonly keepsPlace?: true;
 	/** Shown while a picker is open, which an Escape takes back: it is not yet what the user opened. */
 	readonly transient?: true;
 	/** The caller already froze the inline author and adopted its current
@@ -83,6 +85,7 @@ export interface IBaseHalfCardDetailState extends IBaseHalfWorkspaceResource {
 	readonly pinned?: boolean;
 	readonly projection: BaseHalfCardDetailProjection;
 	readonly changesGroup?: string;
+	readonly keepsPlace?: true;
 }
 
 export interface IBaseHalfCanvasNavigationState {

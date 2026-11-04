@@ -874,6 +874,7 @@ export class BaseHalfCanvasCardDetailHost {
 				pinned: current.pinned,
 				projection,
 				changesGroup: current.changesGroup,
+				keepsPlace: true,
 				history: 'replace'
 			});
 		}));

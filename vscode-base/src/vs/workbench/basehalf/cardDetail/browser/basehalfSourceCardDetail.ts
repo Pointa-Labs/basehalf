@@ -8,22 +8,34 @@ import { $, append, addDisposableListener, EventType } from '../../../../base/br
 import { mainWindow } from '../../../../base/browser/window.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { toErrorMessage } from '../../../../base/common/errorMessage.js';
+import { deepClone } from '../../../../base/common/objects.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
 import { CodeEditorWidget } from '../../../../editor/browser/widget/codeEditor/codeEditorWidget.js';
 import { IEditorOptions } from '../../../../editor/common/config/editorOptions.js';
 import { ScrollType } from '../../../../editor/common/editorCommon.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { ITextResourceConfigurationService } from '../../../../editor/common/services/textResourceConfiguration.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
+import { ResultKind } from '../../../../platform/keybinding/common/keybindingResolver.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
+import { URI } from '../../../../base/common/uri.js';
 import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectionSource } from '../../../../platform/editor/common/editor.js';
 import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
-import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/browser/simpleEditorOptions.js';
+import { ITextEditorService } from '../../../services/textfile/common/textEditorService.js';
 import { TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
+import { IBaseHalfFilePlacesService } from '../common/basehalfFilePlaces.js';
+import { baseHalfEditorInstantiationService } from './basehalfEditorInstantiation.js';
+import { baseHalfShownTextEditors, IBaseHalfShownTextEditor } from './basehalfShownTextEditor.js';
 import { BaseHalfTextFileSaving } from './basehalfTextFileSaving.js';
+
+/** What Escape does in an editor without keeping Card Detail open: it closes from these, also with text selected. */
+const ESCAPE_THAT_CLOSES_ANYWAY: ReadonlySet<string> = new Set(['cancelSelection', 'removeSecondaryCursors']);
 
 export class BaseHalfSourceCardDetail extends Disposable {
 	private readonly root: HTMLElement;
@@ -34,16 +46,8 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private readonly saving: BaseHalfTextFileSaving;
 	private visible = false;
 	private disposed = false;
-	private readonly editorOptions: IEditorOptions = {
-		automaticLayout: false,
-		glyphMargin: true,
-		lineNumbers: 'on',
-		minimap: { enabled: false },
-		scrollBeyondLastLine: false,
-		renderLineHighlight: 'line',
-		roundedSelection: false,
-		overviewRulerLanes: 3
-	};
+	private shownEditor: IBaseHalfShownTextEditor | undefined;
+	private state: IBaseHalfCardDetailState | undefined;
 	constructor(
 		private readonly container: HTMLElement,
 		private readonly onSaveStatusChange: (status: 'saving' | 'saved' | 'error') => void,
@@ -51,7 +55,11 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		private readonly onSelectionChange: ((selected: IBaseHalfAgentSelectionText | undefined) => void) | undefined,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ITextModelService private readonly textModelService: ITextModelService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@ITextResourceConfigurationService private readonly textResourceConfigurationService: ITextResourceConfigurationService,
+		@ITextEditorService private readonly textEditorService: ITextEditorService,
+		@IKeybindingService private readonly keybindingService: IKeybindingService,
+		@IBaseHalfFilePlacesService private readonly places: IBaseHalfFilePlacesService
 	) {
 		super();
 
@@ -72,6 +80,15 @@ export class BaseHalfSourceCardDetail extends Disposable {
 				event.preventDefault();
 				event.stopPropagation();
 				void this.save();
+			} else if (event.key === 'Escape' && this.escapeIsTheEditors(event)) {
+				// A key that is prevented does not close Card Detail, and VS Code's keybinding still gets it.
+				event.preventDefault();
+			}
+		}));
+		this._register(this.textResourceConfigurationService.onDidChangeConfiguration(event => {
+			const resource = this.state?.resource;
+			if (resource && event.affectsConfiguration(resource, 'editor')) {
+				this.editor?.updateOptions(this.editorOptions(resource));
 			}
 		}));
 		this.registerLayoutObserver();
@@ -79,6 +96,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.resourceKey = state.resource.toString();
+		this.state = state;
 		this.setSaveStatus('saving');
 
 		try {
@@ -89,12 +107,20 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			}
 			this._register(modelReference);
 
-			const editor = this._register(this.instantiationService.createInstance(CodeEditorWidget, this.editorHost, this.editorOptions, {
-				...getSimpleCodeEditorWidgetOptions(),
+			// VS Code's editor with all its features, as a text file's tab has it (code cards, rule 25).
+			const scoped = this._register(baseHalfEditorInstantiationService(this.instantiationService));
+			const editor = this._register(scoped.createInstance(CodeEditorWidget, this.editorHost, this.editorOptions(state.resource), {
 				telemetryData: { target: 'basehalf.cardDetail.source' }
 			}));
 			this.editor = editor;
 			editor.setModel(modelReference.object.textEditorModel);
+			this.shownEditor = { control: editor, input: this._register(this.textEditorService.createTextEditor({ resource: state.resource })) };
+			this.syncShownEditor();
+			this._register(editor.onDidScrollChange(event => {
+				if (event.scrollTopChanged) {
+					this.reportPlace();
+				}
+			}));
 			if (/\.(?:md|markdown)$/i.test(state.resource.path)) {
 				// A copy of a note's text names the note, so that Rich in another note rebases its links (files in notes, rule 35).
 				const note = state.resource.toString();
@@ -122,13 +148,18 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			}, 30));
 			this._register(editor.onDidChangeCursorSelection(() => reportSelection.schedule()));
 			this.saving.registerFlushers(this.resourceKey);
-			this.applySelection(state.selection, ScrollType.Immediate);
 			this.saving.updateStatus();
 			// open() resolves at the first meaningful frame: wait for the
 			// layout pass so a projection swap held on this promise never
 			// reveals an unmeasured, unpainted editor.
 			await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => {
 				this.layout();
+				// The editor is measured now, and a line's place in it can be read.
+				if (state.selection && !state.keepsPlace) {
+					this.applySelection(state.selection, ScrollType.Immediate);
+				} else {
+					this.goToPlace();
+				}
 				resolve();
 			}));
 		} catch (error) {
@@ -141,7 +172,43 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
+		baseHalfShownTextEditors.clear(this);
 		super.dispose();
+	}
+
+	/** The options of a text file's tab: the settings for the file and its language, and what VS Code's text editor sets over them. */
+	private editorOptions(resource: URI): IEditorOptions {
+		return {
+			...deepClone(this.textResourceConfigurationService.getValue<IEditorOptions>(resource, 'editor')),
+			automaticLayout: false,
+			overviewRulerLanes: 3,
+			lineNumbersMinChars: 3,
+			fixedOverflowWidgets: true,
+			renderValidationDecorations: 'on'
+		};
+	}
+
+	private syncShownEditor(): void {
+		if (this.visible && this.shownEditor) {
+			baseHalfShownTextEditors.set(this, this.shownEditor);
+		} else {
+			baseHalfShownTextEditors.clear(this);
+		}
+	}
+
+	/** Whether Escape has something to do in the editor before it closes Card Detail, as with its Find or a list (opening and closing Card Detail). */
+	private escapeIsTheEditors(event: KeyboardEvent): boolean {
+		const result = this.keybindingService.softDispatch(new StandardKeyboardEvent(event), event.target as HTMLElement);
+		return result.kind === ResultKind.KbFound && !!result.commandId && !ESCAPE_THAT_CLOSES_ANYWAY.has(result.commandId);
+	}
+
+	/** The line the view stands at, for the file's card and its other views (code cards, "The place"). */
+	private reportPlace(): void {
+		const resource = this.state?.resource;
+		const line = this.editor?.getVisibleRanges()[0]?.startLineNumber;
+		if (this.visible && resource && line !== undefined) {
+			this.places.setPlace(resource, line, this);
+		}
 	}
 
 	/**
@@ -150,12 +217,26 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	 * re-apply the navigation selection.
 	 */
 	activate(state: IBaseHalfCardDetailState): void {
+		this.state = state;
 		this.layout();
-		this.applySelection(state.selection, ScrollType.Immediate);
+		if (state.selection && !state.keepsPlace) {
+			this.applySelection(state.selection, ScrollType.Immediate);
+		} else {
+			this.goToPlace();
+		}
+	}
+
+	/** Comes to the file's place: another view of the file, or its card, moved it (code cards, rules 14 and 15). */
+	private goToPlace(): void {
+		const resource = this.state?.resource;
+		if (resource && this.editor) {
+			this.editor.setScrollTop(this.editor.getTopForLineNumber(this.places.placeOf(resource) ?? 1), ScrollType.Immediate);
+		}
 	}
 
 	setVisible(visible: boolean): void {
 		this.visible = visible;
+		this.syncShownEditor();
 		// Monaco tracks its text model natively and stays cheap while the
 		// layer is hidden; nothing to suspend.
 	}

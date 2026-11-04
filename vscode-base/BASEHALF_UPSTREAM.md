@@ -257,3 +257,13 @@ proposals an extension declares, as in 1.141.0. The import commit returned
 `true` there. Public decision D76 restored VS Code's extension system to the
 import commit and kept this line at its 1.141.0 state. An update of the whole
 tree takes upstream's line.
+
+## The text editor of Card Detail
+
+Card Detail is not an editor pane, so VS Code's editor service knows nothing of its text
+editor (D121). `services/editor/browser/editorService.ts` answers `activeTextEditorControl`
+and `visibleTextEditorControls` with `baseHalfShownTextEditors` when no pane has one, and
+`browser/parts/editor/editorStatus.ts` reads it for the status bar and its language and
+encoding pickers. Each change has a `BaseHalf:` mark. A base update keeps them; everything
+that reads those two properties then works on Card Detail without knowing it, as Go to Line,
+Go to Symbol, the palette's editor commands, and the marks of changed lines do.
