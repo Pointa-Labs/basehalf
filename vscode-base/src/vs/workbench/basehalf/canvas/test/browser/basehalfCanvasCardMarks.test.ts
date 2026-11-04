@@ -79,6 +79,22 @@ suite('BaseHalf canvas card marks', () => {
 		assert.strictEqual(opened, 1);
 	});
 
+	test('a mark that comes anew and looks the same keeps its letter, so that a press on it keeps its click, and it runs the new mark', () => {
+		const { marks, identity } = create();
+		const opened: string[] = [];
+		marks.set(new Map([['a.ts', mark({ open: () => opened.push('first') })]]));
+		const letter = identity.lastElementChild as HTMLElement;
+		letter.dispatchEvent(new PointerEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true }));
+		marks.set(new Map([['a.ts', mark({ open: () => opened.push('second') })]]));
+		assert.strictEqual(identity.lastElementChild, letter);
+		letter.dispatchEvent(new MouseEvent('click', { clientX: 10, clientY: 10, bubbles: true }));
+		assert.deepStrictEqual(opened, ['second']);
+
+		marks.set(new Map([['a.ts', mark({ badgeClassName: 'monaco-decoration-itemBadge-u', open: () => opened.push('third') })]]));
+		assert.notStrictEqual(identity.lastElementChild, letter);
+		marks.set(new Map());
+	});
+
 	test('the rows of a folder say what a feature says of them, and only while the folder has a mark', () => {
 		const { marks, card } = create();
 		const row = document.createElement('div');

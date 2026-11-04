@@ -23,11 +23,12 @@ export interface IBaseHalfCodePreviewPiece {
  * The lines of a code file that its card can show, from the head the card read
  * (note rendering, rule 33): nothing is trimmed or skipped, as in the editor. A
  * head that a read cut off ends inside a line, perhaps inside a character, so
- * that line goes. Blank lines at the end show nothing.
+ * that line goes, unless the head is that one line, as in a minified file, which
+ * is cut far before its end. Blank lines at the end show nothing.
  */
 export function baseHalfCodePreviewLines(head: string, wholeFile: boolean): readonly string[] {
 	const lines = head.replace(/\r\n?/g, '\n').split('\n');
-	if (!wholeFile) {
+	if (!wholeFile && lines.length > 1) {
 		lines.pop();
 	}
 	while (lines.length > 0 && lines[lines.length - 1].trim().length === 0) {
@@ -78,12 +79,17 @@ export function baseHalfTokenizeCodePreview(
  * is drawn again does not color them again. A preview goes with its card.
  */
 export class BaseHalfCodePreviewTokens {
-	private readonly tokenized = new WeakMap<IBaseHalfCanvasCodePreview, readonly (readonly IBaseHalfCodePreviewPiece[])[]>();
+	private tokenized = new WeakMap<IBaseHalfCanvasCodePreview, readonly (readonly IBaseHalfCodePreviewPiece[])[]>();
 
 	constructor(
 		private readonly languageIdCodec: ILanguageIdCodec,
 		private readonly supportOf: (languageId: string) => ITokenizationSupport | null,
 	) { }
+
+	/** A theme numbers its colors in its own way, so what was colored under another is colored anew. */
+	forget(): void {
+		this.tokenized = new WeakMap();
+	}
 
 	/** The first `count` lines of the preview in colors; nothing without a grammar for its language. */
 	linesOf(preview: IBaseHalfCanvasCodePreview, count: number): readonly (readonly IBaseHalfCodePreviewPiece[])[] | undefined {

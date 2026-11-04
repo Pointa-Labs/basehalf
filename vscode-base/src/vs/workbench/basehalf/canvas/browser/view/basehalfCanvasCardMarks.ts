@@ -22,7 +22,7 @@ interface ICardParts {
 	/** What ends with the card. */
 	readonly cardListeners: DisposableStore;
 	shown?: {
-		readonly mark: IBaseHalfCanvasCardMark;
+		mark: IBaseHalfCanvasCardMark;
 		readonly letter: HTMLElement;
 		readonly bar: HTMLElement;
 		readonly listeners: DisposableStore;
@@ -99,6 +99,12 @@ export class BaseHalfCanvasCardMarks {
 		if (parts.shown?.mark === mark) {
 			return;
 		}
+		// Marks come anew at each status: what looks the same stays, so that a press that spans it keeps its click.
+		if (parts.shown && mark && mark.labelClassName === parts.shown.mark.labelClassName && mark.badgeClassName === parts.shown.mark.badgeClassName && !mark.open === !parts.shown.mark.open) {
+			parts.shown.mark = mark;
+			this.applyRows(parts);
+			return;
+		}
 		if (parts.shown) {
 			parts.identity.classList.remove('basehalf-canvas-card-changed', parts.shown.mark.labelClassName);
 			parts.shown.letter.remove();
@@ -112,7 +118,7 @@ export class BaseHalfCanvasCardMarks {
 			applyMarkClasses(parts.identity, mark);
 			const letter = append(parts.identity, $('span.basehalf-canvas-card-change'));
 			letter.classList.add(mark.badgeClassName);
-			this.listenToLetter(letter, mark, listeners);
+			this.listenToLetter(letter, mark, parts, listeners);
 			const bar = append(parts.content, $('.basehalf-canvas-card-change-bar'));
 			applyMarkClasses(bar, mark);
 			parts.shown = { mark, letter, bar, listeners };
@@ -120,9 +126,8 @@ export class BaseHalfCanvasCardMarks {
 		this.applyRows(parts);
 	}
 
-	private listenToLetter(letter: HTMLElement, mark: IBaseHalfCanvasCardMark, listeners: DisposableStore): void {
-		const open = mark.open;
-		if (!open) {
+	private listenToLetter(letter: HTMLElement, mark: IBaseHalfCanvasCardMark, parts: ICardParts, listeners: DisposableStore): void {
+		if (!mark.open) {
 			// The dot of a folder does nothing: a press on it is a press on the card.
 			letter.classList.add('passive');
 			return;
@@ -138,7 +143,7 @@ export class BaseHalfCanvasCardMarks {
 			const start = pressed;
 			pressed = undefined;
 			if (start && Math.abs(event.clientX - start.x) <= CLICK_SLOP_PX && Math.abs(event.clientY - start.y) <= CLICK_SLOP_PX) {
-				open();
+				parts.shown?.mark.open?.();
 			}
 		}));
 	}

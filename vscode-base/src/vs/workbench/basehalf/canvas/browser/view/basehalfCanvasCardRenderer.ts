@@ -82,6 +82,8 @@ export class BaseHalfCanvasCardRenderer {
 
 	/** What draws more of a code card's lines when the card grows, by card. */
 	private readonly codePreviewDraws = new WeakMap<HTMLElement, (height: number) => void>();
+	/** What draws a code card's lines anew, while the card shows them. */
+	private readonly codePreviewRedraws = new Set<() => void>();
 	private codePreviewTokensOfWindow: BaseHalfCodePreviewTokens | undefined;
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
@@ -509,9 +511,26 @@ export class BaseHalfCanvasCardRenderer {
 				container.append('\n');
 			}
 		};
+		const redraw = () => {
+			clearNode(container);
+			drawn = 0;
+			draw(Number(card.dataset.cardHeight) || 0);
+		};
 		draw(Number(card.dataset.cardHeight) || 0);
 		this.codePreviewDraws.set(card, draw);
-		listeners.add(toDisposable(() => this.codePreviewDraws.delete(card)));
+		this.codePreviewRedraws.add(redraw);
+		listeners.add(toDisposable(() => {
+			this.codePreviewDraws.delete(card);
+			this.codePreviewRedraws.delete(redraw);
+		}));
+	}
+
+	/** The theme changed: the code cards that show are colored anew, and the others when they draw. */
+	recolorCodePreviews(): void {
+		this.codePreviewTokensOfWindow?.forget();
+		for (const redraw of this.codePreviewRedraws) {
+			redraw();
+		}
 	}
 
 	/**

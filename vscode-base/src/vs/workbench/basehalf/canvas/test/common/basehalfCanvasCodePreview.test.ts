@@ -61,6 +61,10 @@ suite('BaseHalf code card preview', () => {
 		assert.strictEqual(line.length, 400);
 	});
 
+	test('a file of one long line, whose head a read cut off, shows that line and is not empty', () => {
+		assert.deepStrictEqual(baseHalfCodePreviewLines('x'.repeat(8192), false).map(line => line.length), [400]);
+	});
+
 	test('lines for a height hold part of the last one', () => {
 		assert.strictEqual(baseHalfCodePreviewLinesFor(216), 13);
 		assert.strictEqual(baseHalfCodePreviewLinesFor(217), 14);

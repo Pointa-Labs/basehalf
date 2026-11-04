@@ -66,6 +66,7 @@ import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { DiffEditorInput } from '../../../common/editor/diffEditorInput.js';
+import { TokenizationRegistry } from '../../../../editor/common/languages.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
@@ -588,6 +589,11 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			}
 		}));
 		this._register(this.canvasNavigationService.onDidOpenCardDetail(() => this.closeEditorsOverCanvas()));
+		this._register(TokenizationRegistry.onDidChange(event => {
+			if (event.changedColorMap) {
+				this.cardRenderer.recolorCodePreviews();
+			}
+		}));
 		this._register(this.editorService.onDidVisibleEditorsChange(() => this.reconcileActiveEditor()));
 		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
