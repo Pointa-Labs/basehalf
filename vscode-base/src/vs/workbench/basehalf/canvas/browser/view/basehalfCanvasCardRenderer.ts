@@ -36,7 +36,9 @@ import {
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	IBaseHalfCanvasSceneCardPresentation
 } from '../../common/basehalfCanvasScene.js';
-import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCodePreviewTokens, baseHalfCodePreviewLinesFor } from '../../common/basehalfCanvasCodePreview.js';
+import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { appendCanvasNoteFullEditorLabel, badgeType, cardDisplayName, isVideoMediaPreview } from './basehalfCanvasViewShared.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../../markdown/browser/basehalfNoteLinkRouter.js';
@@ -78,7 +80,16 @@ export class BaseHalfCanvasCardRenderer {
 	/** The image or the video that each card element shows, and the version of its file. */
 	private readonly cardPictures = new WeakMap<HTMLElement, { readonly picture: HTMLImageElement | HTMLVideoElement; readonly version: string }>();
 
+	/** What draws more of a code card's lines when the card grows, by card. */
+	private readonly codePreviewDraws = new WeakMap<HTMLElement, (height: number) => void>();
+	private codePreviewTokensOfWindow: BaseHalfCodePreviewTokens | undefined;
+
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
+
+	get codePreviewTokens(): BaseHalfCodePreviewTokens {
+		this.codePreviewTokensOfWindow ??= new BaseHalfCodePreviewTokens(this.view.languageService.languageIdCodec, languageId => TokenizationRegistry.get(languageId));
+		return this.codePreviewTokensOfWindow;
+	}
 
 	async invokeSceneVideoAction(
 		sceneKey: string,
@@ -302,6 +313,7 @@ export class BaseHalfCanvasCardRenderer {
 			if (renderedHeight !== presentation.height) {
 				renderedHeight = presentation.height;
 				card.dataset.cardHeight = String(presentation.height);
+				this.codePreviewDraws.get(card)?.(presentation.height);
 			}
 			if (renderedPresentation === presentationLevel) {
 				card.dataset.previewLevel = presentationLevel;
@@ -462,7 +474,42 @@ export class BaseHalfCanvasCardRenderer {
 			} : undefined);
 			return;
 		}
+		if (preview.kind === 'code') {
+			this.renderCodePreview(previewNode, preview, card, listeners);
+			return;
+		}
 		previewNode.textContent = preview.text;
+	}
+
+	/**
+	 * The first lines of a code file as the editor shows them (note rendering,
+	 * rule 33). Only the lines the card has room for are drawn; a card that grows
+	 * draws the next ones.
+	 */
+	private renderCodePreview(container: HTMLElement, preview: IBaseHalfCanvasCodePreview, card: HTMLElement, listeners: DisposableStore): void {
+		container.style.tabSize = String(preview.tabSize);
+		let drawn = 0;
+		const draw = (height: number): void => {
+			const wanted = Math.min(baseHalfCodePreviewLinesFor(height), preview.lines.length);
+			if (wanted <= drawn) {
+				return;
+			}
+			const colored = this.codePreviewTokens.linesOf(preview, wanted);
+			for (; drawn < wanted; drawn++) {
+				const pieces = colored?.[drawn];
+				if (pieces) {
+					for (const piece of pieces) {
+						append(container, $(`span.${piece.className.split(' ').join('.')}`)).textContent = piece.text;
+					}
+				} else {
+					container.append(preview.lines[drawn]);
+				}
+				container.append('\n');
+			}
+		};
+		draw(Number(card.dataset.cardHeight) || 0);
+		this.codePreviewDraws.set(card, draw);
+		listeners.add(toDisposable(() => this.codePreviewDraws.delete(card)));
 	}
 
 	/**

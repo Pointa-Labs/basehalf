@@ -23,12 +23,15 @@ import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '..
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { IBaseHalfCanvasPreviewHydrationBatch } from '../../common/basehalfCanvasPreviewHydration.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
-import { BASEHALF_CANVAS_DRAFT_PREVIEW, BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
+import { BASEHALF_CANVAS_DRAFT_PREVIEW, BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfWorkspaceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { baseHalfCanvasMediaVersionQuery } from '../basehalfCanvasCardMedia.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS } from '../basehalfCanvasPictureShapes.js';
 import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, badgeType, baseHalfBadgeResourceIdentity } from './basehalfCanvasViewShared.js';
+import { baseHalfCodePreviewLines, baseHalfCodePreviewLinesFor } from '../../common/basehalfCanvasCodePreview.js';
+import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
+import { PLAINTEXT_LANGUAGE_ID } from '../../../../../editor/common/languages/modesRegistry.js';
 
 /** An excerpt shows the first lines of a file, so only its head is read, whatever its size. */
 const CARD_EXCERPT_READ_BYTES = 8192;
@@ -49,6 +52,7 @@ function markdownPreviewKind(name: string): 'markdown' | 'text' | 'code' {
 	return badgeType(name, false) === 'code' ? 'code' : 'text';
 }
 
+/** Any other text than a note and a code file: its first lines, trimmed (note rendering, rule 32). */
 function cleanCardPreviewText(name: string, raw: string): string {
 	let text = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ');
 	if (/\.mdx?$/i.test(name)) {
@@ -203,16 +207,58 @@ export class BaseHalfCanvasPreviews {
 				return { kind: 'unavailable', text: 'Binary file' };
 			}
 
-			const text = kind === 'markdown' ? baseHalfCanvasMarkdownPreviewSource(raw) : cleanCardPreviewText(item.name, raw);
 			if (kind === 'markdown') {
-				return { kind, text };
+				return { kind, text: baseHalfCanvasMarkdownPreviewSource(raw) };
 			}
+			const languageId = await this.languageOfCode(item.stat.resource, raw);
+			if (languageId || kind === 'code') {
+				const lines = baseHalfCodePreviewLines(raw, contents.value.byteLength < CARD_EXCERPT_READ_BYTES);
+				if (lines.length === 0) {
+					return { kind: 'empty', text: 'Empty file' };
+				}
+				return {
+					kind: 'code',
+					text: lines.join('\n'),
+					lines,
+					languageId,
+					tabSize: this.view.configurationService.getValue<number>('editor.tabSize', { resource: item.stat.resource, overrideIdentifier: languageId }) ?? 4
+				};
+			}
+			const text = cleanCardPreviewText(item.name, raw);
 			return text ? { kind, text } : { kind: 'empty', text: 'Empty file' };
 		} catch (error) {
 			if (kind === 'markdown' && error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_TOO_LARGE) {
 				return { kind: 'richRequired', text: CANVAS_MARKDOWN_FULL_EDITOR_LABEL };
 			}
 			return { kind: 'unavailable', text: 'Preview unavailable' };
+		}
+	}
+
+	/**
+	 * The language of a file that shows as code, which is one the window knows
+	 * other than plain text: a note never gets here, and Markdown has no grammar
+	 * here (D118). Languages are known once the built-in extensions are registered.
+	 */
+	private async languageOfCode(resource: URI, head: string): Promise<string | undefined> {
+		await this.view.extensionService.whenInstalledExtensionsRegistered();
+		const firstLine = head.slice(0, head.indexOf('\n') + 1 || undefined);
+		const languageId = this.view.languageService.guessLanguageIdByFilepathOrFirstLine(resource, firstLine);
+		return languageId && languageId !== PLAINTEXT_LANGUAGE_ID ? languageId : undefined;
+	}
+
+	/**
+	 * Colors what the cards of a batch show, so that a drawing only has to read
+	 * it. The first card of a language loads its grammar and compiles it on this
+	 * thread, tens of milliseconds once per window, so it waits for the end of a
+	 * gesture as drawing does.
+	 */
+	private async colorCodePreviews(previews: readonly (BaseHalfCanvasCardPreview | undefined)[], heightOf: (preview: IBaseHalfCanvasCodePreview) => number): Promise<void> {
+		for (const preview of previews) {
+			if (preview?.kind !== 'code' || !preview.languageId) {
+				continue;
+			}
+			await TokenizationRegistry.getOrCreate(preview.languageId);
+			this.view.cardRenderer.codePreviewTokens.linesOf(preview, baseHalfCodePreviewLinesFor(heightOf(preview)));
 		}
 	}
 
@@ -372,6 +418,17 @@ export class BaseHalfCanvasPreviews {
 					|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 					return false;
 				}
+			}
+			const heights = new Map(hydrated.flatMap(({ item, preview }) => preview?.kind === 'code' ? [[preview, this.view.renderedSceneCards.find(card => card.path === item.path)?.height ?? 0] as const] : []));
+			await this.colorCodePreviews(hydrated.map(({ preview }) => preview), preview => heights.get(preview) ?? 0);
+			while (this.view.canvasScene.isInteracting()) {
+				await this.view.renderer.waitForCanvasSceneInteractionEnd();
+			}
+			if (!this.view.renderer.isRenderCurrent(seq)
+				|| !this.view.isCurrentSceneKey(hydrationBatch.sceneKey)
+				|| !this.view.cardPreviewHydrationQueue.isCurrent(hydrationBatch)
+				|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+				return false;
 			}
 			if (this.view.badgeInteractionRenderGate.defer()) {
 				return false;

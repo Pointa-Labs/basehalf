@@ -65,6 +65,8 @@ import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionService, IB
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
 import { BaseHalfCanvasPictureShapes, createBaseHalfCanvasPictureMeasurer } from './basehalfCanvasPictureShapes.js';
 import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
@@ -343,7 +345,9 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IBaseHalfVideoCatalogService public readonly videoCatalogService: IBaseHalfVideoCatalogService,
 		@IContextKeyService public readonly contextKeyService: IContextKeyService,
 		@IAccessibilityService public readonly accessibilityService: IAccessibilityService,
-		@IBaseHalfDocumentCoverService public readonly documentCoverService: IBaseHalfDocumentCoverService
+		@IBaseHalfDocumentCoverService public readonly documentCoverService: IBaseHalfDocumentCoverService,
+		@ILanguageService public readonly languageService: ILanguageService,
+		@IExtensionService public readonly extensionService: IExtensionService
 	) {
 		super();
 		// An item that was moved outside BaseHalf: the open canvas and the open

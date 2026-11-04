@@ -12,6 +12,19 @@ export interface IBaseHalfCanvasMediaPreview {
 	readonly resource: URI;
 }
 
+/**
+ * What the card of a code file shows (note rendering, rule 33): the file's first
+ * lines as the editor shows them. `languageId` is missing when the window has no
+ * language for the file, which then shows in one color.
+ */
+export interface IBaseHalfCanvasCodePreview {
+	readonly kind: 'code';
+	readonly text: string;
+	readonly lines: readonly string[];
+	readonly languageId?: string;
+	readonly tabSize: number;
+}
+
 /** An entry of the list that a folder's card shows. */
 export type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
 
@@ -24,7 +37,8 @@ export type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'folder'; readonly total: number; readonly items: readonly BaseHalfCanvasFolderPreviewItem[] }
 	| ({ readonly kind: 'media' } & IBaseHalfCanvasMediaPreview)
 	| { readonly kind: 'draft' }
-	| { readonly kind: 'text' | 'code' | 'markdown' | 'empty' | 'loading' | 'unavailable' | 'richRequired'; readonly text: string };
+	| IBaseHalfCanvasCodePreview
+	| { readonly kind: 'text' | 'markdown' | 'empty' | 'loading' | 'unavailable' | 'richRequired'; readonly text: string };
 
 /** The preview of every draft: what it shows changes in place, as its generation goes on. */
 export const BASEHALF_CANVAS_DRAFT_PREVIEW: BaseHalfCanvasCardPreview = Object.freeze({ kind: 'draft' });

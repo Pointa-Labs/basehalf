@@ -19,6 +19,12 @@
 	-webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
 }
 
+/* A code file as the editor shows it (note rendering, rule 33): a long line ends at the card's edge. */
+.monaco-workbench .basehalf-canvas-card-preview.kind-code {
+	white-space: pre;
+	overflow-wrap: normal;
+}
+
 .monaco-workbench .basehalf-canvas-card-preview.kind-markdown {
 	--basehalf-canvas-note-inline-padding: 12px;
 	--basehalf-canvas-note-content-padding: 8px var(--basehalf-canvas-note-inline-padding) 12px;
