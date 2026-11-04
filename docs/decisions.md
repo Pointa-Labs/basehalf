@@ -6041,6 +6041,24 @@ change moves it.
   would take a reader away from what they read.
 - Language services. D118 stands: an agent answers those questions.
 
+**What the check showed.** In a real window next to VS Code 1.144 at a load of 3 to 5. Source has
+the minimap at the width VS Code gives it, the same ruler and margin, and the mark's inline diff;
+Source and Changes keep the line to within one in both directions. On a card, the same line stands
+at the same pixels at 72%, 100%, and 150% when its editor comes and goes, also with the text moved
+sideways, and a mark stands where the editor's comes. A folder of 120 code cards, 30 of them changed,
+draws in 287 ms against 282 before this, with 23,092 nodes against 22,221 and a heap of 279 MB against
+240, and its 30 sets of marks are there after 2.8 s. Panning it is as before: p50 8.3 ms, p95 about 10
+ms at 120 Hz, no frame over 33 ms and no long task. A file of 30,000 lines scrolls on its card at p50 8.3
+ms, p95 10.1 ms, and its lines have their colors at once when it stops.
+
+A review of the first version by an agent that read only the code found 16 real faults after every suite
+was green, among them a card that lost its place when it came back into view, a press during the reading
+of a large file that opened Card Detail, Enter under Card Detail that edited a covered card, an input
+that closed the tabs of a file when it was disposed, and an input method's candidates far from the caret
+away from 100%. Breaking the compiled code one way at a time then found that 6 of 35 ways passed the smoke on
+broken code, because the card already stood where they looked or because they read only frames with the same
+text. All were strengthened and fail now.
+
 **Consequences.**
 - D118's "no line numbers" and "does not scroll" are revised.
 - A double click on a code card no longer opens Card Detail, and neither does one on an empty
