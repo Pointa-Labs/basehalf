@@ -3211,4 +3211,3 @@ function noteFileAddress(url: string, baseUri: string | undefined): string | und
 	}
 	return baseUri ? new URL(url, baseUri).toString() : url;
 }
-
