@@ -340,6 +340,10 @@ export class BaseHalfCanvasCardRenderer {
 			}
 			renderedPresentation = presentationLevel;
 			card.dataset.previewLevel = presentationLevel;
+			// A stale scene callback of a card that was replaced or removed: what it drew now would have no owner to go with.
+			if (listeners.isDisposed) {
+				return;
+			}
 			const nextListeners = new DisposableStore();
 			presentationListeners.value = nextListeners;
 			clearNode(content);

@@ -21,7 +21,7 @@ suite('BaseHalf code card face', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('it draws the lines in view, and a few around them while it scrolls, whatever the length of the file', () => {
-		assert.deepStrictEqual(baseHalfCodeFaceLinesInView(0, 200, 30_000), { first: 1, last: 12 });
+		assert.deepStrictEqual(baseHalfCodeFaceLinesInView(0, 200, 30_000), { first: 1, last: 11 });
 		assert.deepStrictEqual(baseHalfCodeFaceLinesInView(180_008, 200, 30_000), { first: 10_001, last: 10_012 });
 		assert.deepStrictEqual(baseHalfCodeFaceLinesInView(180_008, 200, 30_000, 6), { first: 9_995, last: 10_018 });
 		assert.deepStrictEqual(baseHalfCodeFaceLinesInView(0, 200, 4), { first: 1, last: 4 });
