@@ -169,13 +169,14 @@ both would stay what they are.
     not fit a card. Undo, redo, the clipboard, Find, and many cursors are as in any editor.
 20. It writes the file as Source does. A letter typed there shows in Source, on the card's
     next drawing, and in the marks.
-21. Escape ends the editing once the editor has no other use for it, such as a Find, and so does
-    Command-W, which does not close the window from there. A press
-    outside the card, opening Card Detail, and going to another folder end it
-    too, and what was typed is written first. The keyboard goes back to the canvas with the card
-    still selected. Switching to another application does not end it.
+21. Escape ends the editing once the editor has no other use for it, such as a Find or several
+    cursors, also with text selected, and so does Command-W, which does not close the window from
+    there. A press outside the editor, also on
+    the card's name, opening Card Detail, and going to another folder end it too, and what was
+    typed is written first. The keyboard goes back to the canvas with the card still selected.
+    Switching to another application does not end it.
 22. The canvas does not take the keys, the wheel, or a drag of what is being edited: Space is
-    a space, the wheel scrolls, and a drag selects text. The card can still be moved by its name.
+    a space, the wheel scrolls, and a drag selects text. A drag by the name moves the card.
 23. What is selected in the card's editor reaches agents as a selection in Source does.
 
 ### Into Card Detail
@@ -195,11 +196,14 @@ both would stay what they are.
     in a tab is: Go to Line, Go to Symbol, and the editor's commands in the palette act on it.
 28. While Source shows, the status bar has VS Code's entries of a text editor: line and column,
     indentation, encoding, line endings, and language, and they do what they do in VS Code.
-29. Escape closes Find first, and closes Card Detail when the editor has no other use for it
-    ([opening and closing Card Detail](card-detail-opening.md)).
+29. Escape closes Find first, then goes back from several cursors to one, and closes Card Detail
+    when the editor has no other use for it, also with text selected ([opening and closing Card
+    Detail](card-detail-opening.md)).
 
 ## Limits
 
+- The canvas stays dark under a light theme ([workbench appearance](workbench-appearance.md#limits)).
+  There a face has the editor's background, so that a file's colors can be read.
 - A face and the card's editor color with the language's grammar. Source adds colors of brackets
   and, with a language service, of meanings.
 - A line ends after 400 characters on a face, because a card is far narrower. The card's editor

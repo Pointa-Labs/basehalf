@@ -46,7 +46,7 @@ import { baseHalfEditorInstantiationService } from '../../cardDetail/browser/bas
 const RENDER_SIDE_BY_SIDE_SETTING = 'diffEditor.renderSideBySide';
 
 /** What Escape does in an editor without keeping Card Detail open: it closes from these as it does from Source. */
-const ESCAPE_THAT_CLOSES_ANYWAY = new Set(['cancelSelection', 'removeSecondaryCursors']);
+const ESCAPE_THAT_CLOSES_ANYWAY = new Set(['cancelSelection']);
 
 /**
  * The Changes view of a text file in Card Detail (the changes of a file, rules 10

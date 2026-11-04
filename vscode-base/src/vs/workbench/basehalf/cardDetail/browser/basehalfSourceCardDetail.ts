@@ -34,8 +34,8 @@ import { baseHalfEditorInstantiationService } from './basehalfEditorInstantiatio
 import { baseHalfShownTextEditors, IBaseHalfShownTextEditor } from '../common/basehalfShownTextEditor.js';
 import { BaseHalfTextFileSaving } from './basehalfTextFileSaving.js';
 
-/** What Escape does in an editor without keeping Card Detail open: it closes from these, also with text selected. */
-const ESCAPE_THAT_CLOSES_ANYWAY: ReadonlySet<string> = new Set(['cancelSelection', 'removeSecondaryCursors']);
+/** What Escape does in an editor without keeping Card Detail open: it closes with text selected. */
+const ESCAPE_THAT_CLOSES_ANYWAY: ReadonlySet<string> = new Set(['cancelSelection']);
 
 export class BaseHalfSourceCardDetail extends Disposable {
 	private readonly root: HTMLElement;

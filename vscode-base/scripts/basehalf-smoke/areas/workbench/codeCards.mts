@@ -195,8 +195,9 @@ export async function assertCodeCardWheel(page) {
 	// A tick is as large on the screen at every zoom, and the rounded corners cut none.
 	const tick = await cardOf(page, LONG).evaluate(card => {
 		const box = card.querySelector('.basehalf-canvas-code-tick').getBoundingClientRect();
+		const ruler = card.querySelector('.basehalf-canvas-code-ruler').getBoundingClientRect();
 		const content = card.querySelector('.basehalf-canvas-card-preview').getBoundingClientRect();
-		return { width: box.width, height: box.height, belowTheCorner: box.top - content.top };
+		return { width: box.width, height: box.height, belowTheCorner: ruler.top - content.top };
 	});
 	if (Math.abs(tick.width - 4) > 0.5 || tick.height < 2.5 || tick.belowTheCorner < 3) {
 		throw new Error(`A tick must be as large at 40% as at 100%, and below the card's corner: ${JSON.stringify(tick)}`);
@@ -237,6 +238,15 @@ export async function assertSourceIsTheEditor(page) {
 	const afterEscape = await waitForReading(readSource, reading => !reading.find, 'Escape closes Find', 5_000);
 	if (!afterEscape.open) {
 		throw new Error('Escape must close Find before Card Detail');
+	}
+
+	// Several cursors take Escape next, as in the editor, and leave Card Detail open.
+	await page.keyboard.press('Meta+Alt+ArrowDown');
+	await waitForReading(readSource, reading => /\d+ selections/.test(reading.line ?? ''), 'a second cursor in Source', 5_000);
+	await page.keyboard.press('Escape');
+	const oneCursor = await waitForReading(readSource, reading => !/\d+ selections/.test(reading.line ?? ''), 'Escape to leave one cursor in Source', 5_000);
+	if (!oneCursor.open) {
+		throw new Error('Escape with several cursors must leave one cursor before it closes Card Detail');
 	}
 
 	// Go to Line goes there, the status bar follows, sticky scroll shows, and the mark beside an added line opens its change in place.
@@ -302,6 +312,16 @@ export async function assertCardStandsAtWhatWasRead(page) {
 	await page.waitForTimeout(400);
 	await setCanvasZoomPercent(page, 100);
 	await page.waitForTimeout(300);
+	// Far from what will be read: an earlier step left this card near a change.
+	const start = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();
+	await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+	await page.waitForTimeout(250);
+	for (let index = 0; index < 4; index++) {
+		await page.mouse.wheel(0, -20_000);
+		await page.waitForTimeout(60);
+	}
+	await waitForReading(() => readFace(page, LONG), reading => reading.scrollTop === 0, 'the card at its first line', 5_000);
+	await page.waitForTimeout(300);
 	const shortBefore = await readFace(page, SHORT);
 	await cardOf(page, LONG).locator('.basehalf-canvas-card-caption .basehalf-canvas-card-change').click({ timeout: 10_000 });
 	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-diff-editor'), undefined, { timeout: 10_000 });
@@ -338,10 +358,11 @@ export async function assertCardStandsAtWhatWasRead(page) {
 	if (tops.size !== 1 || !frames[0].top) {
 		throw new Error(`The card must stand at what was read from before the closing, on every frame: ${JSON.stringify([...tops])}`);
 	}
+	// The third change: three lines were added above where the lines were taken out.
 	const face = await readFace(page, LONG);
-	const shownBar = face.bars.includes('added') || face.bars.includes('deleted') || face.bars.includes('modified');
-	if (!shownBar) {
-		throw new Error(`The card must show the change that was read, with its marks: ${JSON.stringify(face)}`);
+	const changeRead = DELETED_AT + 3;
+	if (face.topLine === null || Math.abs(face.topLine - changeRead) > 8 || !face.bars.includes('deleted')) {
+		throw new Error(`The card must show the change that was read, about line ${changeRead}, with its marks: ${JSON.stringify(face)}`);
 	}
 	const short = await readFace(page, SHORT);
 	if (short.scrollTop !== shortBefore.scrollTop) {
@@ -377,8 +398,8 @@ export async function assertEditingOnTheCard(page) {
 	const assertStill = (frames, what: string) => {
 		const anchor = frames.find(frame => frame.text);
 		for (const frame of frames) {
-			if (frame.text === anchor.text && (Math.abs(frame.top - anchor.top) > 1 || Math.abs(frame.left - anchor.left) > 1)) {
-				throw new Error(`${what}: the line moved from ${anchor.top},${anchor.left} to ${frame.top},${frame.left}`);
+			if (frame.text !== anchor.text || Math.abs(frame.top - anchor.top) > 1 || Math.abs(frame.left - anchor.left) > 1) {
+				throw new Error(`${what}: the line "${anchor.text}" at ${anchor.top},${anchor.left} became "${frame.text}" at ${frame.top},${frame.left} (${frame.editing ? 'editor' : 'face'})`);
 			}
 		}
 		if (!frames.some(frame => frame.editing) || !frames.some(frame => !frame.editing)) {
@@ -401,10 +422,29 @@ export async function assertEditingOnTheCard(page) {
 
 	// A double click at a line puts the caret on that line. What is typed is written when the editing ends.
 	const box = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();
-	await page.mouse.dblclick(box.x + box.width * 0.6, box.y + 8 + 18 * 2 + 9);
+	const pressAt = { x: box.x + box.width * 0.6, y: box.y + 8 + 18 * 2 + 9 };
+	const lineAtPress = await cardOf(page, LONG).evaluate((card, y) => {
+		const number = [...card.querySelectorAll('.basehalf-canvas-code-number')].find(element => {
+			const rect = element.getBoundingClientRect();
+			return rect.top <= y && rect.bottom > y;
+		});
+		return Number(number?.textContent ?? 0);
+	}, pressAt.y);
+	await page.mouse.dblclick(pressAt.x, pressAt.y);
 	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'the editor on the card', 10_000);
 	const status = () => page.evaluate(() => document.querySelector('#status\\.editor\\.selection')?.textContent?.trim() ?? '');
-	await waitForReading(status, text => /Ln \d+/.test(text), 'the line of the caret in the status bar', 5_000);
+	await waitForReading(status, text => text.includes(`Ln ${lineAtPress},`), `the caret on line ${lineAtPress}, where the double click was`, 5_000);
+	// A drag selects text, and does not move the card.
+	const cardBeforeDrag = await cardOf(page, LONG).boundingBox();
+	await page.mouse.move(pressAt.x - 60, pressAt.y);
+	await page.mouse.down();
+	await page.mouse.move(pressAt.x, pressAt.y, { steps: 6 });
+	await page.mouse.up();
+	await waitForReading(status, text => /selected/.test(text), 'a drag in the card\'s editor to select text', 5_000);
+	const cardAfterDrag = await cardOf(page, LONG).boundingBox();
+	if (cardAfterDrag.x !== cardBeforeDrag.x || cardAfterDrag.y !== cardBeforeDrag.y) {
+		throw new Error(`A drag in the card's editor must not move the card: ${JSON.stringify({ cardBeforeDrag, cardAfterDrag })}`);
+	}
 	await page.keyboard.press('End');
 	await page.keyboard.type(' TYPED ON CARD');
 	await page.waitForTimeout(100);
@@ -497,14 +537,52 @@ export async function assertEditingOnTheCard(page) {
 		throw new Error(`The face must stand where the editor left it: the editor at line ${topInEditor}, ${JSON.stringify({ before: faceBefore.scrollTop, after: faceAfter })}`);
 	}
 
-	// A press outside ends it too, and writes what was typed first.
+	// A press on its name ends it, and a drag by the name moves the card. Enter edits a card that was only clicked.
+	const name = await cardOf(page, LONG).locator('.basehalf-canvas-card-caption').first().boundingBox();
 	await page.keyboard.press('Enter');
 	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits a selected code card', 10_000);
+	const cardBeforeName = await cardOf(page, LONG).boundingBox();
+	await page.mouse.move(name.x + 40, name.y + name.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(name.x + 76, name.y + name.height / 2 + 24, { steps: 6 });
+	await page.mouse.up();
+	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'a press on the name to end the editing', 10_000);
+	await waitForReading(() => cardOf(page, LONG).boundingBox(), found => Math.abs(found.x - cardBeforeName.x) + Math.abs(found.y - cardBeforeName.y) > 20, 'a drag by the name to move the card', 5_000);
+	await page.waitForTimeout(300);
+	const scroller = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();
+	await page.mouse.click(scroller.x + scroller.width / 2, scroller.y + scroller.height / 2);
+	await page.waitForTimeout(100);
+	await page.keyboard.press('Enter');
+	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits a code card that was clicked', 10_000);
+
+	// A press outside ends it too, and writes what was typed first.
 	await page.keyboard.type('X2');
 	const canvas = await page.locator('.react-flow').first().boundingBox();
 	await page.mouse.click(canvas.x + 40, canvas.y + 40);
 	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'a press outside ends the editing', 10_000);
 	await waitUntil(() => written().includes('X2'), 'what was typed before the press to be written', 10_000);
+
+	// Enter edits a card selected without a click on it, with the keyboard elsewhere on the canvas.
+	await page.waitForTimeout(300);
+	const selectedByMarquee = await cardOf(page, LONG).boundingBox();
+	await page.mouse.move(selectedByMarquee.x - 12, selectedByMarquee.y + 60);
+	await page.mouse.down();
+	await page.mouse.move(selectedByMarquee.x + 30, selectedByMarquee.y + 90, { steps: 5 });
+	await page.mouse.up();
+	await waitForReading(() => readFace(page, LONG), reading => reading.selected, 'a marquee to select the card', 5_000);
+	await page.keyboard.press('Enter');
+	await waitForReading(() => readFace(page, LONG), reading => reading.editor, 'Enter edits a code card selected by a marquee', 10_000);
+
+	// Several cursors take Escape first, as in the editor.
+	await page.keyboard.press('Meta+Alt+ArrowDown');
+	await waitForReading(status, text => /\d+ selections/.test(text), 'a second cursor', 5_000);
+	await page.keyboard.press('Escape');
+	await waitForReading(status, text => !/\d+ selections/.test(text), 'Escape to leave one cursor', 5_000);
+	if (!(await readFace(page, LONG)).editor) {
+		throw new Error('Escape with several cursors must leave one cursor before it ends the editing');
+	}
+	await page.keyboard.press('Escape');
+	await waitForReading(() => readFace(page, LONG), reading => !reading.editor, 'the end of the editing', 10_000);
 
 	// A file has the lines the editor has: a line after its last line break, and line 1 of an empty file, which is edited as any other.
 	const short = await readFace(page, SHORT);

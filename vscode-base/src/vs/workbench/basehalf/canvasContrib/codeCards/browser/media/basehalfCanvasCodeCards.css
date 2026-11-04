@@ -12,10 +12,17 @@
 	white-space: pre;
 	overflow-wrap: normal;
 	overflow: hidden;
+	color: var(--vscode-editor-foreground);
 	font-family: var(--basehalf-code-font);
 	font-size: 12px;
 	line-height: 18px;
 	font-feature-settings: "liga" 0, "calt" 0;
+}
+
+/* The canvas stays dark under a light theme (workbench appearance, "Limits"), where a file's colors need the editor's background. */
+.monaco-workbench.vs .basehalf-canvas-card-preview.kind-code,
+.monaco-workbench.hc-light .basehalf-canvas-card-preview.kind-code {
+	background: var(--vscode-editor-background);
 }
 
 .monaco-workbench .basehalf-canvas-code-scroller {

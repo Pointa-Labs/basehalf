@@ -126,7 +126,7 @@ would stay.
     changes wherever the keyboard is, as in VS Code, also in the list of Source
     Control after a click on a row. Escape closes Card Detail as it does from Source,
     also with text selected. What in the editor uses Escape takes it first, as its
-    Find or a list of suggestions ([opening and closing Card
+    Find, a list of suggestions, or several cursors ([opening and closing Card
     Detail](card-detail-opening.md)).
 12. The view compares what a row of Source Control would: a file under Changes
     with what is staged or committed, a file only under Staged Changes with what

@@ -351,7 +351,7 @@ export async function assertCanvasCreateNote(page) {
 	const dataCard = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"]');
 	await dataCard.waitFor({ state: 'visible', timeout: 10_000 });
 	await centerCanvasCards(page, [dataCard]);
-	await dataCard.dblclick();
+	await quickOpen(page, 'smoke-data.json');
 	await assertCardDetail(page, 'smoke-data.json');
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+N' : 'Control+N');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'untitled.md')), 'global New Note to create an untitled Markdown file');

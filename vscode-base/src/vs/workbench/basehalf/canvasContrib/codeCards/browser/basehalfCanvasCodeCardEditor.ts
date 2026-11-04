@@ -29,8 +29,8 @@ import { baseHalfShownTextEditors } from '../../../cardDetail/common/basehalfSho
 import { BaseHalfCanvasCodeFace } from './basehalfCanvasCodeFace.js';
 import { BASEHALF_CODE_FACE_BOTTOM_PADDING, BASEHALF_CODE_FACE_FONT_SIZE, BASEHALF_CODE_FACE_LINE_HEIGHT, BASEHALF_CODE_FACE_MARK_LANE, BASEHALF_CODE_FACE_TOP_PADDING } from '../common/basehalfCanvasCodeFaceLayout.js';
 
-/** What Escape does in an editor without keeping the card's editor open: it ends the editing from these, also with text selected. */
-const ESCAPE_THAT_ENDS_ANYWAY: ReadonlySet<string> = new Set(['cancelSelection', 'removeSecondaryCursors']);
+/** What Escape does in an editor without keeping the card's editor open: it ends the editing with text selected. */
+const ESCAPE_THAT_ENDS_ANYWAY: ReadonlySet<string> = new Set(['cancelSelection']);
 
 /**
  * VS Code's editor on a code card (code cards, "Editing on the card"): the same text model as
