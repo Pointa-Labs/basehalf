@@ -450,6 +450,4 @@ Unit tests unless another kind is named.
 
 ## Open questions
 
-1. **The size of the archive.** 0.5.0 is 438 MiB of the 500 that installed
-   copies accept. What may leave the package is a question of its own.
-2. **A second download address** for users who cannot reach the first.
+1. **A second download address** for users who cannot reach the first.

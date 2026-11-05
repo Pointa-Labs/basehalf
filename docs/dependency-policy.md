@@ -41,6 +41,7 @@ gets considered.
 | **Excalidraw** (`@excalidraw/excalidraw`) | MIT | ✅ OK if we ever need free-form sketch (different from React Flow's node/graph). |
 | **Konva** / **Fabric.js** | MIT | ✅ Lower-level 2D canvas. |
 | **maxGraph** | Apache-2.0 | ✅ Diagramming. |
+| **`@vscode/vsce-sign`** | Microsoft Software License Terms: "only with" Microsoft's products | ⛔ Must not ship. BaseHalf verifies no signature of an extension instead (D122). |
 | **BlockSuite** | MPL-2.0 (weak copyleft) | ⚠️ OK with care — but we picked BlockNote instead (smaller, Notion-shaped, MIT). |
 | **ProseMirror / Tiptap** | MIT | ✅ Underlying engine — BlockNote sits on top. |
 | **Yjs** | MIT | ✅ Local per-file rich-editor projection; multi-user sync remains deferred (D6). |
@@ -62,6 +63,10 @@ switch libraries than take on a commercialization blocker.
    that workflow in the same PR, with a one-line justification.
 4. Keep a `THIRD-PARTY-NOTICES.md` once we ship bundled dependencies (Apache-2.0
    §4 attribution).
+5. What runs from `node_modules` goes in `dependencies`. What a bundle takes in when
+   it is built goes in `devDependencies`, with its notices beside the bundle
+   ([what the package holds](specs/what-the-package-holds.md)). Only what is declared
+   ships: a package that merely lies in `node_modules` does not.
 
 Dev-only tooling (test runners, linters) is lower-risk but should still avoid
 copyleft where it could leak into shipped artifacts.

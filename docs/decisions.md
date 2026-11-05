@@ -6071,3 +6071,48 @@ text. All were strengthened and fail now.
 - The card's editor is the canvas's active editor to navigation, as a note's is, so what leaves the
   canvas waits for it to write its text and leave its place.
 - Several cursors take Escape before Card Detail goes. A selection still does not (D119).
+
+## D122 — The package holds what BaseHalf runs (NEW, 2026-11-05)
+
+**Decision.** The package holds what BaseHalf runs, and nothing else. One list says which
+built-in extensions run and which ship, and only declared npm packages ship. No source map ships.
+What a bundle takes in, and what only gives types to code that does not run, moves to
+`devDependencies`. `extensions/copilot` and all of `src/vs/sessions` but the two files that register
+colors and sizes leave the tree. BaseHalf verifies no signature of an extension. See [what the package
+holds](specs/what-the-package-holds.md).
+
+**Why.** The owner asked of the base: "是不是能把这些冗余代码删掉". Measured, the code in question was
+not where the weight was. Of the 462 MiB archive of 0.6.1, 281 MiB never ran, and none of it was the
+workbench: a copy of the PDF library with five families of fonts, source maps, extensions the allowlist
+does not let run, a runtime of an agent host that is switched off. The archive had 38 MiB left before
+installed applications would refuse it. The owner answered the proposal with "可以，你来做好工作", and asked
+of the 42 extensions: "有没有basehalf能用上的".
+
+Looking at why they shipped found two faults that no check had seen. `npm ls --omit=dev` also lists packages
+nobody declares, so that what shipped depended on the machine. One of these was `@vscode/vsce-sign`, which
+may be used only with Microsoft's products, and it shipped without its program. So Install Codex Extension and
+Install Claude Code Extension have always failed in a packaged BaseHalf, with "Signature verification failed with
+'ENOENT' error", while a development host, which checks no signature, works.
+
+**What was set aside.**
+- Taking Chat, Notebook, Debug, Testing, and Tasks out of the workbench. They are about 5.5 of the 18.5 MiB of
+  the main bundle, so about 1.5 MiB of the download, and an estimated 50 to 60 ms of a start of about 0.95 s. 83 of
+  VS Code's files import Chat, each one a place to merge at every base update, and 22 of them are the extension API,
+  which D76 keeps as VS Code has it and which the Codex extension declares a use of. This is worth asking again at
+  a whole-base update: upstream's `src/vs` grew by 74 MiB between the import and 1.144, 69 of them in Chat, the
+  Agents window, and the agent host.
+- Deleting the source of the extensions that do not run. They do not ship and cost nothing, and admitting one is
+  one line.
+- Shipping `@vscode/vsce-sign` with its program. Its license does not allow it.
+- Verifying what the gallery signs with code of our own. It would check a package against a key from the same place
+  the package came from, and what may install is already fixed by its exact identity.
+- A limit on the size of the archive below the 500 MiB that installed applications accept. A list of what must not
+  ship says why something does not belong, and a limit would only say that something grew.
+
+**Consequences.**
+- The list of built-in extensions moves to `basehalfBuiltInExtensions.ts`, which imports nothing, so that the build
+  and the layout check read the same list as the allowlist. Admitting an extension ships it.
+- [`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md) says what a base update does again.
+- The packaging script runs the layout check before it makes the archive, and keeps the source maps beside it.
+- `npm run watch` runs three watchers. One that was started before this has to be restarted.
+- Revises D76's rule on installing in one point: an agent extension is installed without a signature check.

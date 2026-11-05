@@ -29,7 +29,7 @@ cd vscode-base
 npm run watch
 ```
 
-This runs four watchers in parallel. Treat the host as ready only once all four
+This runs three watchers in parallel. Treat the host as ready only once all three
 have reported a clean pass:
 
 | Watcher | Ready line |
@@ -37,7 +37,6 @@ have reported a clean pass:
 | `watch-client-transpile` | `Finished transpilation with 0 errors` |
 | `watch-client` | `Finished compilation with 0 errors` |
 | `watch-extensions` | `Finished compilation` |
-| `watch-copilot` | `Found 0 errors. Watching for file changes.` |
 
 Use `npm run watchd` instead when the watchers should survive the shell that
 started them; stop it with `npm run kill-watchd`.

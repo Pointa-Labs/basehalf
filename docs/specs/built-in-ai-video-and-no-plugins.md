@@ -112,10 +112,12 @@ longer described anything the product does.
     it runs the theme, Git and GitHub, and the 46 that hold only a language and
     its grammar, with no code to run (D118). Markdown's and the prompt language's
     are left out, so that a note has no colors. Language services are not run.
+    Only these ship ([what the package holds](what-the-package-holds.md)).
 11. BaseHalf installs nothing but the agent extensions, from the gallery by
     their exact identity. A file, a folder, or another extension from the
     gallery is refused, with a message that says BaseHalf runs only its
-    built-in extensions and the agent extensions it supports.
+    built-in extensions and the agent extensions it supports. It verifies no
+    signature ([what the package holds](what-the-package-holds.md#the-signature-of-an-extension)).
 12. BaseHalf makes no network request to `registry.basehalf.com` or
     `plugins.basehalf.com`. The product configuration names neither, and no
     catalog or catalog cache is read.

@@ -136,6 +136,19 @@ cd vscode-base
 build/basehalf/package-darwin.sh arm64
 ```
 
+The script refuses a package that holds more than BaseHalf runs
+([what the package holds](../specs/what-the-package-holds.md)). The same check runs
+by itself with `npm run basehalf:package:layout-check -- --app <BaseHalf.app>`. A
+development host checks no signature of an extension, so that only a package shows
+whether the agent extensions install:
+
+```bash
+cd vscode-base
+npm run basehalf:package:agent-install -- --app ../VSCode-darwin-arm64/BaseHalf.app
+```
+
+It needs the network and opens a window on a new profile. It is not part of CI.
+
 Before a release is published, an installed application is updated to it for
 real, as the [app update](../specs/app-update.md#verification) specification
 requires. The packaging script refuses an archive that installed applications

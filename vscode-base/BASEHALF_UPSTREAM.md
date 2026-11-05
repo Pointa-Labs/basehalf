@@ -112,7 +112,6 @@ have.
 - `extensions/theme-defaults/themes/2026-dark.json`: merged; the terminal colors are BaseHalf's.
 - `extensions/theme-defaults/themes/2026-light.json`: merged; the terminal colors are BaseHalf's.
 - `src/vs/base/browser/dom.ts`: only the singleton mark of `ModifierKeyEmitter`.
-- `src/vs/sessions/browser/workbench.ts`: only the three new members of the layout service.
 - `src/vs/workbench/browser/layout.ts`: merged; the chat setting import was left out.
 - `src/vs/workbench/browser/parts/editor/editor.ts`: only the connected-tabs class names.
 - `src/vs/workbench/browser/parts/editor/editorPart.ts`: only the margins and the border of the card.
@@ -267,3 +266,35 @@ and `visibleTextEditorControls` with `baseHalfShownTextEditors` when no pane has
 encoding pickers. Each change has a `BaseHalf:` mark. A base update keeps them; everything
 that reads those two properties then works on Card Detail without knowing it, as Go to Line,
 Go to Symbol, the palette's editor commands, and the marks of changed lines do.
+
+## What left the tree and the package (2026-11-05)
+
+See public decision D122 and `docs/specs/what-the-package-holds.md`. When the whole tree is
+updated from upstream, these come back and go again:
+
+- **Delete** `extensions/copilot/`, and `src/vs/sessions/` but for `common/theme.ts` and
+  `common/sizes.ts`, which `workbench.common.main.ts` imports. Delete
+  `src/vs/workbench/test/browser/componentFixtures/sessions/`,
+  `build/vite/mobile-multi-diff*`, and `scripts/code-sessions-web.js`.
+- **`package.json`**: no script builds or watches `extensions/copilot`. The packages of
+  the spec's rule 4 are in `devDependencies`.
+- **`build/lib/dependencies.ts`**: `npm ls --long`, and what it marks extraneous is dropped.
+- **`build/lib/extensions.ts`**: only `isBaseHalfPackagedBuiltInExtension` builds, and
+  `extensions/node_modules` does not ship.
+- **`build/gulpfile.vscode.ts`**: source maps are stripped everywhere, nothing of Copilot's
+  runtime or of the Agents window is listed, and `node-pty` keeps one prebuilt folder.
+- **`build/gulpfile.extensions.ts`, `build/buildfile.ts`, `build/next/index.ts`,
+  `build/gulpfile.vscode.web.ts`, `build/hygiene.ts`, `build/npm/dirs.ts`, `eslint.config.js`,
+  `.vscode-test.js`, `.vscode/launch.json`, `.vscode/tasks.json`,
+  `.eslint-allowed-javascript-files`, `.eslint-ignore`**: what named the two folders.
+- **`product.json`**: `builtInExtensions` is empty.
+- **`src/vs/platform/windows/electron-main/windowsMainService.ts`**: `openAgentsWindow` opens an
+  ordinary window and `isSessionsWindow` is always false.
+- **`src/vs/platform/extensionManagement/node/extensionManagementService.ts`**: no signature is verified.
+- **`src/vs/workbench/contrib/chat/browser/agentSessions/agentHost/agentHostCustomizationService.ts`**:
+  `IAgentHostMcpServer` is declared there, as its old file left.
+- **`src/vs/workbench/test/browser/componentFixtures/fixtureUtils.ts`**: no service of the Agents window.
+
+Left as they are, because nothing reads them while the folders are gone: mentions in `.github/`,
+`build/azure-pipelines/`, `build/filters.ts`, `build/darwin/`, `build/lib/copilot.ts`,
+`build/lib/i18n*`, the layer rules of `src/vs/sessions` in `eslint.config.js`, and comments.
