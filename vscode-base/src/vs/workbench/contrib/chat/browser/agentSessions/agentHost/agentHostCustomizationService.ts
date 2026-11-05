@@ -14,7 +14,7 @@ import { IAgentHostConnectionsService, IAgentHostSessionResolution, LOCAL_AGENT_
 import { getEffectiveAgents } from '../../../../../../platform/agentHost/common/customAgents.js';
 import { type IAgentSubscription } from '../../../../../../platform/agentHost/common/state/agentSubscription.js';
 import { ActionType } from '../../../../../../platform/agentHost/common/state/protocol/actions.js';
-import { CustomizationType, McpServerCustomization, type Customization, type SessionState } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
+import { CustomizationType, McpServerCustomization, type Customization, type SessionState, type McpServerStatus } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
 import { AgentCustomization, ROOT_STATE_URI, StateComponents } from '../../../../../../platform/agentHost/common/state/sessionState.js';
 import { InstantiationType, registerSingleton } from '../../../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../../../platform/instantiation/common/instantiation.js';
@@ -22,7 +22,6 @@ import { IMcpServerConfiguration } from '../../../../../../platform/mcp/common/m
 import { IChatService } from '../../../common/chatService/chatService.js';
 import { isUntitledChatSession } from '../../../common/model/chatUri.js';
 import { IAgentHostUntitledProvisionalSessionService } from './agentHostUntitledProvisionalSessionService.js';
-import type { McpServerStatus } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
 
 // BaseHalf: declared here, as the file of the Agents window that held it left the tree (D122).
 export interface IAgentHostMcpServer {

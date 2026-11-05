@@ -20,11 +20,10 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
-import { IExtensionGalleryService } from '../../../../platform/extensionManagement/common/extensionManagement.js';
+import { EXTENSION_INSTALL_SKIP_PUBLISHER_TRUST_CONTEXT,IExtensionGalleryService } from '../../../../platform/extensionManagement/common/extensionManagement.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { areSameExtensions } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
-import { EXTENSION_INSTALL_SKIP_PUBLISHER_TRUST_CONTEXT } from '../../../../platform/extensionManagement/common/extensionManagement.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
