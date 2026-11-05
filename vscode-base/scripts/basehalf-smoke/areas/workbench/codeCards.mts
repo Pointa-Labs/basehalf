@@ -923,7 +923,15 @@ export async function assertExpandAndCommit(page) {
 	const scrolled = await waitForReading(() => readFace(page, LONG), reading => reading.topLine !== null && reading.topLine >= 95, 'the card scrolled', 5_000);
 	await page.waitForTimeout(200);
 	await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').click({ timeout: 5_000 });
-	await page.locator('[data-toolbar-item="expand"]').click({ timeout: 5_000 });
+	const expand = page.locator('[data-toolbar-item="expand"]');
+	await expand.waitFor({ state: 'visible', timeout: 5_000 });
+	const fromTheLeft = await page.evaluate(() => [...document.querySelectorAll('.basehalf-canvas-selection-toolbar [data-toolbar-item]')]
+		.sort((one, other) => one.getBoundingClientRect().left - other.getBoundingClientRect().left)
+		.map(item => item.getAttribute('data-toolbar-item')));
+	if (fromTheLeft.length < 2 || fromTheLeft.at(-1) !== 'expand') {
+		throw new Error(`Expand must stand at the right end of the toolbar, as a note's does: ${fromTheLeft.join(', ')}`);
+	}
+	await expand.click({ timeout: 5_000 });
 	await page.waitForFunction(() => !!document.querySelector('.basehalf-card-detail-surface.active .monaco-editor .minimap'), undefined, { timeout: 10_000 });
 	await page.waitForTimeout(500);
 	const shown = await page.evaluate(() => Number(document.querySelector('.basehalf-card-detail-surface.active .margin-view-overlays .line-numbers')?.textContent ?? 0));

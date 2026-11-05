@@ -187,7 +187,8 @@ both would stay what they are.
 
 ### Into Card Detail
 
-24. A selected code card has Expand in its toolbar, as a note has, and it opens Card Detail.
+24. A selected code card has Expand at the right end of its toolbar, where a note has it, and it
+    opens Card Detail.
 
 ### Source
 

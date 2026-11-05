@@ -329,7 +329,7 @@ export function baseHalfCanvasSceneSelectionActions(cardCount: number, expands =
 	}
 	if (cardCount === 1) {
 		// A card edited where it stands opens by its Expand, as a double click opens any other (code cards, rule 24).
-		return expands ? ['expand', 'rename', 'duplicate', 'delete'] : ['rename', 'duplicate', 'delete'];
+		return expands ? ['rename', 'duplicate', 'delete', 'expand'] : ['rename', 'duplicate', 'delete'];
 	}
 	return ['duplicate', 'copyReferences', 'delete'];
 }
