@@ -23,7 +23,13 @@ export const BASEHALF_LANGUAGE_EXTENSION_IDS: readonly string[] = [
 	'r', 'razor', 'restructuredtext', 'ruby', 'rust', 'scss', 'shaderlab', 'shellscript', 'sql', 'swift', 'typescript', 'vb', 'xml', 'yaml'
 ].map(name => `vscode.${name}`);
 
-export const BASEHALF_GIT_EXTENSION_IDS: readonly string[] = ['vscode.git', 'vscode.git-base'];
+export const BASEHALF_GIT_EXTENSION_IDS: readonly string[] = ['vscode.git', 'vscode.git-base', 'vscode.merge-conflict'];
+
+/**
+ * What shows a picture, a video, or a sound in VS Code's editor, where Git opens what Card
+ * Detail does not: a deleted file, or a file of a commit in Graph.
+ */
+export const BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS: readonly string[] = ['vscode.media-preview'];
 
 export const BASEHALF_GITHUB_EXTENSION_IDS: readonly string[] = ['vscode.github'];
 
@@ -43,6 +49,7 @@ export const BASEHALF_PACKAGED_EXTENSION_IDS: ReadonlySet<string> = new Set([
 	...BASEHALF_THEME_EXTENSION_IDS,
 	...BASEHALF_LANGUAGE_EXTENSION_IDS,
 	...BASEHALF_GIT_EXTENSION_IDS,
+	...BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS,
 	...BASEHALF_GITHUB_EXTENSION_IDS,
 	...BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS,
 	BASEHALF_ASSETS_EXTENSION_ID

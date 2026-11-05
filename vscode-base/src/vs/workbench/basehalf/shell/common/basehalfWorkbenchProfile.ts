@@ -12,7 +12,7 @@ import { Testing } from '../../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../../services/search/common/search.js';
-import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
+import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 
@@ -425,7 +425,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
+export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'git' | 'media-preview' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -670,8 +670,16 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 		builtInExtensionIds: BASEHALF_GIT_EXTENSION_IDS,
 		externalExtensionIds: [],
 		externalSlotIds: [],
-		source: 'extensions/git/package.json; extensions/git-base/package.json',
-		reason: 'VS Code Git is the source of truth for SCM operations and Git panel behavior.'
+		source: 'extensions/git/package.json; extensions/git-base/package.json; extensions/merge-conflict/package.json',
+		reason: 'VS Code Git is the source of truth for SCM operations and Git panel behavior, and a conflict is resolved in the file with its actions.'
+	},
+	{
+		family: 'media-preview',
+		builtInExtensionIds: BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS,
+		externalExtensionIds: [],
+		externalSlotIds: [],
+		source: 'extensions/media-preview/package.json',
+		reason: 'Git opens a deleted picture and the files of a commit in VS Code\'s editor, which without this says it cannot show them.'
 	},
 	{
 		family: 'github',

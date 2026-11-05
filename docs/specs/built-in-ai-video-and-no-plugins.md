@@ -109,8 +109,8 @@ longer described anything the product does.
     extension that an Extension Development Host was started with, from the
     location it was started with. Any other extension does not run, and
     BaseHalf says why where VS Code would show it. Of VS Code's own extensions
-    it runs the theme, Git and GitHub, and the 46 that hold only a language and
-    its grammar, with no code to run (D118). Markdown's and the prompt language's
+    it runs the theme, Git and GitHub, Merge Conflict and Media Preview (D123), and the 46
+    that hold only a language and its grammar, with no code to run (D118). Markdown's and the prompt language's
     are left out, so that a note has no colors. Language services are not run.
     Only these ship ([what the package holds](what-the-package-holds.md)).
 11. BaseHalf installs nothing but the agent extensions, from the gallery by

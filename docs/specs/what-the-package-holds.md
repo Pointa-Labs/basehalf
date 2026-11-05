@@ -69,7 +69,8 @@ Three more things came out of the same measurements:
 - Deleting the source of the extensions that do not run. They do not ship and
   cost nothing, and admitting one later takes one line.
 - Updating Electron or the base.
-- Admitting another built-in extension. That is a product decision of its own.
+- Admitting another built-in extension. That is a product decision of its own, as D123
+  made one for two of them.
 
 ## Terms
 

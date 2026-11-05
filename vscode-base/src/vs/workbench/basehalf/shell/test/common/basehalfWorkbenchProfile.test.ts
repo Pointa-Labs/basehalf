@@ -336,6 +336,8 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.deepStrictEqual([...BASEHALF_PACKAGED_EXTENSION_IDS].sort(), [...allowed, BASEHALF_ASSETS_EXTENSION_ID].sort());
 		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'git'), true);
 		assert.strictEqual(isBaseHalfPackagedExtension('Pointa', 'basehalf'), true);
+		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'merge-conflict'), true);
+		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'media-preview'), true);
 		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'markdown-language-features'), false);
 		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'copilot'), false);
 
@@ -364,7 +366,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 		assert.deepStrictEqual(
 			BASEHALF_ALLOWED_EXTENSION_FAMILIES.map(family => family.family),
-			['theme', 'languages', 'git', 'github', 'github-authentication', 'codex', 'claude']
+			['theme', 'languages', 'git', 'media-preview', 'github', 'github-authentication', 'codex', 'claude']
 		);
 	});
 

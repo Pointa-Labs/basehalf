@@ -61,6 +61,12 @@ workspace folders, a row opened to the side, and the files of a commit in Graph 
 on opening VS Code's editor. Open Changes on a group opens VS Code's multi-file
 diff, without files under `.bh`.
 
+That editor shows what Git opens in it (D123). A conflict shows its two sides in colors,
+with Accept Current Change, Accept Incoming Change, Accept Both Changes, and Compare
+Changes above them, and a click takes that side into the file, which the user then saves.
+A picture, a video, or a sound shows, as a deleted one and one of a commit do, instead of a
+message that the file cannot be shown.
+
 ## Files The System Makes
 
 Systems make files in a folder by themselves: a file manager's `.DS_Store`,

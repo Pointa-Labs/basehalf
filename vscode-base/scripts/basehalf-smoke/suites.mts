@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { assertChangedCardsAreMarked, assertChangedFileOpensAsUsual, assertCodeCardAsTheEditor, assertCommitBoxTakesSpaces, assertLastChangeGoes, assertMultiFileDiff, assertStagedBinaryOpens, assertViewsOfASoundTakeTurns, assertRowOpensTheChangesView, assertRowsOfOtherKinds, assertWhatOpenedLastIsInFront, finishChangedFiles, prepareChangedFiles } from './areas/workbench/changes.mts';
+import { assertConflictHasItsActions, assertPicturesInTheEditor, assertChangedCardsAreMarked, assertChangedFileOpensAsUsual, assertCodeCardAsTheEditor, assertCommitBoxTakesSpaces, assertLastChangeGoes, assertMultiFileDiff, assertStagedBinaryOpens, assertViewsOfASoundTakeTurns, assertRowOpensTheChangesView, assertRowsOfOtherKinds, assertWhatOpenedLastIsInFront, finishChangedFiles, prepareChangedFiles } from './areas/workbench/changes.mts';
 import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentSeesSelection, assertAgentUpstreamEditDrawsEdge } from './areas/canvas/agents.mts';
 import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndConnectors, assertCanvasUnreadableBadgeRecovers } from './areas/canvas/badges.mts';
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
@@ -176,6 +176,8 @@ async function runWorkbenchSuite(page) {
 	await step('changes-what-opened-last-is-in-front', () => assertWhatOpenedLastIsInFront(page));
 	await step('commit-box-takes-spaces', () => assertCommitBoxTakesSpaces(page));
 	await step('changes-finish', () => finishChangedFiles(page));
+	await step('git-conflict-has-its-actions', () => assertConflictHasItsActions(page));
+	await step('git-pictures-in-the-editor', () => assertPicturesInTheEditor(page));
 	await step('code-cards-prepare', () => prepareCodeCards(page));
 	await step('code-card-face', () => assertCodeCardFace(page));
 	await step('code-card-wheel', () => assertCodeCardWheel(page));

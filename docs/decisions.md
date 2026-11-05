@@ -6144,3 +6144,24 @@ left with their packages, and the delay of updates that naming the publishers as
 - `npm run watch` runs three watchers. One that was started before this has to be restarted.
 - Revises D76's rule on installing in two points: an agent extension is installed without a signature check, and
   without the question whether to trust its publisher.
+
+## D123 — A conflict has its actions, and VS Code's editor shows pictures (NEW, 2026-11-05)
+
+**Decision.** Merge Conflict and Media Preview, two of VS Code's built-in extensions, run and ship. A conflict that Git
+opens in VS Code's editor shows its two sides in colors with actions that take a side, and that editor shows a picture, a
+video, or a sound. See [Git, SCM, GitHub, and Graph](git-scm-github-gitgraph.md#what-a-row-and-open-changes-open).
+
+**Why.** Going through the 42 extensions that D122 took out of the package, the owner asked "有没有basehalf能用上的". Of all
+of them only these two do something for what BaseHalf already does and sends to VS Code's editor (D119), and the owner agreed.
+Measured in a real window with a real merge, before and after: a conflict was raw markers, and a click on Accept Incoming
+Change now leaves the incoming line. A deleted picture, and a picture of a commit in Graph, said "The file is not displayed in
+the text editor because it is either binary or uses an unsupported text encoding", and now show. Together they are about 0.3 MB.
+
+**What was set aside.**
+- The three-way merge editor (`git.mergeEditor`). It is a second way to do the same, and a larger surface over the canvas.
+- Mermaid and math in notes through these extensions. They plug into VS Code's own Markdown preview, which BaseHalf's Rich,
+  card, and Preview are not. In a note they would be a feature of their own, with the libraries.
+- Language services. D118 and D121 stand.
+
+**Consequences.** Admitting them took one line each in `basehalfBuiltInExtensions.ts`, which is also what ships them (D122). A
+picture that Card Detail opens opens there as before, since BaseHalf's way to a file comes first.

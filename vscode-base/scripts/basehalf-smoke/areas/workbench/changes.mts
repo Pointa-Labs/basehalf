@@ -535,6 +535,91 @@ export async function assertCommitBoxTakesSpaces(page) {
 }
 
 /** Leaves the fixture as the next steps expect it: nothing changed. */
+/** A real conflict opens in VS Code's editor with its two sides in colors and its actions, and an action takes a side (D123). */
+export async function assertConflictHasItsActions(page) {
+	const git = (...args: string[]) => execFileSync('git', args, { cwd: workspacePath, stdio: 'pipe', encoding: 'utf8' }).trim();
+	const name = 'conflict-smoke.txt';
+	const side = 'conflict-smoke';
+	const start = git('rev-parse', 'HEAD');
+	const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
+	fs.writeFileSync(inWorkspace(name), 'line one\nthe line\nline three\n', 'utf8');
+	commitFixtureChanges(workspacePath, 'conflict smoke: the first version');
+	git('checkout', '-q', '-b', side);
+	fs.writeFileSync(inWorkspace(name), 'line one\nthe line from the side\nline three\n', 'utf8');
+	git('commit', '-q', '-am', 'conflict smoke: the side');
+	git('checkout', '-q', branch);
+	fs.writeFileSync(inWorkspace(name), 'line one\nthe line from here\nline three\n', 'utf8');
+	git('commit', '-q', '-am', 'conflict smoke: here');
+	try {
+		git('merge', side);
+		throw new Error('The merge must end in a conflict.');
+	} catch (error) {
+		if (!git('status', '--porcelain').includes(`UU ${name}`)) {
+			throw error;
+		}
+	}
+	try {
+		await runCommand(page, 'Git: Refresh');
+		await runCommand(page, 'Source Control: Focus on Changes View');
+		await (await showRow(page, name)).click({ timeout: 20_000 });
+		const accept = page.locator('.part.editor .codelens-decoration a', { hasText: 'Accept Incoming Change' });
+		await accept.waitFor({ state: 'visible', timeout: 20_000 });
+		const actions = await page.locator('.part.editor .codelens-decoration a').allInnerTexts();
+		if (actions.join() !== 'Accept Current Change,Accept Incoming Change,Accept Both Changes,Compare Changes') {
+			throw new Error(`A conflict must offer its actions: ${actions.join()}`);
+		}
+		if (await page.locator('.part.editor [class*="ced-"]').count() === 0) {
+			throw new Error('A conflict must show its two sides in colors.');
+		}
+		await accept.click({ timeout: 5_000 });
+		// The editor draws a space as a no-break space.
+		const lines = async () => (await page.locator('.part.editor .view-lines').first().innerText()).replace(/\u00a0/g, ' ');
+		await waitForReading(lines, text => /the line from the side/.test(text) && !/<<<<<<<|the line from here/.test(text), 'the action to take the incoming side', 10_000);
+	} finally {
+		await runCommand(page, 'File: Revert File');
+		await runCommand(page, 'View: Close All Editors');
+		git('merge', '--abort');
+		git('branch', '-D', side);
+		git('reset', '-q', '--hard', start);
+		await runCommand(page, 'Git: Refresh');
+	}
+}
+
+/** VS Code's editor shows a picture Git opens there, a deleted one and one of a commit in Graph, and does not say that it cannot (D123). */
+export async function assertPicturesInTheEditor(page) {
+	const git = (...args: string[]) => execFileSync('git', args, { cwd: workspacePath, stdio: 'pipe', encoding: 'utf8' }).trim();
+	const shown = async (what: string) => {
+		await page.locator('.part.statusbar .statusbar-item', { hasText: 'Whole Image' }).first().waitFor({ state: 'visible', timeout: 20_000 });
+		if (await page.locator('.part.editor', { hasText: 'not displayed in the text editor' }).count()) {
+			throw new Error(`${what} must show, not say that it cannot.`);
+		}
+		await runCommand(page, 'View: Close All Editors');
+	};
+	const start = git('rev-parse', 'HEAD');
+	try {
+		fs.rmSync(inWorkspace(PICTURE));
+		await runCommand(page, 'Git: Refresh');
+		await runCommand(page, 'Source Control: Focus on Changes View');
+		await (await showRow(page, 'logo.png')).click({ timeout: 20_000 });
+		await shown('A deleted picture');
+		git('checkout', '-q', '--', PICTURE);
+
+		const inCommit = 'picture-of-a-commit.png';
+		fs.writeFileSync(inWorkspace(inCommit), png(180));
+		commitFixtureChanges(workspacePath, 'graph smoke: a picture');
+		await runCommand(page, 'Git: Refresh');
+		await runCommand(page, 'Source Control: Focus on Changes View');
+		const rows = page.locator('.part.sidebar .monaco-list-row');
+		await rows.filter({ hasText: 'graph smoke: a picture' }).first().click({ timeout: 20_000 });
+		await rows.filter({ hasText: inCommit }).first().click({ timeout: 20_000 });
+		await shown('A picture of a commit');
+	} finally {
+		await runCommand(page, 'View: Close All Editors');
+		git('reset', '-q', '--hard', start);
+		await runCommand(page, 'Git: Refresh');
+	}
+}
+
 export async function finishChangedFiles(page) {
 	await closeCardDetailIfOpen(page);
 	await runCommand(page, 'View: Close All Editors');
