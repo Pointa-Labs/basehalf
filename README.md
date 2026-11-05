@@ -19,7 +19,7 @@ materials.
 [![Discord][badge-discord]][discord]
 [![QQ Groups][badge-qq-groups]][community]
 
-[![Web Version][badge-website]][website]
+[![Website][badge-website]][website]
 [![GitCGR][badge-gitcgr]][gitcgr]
 [![Apache-2.0][badge-license]][license]
 
@@ -399,7 +399,7 @@ trademarks of Pointa Labs, Inc. See the [trademark policy][trademark-policy].
 [trademark-policy]: docs/trademark-policy.md
 
 [badge-download]: https://img.shields.io/badge/Download-macOS%20Apple%20Silicon-6BA6FF?style=flat&labelColor=1A1A17
-[badge-website]: https://img.shields.io/badge/Web%20Version-basehalf.com-9FBBE0?style=flat&labelColor=1A1A17
+[badge-website]: https://img.shields.io/badge/Website-basehalf.com-9FBBE0?style=flat&labelColor=1A1A17
 [badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-C0A8DD?style=flat&labelColor=1A1A17
 [badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=flat&logo=github&logoColor=DBE7FB&labelColor=1A1A17
 [badge-twitter]: https://img.shields.io/badge/X-Follow-2A2B2B?style=flat&logo=x&logoColor=DBE7FB&labelColor=1A1A17
