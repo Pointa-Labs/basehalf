@@ -415,6 +415,13 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		area: 'problems',
 		source: 'src/vs/workbench/contrib/markers/browser/markers.contribution.ts',
 		reason: 'The error/warning counter opens the hidden Problems panel; diagnostics are not a BaseHalf status bar surface.'
+	},
+	{
+		id: 'Anthropic.claude-code',
+		kind: 'statusbarEntry',
+		area: 'agent-area',
+		source: 'the status bar item of the extension anthropic.claude-code',
+		reason: 'It opens the extension over the canvas, and BaseHalf hosts agent extensions in the Agent Area (D122).'
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
@@ -579,6 +586,14 @@ export const BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS = [
 		pinned: false,
 		visible: false,
 		order: BASEHALF_PRIMARY_VIEW_CONTAINERS.length + index
+	})),
+	// An agent extension's own containers are hosted in the Agent Area: no icon comes for them
+	// beside Files, Git, and Search, where a click would only close the sidebar (D122).
+	...BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS.filter(id => id.startsWith('workbench.view.extension.')).map((id, index) => ({
+		id,
+		pinned: false,
+		visible: false,
+		order: BASEHALF_PRIMARY_VIEW_CONTAINERS.length + BASEHALF_HIDDEN_SURFACES.length + index
 	}))
 ] as const;
 

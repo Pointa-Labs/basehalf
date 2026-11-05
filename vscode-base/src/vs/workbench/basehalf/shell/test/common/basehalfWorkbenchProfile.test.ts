@@ -183,9 +183,9 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(shouldBaseHalfHideView('workbench.files.explorer'), false);
 	});
 
-	test('hides the remote indicator and problems counter through VS Code status bar storage', () => {
+	test('hides the remote indicator, the problems counter, and an agent extension\'s entry through VS Code status bar storage', () => {
 		assert.strictEqual(BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY, 'workbench.statusbar.hidden');
-		assert.deepStrictEqual(BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS, ['status.host', 'status.problems']);
+		assert.deepStrictEqual(BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS, ['status.host', 'status.problems', 'Anthropic.claude-code']);
 	});
 
 	test('closes remapped stock view containers that should render inside BaseHalf surfaces', () => {
@@ -324,6 +324,12 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.markdown'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.prompt'), false);
 		assert.strictEqual(BASEHALF_ALLOWED_EXTENSION_FAMILIES.find(family => family.family === 'languages')?.builtInExtensionIds.length, 46);
+
+		// An agent extension's containers get no icon in the sidebar (D122).
+		for (const id of ['workbench.view.extension.claude-sessions-sidebar', 'workbench.view.extension.claude-sidebar', 'workbench.view.extension.codexViewContainer']) {
+			const entry = BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.find(container => container.id === id);
+			assert.deepStrictEqual([entry?.pinned, entry?.visible], [false, false], id);
+		}
 
 		// What runs is what ships, and only BaseHalf's folder of bundles ships beside it (D122).
 		const allowed = BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds).map(id => id.toLowerCase());

@@ -29,6 +29,8 @@ const productConfiguration = fs.readFileSync(inApp('product.json'), 'utf8');
 assert.equal(productConfiguration.includes('registry.basehalf.com'), false, 'The packaged product configuration names the plugin registry.');
 assert.equal(productConfiguration.includes('plugins.basehalf.com'), false, 'The packaged product configuration names the publishing portal.');
 assert.equal('basehalfPlugins' in JSON.parse(productConfiguration), false, 'The packaged product configuration still has a plugin catalog block.');
+// One click installs an agent extension (D122): no question about these publishers.
+assert.deepEqual(JSON.parse(productConfiguration).trustedExtensionPublishers, ['anthropic', 'openai'], 'The packaged product configuration does not name the publishers of the agent extensions.');
 
 // No source map ships, whichever part of the package it would come from.
 const sourceMaps: string[] = [];

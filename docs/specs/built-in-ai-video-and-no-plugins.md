@@ -117,7 +117,8 @@ longer described anything the product does.
     their exact identity. A file, a folder, or another extension from the
     gallery is refused, with a message that says BaseHalf runs only its
     built-in extensions and the agent extensions it supports. It verifies no
-    signature ([what the package holds](what-the-package-holds.md#the-signature-of-an-extension)).
+    signature, and one click installs an agent extension
+    ([what the package holds](what-the-package-holds.md#installing-an-agent-extension)).
 12. BaseHalf makes no network request to `registry.basehalf.com` or
     `plugins.basehalf.com`. The product configuration names neither, and no
     catalog or catalog cache is read.

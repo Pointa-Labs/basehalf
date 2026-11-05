@@ -327,9 +327,14 @@ class BaseHalfViewContainerExtensionAgentProvider implements IBaseHalfExtensionA
 		viewPaneContainer.create(viewHost);
 
 		const layout = () => {
-			const width = Math.max(1, Math.floor(viewHost.clientWidth));
-			const height = Math.max(1, Math.floor(viewHost.clientHeight));
-			viewPaneContainer.layout(new Dimension(width, height));
+			// The view is hidden while the session shows its state, and that can end within the
+			// frame it began in, where the observer below sees no change. A layout while hidden
+			// measures nothing and would leave the view at its minimum height until the next resize.
+			const width = viewHost.clientWidth;
+			const height = viewHost.clientHeight;
+			if (width > 0 && height > 0) {
+				viewPaneContainer.layout(new Dimension(width, height));
+			}
 		};
 		const resizeObserver = new mainWindow.ResizeObserver(layout);
 		resizeObserver.observe(viewHost);
@@ -1182,7 +1187,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 
 		session.state = 'unavailable';
-		session.detail = `${choice.label} requires the ${extensionId} extension. Install it from Open VSX to start this session.`;
+		session.detail = 'Not installed.';
 		this.renderSessionStatePanel(session, {
 			label: `Install ${choice.label}`,
 			run: () => this.installExtensionForSession(session.id, extensionId)
@@ -1196,7 +1201,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			return;
 		}
 		session.state = 'starting';
-		session.detail = `Installing ${extensionId}…`;
+		session.detail = 'Installing…';
 		session.statePrimaryAction = undefined;
 		this.renderSessionStatePanel(session);
 		this.render();

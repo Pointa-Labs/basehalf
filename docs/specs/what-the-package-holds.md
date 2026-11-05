@@ -128,10 +128,21 @@ Three more things came out of the same measurements:
 11. BaseHalf verifies no signature of an extension. The check that VS Code has needs
     `@vscode/vsce-sign`, which BaseHalf may not ship. What may install is fixed by its
     exact identity, name and id ([built-in AI Video and no
-    plugins](built-in-ai-video-and-no-plugins.md), rule 11), it comes from the gallery
-    over HTTPS, and the first extension of a publisher asks whether to trust them.
-12. A packaged BaseHalf installs the agent extensions from the gallery, and an agent
-    session starts on the one it installed.
+    plugins](built-in-ai-video-and-no-plugins.md), rule 11), and it comes from the
+    gallery over HTTPS.
+
+### Installing an agent extension
+
+12. **The user installs an agent extension, with one click.** The agent extensions do
+    not ship and nothing installs them by itself. Choosing Codex Extension or Claude Code
+    Extension in the Agent Area shows Install, and one click on it installs the extension
+    and starts the session. Nothing asks anything between: BaseHalf has chosen these two by
+    their identity, so the question whether to trust their publishers is not the user's,
+    and `trustedExtensionPublishers` in `product.json` names them.
+13. **The session is the only place the extension shows.** Its view fills the Agent Area
+    from the first moment, also right after the install. No icon comes for it beside Files,
+    Git, and Search, and no entry in the status bar opens it over the canvas.
+14. Before the install the session says "Not installed." and has one button.
 
 ## Failure and recovery
 
@@ -175,8 +186,10 @@ Three more things came out of the same measurements:
 8. In a packaged window: BaseHalf starts with no error of a missing module in its
    logs; a PDF with Chinese text in fonts it does not embed opens and shows its text;
    the Agent Area's terminal runs; Search finds text; Source Control shows a change.
-9. In a packaged window with a new profile, Install Claude Code Extension installs
-   it, and the session shows the extension.
+9. In a packaged window with a new profile, one click on Install Claude Code Extension,
+   and one on Install Codex Extension, installs it with no dialog. The session's view is as
+   high as the session, the sidebar shows Files, Git, and Search, and no status bar entry
+   opens the extension.
 10. `basehalf --agents` opens an ordinary window, and a window state that holds the
     workspace of the Agents window opens one too.
 11. `npm run compile` and `npm run watch` start nothing of `extensions/copilot`, and a
@@ -192,6 +205,7 @@ cd vscode-base
 build/basehalf/package-darwin.sh arm64 --notes-file <notes>   # runs the layout check
 npm run basehalf:package:layout-check -- --app ../VSCode-darwin-arm64/BaseHalf.app
 npm run basehalf:package:agent-install -- --app ../VSCode-darwin-arm64/BaseHalf.app
+npm run basehalf:package:agent-install -- --app ../VSCode-darwin-arm64/BaseHalf.app --agent codex
 npm run basehalf:smoke-no-compile -- --packaged-app ../VSCode-darwin-arm64/BaseHalf.app
 ```
 

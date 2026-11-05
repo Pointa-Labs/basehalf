@@ -11,20 +11,27 @@ import path from 'path';
 import process from 'process';
 
 // Installs an agent extension in a packaged BaseHalf, on a new profile, as a user does: Agent
-// Area, New Agent Session, Claude Code Extension, Install, Trust Publisher (D122). A development
-// host checks no signature of an extension, so that only a package shows whether this works. It
-// needs the network, downloads about 150 MiB, and opens a window. It is not part of CI.
+// Area, New Agent Session, the extension, and one click on Install, with no question after it
+// (D122). A development host checks no signature of an extension, so that only a package shows
+// whether this works. It needs the network, downloads about 150 MiB, and opens a window. It is
+// not part of CI.
 
 const appArgument = process.argv.indexOf('--app');
 if (appArgument < 0 || !process.argv[appArgument + 1]) {
-	throw new Error('Usage: npm run basehalf:package:agent-install -- --app <BaseHalf.app>');
+	throw new Error('Usage: npm run basehalf:package:agent-install -- --app <BaseHalf.app> [--agent claude|codex] [--shots <folder>]');
 }
 const app = path.resolve(process.argv[appArgument + 1]);
 const executable = path.join(app, 'Contents', 'MacOS', path.basename(app, '.app'));
 const port = 9400 + (process.pid % 400);
-const menuLabel = 'Claude Code Extension';
+const argumentAfter = (name: string) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined;
+const agent = argumentAfter('--agent') ?? 'claude';
+if (agent !== 'claude' && agent !== 'codex') {
+	throw new Error(`Unknown agent: ${agent}`);
+}
+const menuLabel = agent === 'claude' ? 'Claude Code Extension' : 'Codex Extension';
 const installLabel = `Install ${menuLabel}`;
-const extensionFolderPrefix = 'anthropic.claude-code';
+const extensionFolderPrefix = agent === 'claude' ? 'anthropic.claude-code' : 'openai.chatgpt';
+const shots = argumentAfter('--shots');
 
 // The socket of a profile must stay under 103 characters, so the state is under .build.
 const state = fs.mkdtempSync(path.join(path.dirname(import.meta.dirname), '.build', 'agent-install-'));
@@ -154,18 +161,24 @@ async function run(): Promise<void> {
 
 	await click(await until(center(`document.querySelector('.basehalf-agent-new-tab')`), 15_000, 'New Agent Session'));
 	await click(await until(center(`[...document.querySelectorAll('.monaco-menu .action-item')].find(item => item.textContent.trim().startsWith(${JSON.stringify(menuLabel)}))`), 8000, menuLabel));
-	await click(await until(center(`[...document.querySelectorAll('button.basehalf-agent-session-state-retry')].find(button => button.textContent.trim() === ${JSON.stringify(installLabel)})`), 30_000, installLabel));
+	const shoot = async (name: string) => {
+		if (shots) {
+			fs.mkdirSync(shots, { recursive: true });
+			const { data } = await send('Page.captureScreenshot', { format: 'png' });
+			fs.writeFileSync(path.join(shots, `${name}.png`), Buffer.from(data, 'base64'));
+		}
+	};
+	const installButton = await until(center(`[...document.querySelectorAll('button.basehalf-agent-session-state-retry')].find(button => button.textContent.trim() === ${JSON.stringify(installLabel)})`), 30_000, installLabel);
+	await shoot(`${agent}-before-install`);
+	await click(installButton);
 	console.log(`Clicked ${installLabel}.`);
 
 	const statePanel = `[...document.querySelectorAll('.basehalf-agent-area-session.kind-extension .basehalf-agent-session-state')].map(e => e.textContent.trim()).join(' ')`;
 	const started = Date.now();
 	while (Date.now() - started < 300_000) {
 		const dialog: string = await evaluate(`document.querySelector('.monaco-dialog-box')?.textContent.trim().slice(0, 300) ?? ''`).catch(() => '');
-		if (/Trust Publisher/.test(dialog)) {
-			await click(await until(center(`[...document.querySelectorAll('.monaco-dialog-box .monaco-button')].find(button => /Trust Publisher/.test(button.textContent))`), 5000, 'Trust Publisher'));
-			console.log('Trusted the publisher.');
-		} else if (dialog) {
-			throw new Error(`A dialog stopped the install: ${dialog}`);
+		if (dialog) {
+			throw new Error(`One click should install it, and a dialog asks: ${dialog}`);
 		}
 		const panel: string = await evaluate(statePanel).catch(() => '');
 		if (/failed/i.test(panel)) {
@@ -174,7 +187,36 @@ async function run(): Promise<void> {
 		const session = await evaluate(`(() => { const s = document.querySelector('.basehalf-agent-area-session.kind-extension'); return s ? !s.classList.contains('has-state') : false; })()`);
 		const installed = fs.readdirSync(path.join(state, 'extensions')).some(name => name.toLowerCase().startsWith(extensionFolderPrefix));
 		if (installed && session) {
-			console.log(JSON.stringify({ ok: true, seconds: Math.round((Date.now() - started) / 1000), extensions: fs.readdirSync(path.join(state, 'extensions')).filter(name => name !== 'extensions.json') }));
+			// The view of the session fills the Agent Area, and no icon comes beside Files, Git, and Search.
+			const sizes = await until(`(() => {
+				const session = document.querySelector('.basehalf-agent-area-session.kind-extension');
+				const pane = session?.querySelector('.pane');
+				const webview = [...document.querySelectorAll('.webview')].find(frame => { const r = frame.getBoundingClientRect(); const s = session.getBoundingClientRect(); return r.top >= s.top && r.bottom <= s.bottom + 1 && r.height > 0; });
+				return pane && webview ? JSON.stringify({ session: session.getBoundingClientRect().height, pane: pane.getBoundingClientRect().height, webview: webview.getBoundingClientRect().height }) : null;
+			})()`, 30_000, 'the view of the session');
+			await sleep(5000);
+			await shoot(`${agent}-after-install`);
+			if (!await evaluate(`[...document.querySelectorAll('.basehalf-canvas-node, .react-flow__node')].some(node => /note/.test(node.textContent))`)) {
+				throw new Error('The card of the note is not on the canvas.');
+			}
+			const { session: sessionHeight, pane: paneHeight, webview: webviewHeight } = JSON.parse(sizes);
+			const settled = JSON.parse(await evaluate(`(() => {
+				const session = document.querySelector('.basehalf-agent-area-session.kind-extension');
+				const webview = [...document.querySelectorAll('.webview')].find(frame => { const r = frame.getBoundingClientRect(); const s = session.getBoundingClientRect(); return r.top >= s.top && r.bottom <= s.bottom + 1 && r.height > 0; });
+				return JSON.stringify({ session: session.getBoundingClientRect().height, pane: session.querySelector('.pane').getBoundingClientRect().height, webview: webview.getBoundingClientRect().height });
+			})()`));
+			if (settled.pane < settled.session - 1 || settled.webview < settled.session - 60) {
+				throw new Error(`The view of the session does not fill the Agent Area: ${JSON.stringify(settled)}, and at first ${JSON.stringify({ sessionHeight, paneHeight, webviewHeight })}`);
+			}
+			const statusEntries: string[] = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('.part.statusbar .statusbar-item')].filter(item => item.offsetParent !== null).map(item => item.textContent.trim()))`));
+			if (statusEntries.some(entry => /Claude Code|Codex/.test(entry))) {
+				throw new Error(`The status bar opens the extension over the canvas: ${statusEntries.join(', ')}`);
+			}
+			const icons: string[] = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('.part.sidebar .composite-bar .action-item')].map(item => (item.querySelector('.action-label') ?? item).getAttribute('aria-label')).filter(Boolean))`));
+			if (icons.length !== 3 || !/^Explorer/.test(icons[0]) || !/^Source Control/.test(icons[1]) || !/^Search/.test(icons[2])) {
+				throw new Error(`The sidebar shows more than Files, Git, and Search: ${icons.join(', ')}`);
+			}
+			console.log(JSON.stringify({ ok: true, agent, seconds: Math.round((Date.now() - started) / 1000), extensions: fs.readdirSync(path.join(state, 'extensions')).filter(name => name !== 'extensions.json') }));
 			return;
 		}
 		await sleep(1000);

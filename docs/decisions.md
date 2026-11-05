@@ -6078,8 +6078,8 @@ text. All were strengthened and fail now.
 built-in extensions run and which ship, and only declared npm packages ship. No source map ships.
 What a bundle takes in, and what only gives types to code that does not run, moves to
 `devDependencies`. `extensions/copilot` and all of `src/vs/sessions` but the two files that register
-colors and sizes leave the tree. BaseHalf verifies no signature of an extension. See [what the package
-holds](specs/what-the-package-holds.md).
+colors and sizes leave the tree. BaseHalf verifies no signature of an extension. The user installs an agent
+extension, with one click and no question after it. See [what the package holds](specs/what-the-package-holds.md).
 
 **Why.** The owner asked of the base: "是不是能把这些冗余代码删掉". Measured, the code in question was
 not where the weight was. Of the 462 MiB archive of 0.6.1, 281 MiB never ran, and none of it was the
@@ -6094,16 +6094,26 @@ may be used only with Microsoft's products, and it shipped without its program. 
 Install Claude Code Extension have always failed in a packaged BaseHalf, with "Signature verification failed with
 'ENOENT' error", while a development host, which checks no signature, works.
 
+The owner settled what the install should be: "Agent拓展让用户自己安装吧。我们提供一个一键安装入口就行。" So the
+extensions stay out of the package, Install in the Agent Area is the entry, and the question whether to trust the
+publisher goes: BaseHalf has chosen these two by their identity, and the user asked for the extension one click ago.
+Installing for real in a package, for the first time, showed what no development host had: a view squeezed to 120 px,
+because the session laid it out while it was hidden, an icon in the sidebar whose click closed the sidebar, and an entry
+in the status bar that opened the extension over the canvas. All three are gone, and the check of the install fails on
+each of them.
+
 **What was set aside.**
 - Taking Chat, Notebook, Debug, Testing, and Tasks out of the workbench. They are about 5.5 of the 18.5 MiB of
   the main bundle, so about 1.5 MiB of the download, and an estimated 50 to 60 ms of a start of about 0.95 s. 83 of
   VS Code's files import Chat, each one a place to merge at every base update, and 22 of them are the extension API,
-  which D76 keeps as VS Code has it and which the Codex extension declares a use of. This is worth asking again at
+  which D76 keeps as VS Code has it. This is worth asking again at
   a whole-base update: upstream's `src/vs` grew by 74 MiB between the import and 1.144, 69 of them in Chat, the
   Agents window, and the agent host.
 - Deleting the source of the extensions that do not run. They do not ship and cost nothing, and admitting one is
   one line.
 - Shipping `@vscode/vsce-sign` with its program. Its license does not allow it.
+- Shipping the agent extensions. They are 150 MiB and more each, they change every few days, and not everyone uses
+  them: the Agent Area runs Claude Code and Codex in a terminal without them.
 - Verifying what the gallery signs with code of our own. It would check a package against a key from the same place
   the package came from, and what may install is already fixed by its exact identity.
 - A limit on the size of the archive below the 500 MiB that installed applications accept. A list of what must not
@@ -6115,4 +6125,5 @@ Install Claude Code Extension have always failed in a packaged BaseHalf, with "S
 - [`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md) says what a base update does again.
 - The packaging script runs the layout check before it makes the archive, and keeps the source maps beside it.
 - `npm run watch` runs three watchers. One that was started before this has to be restarted.
-- Revises D76's rule on installing in one point: an agent extension is installed without a signature check.
+- Revises D76's rule on installing in two points: an agent extension is installed without a signature check, and
+  without the question whether to trust its publisher.

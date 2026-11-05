@@ -25,7 +25,7 @@ export async function assertAgentAreaChoices(page) {
 	}
 
 	await page.locator('.basehalf-agent-tab.unavailable', { hasText: 'Codex Extension' }).waitFor({ state: 'visible', timeout: 15_000 });
-	await page.locator('.basehalf-agent-session-state', { hasText: /openai\.chatgpt|trusted workspace/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-session-state', { hasText: /Not installed|trusted workspace/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	// The missing curated extension must surface a concrete next step: an
 	// Install action wired to the configured extension gallery (not a dead end).
 	await page.locator('.basehalf-agent-session-state-retry', { hasText: /^(Install |Trust Workspace)/ }).waitFor({ state: 'visible', timeout: 15_000 });
