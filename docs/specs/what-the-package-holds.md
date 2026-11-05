@@ -55,7 +55,9 @@ Three more things came out of the same measurements:
 - A package that is the same whatever else is in `node_modules`.
 - A check that refuses a package holding what it should not, before it is signed.
 - The agent extensions install in a packaged BaseHalf.
-- A development machine that does not build and watch what never ships.
+- A development machine that does not build and watch `extensions/copilot`, which never
+  shipped. The other extensions that do not ship still build there: they cost little, and
+  admitting one takes no change to the watchers.
 
 ## Non-goals
 
@@ -83,7 +85,7 @@ Three more things came out of the same measurements:
 
 1. **Built-in extensions.** The package holds exactly the built-in extensions of
    the allowlist, and `extensions/basehalf`, which holds bundles and fonts and runs
-   no code. `basehalfBuiltInExtensions.ts` is the one list: the allowlist reads it
+   no code, without what they are built from. `basehalfBuiltInExtensions.ts` is the one list: the allowlist reads it
    to decide what runs and the build reads it to decide what ships.
    `extensions/node_modules` does not ship: the extensions that run have bundled
    what they need. `product.json` names no extension to download into the package.
@@ -106,10 +108,11 @@ Three more things came out of the same measurements:
    - `playwright-core`, of the chat's browser tools.
 5. **Native files of this system and this architecture.** `node-pty` ships the
    prebuilt program of the system and architecture of the package only.
-6. **No Agents window.** Its bundle, page, and resources do not ship.
-7. **Notices.** What leaves `node_modules` takes its license text with it, so the
-   notices of what the reader's bundle holds are beside it, as
-   `content-viewer-out/pdfViewerNotices.txt`.
+6. **No Agents window and no agent host.** Their bundles, page, and resources do not ship.
+7. **Notices.** What leaves `node_modules` takes its license text with it, so its notices
+   stay in the package: those of what the reader's bundle holds beside it, as
+   `content-viewer-out/pdfViewerNotices.txt`, and those of `yjs` and `lib0`, which the
+   workbench bundles, in `ThirdPartyNotices.txt`.
 
 ### What the tree holds
 
@@ -119,17 +122,19 @@ Three more things came out of the same measurements:
    which register colors and sizes that the workbench reads
    (`--vscode-agents-fontWeight-semiBold` among them).
 10. **What asks for the Agents window gets an ordinary window.** `--agents`, and the
-    command behind it, open a window as a start without arguments does. No window
-    loads the page of the Agents window, also not a window restored from a state
-    that an earlier build saved.
+    command behind it, give what a start without arguments gives, and one more empty
+    window when BaseHalf is running. Help does not list `--agents`. No window loads the
+    page of the Agents window, also not a window restored from a state that an earlier
+    build saved.
 
 ### The signature of an extension
 
-11. BaseHalf verifies no signature of an extension. The check that VS Code has needs
-    `@vscode/vsce-sign`, which BaseHalf may not ship. What may install is fixed by its
-    exact identity, name and id ([built-in AI Video and no
-    plugins](built-in-ai-video-and-no-plugins.md), rule 11), and it comes from the
-    gallery over HTTPS.
+11. BaseHalf verifies no signature of an extension, and `extensions.verifySignature` is
+    not a setting. The check that VS Code has needs `@vscode/vsce-sign`, which BaseHalf may
+    not ship. What may install is fixed by its exact identity, name and id ([built-in AI
+    Video and no plugins](built-in-ai-video-and-no-plugins.md), rule 11), and it comes from
+    the gallery over HTTPS. Its updates keep VS Code's delay, two hours by default, so that
+    an upload that is withdrawn soon does not reach anyone.
 
 ### Installing an agent extension
 
@@ -137,8 +142,9 @@ Three more things came out of the same measurements:
     not ship and nothing installs them by itself. Choosing Codex Extension or Claude Code
     Extension in the Agent Area shows Install, and one click on it installs the extension
     and starts the session. Nothing asks anything between: BaseHalf has chosen these two by
-    their identity, so the question whether to trust their publishers is not the user's,
-    and `trustedExtensionPublishers` in `product.json` names them.
+    their identity, so the question whether to trust their publishers is not the user's.
+    The install skips the question for itself. `trustedExtensionPublishers` in `product.json`
+    stays empty, because it would also take away the delay of their updates (rule 11).
 13. **The session is the only place the extension shows.** Its view fills the Agent Area
     from the first moment, also right after the install. No icon comes for it beside Files,
     Git, and Search, and no entry in the status bar opens it over the canvas.
@@ -149,9 +155,10 @@ Three more things came out of the same measurements:
 - A package that breaks 1 to 6 is refused by the layout check that the packaging
   script runs before it makes the archive. The script stops, and nothing is signed.
 - A feature that cannot be reached and that would load a package that does not ship
-  loads it by a dynamic import, so that nothing fails at a start. If a setting
-  that BaseHalf turns off is turned on by hand, such a feature fails where it is
-  used, with the error in its log. BaseHalf does not repair it.
+  does so where it is used, so that nothing fails at a start. If a setting that BaseHalf
+  turns off is turned on by hand, such a feature fails there, with the error in its log.
+  The agent host, for one, is a process whose program does not ship. BaseHalf does not
+  repair this.
 - An extension that the gallery serves damaged fails where it is unpacked, as it
   always did. The installation is not left half done.
 
@@ -172,12 +179,13 @@ Three more things came out of the same measurements:
 1. In a package, no file ends in `.map`.
 2. Every extension in the package is on the allowlist or is `extensions/basehalf`, and
    every built-in extension of the allowlist is in the package.
-3. A package holds neither `extensions/node_modules`, nor `node_modules/@embedpdf`,
+3. Every declared npm package is in the package, but for what `build/.moduleignore` takes
+   out and `tslib`, which nothing that ships requires. A package holds neither `extensions/node_modules`, nor `node_modules/@embedpdf`,
    `@github/copilot*`, `@microsoft/mxc-sdk`, `@microsoft/dev-tunnels-*`,
    `@vscode/copilot-api`, `@vscode/sandbox-runtime`, `@vscode/vsce`,
    `@vscode/vsce-sign*`, `playwright-core`, `@anthropic-ai/sdk`, `yjs`, or `lib0`.
-4. A package holds no `out/vs/sessions`, so neither the bundle nor the page of the
-   Agents window.
+4. A package holds no `out/vs/sessions` and no `out/vs/platform/agentHost`. `extensions/basehalf`
+   holds nothing it is built from. `ThirdPartyNotices.txt` holds the licenses of `yjs` and `lib0`.
 5. `node-pty/prebuilds` holds the folder of the package's system and architecture
    only.
 6. Two builds from two `node_modules` that differ by a package nobody declares hold
@@ -190,8 +198,8 @@ Three more things came out of the same measurements:
    and one on Install Codex Extension, installs it with no dialog. The session's view is as
    high as the session, the sidebar shows Files, Git, and Search, and no status bar entry
    opens the extension.
-10. `basehalf --agents` opens an ordinary window, and a window state that holds the
-    workspace of the Agents window opens one too.
+10. `basehalf --agents` opens an ordinary window, one more empty one when BaseHalf is running,
+    and a window state that holds the workspace of the Agents window opens an ordinary one too.
 11. `npm run compile` and `npm run watch` start nothing of `extensions/copilot`, and a
     development host starts.
 12. The full gate of [verification and delivery](../harness/verification-and-delivery.md)

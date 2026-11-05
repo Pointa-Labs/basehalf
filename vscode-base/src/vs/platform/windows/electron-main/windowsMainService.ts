@@ -295,8 +295,8 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 	async openAgentsWindow(openConfig: IOpenConfiguration, _folderUri?: URI, _sessionResource?: URI): Promise<ICodeWindow[]> {
 		this.logService.trace('windowsManager#openAgentsWindow');
 
-		// BaseHalf: there is no Agents window (D122). What asks for one gets a window as a
-		// start without arguments does, and one more window when BaseHalf is running.
+		// BaseHalf: there is no Agents window (D122). What asks for one gets what a start without
+		// arguments gives, and one more empty window when BaseHalf is running.
 		return this.open({
 			userEnv: openConfig.userEnv,
 			cli: openConfig.cli,
@@ -304,6 +304,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 			contextWindowId: openConfig.contextWindowId,
 			initialStartup: openConfig.initialStartup,
 			forceNewWindow: !openConfig.initialStartup,
+			forceEmpty: !openConfig.initialStartup,
 		});
 	}
 

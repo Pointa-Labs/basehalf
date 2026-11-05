@@ -153,9 +153,10 @@ async function run(): Promise<void> {
 		await press('F1', 112);
 		await until(`(() => { const i = document.querySelector('.quick-input-widget input'); return !!i && i.offsetParent !== null; })()`, 8000, 'the command palette');
 		await send('Input.insertText', { text: 'Toggle Agent Area' });
-		await sleep(900);
+		await until(`/Toggle Agent Area/.test(document.querySelector('.quick-input-list .monaco-list-row')?.textContent ?? '')`, 15_000, 'the command in the palette');
+		await sleep(300);
 		await press('Enter', 13, '\r');
-		await until(`!!document.querySelector('.basehalf-agent-new-tab')`, 8000, 'the Agent Area');
+		await until(`!!document.querySelector('.basehalf-agent-new-tab')`, 20_000, 'the Agent Area');
 		await sleep(800);
 	}
 

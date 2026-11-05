@@ -66,7 +66,16 @@ end timeout
 EOF
 sync
 
-hdiutil detach "$MOUNT" -quiet
+# The system's search index reads a volume that has just been mounted, and a detach during that fails
+# as busy. Give it time before forcing it.
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+	hdiutil detach "$MOUNT" -quiet 2>/dev/null && break
+	if [[ "$attempt" == 10 ]]; then
+		hdiutil detach "$MOUNT" -force -quiet
+	else
+		sleep 3
+	fi
+done
 
 echo "▸ compressing"
 rm -f "$OUT"

@@ -54,7 +54,7 @@ if [[ ! -d "$APP" ]]; then
 fi
 
 echo "▸ checking what the package holds"
-node --experimental-strip-types scripts/basehalf-package-layout-check.mts --app "$APP"
+node --experimental-strip-types scripts/basehalf-package-layout-check.mts --app "$APP" --arch "$ARCH"
 
 mkdir -p "$DIST"
 rm -f "$ZIP"

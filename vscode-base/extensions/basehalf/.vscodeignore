@@ -1,5 +1,9 @@
 canvas-react-vendor-src/**
 esbuild.canvasReactVendor.mts
+canvas-markdown-inline-src/**
+esbuild.canvasMarkdownInline.mts
+content-viewer-src/**
+esbuild.contentViewer.mts
 markdown-rich-src/**
 esbuild.markdownRich.mts
 test/**

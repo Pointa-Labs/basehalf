@@ -1,7 +1,8 @@
 # BaseHalf workbench vendor bundle
 
-`yjs.bundle.js` is a workbench ESM-loader-safe bundle of the root npm
-dependencies `yjs` and `lib0`.
+`yjs.bundle.js` is a workbench ESM-loader-safe bundle of the root npm dev
+dependency `yjs` and of `lib0`, which does not ship as a package. Their licenses
+ship in `ThirdPartyNotices.txt`: bring their versions there up to date with the bundle.
 
 Why it exists:
 
@@ -23,7 +24,7 @@ Regenerate after dependency upgrades from `vscode-base/`:
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *
  *  Bundles yjs 13.6.30 and lib0 0.2.117 for the VS Code workbench ESM loader.
- *  Their MIT licenses are available in node_modules/yjs/LICENSE and node_modules/lib0/LICENSE.
+ *  Their MIT licenses ship in ThirdPartyNotices.txt, as the packages themselves do not.
  *--------------------------------------------------------------------------------------------*/' \
   --outfile=src/vs/workbench/basehalf/markdown/common/vendor/yjs.bundle.js
 ```

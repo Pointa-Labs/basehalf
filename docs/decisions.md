@@ -6096,7 +6096,8 @@ Install Claude Code Extension have always failed in a packaged BaseHalf, with "S
 
 The owner settled what the install should be: "Agent拓展让用户自己安装吧。我们提供一个一键安装入口就行。" So the
 extensions stay out of the package, Install in the Agent Area is the entry, and the question whether to trust the
-publisher goes: BaseHalf has chosen these two by their identity, and the user asked for the extension one click ago.
+publisher goes for this install: BaseHalf has chosen these two by their identity, and the user asked for the extension
+one click ago.
 Installing for real in a package, for the first time, showed what no development host had: a view squeezed to 120 px,
 because the session laid it out while it was hidden, an icon in the sidebar whose click closed the sidebar, and an entry
 in the status bar that opened the extension over the canvas. All three are gone, and the check of the install fails on
@@ -6111,6 +6112,9 @@ each of them.
   Agents window, and the agent host.
 - Deleting the source of the extensions that do not run. They do not ship and cost nothing, and admitting one is
   one line.
+- Naming the two publishers as trusted in `product.json`, which was the first way to drop that question. It also takes
+  away the delay of their updates, which matters more now that nobody checks a signature: a review of the change found
+  it after every suite was green.
 - Shipping `@vscode/vsce-sign` with its program. Its license does not allow it.
 - Shipping the agent extensions. They are 150 MiB and more each, they change every few days, and not everyone uses
   them: the Agent Area runs Claude Code and Codex in a terminal without them.

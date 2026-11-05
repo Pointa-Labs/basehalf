@@ -29,8 +29,9 @@ const productConfiguration = fs.readFileSync(inApp('product.json'), 'utf8');
 assert.equal(productConfiguration.includes('registry.basehalf.com'), false, 'The packaged product configuration names the plugin registry.');
 assert.equal(productConfiguration.includes('plugins.basehalf.com'), false, 'The packaged product configuration names the publishing portal.');
 assert.equal('basehalfPlugins' in JSON.parse(productConfiguration), false, 'The packaged product configuration still has a plugin catalog block.');
-// One click installs an agent extension (D122): no question about these publishers.
-assert.deepEqual(JSON.parse(productConfiguration).trustedExtensionPublishers, ['anthropic', 'openai'], 'The packaged product configuration does not name the publishers of the agent extensions.');
+// One click installs an agent extension without this list, which would also take away the delay
+// of the updates of the publishers it names, of extensions whose signatures nobody checks (D122).
+assert.equal('trustedExtensionPublishers' in JSON.parse(productConfiguration), false, 'The packaged product configuration names trusted publishers.');
 
 // No source map ships, whichever part of the package it would come from.
 const sourceMaps: string[] = [];
@@ -74,6 +75,11 @@ interface ILockEntry {
 	readonly dependencies?: Record<string, string>;
 	readonly optionalDependencies?: Record<string, string>;
 	readonly peerDependencies?: Record<string, string>;
+	readonly peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+	readonly optional?: boolean;
+	readonly peer?: boolean;
+	readonly os?: string[];
+	readonly cpu?: string[];
 }
 const lock = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package-lock.json'), 'utf8')).packages as Record<string, ILockEntry>;
 const resolveInLock = (from: string, name: string): string | undefined => {
@@ -95,7 +101,8 @@ const pending = [''];
 while (pending.length) {
 	const from = pending.pop()!;
 	const entry = lock[from];
-	for (const name of [...Object.keys(entry.dependencies ?? {}), ...Object.keys(entry.optionalDependencies ?? {}), ...Object.keys(entry.peerDependencies ?? {})]) {
+	const requiredPeers = Object.keys(entry.peerDependencies ?? {}).filter(name => !entry.peerDependenciesMeta?.[name]?.optional);
+	for (const name of [...Object.keys(entry.dependencies ?? {}), ...Object.keys(entry.optionalDependencies ?? {}), ...requiredPeers]) {
 		const resolved = resolveInLock(from, name);
 		if (resolved && !declared.has(resolved)) {
 			declared.add(resolved);
@@ -120,16 +127,40 @@ for (const name of packagedModules) {
 	assert.ok(declared.has(`node_modules/${name}`), `node_modules/${name} is packaged and nothing declares it.`);
 }
 
+// And what is declared ships, so that a node_modules laid out unlike the lockfile cannot drop a
+// package without anyone seeing it. build/.moduleignore takes out what only builds native code and
+// the native code of other systems. tslib is a peer that the lockfile counts as dev, and nothing
+// that ships requires it.
+const leftOutOnPurpose = /(^|\/)node_modules\/(node-addon-api|prebuild-install|tslib|@vscode\/windows-[a-z-]+)(\/|$)/;
+const missing = [...declared].filter(packagePath => {
+	const entry = lock[packagePath];
+	return !entry.optional && !entry.peer && !entry.os && !entry.cpu && !leftOutOnPurpose.test(packagePath) && !fs.existsSync(inApp(...packagePath.split('/')));
+});
+assert.deepEqual(missing, [], `${missing.length} declared packages are not packaged.`);
+
 // What the specification names, also if someone declares it again.
 const mustNotShip = /^(@embedpdf\/|@github\/copilot|@microsoft\/mxc-sdk$|@microsoft\/dev-tunnels-|@vscode\/copilot-api$|@vscode\/sandbox-runtime$|@vscode\/vsce$|@vscode\/vsce-sign|playwright-core$|@anthropic-ai\/sdk$|yjs$|lib0$)/;
 for (const name of packagedModules) {
 	assert.equal(mustNotShip.test(name), false, `node_modules/${name} must not ship (D122).`);
 }
 
+const architecture = process.argv.includes('--arch') ? process.argv[process.argv.indexOf('--arch') + 1] : process.arch;
 const prebuilds = fs.readdirSync(inApp('node_modules', 'node-pty', 'prebuilds')).filter(name => !name.startsWith('.'));
-assert.equal(prebuilds.length, 1, `node-pty ships the programs of ${prebuilds.join(', ')}. It should ship the package's own.`);
+assert.deepEqual(prebuilds, [`darwin-${architecture}`], `node-pty ships the programs of ${prebuilds.join(', ')}. It should ship the package's own.`);
 
 assert.equal(fs.existsSync(inApp('out', 'vs', 'sessions')), false, 'The Agents window is packaged.');
+assert.equal(fs.existsSync(inApp('out', 'vs', 'platform', 'agentHost')), false, 'The agent host is packaged.');
+
+// BaseHalf's own folder holds what its editors and readers load, not what they are built from.
+for (const entry of fs.readdirSync(inApp('extensions', 'basehalf'))) {
+	assert.equal(/-src$|\.mts$|^node_modules$/.test(entry), false, `extensions/basehalf/${entry} is packaged.`);
+}
+
+// What left node_modules took its license with it, so that it stands in the notices (rule 7).
+const notices = fs.readFileSync(inApp('ThirdPartyNotices.txt'), 'utf8');
+for (const name of ['yjs', 'lib0']) {
+	assert.match(notices, new RegExp(`^${name} [0-9.]+ - MIT$`, 'm'), `ThirdPartyNotices.txt does not hold the license of ${name}, which the workbench bundles.`);
+}
 
 // What was taken away has not gone too far: what really runs is there.
 for (const required of [

@@ -24,6 +24,7 @@ import { IExtensionGalleryService } from '../../../../platform/extensionManageme
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { areSameExtensions } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
+import { EXTENSION_INSTALL_SKIP_PUBLISHER_TRUST_CONTEXT } from '../../../../platform/extensionManagement/common/extensionManagement.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
@@ -1206,7 +1207,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		this.renderSessionStatePanel(session);
 		this.render();
 		try {
-			await this.extensionsWorkbenchService.install(extensionId, undefined, ProgressLocation.Notification);
+			// One click installs it (D122): BaseHalf has chosen this extension by its identity, so
+			// that the question whether to trust its publisher is not the user's. The publisher is
+			// not named as trusted in the product, which would also take away the delay of its updates.
+			await this.extensionsWorkbenchService.install(extensionId, { context: { [EXTENSION_INSTALL_SKIP_PUBLISHER_TRUST_CONTEXT]: true } }, ProgressLocation.Notification);
 		} catch (error) {
 			const current = this.runtime.get(sessionId);
 			if (current !== session) {

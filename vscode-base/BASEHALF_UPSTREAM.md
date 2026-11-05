@@ -278,11 +278,13 @@ updated from upstream, these come back and go again:
   `build/vite/mobile-multi-diff*`, and `scripts/code-sessions-web.*`.
 - **`package.json`**: no script builds or watches `extensions/copilot`. The packages of
   the spec's rule 4 are in `devDependencies`.
-- **`build/lib/dependencies.ts`**: `npm ls --long`, and what it marks extraneous is dropped.
-- **`build/lib/extensions.ts`**: only `isBaseHalfPackagedBuiltInExtension` builds, and
-  `extensions/node_modules` does not ship.
+- **`build/lib/dependencies.ts`**: only what `package-lock.json` has outside of its dev packages ships.
+- **`build/lib/extensions.ts`**: only what `isBaseHalfPackagedExtension` admits builds, also its
+  media, and `extensions/node_modules` does not ship.
 - **`build/gulpfile.vscode.ts`**: source maps are stripped everywhere, nothing of Copilot's
   runtime or of the Agents window is listed, and `node-pty` keeps one prebuilt folder.
+- **`build/buildfile.ts`, `build/next/index.ts`**: the desktop lists no bundle of the agent host.
+- **`ThirdPartyNotices.txt`**: BaseHalf's sections for `yjs` and `lib0` stand at the end.
 - **`build/gulpfile.extensions.ts`, `build/gulpfile.reh.ts`, `build/gulpfile.hygiene.ts`,
   `build/hygiene.ts`, `build/buildfile.ts`, `build/next/index.ts`, `build/lib/mangle/index.ts`,
   `build/gulpfile.vscode.web.ts`, `build/npm/dirs.ts`, `eslint.config.js`, `.vscode-test.js`,
@@ -290,10 +292,14 @@ updated from upstream, these come back and go again:
   what named the two folders.
 - **`src/vs/workbench/contrib/chat/electron-browser/agentSessions/media/openInAgents.css`**: no
   picture from the Agents window's folder.
-- **`product.json`**: `builtInExtensions` is empty.
+- **`product.json`**: `builtInExtensions` is empty. `trustedExtensionPublishers` stays absent: it would
+  also take away the delay of the agent extensions' updates.
 - **`src/vs/platform/windows/electron-main/windowsMainService.ts`**: `openAgentsWindow` opens an
   ordinary window and `isSessionsWindow` is always false.
 - **`src/vs/platform/extensionManagement/node/extensionManagementService.ts`**: no signature is verified.
+- **`src/vs/workbench/contrib/extensions/browser/extensions.contribution.ts`**: `extensions.verifySignature`
+  is not registered.
+- **`src/vs/platform/environment/node/argv.ts`**: help does not list `--agents`.
 - **`src/vs/workbench/contrib/chat/browser/agentSessions/agentHost/agentHostCustomizationService.ts`**:
   `IAgentHostMcpServer` is declared there, as its old file left.
 - **`src/vs/workbench/test/browser/componentFixtures/fixtureUtils.ts`**: no service of the Agents window.
