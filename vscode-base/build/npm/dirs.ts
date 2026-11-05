@@ -16,7 +16,6 @@ export const dirs = [
 	'extensions',
 	'extensions/basehalf',
 	'extensions/configuration-editing',
-	'extensions/copilot',
 	'extensions/css-language-features',
 	'extensions/css-language-features/server',
 	'extensions/debug-auto-launch',

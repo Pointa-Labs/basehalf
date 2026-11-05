@@ -96,7 +96,8 @@ Three more things came out of the same measurements:
    when it is built, or what only gives types to code that does not run, is in
    `devDependencies`. So are:
    - `@embedpdf/fonts-sc`, `@embedpdf/models`, and `@embedpdf/snippet`, which the
-     reader's bundle takes in;
+     reader's bundle takes in, and `yjs`, of which the workbench has a bundle in
+     `markdown/common/vendor`;
    - `@github/copilot`, `@github/copilot-sdk`, `@vscode/copilot-api`,
      `@anthropic-ai/sdk`, `@microsoft/dev-tunnels-*`, `ssh2`, and `zod`, of the agent
      host and of its tunnels;
@@ -163,9 +164,9 @@ Three more things came out of the same measurements:
 3. A package holds neither `extensions/node_modules`, nor `node_modules/@embedpdf`,
    `@github/copilot*`, `@microsoft/mxc-sdk`, `@microsoft/dev-tunnels-*`,
    `@vscode/copilot-api`, `@vscode/sandbox-runtime`, `@vscode/vsce`,
-   `@vscode/vsce-sign*`, `playwright-core`, or `@anthropic-ai/sdk`.
-4. A package holds nothing of `out/vs/sessions` but the bundle's own absence: no
-   `sessions.desktop.main.js` and no `sessions.html`.
+   `@vscode/vsce-sign*`, `playwright-core`, `@anthropic-ai/sdk`, `yjs`, or `lib0`.
+4. A package holds no `out/vs/sessions`, so neither the bundle nor the page of the
+   Agents window.
 5. `node-pty/prebuilds` holds the folder of the package's system and architecture
    only.
 6. Two builds from two `node_modules` that differ by a package nobody declares hold

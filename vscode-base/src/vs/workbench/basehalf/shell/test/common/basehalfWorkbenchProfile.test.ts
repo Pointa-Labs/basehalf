@@ -42,6 +42,7 @@ import {
 	shouldBaseHalfHideView,
 	shouldBaseHalfHideViewContainer
 } from '../../common/basehalfWorkbenchProfile.js';
+import { BASEHALF_ASSETS_EXTENSION_ID, BASEHALF_PACKAGED_EXTENSION_IDS, isBaseHalfPackagedExtension } from '../../common/basehalfBuiltInExtensions.js';
 
 suite('BaseHalfWorkbenchProfile', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -323,6 +324,14 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.markdown'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.prompt'), false);
 		assert.strictEqual(BASEHALF_ALLOWED_EXTENSION_FAMILIES.find(family => family.family === 'languages')?.builtInExtensionIds.length, 46);
+
+		// What runs is what ships, and only BaseHalf's folder of bundles ships beside it (D122).
+		const allowed = BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds).map(id => id.toLowerCase());
+		assert.deepStrictEqual([...BASEHALF_PACKAGED_EXTENSION_IDS].sort(), [...allowed, BASEHALF_ASSETS_EXTENSION_ID].sort());
+		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'git'), true);
+		assert.strictEqual(isBaseHalfPackagedExtension('Pointa', 'basehalf'), true);
+		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'markdown-language-features'), false);
+		assert.strictEqual(isBaseHalfPackagedExtension('vscode', 'copilot'), false);
 
 		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.git'), true);
 		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.git-base'), true);

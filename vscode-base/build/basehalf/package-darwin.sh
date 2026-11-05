@@ -7,8 +7,11 @@
 #   1. gulp vscode-darwin-<arch>-min  →  ../VSCode-darwin-<arch>/BaseHalf.app
 #      (unsigned on purpose: no platform signing identity; release integrity
 #      comes from the Ed25519 chain in sign-update.mjs / the in-app verifier)
-#   2. ditto-zip the bundle           →  ../basehalf-dist/BaseHalf-<version>-darwin-<arch>.zip
-#   3. sign-update.mjs                →  ../basehalf-dist/update-manifest-darwin-<arch>.json
+#   2. the layout check               →  stops here if the package holds more than BaseHalf runs
+#   3. ditto-zip the bundle           →  ../basehalf-dist/BaseHalf-<version>-darwin-<arch>.zip
+#   4. sign-update.mjs                →  ../basehalf-dist/update-manifest-darwin-<arch>.json
+#   5. zip the source maps            →  ../basehalf-dist/BaseHalf-<version>-darwin-<arch>-sourcemaps.zip
+#      (kept to read a stack from a report; not a release asset)
 #
 # Upload the zip + manifest as release assets on the tag v<version>; the
 # manifest must keep its exact asset name so releases/latest/download/ serves it.
@@ -35,9 +38,6 @@ VERSION="$(node -p "require('./product.json').basehalfVersion")"
 # the build can't derive a commit — but the packaged product.json needs one
 # (the update service is disabled without it). Feed it explicitly.
 export BUILD_SOURCEVERSION="${BUILD_SOURCEVERSION:-$(git -C "$ROOT" rev-parse HEAD)}"
-# The bundled copilot extension's own build script requires this even though
-# BaseHalf excludes the extension from the final package.
-export VSCODE_QUALITY="${VSCODE_QUALITY:-stable}"
 APP_DIR="$(dirname "$ROOT")/VSCode-darwin-${ARCH}"
 APP="${APP_DIR}/BaseHalf.app"
 DIST="$(dirname "$ROOT")/basehalf-dist"
@@ -53,6 +53,9 @@ if [[ ! -d "$APP" ]]; then
 	exit 1
 fi
 
+echo "▸ checking what the package holds"
+node --experimental-strip-types scripts/basehalf-package-layout-check.mts --app "$APP"
+
 mkdir -p "$DIST"
 rm -f "$ZIP"
 echo "▸ zipping ${APP} → ${ZIP}"
@@ -60,6 +63,11 @@ echo "▸ zipping ${APP} → ${ZIP}"
 
 echo "▸ signing + writing manifest"
 node build/basehalf/sign-update.mjs "$ZIP" --version "$VERSION" --asset "darwin-${ARCH}" ${NOTES_ARGS[@]+"${NOTES_ARGS[@]}"}
+
+MAPS="${DIST}/BaseHalf-${VERSION}-darwin-${ARCH}-sourcemaps.zip"
+rm -f "$MAPS"
+echo "▸ keeping the source maps beside the archive"
+zip -q -r "$MAPS" out-vscode-min .build/extensions -i '*.map'
 
 DMG="${DIST}/BaseHalf-${VERSION}-darwin-${ARCH}.dmg"
 echo "▸ building installer dmg"

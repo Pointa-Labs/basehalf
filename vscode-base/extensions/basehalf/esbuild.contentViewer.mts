@@ -55,6 +55,17 @@ run({
 		path.join(import.meta.dirname, '..', '..', 'node_modules', '@embedpdf', 'fonts-sc', 'LICENSE'),
 		path.join(outputDirectory, 'NotoSansHans-LICENSE.txt')
 	);
+	// The packages of the PDF reader are taken into its bundle and do not ship by
+	// themselves (D122), so that their notices go beside it.
+	const modules = path.join(import.meta.dirname, '..', '..', 'node_modules');
+	const pdfNotices = await Promise.all([
+		['EmbedPDF', '@embedpdf/snippet/LICENSE'],
+		['PDFium, as EmbedPDF builds it', '@embedpdf/pdfium/LICENSE'],
+		['PDFium', '@embedpdf/pdfium/LICENSE.pdfium'],
+		['Preact', 'preact/LICENSE'],
+		['tailwind-merge', 'tailwind-merge/LICENSE.md'],
+	].map(async ([name, file]) => `${name}\n\n${(await fs.readFile(path.join(modules, ...file.split('/')), 'utf8')).trim()}\n`));
+	await fs.writeFile(path.join(outputDirectory, 'pdfViewerNotices.txt'), pdfNotices.join('\n---\n\n'));
 	// foliate-js and the zip.js and fflate it carries have no license comment
 	// for the bundle to keep: their notices go beside it.
 	await fs.copyFile(

@@ -17,8 +17,8 @@ import * as util2 from './util.ts';
 import fancyLog from 'fancy-log';
 import ansiColors from 'ansi-colors';
 import * as jsoncParser from 'jsonc-parser';
-import { getProductionDependencies } from './dependencies.ts';
 import { type IExtensionDefinition, getExtensionStream } from './builtInExtensions.ts';
+import { isBaseHalfPackagedExtension } from '../../src/vs/workbench/basehalf/shell/common/basehalfBuiltInExtensions.ts';
 import { fetchUrls, fetchGithub } from './fetch.ts';
 import { createTsgoStream, spawnTsgo } from './tsgo.ts';
 import watcher from './watch/index.ts';
@@ -418,6 +418,11 @@ function doPackageLocalExtensionsStream(forWeb: boolean, disableMangle: boolean,
 			})
 			.filter(({ name }) => native ? nativeExtensionsSet.has(name) : !nativeExtensionsSet.has(name))
 			.filter(({ name }) => excludedExtensions.indexOf(name) === -1)
+			// BaseHalf: only what BaseHalf runs is built and ships (D122).
+			.filter(({ manifestPath }) => {
+				const manifest = require(manifestPath);
+				return isBaseHalfPackagedExtension(manifest.publisher, manifest.name);
+			})
 			.filter(({ name }) => builtInExtensions.every(b => b.name !== name))
 			.filter(({ manifestPath }) => (forWeb ? isWebExtension(require(manifestPath)) : true))
 	);
@@ -431,56 +436,14 @@ function doPackageLocalExtensionsStream(forWeb: boolean, disableMangle: boolean,
 		)
 	);
 
-	let result: Stream;
-	if (forWeb) {
-		result = localExtensionsStream;
-	} else {
-		// also include shared production node modules
-		const productionDependencies = getProductionDependencies('extensions/');
-		const dependenciesSrc = productionDependencies.map(d => path.relative(root, d)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`]).flat();
-
-		if (dependenciesSrc.length) {
-			result = es.merge(
-				localExtensionsStream,
-				gulp.src(dependenciesSrc, { base: '.' })
-					.pipe(util2.cleanNodeModules(path.join(root, 'build', '.moduleignore')))
-					.pipe(util2.cleanNodeModules(path.join(root, 'build', `.moduleignore.${process.platform}`))));
-		} else {
-			result = localExtensionsStream;
-		}
-	}
+	// BaseHalf: no shared production node modules ship. The extensions that run have
+	// bundled what they need, and only language services read those (D122).
+	const result: Stream = localExtensionsStream;
 
 	return (
 		result
 			.pipe(util2.setExecutableBit(['**/*.sh']))
 	);
-}
-
-/**
- * Package the built-in copilot extension specifically.
- * This is used by non-CI local builds where copilot is not downloaded as a VSIX
- * but must be compiled from source and included in the build.
- */
-export function packageCopilotExtensionStream(disableMangle: boolean): Stream {
-	const extensionPath = path.join(root, 'extensions', 'copilot');
-	if (!fs.existsSync(extensionPath)) {
-		return es.readArray([]);
-	}
-
-	const localExtensionsStream = minifyExtensionResources(
-		fromLocal(extensionPath, false, disableMangle)
-			.pipe(rename(p => p.dirname = `extensions/copilot/${p.dirname}`))
-	);
-
-	const productionDependencies = getProductionDependencies('extensions/copilot');
-	const dependenciesSrc = productionDependencies.map(d => path.relative(root, d)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`]).flat();
-
-	return es.merge(
-		localExtensionsStream,
-		gulp.src(dependenciesSrc, { base: '.' })
-			.pipe(util2.cleanNodeModules(path.join(root, 'build', '.moduleignore')))
-			.pipe(util2.cleanNodeModules(path.join(root, 'build', `.moduleignore.${process.platform}`)))
-	).pipe(util2.setExecutableBit(['**/*.sh']));
 }
 
 export function packageMarketplaceExtensionsStream(forWeb: boolean): Stream {
@@ -634,12 +597,21 @@ const esbuildMediaScripts: { script: string; tsconfig: string }[] = [
 ];
 
 export function buildExtensionMedia(isWatch: boolean, outputRoot?: string): Promise<void> {
-	const esbuildTask = esbuildExtensions('esbuilding extension media', isWatch, esbuildMediaScripts.map(({ script }) => ({
+	// BaseHalf: a build for the package makes the media of what ships only (D122). The
+	// development host keeps all of them, in the folders of the extensions.
+	const mediaScripts = esbuildMediaScripts.filter(({ script }) => {
+		if (!outputRoot) {
+			return true;
+		}
+		const manifest = require(path.join(extensionsPath, path.dirname(script), 'package.json'));
+		return isBaseHalfPackagedExtension(manifest.publisher, manifest.name);
+	});
+	const esbuildTask = esbuildExtensions('esbuilding extension media', isWatch, mediaScripts.map(({ script }) => ({
 		script: path.join(extensionsPath, script),
 		outputRoot: outputRoot ? path.join(root, outputRoot, path.dirname(script)) : undefined
 	})));
 
-	const typeCheckTasks = esbuildMediaScripts.map(({ tsconfig }) => {
+	const typeCheckTasks = mediaScripts.map(({ tsconfig }) => {
 		const tsconfigPath = path.join(extensionsPath, tsconfig);
 		const config = { taskName: 'typechecking extension media (tsgo)', noEmit: true };
 		if (!isWatch) {

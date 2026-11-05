@@ -275,7 +275,7 @@ updated from upstream, these come back and go again:
 - **Delete** `extensions/copilot/`, and `src/vs/sessions/` but for `common/theme.ts` and
   `common/sizes.ts`, which `workbench.common.main.ts` imports. Delete
   `src/vs/workbench/test/browser/componentFixtures/sessions/`,
-  `build/vite/mobile-multi-diff*`, and `scripts/code-sessions-web.js`.
+  `build/vite/mobile-multi-diff*`, and `scripts/code-sessions-web.*`.
 - **`package.json`**: no script builds or watches `extensions/copilot`. The packages of
   the spec's rule 4 are in `devDependencies`.
 - **`build/lib/dependencies.ts`**: `npm ls --long`, and what it marks extraneous is dropped.
@@ -283,10 +283,13 @@ updated from upstream, these come back and go again:
   `extensions/node_modules` does not ship.
 - **`build/gulpfile.vscode.ts`**: source maps are stripped everywhere, nothing of Copilot's
   runtime or of the Agents window is listed, and `node-pty` keeps one prebuilt folder.
-- **`build/gulpfile.extensions.ts`, `build/buildfile.ts`, `build/next/index.ts`,
-  `build/gulpfile.vscode.web.ts`, `build/hygiene.ts`, `build/npm/dirs.ts`, `eslint.config.js`,
-  `.vscode-test.js`, `.vscode/launch.json`, `.vscode/tasks.json`,
-  `.eslint-allowed-javascript-files`, `.eslint-ignore`**: what named the two folders.
+- **`build/gulpfile.extensions.ts`, `build/gulpfile.reh.ts`, `build/gulpfile.hygiene.ts`,
+  `build/hygiene.ts`, `build/buildfile.ts`, `build/next/index.ts`, `build/lib/mangle/index.ts`,
+  `build/gulpfile.vscode.web.ts`, `build/npm/dirs.ts`, `eslint.config.js`, `.vscode-test.js`,
+  `.vscode/launch.json`, `.vscode/tasks.json`, `.eslint-allowed-javascript-files`, `.eslint-ignore`**:
+  what named the two folders.
+- **`src/vs/workbench/contrib/chat/electron-browser/agentSessions/media/openInAgents.css`**: no
+  picture from the Agents window's folder.
 - **`product.json`**: `builtInExtensions` is empty.
 - **`src/vs/platform/windows/electron-main/windowsMainService.ts`**: `openAgentsWindow` opens an
   ordinary window and `isSessionsWindow` is always false.
@@ -297,4 +300,5 @@ updated from upstream, these come back and go again:
 
 Left as they are, because nothing reads them while the folders are gone: mentions in `.github/`,
 `build/azure-pipelines/`, `build/filters.ts`, `build/darwin/`, `build/lib/copilot.ts`,
-`build/lib/i18n*`, the layer rules of `src/vs/sessions` in `eslint.config.js`, and comments.
+`build/lib/i18n*`, the layer rules of `src/vs/sessions` in `eslint.config.js`, the picture that
+`agentsVoiceWindowService.ts` asks for in a window BaseHalf never opens, and comments.

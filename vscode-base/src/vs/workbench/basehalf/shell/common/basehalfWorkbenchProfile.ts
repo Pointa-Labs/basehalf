@@ -12,6 +12,7 @@ import { Testing } from '../../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../../services/search/common/search.js';
+import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 
@@ -632,21 +633,10 @@ export interface IBaseHalfAllowedExtensionFamily {
 	readonly reason: string;
 }
 
-/**
- * VS Code's extensions that hold only a language and its grammar, with no code
- * to run (D118). Markdown's and the prompt language's are left out, so that a
- * note has no colors.
- */
-const BASEHALF_LANGUAGE_EXTENSION_IDS: readonly string[] = [
-	'bat', 'clojure', 'coffeescript', 'cpp', 'csharp', 'css', 'dart', 'diff', 'docker', 'dotenv', 'fsharp', 'go', 'groovy', 'handlebars', 'hlsl', 'html',
-	'ini', 'java', 'javascript', 'json', 'julia', 'latex', 'less', 'log', 'lua', 'make', 'objective-c', 'perl', 'php', 'powershell', 'pug', 'python',
-	'r', 'razor', 'restructuredtext', 'ruby', 'rust', 'scss', 'shaderlab', 'shellscript', 'sql', 'swift', 'typescript', 'vb', 'xml', 'yaml'
-].map(name => `vscode.${name}`);
-
 export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	{
 		family: 'theme',
-		builtInExtensionIds: ['vscode.theme-defaults'],
+		builtInExtensionIds: BASEHALF_THEME_EXTENSION_IDS,
 		externalExtensionIds: [],
 		externalSlotIds: [],
 		source: 'extensions/theme-defaults/package.json',
@@ -662,7 +652,7 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	},
 	{
 		family: 'git',
-		builtInExtensionIds: ['vscode.git', 'vscode.git-base'],
+		builtInExtensionIds: BASEHALF_GIT_EXTENSION_IDS,
 		externalExtensionIds: [],
 		externalSlotIds: [],
 		source: 'extensions/git/package.json; extensions/git-base/package.json',
@@ -670,7 +660,7 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	},
 	{
 		family: 'github',
-		builtInExtensionIds: ['vscode.github'],
+		builtInExtensionIds: BASEHALF_GITHUB_EXTENSION_IDS,
 		externalExtensionIds: [],
 		externalSlotIds: [],
 		source: 'extensions/github/package.json',
@@ -678,7 +668,7 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	},
 	{
 		family: 'github-authentication',
-		builtInExtensionIds: ['vscode.github-authentication'],
+		builtInExtensionIds: BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS,
 		externalExtensionIds: [],
 		externalSlotIds: [],
 		source: 'extensions/github-authentication/package.json',

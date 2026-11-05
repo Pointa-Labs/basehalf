@@ -283,12 +283,6 @@ task.task(compileNonNativeExtensionsBuildTask);
 export const compileNativeExtensionsBuildTask = task.define('compile-native-extensions-build', () => ext.packageNativeLocalExtensionsStream(false, false).pipe(gulp.dest('.build')));
 task.task(compileNativeExtensionsBuildTask);
 
-/**
- * Compiles the built-in copilot extension for the build.
- * Used by non-CI local builds where copilot is not downloaded as a VSIX.
- */
-export const compileCopilotExtensionBuildTask = task.define('compile-copilot-extension-build', () => ext.packageCopilotExtensionStream(false).pipe(gulp.dest('.build')));
-task.task(compileCopilotExtensionBuildTask);
 
 /**
  * Compiles the extensions for the build.

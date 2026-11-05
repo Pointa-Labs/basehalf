@@ -26,9 +26,9 @@ import { config } from './lib/electron.ts';
 import { createAsar } from './lib/asar.ts';
 import minimist from 'minimist';
 import { compileBuildWithoutManglingTask, compileBuildWithManglingTask } from './gulpfile.compile.ts';
-import { compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, compileAllExtensionsBuildTask, compileExtensionMediaBuildTask, cleanExtensionsBuildTask, compileCopilotExtensionBuildTask } from './gulpfile.extensions.ts';
+import { compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, compileAllExtensionsBuildTask, compileExtensionMediaBuildTask, cleanExtensionsBuildTask } from './gulpfile.extensions.ts';
 import { copyCodiconsTask } from './lib/compilation.ts';
-import { ensureCopilotPlatformPackage, getCopilotExcludeFilter, getCopilotRuntimePrebuildFiles, getCopilotTgrepExcludeFilter, getRipgrepExcludeFilter, prepareBuiltInCopilotRipgrepShim } from './lib/copilot.ts';
+import { getRipgrepExcludeFilter } from './lib/copilot.ts';
 import { readAgentSdkResults } from './agent-sdk/common.ts';
 import { useEsbuildTranspile } from './buildConfig.ts';
 import { promisify } from 'util';
@@ -65,7 +65,6 @@ const vscodeResourceIncludes = [
 
 	// Workbench
 	'out-build/vs/code/electron-browser/workbench/workbench.html',
-	'out-build/vs/sessions/electron-browser/sessions.html',
 
 	// Electron Preload
 	'out-build/vs/base/parts/sandbox/electron-browser/preload.js',
@@ -96,13 +95,6 @@ const vscodeResourceIncludes = [
 	// Welcome
 	'out-build/vs/workbench/contrib/welcomeGettingStarted/common/media/**/*.{svg,png}',
 	'out-build/vs/workbench/contrib/welcomeOnboarding/browser/media/*.svg',
-
-	// Sessions
-	'out-build/vs/sessions/contrib/chat/browser/media/*.svg',
-	'out-build/vs/sessions/contrib/welcome/browser/media/*.svg',
-	'out-build/vs/sessions/contrib/welcome/browser/media/themePreviews/*.svg',
-	'out-build/vs/sessions/prompts/*.prompt.md',
-	'out-build/vs/sessions/skills/**/SKILL.md',
 
 	// Extensions
 	'out-build/vs/workbench/contrib/extensions/browser/media/{theme-icon.png,language-icon.svg}',
@@ -156,7 +148,7 @@ const bundleVSCodeTask = task.define('bundle-vscode', task.series(
 					...bootstrapEntryPoints
 				],
 				resources: vscodeResources,
-				skipTSBoilerplateRemoval: entryPoint => entryPoint === 'vs/code/electron-browser/workbench/workbench' || entryPoint === 'vs/sessions/electron-browser/sessions'
+				skipTSBoilerplateRemoval: entryPoint => entryPoint === 'vs/code/electron-browser/workbench/workbench'
 			}
 		}
 	)
@@ -166,7 +158,8 @@ task.task(bundleVSCodeTask);
 const sourceMappingURLBase = `https://main.vscode-cdn.net/sourcemaps/${commit}`;
 const isCI = !!process.env['CI'] || !!process.env['BUILD_ARTIFACTSTAGINGDIRECTORY'] || !!process.env['GITHUB_WORKSPACE'];
 const useCdnSourceMapsForPackagingTasks = isCI;
-const stripSourceMapsInPackagingTasks = isCI;
+// BaseHalf: no source map ships, from any machine. The packaging script keeps them beside the archive (D122).
+const stripSourceMapsInPackagingTasks = true;
 
 const minifyVSCodeTask = task.define('minify-vscode', task.series(
 	bundleVSCodeTask,
@@ -276,18 +269,15 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			'vs/workbench/workbench.desktop.main.css',
 			'vs/workbench/api/node/extensionHostProcess.js',
 			'vs/code/electron-browser/workbench/workbench.html',
-			'vs/code/electron-browser/workbench/workbench.js',
-			'vs/sessions/sessions.desktop.main.js',
-			'vs/sessions/sessions.desktop.main.css',
-			'vs/sessions/electron-browser/sessions.html',
-			'vs/sessions/electron-browser/sessions.js'
+			'vs/code/electron-browser/workbench/workbench.js'
 		]);
 
 		const src = gulp.src(out + '/**', { base: '.' })
 			.pipe(rename(function (path) { path.dirname = path.dirname!.replace(new RegExp('^' + out), 'out'); }))
 			.pipe(util.setExecutableBit(['**/*.sh']));
 
-		const platformSpecificBuiltInExtensionsExclusions = product.builtInExtensions.filter(ext => {
+		// BaseHalf: product.json names none, which types the list as empty (D122).
+		const platformSpecificBuiltInExtensionsExclusions = (product.builtInExtensions as { name: string }[]).filter(ext => {
 			if (!(ext as { platforms?: string[] }).platforms) {
 				return false;
 			}
@@ -296,17 +286,10 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			return !set.has(platform);
 		}).map(ext => `!.build/extensions/${ext.name}/**`);
 
-		// BaseHalf: the bundled Copilot Chat extension is not part of the curated
-		// extension set (the Agent Area hosts Codex/Claude instead) and would add
-		// ~440MB to the package — keep it out of the shipped app.
-		const basehalfExcludedBuiltInExtensions = [
-			'!.build/extensions/copilot/**'
-		];
-
-		const extensions = gulp.src(['.build/extensions/**', ...basehalfExcludedBuiltInExtensions, ...platformSpecificBuiltInExtensionsExclusions], { base: '.build', dot: true });
+		const extensions = gulp.src(['.build/extensions/**', ...platformSpecificBuiltInExtensionsExclusions], { base: '.build', dot: true });
 
 		const sourceFilterPattern = stripSourceMapsInPackagingTasks
-			? ['**', '!**/*.{js,css}.map']
+			? ['**', '!**/*.map']
 			: ['**'];
 		const sources = es.merge(src, extensions)
 			.pipe(filter(sourceFilterPattern, { dot: true }));
@@ -367,19 +350,18 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 		const dependenciesSrc = productionDependencies.map(d => path.relative(root, d)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`]).flat().concat('!**/*.mk');
 
 		const depFilterPattern = ['**', `!**/${config.version}/**`, '!**/bin/darwin-arm64-87/**', '!**/package-lock.json', '!**/yarn.lock'];
+		// BaseHalf: the prebuilt programs of other systems and architectures do not ship (D122).
+		depFilterPattern.push(`!**/node-pty/prebuilds/!(${platform}-${arch})/**`);
 		if (stripSourceMapsInPackagingTasks) {
-			depFilterPattern.push('!**/*.{js,css}.map');
+			depFilterPattern.push('!**/*.map');
 		}
 
 		const cleanedDeps = gulp.src(dependenciesSrc, { base: '.', dot: true })
 			.pipe(filter(depFilterPattern))
 			.pipe(util.cleanNodeModules(path.join(import.meta.dirname, '.moduleignore')))
 			.pipe(util.cleanNodeModules(path.join(import.meta.dirname, `.moduleignore.${process.platform}`)));
-		ensureCopilotPlatformPackage(platform, arch);
-		const copilotRuntimePrebuilds = gulp.src(getCopilotRuntimePrebuildFiles(platform, arch), { base: '.', dot: true, allowEmpty: true });
-		const deps = es.merge(cleanedDeps, copilotRuntimePrebuilds)
-			.pipe(filter(getCopilotExcludeFilter(platform, arch)))
-			.pipe(filter(getCopilotTgrepExcludeFilter(platform, arch)))
+		// BaseHalf: the runtime of the agent host does not ship (D122).
+		const deps = cleanedDeps
 			.pipe(filter(getRipgrepExcludeFilter(platform, arch)))
 			.pipe(jsFilter)
 			.pipe(util.rewriteSourceMappingURL(sourceMappingURLBase))
@@ -641,28 +623,6 @@ function patchWin32DependenciesTask(destinationFolderName: string) {
 	};
 }
 
-function prepareCopilotRipgrepShimTask(platform: string, arch: string, destinationFolderName: string) {
-	const outputDir = path.join(path.dirname(root), destinationFolderName);
-
-	return async () => {
-		// On Windows with win32VersionedUpdate, app resources live under a
-		// commit-hash prefix: {output}/{commitHash}/resources/app/
-		const versionedResourcesFolder = util.getVersionedResourcesFolder(platform, commit!);
-		const appBase = platform === 'darwin'
-			? path.join(outputDir, `${product.nameLong}.app`, 'Contents', 'Resources', 'app')
-			: path.join(outputDir, versionedResourcesFolder, 'resources', 'app');
-		const appNodeModulesDir = path.join(appBase, 'node_modules');
-
-		const builtInCopilotExtensionDir = path.join(appBase, 'extensions', 'copilot');
-		if (!fs.existsSync(builtInCopilotExtensionDir)) {
-			// BaseHalf packages exclude the bundled Copilot extension (see
-			// basehalfExcludedBuiltInExtensions) — nothing to shim.
-			return;
-		}
-		prepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);
-	};
-}
-
 const buildRoot = path.dirname(root);
 
 const BUILD_TARGETS = [
@@ -687,8 +647,7 @@ BUILD_TARGETS.forEach(buildTarget => {
 		const packageTasks: task.Task[] = [
 			compileNativeExtensionsBuildTask,
 			util.rimraf(path.join(buildRoot, destinationFolderName)),
-			packageTask(platform, arch, sourceFolderName, destinationFolderName, opts),
-			prepareCopilotRipgrepShimTask(platform, arch, destinationFolderName)
+			packageTask(platform, arch, sourceFolderName, destinationFolderName, opts)
 		];
 
 		if (platform === 'win32') {
@@ -714,7 +673,6 @@ BUILD_TARGETS.forEach(buildTarget => {
 				copyCodiconsTask,
 				cleanExtensionsBuildTask,
 				compileNonNativeExtensionsBuildTask,
-				compileCopilotExtensionBuildTask,
 				compileExtensionMediaBuildTask,
 				writeISODate('out-build'),
 				esbuildBundleTask,
@@ -725,7 +683,6 @@ BUILD_TARGETS.forEach(buildTarget => {
 				minified ? compileBuildWithManglingTask : compileBuildWithoutManglingTask,
 				cleanExtensionsBuildTask,
 				compileNonNativeExtensionsBuildTask,
-				compileCopilotExtensionBuildTask,
 				compileExtensionMediaBuildTask,
 				minified ? minifyVSCodeTask : bundleVSCodeTask,
 				vscodeTaskCI

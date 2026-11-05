@@ -32,8 +32,19 @@ function getNpmProductionDependencies(folder: string): string[] {
 		raw = err.stdout;
 	}
 
+	// BaseHalf: `npm ls` also lists what only happens to lie in node_modules, and what that
+	// depends on, so that what ships would depend on the machine. Only what the lockfile has
+	// outside of its dev packages ships (D122).
+	const lockPath = path.join(folder, 'package-lock.json');
+	const lock: { [packagePath: string]: { dev?: boolean } } | undefined = fs.existsSync(lockPath) ? JSON.parse(fs.readFileSync(lockPath, 'utf8')).packages : undefined;
+	const realFolder = fs.realpathSync(folder);
+
 	return raw.split(/\r?\n/).filter(line => {
-		return !!line.trim() && path.relative(root, line) !== path.relative(root, folder);
+		if (!line.trim() || path.relative(root, line) === path.relative(root, folder)) {
+			return false;
+		}
+		const entry = lock?.[path.relative(realFolder, line).split(path.sep).join('/')];
+		return !lock || (!!entry && !entry.dev);
 	});
 }
 
