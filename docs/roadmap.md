@@ -320,12 +320,13 @@ Done means:
   infrastructure definitions are gone from the repository (D76). VS Code's
   own extension system stays as VS Code has it.
 
-Current status: the client and the repository are done. The services are
-retired by hand: the registry, the signing key, the storage, and the
-database are still online, the publishing portal and its API were still
-online when last checked, the release token is not revoked, and the
-published developer packages are not deprecated. Builds that are already
-distributed still show the Plugins library and reject the published catalog.
+Current status: the client and the repository are done. The services were
+retired by hand and deleted on 2026-11-05: the registry, the storage, the
+database, and the publishing portal and its API are gone, and the signing key
+is deleted on 2026-11-12. The release token is still in its environment, and
+the published developer packages are not deprecated. Builds that are already
+distributed still show the Plugins library and keep showing their catalog
+error until they are updated.
 
 ## Current Execution Order
 

@@ -157,30 +157,24 @@ workflows that published, promoted, withdrew, and rolled back plugins, the
 workflow that published the developer packages, and the infrastructure
 definitions of the registry. They are in git history.
 
-The services were taken offline on 2026-10-25, and nothing of them was
-deleted:
+The services were taken offline on 2026-10-25 and deleted on 2026-11-05,
+with the web app's server:
 
-- The publishing portal's host, `plugins.basehalf.com`, and the plugin API
-  on both hosts answer `410 Gone` at the edge of the web app's server, and
-  the portal's container is stopped. The server's Nginx configuration
-  differs from the web app's repository until that repository takes the
-  same change.
-- The registry's content delivery is disabled, so builds that are already
-  distributed find no catalog and keep showing their catalog error until
-  they are updated.
-- The catalog signing key is disabled.
+- The server, its database with the plugin schema, and the DNS records of
+  `plugins.basehalf.com` and `registry.basehalf.com` are gone.
+- The two storage buckets, the registry's content delivery and its
+  certificates, the publishing role, and the web app's role are gone.
+- The catalog signing key is disabled and is deleted on 2026-11-12.
+
+Builds that are already distributed find no catalog and keep showing their
+catalog error until they are updated.
 
 What is left is done by the owner:
 
-- Deleting the two storage buckets, the content delivery, the signing key,
-  the publishing role, the submission permission of the web app's role, the
-  plugin schema of the web app's database together with the web app's
-  plugin code, and the `plugins-production` and `npm-production`
-  environments with the release token.
+- Deleting the `plugins-production` and `npm-production` environments with
+  the release token, and the web app's plugin code.
 - Marking `@basehalf/plugin-cli` and `@basehalf/plugin-sdk` as deprecated,
   and removing their trusted publisher.
-- Removing the DNS records of `plugins.basehalf.com` and
-  `registry.basehalf.com`.
 
 ## Compatibility
 
