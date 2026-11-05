@@ -6123,6 +6123,19 @@ each of them.
 - A limit on the size of the archive below the 500 MiB that installed applications accept. A list of what must not
   ship says why something does not belong, and a limit would only say that something grew.
 
+**What the check showed.** The archive goes from 462 to 152 MiB, the disk image from 446 to 150 MiB, an installed application from
+1.3 GB to 408 MB, and its files from 16,886 to 2,737. A start takes the same time as before, about 1.1 s at a load of 8: what left was
+never loaded. An installed 0.6.1 updated itself to a copy of the package marked as newer, in all five cases of the update check. A PDF
+with Chinese text in a font it does not embed shows it on its card and in the reader. One click installs Claude Code's extension in 25 s and
+Codex's in 134 s at that load. The smoke passes all its 283 steps both on the source and against the package, without its 10 steps that
+overwrite the clipboard, which nothing here touches. There are 1,096 fewer unit tests than before, which is what left with
+`src/vs/sessions`, and the one that fails is the one that fails while the system's appearance is dark.
+
+Three checks did what no suite did. The layout check refused the first two builds, for maps of other suffixes and for media of extensions
+that do not ship. It refuses all nine packages that were broken on purpose. A real install in a package found the view at 120 px, the icon,
+and the status entry. A review by an agent that read only the code found, after every suite was green, the licenses of Yjs and lib0 that had
+left with their packages, and the delay of updates that naming the publishers as trusted took away.
+
 **Consequences.**
 - The list of built-in extensions moves to `basehalfBuiltInExtensions.ts`, which imports nothing, so that the build
   and the layout check read the same list as the allowlist. Admitting an extension ships it.

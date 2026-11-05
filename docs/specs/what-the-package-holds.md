@@ -51,7 +51,7 @@ Three more things came out of the same measurements:
 
 ## Goals
 
-- A download about 60% smaller, and an installed application about 60% smaller.
+- A download and an installed application about two thirds smaller.
 - A package that is the same whatever else is in `node_modules`.
 - A check that refuses a package holding what it should not, before it is signed.
 - The agent extensions install in a packaged BaseHalf.
