@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *
  *  Bundles yjs 13.6.30 and lib0 0.2.117 for the VS Code workbench ESM loader.
- *  Their MIT licenses are available in node_modules/yjs/LICENSE and node_modules/lib0/LICENSE.
+ *  Their MIT licenses ship in ThirdPartyNotices.txt, as the packages themselves do not.
  *--------------------------------------------------------------------------------------------*/
 
 // node_modules/lib0/map.js
