@@ -22,7 +22,17 @@ import { IMcpServerConfiguration } from '../../../../../../platform/mcp/common/m
 import { IChatService } from '../../../common/chatService/chatService.js';
 import { isUntitledChatSession } from '../../../common/model/chatUri.js';
 import { IAgentHostUntitledProvisionalSessionService } from './agentHostUntitledProvisionalSessionService.js';
-import { IAgentHostMcpServer } from '../../../../../../sessions/common/agentHostSessionsProvider.js';
+import type { McpServerStatus } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
+
+// BaseHalf: declared here, as the file of the Agents window that held it left the tree (D122).
+export interface IAgentHostMcpServer {
+	readonly id: string;
+	readonly name: string;
+	readonly enabled: boolean;
+	readonly status: McpServerStatus;
+	readonly logOutputChannelId?: string;
+	setEnabled(enabled: boolean): void;
+}
 
 export const IAgentHostCustomizationService = createDecorator<IAgentHostCustomizationService>('agentHostCustomizationService');
 

@@ -20,7 +20,7 @@
 	width: 16px;
 	height: 16px;
 	flex: 0 0 auto;
-	background-image: url('../../../../../../sessions/browser/media/sessions-icon.svg');
+	/* BaseHalf: its picture left with the Agents window (D122), and BaseHalf turns this widget off. */
 	background-repeat: no-repeat;
 	background-position: center center;
 	background-size: contain;
