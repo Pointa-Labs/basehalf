@@ -351,7 +351,9 @@ export class BaseHalfCanvasCardDetailHost {
 	}
 
 	reconcileCardProjectionRegistrations(): void {
-		if (this.view.disposed) {
+		// While the window shuts down, the contributions that registered the projections are disposed before the
+		// canvas, in the order they were made: a projection that goes then is no reason to open Card Detail anew.
+		if (this.view.disposed || this.view.lifecycleService.willShutdown) {
 			return;
 		}
 		const cardDetail = this.view.canvasNavigationService.state.cardDetail;

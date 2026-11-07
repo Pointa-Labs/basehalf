@@ -343,7 +343,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IBaseHalfCardDetailSurfaceRegistryService public readonly cardDetailSurfaceRegistryService: IBaseHalfCardDetailSurfaceRegistryService,
 		@IBaseHalfKeptVersionsService public readonly keptVersions: IBaseHalfKeptVersionsService,
 		@IUndoRedoService public readonly undoRedoService: IUndoRedoService,
-		@ILifecycleService lifecycleService: ILifecycleService,
+		@ILifecycleService public readonly lifecycleService: ILifecycleService,
 		@IBaseHalfMovedItemsService public readonly movedItemsService: IBaseHalfMovedItemsService,
 		@IBaseHalfAgentSelectionService public readonly agentSelectionService: IBaseHalfAgentSelectionService,
 		@IHoverService public readonly hoverService: IHoverService,
