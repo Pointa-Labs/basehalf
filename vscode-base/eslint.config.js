@@ -147,7 +147,6 @@ export default defineConfig(
 	{
 		files: [
 			'build/basehalf/**/*.{js,mjs,ts,mts}',
-			'build/lib/test/basehalf*.test.ts',
 			'extensions/basehalf/**/*.{js,mjs,ts,mts,tsx}',
 			'scripts/basehalf-*.{js,mjs,ts,mts}',
 			'scripts/basehalf-*/**/*.{js,mjs,ts,mts}',
