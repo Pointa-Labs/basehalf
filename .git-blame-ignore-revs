@@ -1,0 +1,12 @@
+# Commits that moved BaseHalf's code without changing what it does. `git blame` skips them
+# (this checkout's blame.ignoreRevsFile names this file; on GitHub, the blame view reads it).
+# A commit is listed only when it moved code as it was; its message says how that was checked.
+
+# D60: BaseHalf's workbench code in a folder per feature
+28bc88b1bdd8283cd902ef2ca979ed7aeb8959dd
+
+# D124: what every feature reads at the bottom, what moves every feature's records at the top
+e32fd50fa1a4a9c38dc0c77af9f8dbc47268f77d
+
+# D124: generation/ and canvasContrib/generationPanel/
+c151d84c588efc8558ee2136ddc09ff75975cb5b
