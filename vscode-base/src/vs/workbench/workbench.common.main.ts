@@ -481,7 +481,7 @@ import './contrib/opener/browser/opener.contribution.js';
 
 // BaseHalf product profile
 import './basehalf/shell/browser/basehalfConfiguration.contribution.js';
-import './basehalf/video/browser/basehalfVideoProviders.contribution.js';
+import './basehalf/generation/browser/basehalfVideoProviders.contribution.js';
 import './basehalf/sequence/browser/basehalfSequence.contribution.js';
 import './basehalf/changes/browser/basehalfChanges.contribution.js';
 import './basehalf/mediaEdit/browser/basehalfMediaEdit.contribution.js';
@@ -498,8 +498,8 @@ import './basehalf/markdown/browser/basehalfNoteFileRetention.contribution.js';
 import './basehalf/markdown/browser/basehalfNoteFileRoutes.contribution.js';
 import './basehalf/markdown/browser/basehalfNoteFileGit.contribution.js';
 import './basehalf/markdown/browser/basehalfNoteFileCopies.contribution.js';
-import './basehalf/video/browser/basehalfGenerationCardCopy.contribution.js';
-import './basehalf/video/browser/basehalfGenerationMentionFollower.contribution.js';
+import './basehalf/generation/browser/basehalfGenerationCardCopy.contribution.js';
+import './basehalf/generation/browser/basehalfGenerationMentionFollower.contribution.js';
 import './basehalf/references/browser/basehalfBadgeQuickAccess.contribution.js';
 import './basehalf/references/browser/basehalfReferences.contribution.js';
 import './basehalf/references/browser/basehalfReferenceMigration.contribution.js';
@@ -509,6 +509,6 @@ import './basehalf/agentArea/browser/basehalfAgentSkill.contribution.js';
 import './basehalf/agentArea/browser/basehalfAgentSelection.contribution.js';
 import './basehalf/agentArea/browser/basehalfAgentArea.contribution.js';
 import './basehalf/agentArea/browser/basehalfAgentAreaTerminal.contribution.js';
-import './basehalf/video/browser/basehalfNodeCommandBridge.contribution.js';
+import './basehalf/generation/browser/basehalfNodeCommandBridge.contribution.js';
 
 //#endregion

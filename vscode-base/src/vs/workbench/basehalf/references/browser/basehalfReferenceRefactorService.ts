@@ -21,7 +21,7 @@ import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvas
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
-import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
+import { baseHalfPathHoldsDraft } from '../../generation/common/basehalfGenerationDraft.js';
 import {
 	BaseHalfReferenceEditFailure,
 	BaseHalfReferenceEditRefusal,

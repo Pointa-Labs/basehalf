@@ -8,8 +8,8 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
 import { BaseHalfCanvasAnchor } from './basehalfCanvasModel.js';
 import { BASEHALF_PROJECT_PATH_MAX_LENGTH, baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
-import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, BaseHalfGenerationKind, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
-import { rebaseBaseHalfPromptMentions } from '../../video/common/basehalfGenerationMentions.js';
+import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, BaseHalfGenerationKind, baseHalfGenerationKindOfPath } from '../../generation/common/basehalfGenerationInfo.js';
+import { rebaseBaseHalfPromptMentions } from '../../generation/common/basehalfGenerationMentions.js';
 import {
 	isBaseHalfUpstreamMarkdownName,
 	planBaseHalfMarkdownUpstreamEdit,

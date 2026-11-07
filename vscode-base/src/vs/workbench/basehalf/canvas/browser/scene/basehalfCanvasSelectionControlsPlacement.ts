@@ -12,8 +12,8 @@ import {
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT
 } from '../../common/basehalfCanvasScene.js';
-import { BaseHalfVideoPanelSide, IBaseHalfVideoPanelLayout, resolveBaseHalfVideoPanelPlacement } from '../../../video/common/basehalfVideoNodePanelPlacement.js';
-import { BaseHalfGenerationToolbarAction } from '../../../video/common/basehalfVideoCardPresentation.js';
+import { BaseHalfVideoPanelSide, IBaseHalfVideoPanelLayout, resolveBaseHalfVideoPanelPlacement } from '../../../generation/common/basehalfVideoNodePanelPlacement.js';
+import { BaseHalfGenerationToolbarAction } from '../../../generation/common/basehalfVideoCardPresentation.js';
 
 const SELECTION_TOOLBAR_SCREEN_GAP = 10;
 const SELECTION_TOOLBAR_SCREEN_HEIGHT = 36;

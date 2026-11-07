@@ -35,9 +35,9 @@ import { workbenchInstantiationService } from '../../../../test/browser/workbenc
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../../upkeep/browser/basehalfMirrorCascade.contribution.js';
 import { IBaseHalfMovedItemsService } from '../../../upkeep/common/basehalfMovedItemsService.js';
-import { IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationTaskStore } from '../../../generation/common/basehalfVideoGeneration.js';
 import { BaseHalfDraftOperations } from '../../../upkeep/browser/basehalfDraftOperations.js';
-import { BaseHalfRecordingGenerationTaskStore } from '../../../video/test/browser/basehalfGenerationTaskStoreFake.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../generation/test/browser/basehalfGenerationTaskStoreFake.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceMigrationController } from '../../browser/basehalfReferenceMigration.contribution.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../../markdown/common/basehalfAdhdMirror.js';

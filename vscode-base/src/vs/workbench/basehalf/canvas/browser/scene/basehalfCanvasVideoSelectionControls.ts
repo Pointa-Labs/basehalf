@@ -17,11 +17,11 @@ import {
 	BaseHalfCanvasSceneVideoFrame,
 	BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT
 } from '../../common/basehalfCanvasScene.js';
-import { BaseHalfVideoPanelSide } from '../../../video/common/basehalfVideoNodePanelPlacement.js';
+import { BaseHalfVideoPanelSide } from '../../../generation/common/basehalfVideoNodePanelPlacement.js';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import { BaseHalfCanvasFlowNode, baseHalfCanvasClickedByPointer, IBaseHalfCanvasSceneEnvironment, isCanvasElement, numericStyle, screenSpaceCanvasStyle } from './basehalfCanvasSceneShared.js';
 import { baseHalfCanvasVideoToolbarWidth, NOTE_CONTROLS_SCREEN_MARGIN, resolveBaseHalfCanvasVideoPanelPlacement, resolveBaseHalfCanvasVideoSelectionPlacement } from './basehalfCanvasSelectionControlsPlacement.js';
-import { BaseHalfGenerationToolbarAction } from '../../../video/common/basehalfVideoCardPresentation.js';
+import { BaseHalfGenerationToolbarAction } from '../../../generation/common/basehalfVideoCardPresentation.js';
 
 const VIDEO_CAPTURE_FRAMES: readonly BaseHalfCanvasSceneVideoFrame[] = Object.freeze(['first', 'current', 'last']);
 /** The menu of frames: three items of 26 pixels, its padding, and its border. */

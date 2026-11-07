@@ -102,7 +102,7 @@ import './services/power/electron-browser/powerService.js';
 // the links of the agent skill (D83), to the one that clones the original
 // of an edited file (D84), and to the one that writes the clipboard in several
 // forms at once, with the window's clipboard of BaseHalf over it (D104).
-import './basehalf/video/electron-browser/basehalfModelCredentialStore.js';
+import './basehalf/generation/electron-browser/basehalfModelCredentialStore.js';
 import '../platform/basehalfProviders/electron-browser/basehalfProviderService.js';
 import '../platform/basehalfFiles/electron-browser/basehalfFileTimesService.js';
 import '../platform/basehalfFiles/electron-browser/basehalfFileLinksService.js';

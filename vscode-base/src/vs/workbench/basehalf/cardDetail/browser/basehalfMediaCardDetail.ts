@@ -42,7 +42,7 @@ import { baseHalfDocumentVersion } from '../../documents/common/basehalfDocument
 import { baseHalfBookReaderMessage, IBaseHalfBookViewState, normalizeBaseHalfBookReaderPreferences, normalizeBaseHalfBookViewState } from '../../documents/common/basehalfBookReaderProtocol.js';
 import { baseHalfBookReaderHtml, baseHalfBookReaderLabels } from '../../documents/browser/basehalfBookReaderPage.js';
 import { IBaseHalfDocumentCoverService } from '../../documents/browser/basehalfDocumentCovers.js';
-import { formatBaseHalfVideoElapsed } from '../../video/common/basehalfVideoCardPresentation.js';
+import { formatBaseHalfVideoElapsed } from '../../generation/common/basehalfVideoCardPresentation.js';
 import {
 	BASEHALF_AUDIO_DEFAULT_MODE_INPUTS,
 	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
@@ -55,10 +55,10 @@ import {
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoInputPlanItem,
 	planBaseHalfVideoInputs
-} from '../../video/common/basehalfVideoCatalog.js';
-import { baseHalfPromptAsText } from '../../video/common/basehalfGenerationMentions.js';
-import { baseHalfRecordedVoiceList, baseHalfVoiceLabel, IBaseHalfGenerationVoiceService } from '../../video/common/basehalfGenerationVoices.js';
-import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../video/common/basehalfVideoGeneration.js';
+} from '../../generation/common/basehalfVideoCatalog.js';
+import { baseHalfPromptAsText } from '../../generation/common/basehalfGenerationMentions.js';
+import { baseHalfRecordedVoiceList, baseHalfVoiceLabel, IBaseHalfGenerationVoiceService } from '../../generation/common/basehalfGenerationVoices.js';
+import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../generation/common/basehalfVideoGeneration.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');

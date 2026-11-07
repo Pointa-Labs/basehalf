@@ -8,8 +8,8 @@ import { safeIntl } from '../../../../../base/common/date.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { baseHalfGenerationProvenance } from '../../browser/basehalfMediaCardDetail.js';
-import { baseHalfGenerationMadeCopy, IBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
-import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../../../video/test/common/basehalfVideoCatalogFixture.js';
+import { baseHalfGenerationMadeCopy, IBaseHalfGenerationMade } from '../../../generation/common/basehalfGenerationInfo.js';
+import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../../../generation/test/common/basehalfVideoCatalogFixture.js';
 
 const startedAt = '2026-10-15T08:00:00.000Z';
 const finishedAt = '2026-10-15T08:02:31.000Z';

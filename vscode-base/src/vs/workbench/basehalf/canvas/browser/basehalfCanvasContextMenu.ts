@@ -42,10 +42,10 @@ import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfM
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
-import { baseHalfIsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
-import { BaseHalfGenerationKind, IBaseHalfGenerationInfo } from '../../video/common/basehalfGenerationInfo.js';
-import { baseHalfVideoInitialGeneration } from '../../video/common/basehalfVideoCatalog.js';
-import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../video/common/basehalfVideoGeneration.js';
+import { baseHalfIsDraft, baseHalfReadDraftFacts } from '../../generation/common/basehalfGenerationDraft.js';
+import { BaseHalfGenerationKind, IBaseHalfGenerationInfo } from '../../generation/common/basehalfGenerationInfo.js';
+import { baseHalfVideoInitialGeneration } from '../../generation/common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../generation/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { IBaseHalfKeptVersionsService } from '../../upkeep/browser/basehalfKeptVersions.js';

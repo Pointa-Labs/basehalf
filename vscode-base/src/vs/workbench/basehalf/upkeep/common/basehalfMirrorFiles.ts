@@ -7,7 +7,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { basename, dirname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileOperationError, FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
-import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, parseBaseHalfGenerationInfo, parseBaseHalfGenerationMade } from '../../video/common/basehalfGenerationInfo.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, parseBaseHalfGenerationInfo, parseBaseHalfGenerationMade } from '../../generation/common/basehalfGenerationInfo.js';
 import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';

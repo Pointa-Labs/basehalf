@@ -7,7 +7,7 @@ import { basename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileStat } from '../../../../platform/files/common/files.js';
 import { baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
-import type { BaseHalfGenerationKind } from '../../video/common/basehalfGenerationInfo.js';
+import type { BaseHalfGenerationKind } from '../../generation/common/basehalfGenerationInfo.js';
 import { isBaseHalfCanvasEntry } from '../../workspace/common/basehalfItems.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;

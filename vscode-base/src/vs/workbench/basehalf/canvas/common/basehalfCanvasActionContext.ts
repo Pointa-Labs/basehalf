@@ -9,7 +9,7 @@ import { RawContextKey } from '../../../../platform/contextkey/common/contextkey
 import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
+import { baseHalfPathHoldsDraft } from '../../generation/common/basehalfGenerationDraft.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
 
 /** Set in the menu of a card that is a draft, which has no file: what works on a file is not offered there. */

@@ -45,9 +45,9 @@ import { BaseHalfMirrorCascadeStageError, baseHalfUpdateCanvasViewportsForStruct
 import { BASEHALF_UPSTREAM_SIDECAR_FILE_NAME } from '../../references/common/basehalfReferenceStore.js';
 import { IBaseHalfStructuralMutationReservation, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
-import { IBaseHalfGenerationTaskStore } from '../../video/common/basehalfVideoGeneration.js';
-import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../video/common/basehalfGenerationInfo.js';
-import { baseHalfDraftAsidePath, baseHalfIsDraft, baseHalfReadDraftFacts, baseHalfWalkDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
+import { IBaseHalfGenerationTaskStore } from '../../generation/common/basehalfVideoGeneration.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../generation/common/basehalfGenerationInfo.js';
+import { baseHalfDraftAsidePath, baseHalfIsDraft, baseHalfReadDraftFacts, baseHalfWalkDraftInformation } from '../../generation/common/basehalfGenerationDraft.js';
 import { baseHalfDeleteMirrorFile, baseHalfPreserveUnreadableGenerationFile, baseHalfReadMirrorFile, baseHalfWriteMirrorFile } from '../common/basehalfMirrorFiles.js';
 // The draft operations that a draft at the new path of a moved item moves aside with.
 import './basehalfDraftOperations.js';

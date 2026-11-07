@@ -18,7 +18,7 @@ import { IWorkingCopyService } from '../../../services/workingCopy/common/workin
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfComposeOwedEntryMoves, IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove } from '../../upkeep/common/basehalfMovedItemsService.js';
-import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
+import { baseHalfPathHoldsDraft } from '../../generation/common/basehalfGenerationDraft.js';
 import { BaseHalfReferenceRefusalReason } from '../common/basehalfReferenceEdit.js';
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';

@@ -19,8 +19,8 @@ import { IFileQuery, ISearchService, QueryType } from '../../../services/search/
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfPlainFailureReason } from '../../workspace/common/basehalfPlainFailureReason.js';
-import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
-import { baseHalfIsDraft, baseHalfIsDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, baseHalfGenerationKindOfPath } from '../../generation/common/basehalfGenerationInfo.js';
+import { baseHalfIsDraft, baseHalfIsDraftInformation } from '../../generation/common/basehalfGenerationDraft.js';
 import {
 	baseHalfResolveFileRelativeUpstreamEntry,
 	baseHalfUpstreamIdentity,

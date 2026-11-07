@@ -49,10 +49,10 @@ import { BaseHalfCanvasTemplateRegistryService, IBaseHalfCanvasTemplateRegistryS
 import { IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../../../references/common/basehalfReferenceEdit.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
-import { BaseHalfGenerationCardStore } from '../../../video/browser/basehalfGenerationCardStore.js';
-import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
-import { IBaseHalfVideoGenerationChoice } from '../../../video/common/basehalfVideoCatalog.js';
-import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../../video/common/basehalfVideoGeneration.js';
+import { BaseHalfGenerationCardStore } from '../../../generation/browser/basehalfGenerationCardStore.js';
+import { BaseHalfGenerationKind } from '../../../generation/common/basehalfGenerationInfo.js';
+import { IBaseHalfVideoGenerationChoice } from '../../../generation/common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../../generation/common/basehalfVideoGeneration.js';
 
 suite('BaseHalf canvas context menu', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();

@@ -24,8 +24,8 @@ import { readBaseHalfFileRange } from '../../workspace/common/basehalfFileRange.
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfComputeFileFingerprint, baseHalfMovedItemPath, baseHalfRecognizeMovedItems, IBaseHalfFileFingerprint, IBaseHalfFollowedItem, IBaseHalfMovedItem } from './basehalfMovedItems.js';
 import { BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES, IBaseHalfReferenceIndexService } from '../../references/common/basehalfReferenceIndex.js';
-import { baseHalfIsDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
-import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../video/common/basehalfGenerationInfo.js';
+import { baseHalfIsDraftInformation } from '../../generation/common/basehalfGenerationDraft.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../generation/common/basehalfGenerationInfo.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 import { baseHalfIsCanvasEligiblePath } from '../../workspace/common/basehalfItems.js';
 

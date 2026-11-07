@@ -12,7 +12,7 @@ import { localize } from '../../../../../nls.js';
 import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
 import { findValidPasteFileTargetForResource, incrementFileName } from '../../../../contrib/files/browser/fileActions.js';
-import { baseHalfGenerationDraftNameRule, BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
+import { baseHalfGenerationDraftNameRule, BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../generation/common/basehalfGenerationInfo.js';
 import { IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { baseHalfCanvasKeptName } from '../../common/basehalfCanvasFolderDrop.js';
 import { IBaseHalfBadgeNode } from '../../../references/common/basehalfBadgeMirror.js';

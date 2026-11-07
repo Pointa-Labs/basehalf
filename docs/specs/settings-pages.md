@@ -165,7 +165,7 @@ Providers opens at a card type and a provider when they are given
   the settings list, at the opening, on the choice of its entry, and when
   Settings opens again on it. BaseHalf's lines there are marked
   `BaseHalf:`.
-- The pages: `video/browser/basehalfVideoProvidersPage.ts` and
+- The pages: `generation/browser/basehalfVideoProvidersPage.ts` and
   `shell/browser/basehalfAbout.ts`.
 
 ## Acceptance criteria

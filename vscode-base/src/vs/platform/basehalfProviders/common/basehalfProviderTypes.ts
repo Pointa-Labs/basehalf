@@ -7,7 +7,7 @@
  * The model catalog and the requests and answers of the provider service
  * (D59, D64, D75, providers and the model catalog): their one definition. The
  * window uses these types under its own names, which
- * `src/vs/workbench/basehalf/video/common/basehalfVideoCatalog.ts` gives them.
+ * `src/vs/workbench/basehalf/generation/common/basehalfVideoCatalog.ts` gives them.
  */
 
 import type { VSBuffer } from '../../../base/common/buffer.js';

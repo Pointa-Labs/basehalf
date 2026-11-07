@@ -19,11 +19,11 @@ import { TestContextService } from '../../../../test/common/workbenchTestService
 import { BaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
 import { BaseHalfBadgeMirrorService } from '../../../references/common/basehalfBadgeMirror.js';
 import { baseHalfNoMovedItems } from '../../../references/test/browser/basehalfReferenceTestFixtures.js';
-import { createBaseHalfGenerationTask, failBaseHalfGenerationCard, stopBaseHalfGenerationTask } from '../../../video/common/basehalfGenerationInfo.js';
+import { createBaseHalfGenerationTask, failBaseHalfGenerationCard, stopBaseHalfGenerationTask } from '../../../generation/common/basehalfGenerationInfo.js';
 import { BaseHalfDraftOperationError, BaseHalfDraftOperations } from '../../browser/basehalfDraftOperations.js';
 import { IBaseHalfMovedItemsService } from '../../common/basehalfMovedItemsService.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
-import { BaseHalfRecordingGenerationTaskStore } from '../../../video/test/browser/basehalfGenerationTaskStoreFake.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../generation/test/browser/basehalfGenerationTaskStoreFake.js';
 import { IBaseHalfDraftSnapshot } from '../../common/basehalfDraftOperations.js';
 
 const folder = URI.file('/work');

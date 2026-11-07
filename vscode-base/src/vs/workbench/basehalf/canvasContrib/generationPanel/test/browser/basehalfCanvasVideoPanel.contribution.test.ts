@@ -20,9 +20,9 @@ import { ILifecycleService, WillShutdownEvent } from '../../../../../services/li
 import { IBaseHalfCanvasGenerationCard, IBaseHalfCanvasItem } from '../../../../canvas/common/basehalfCanvasModel.js';
 import { baseHalfTestCanvasItem, createBaseHalfTestCanvasView, IBaseHalfTestCanvasView } from '../../../../canvas/test/browser/basehalfCanvasViewFixture.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfGenerationRecordPanelHost } from '../../../../video/browser/basehalfGenerationRecordPanel.js';
-import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../../video/browser/basehalfVideoNodePanel.js';
-import { BaseHalfGenerationKind } from '../../../../video/common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationRecordPanelHost } from '../../../../generation/browser/basehalfGenerationRecordPanel.js';
+import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../../generation/browser/basehalfVideoNodePanel.js';
+import { BaseHalfGenerationKind } from '../../../../generation/common/basehalfGenerationInfo.js';
 import { BASEHALF_CANVAS_PANEL_READ_WAIT, BaseHalfCanvasVideoPanel, IBaseHalfCanvasVideoPanelWidget } from '../../browser/basehalfCanvasVideoPanel.contribution.js';
 
 /** A panel that records what the canvas asks of it. */

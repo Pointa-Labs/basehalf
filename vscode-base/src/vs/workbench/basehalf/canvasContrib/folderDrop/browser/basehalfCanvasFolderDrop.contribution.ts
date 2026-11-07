@@ -19,9 +19,9 @@ import { IWorkingCopyFileService } from '../../../../services/workingCopy/common
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasFolderDrops, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { baseHalfCanvasFreeTransferTarget, baseHalfCanvasMoveTarget } from '../../../canvas/browser/view/basehalfCanvasViewShared.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../../canvas/common/basehalfCanvasEditing.js';
-import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
-import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
-import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { baseHalfPathHoldsDraft } from '../../../generation/common/basehalfGenerationDraft.js';
+import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../generation/common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore } from '../../../generation/common/basehalfVideoGeneration.js';
 import { IBaseHalfKeptVersionsService } from '../../../upkeep/browser/basehalfKeptVersions.js';
 
 interface IBaseHalfFolderDropTransfer {

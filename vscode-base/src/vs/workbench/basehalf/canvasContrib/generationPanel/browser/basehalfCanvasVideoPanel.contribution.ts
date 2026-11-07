@@ -22,12 +22,12 @@ import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '..
 import { baseHalfTransferFileNames } from '../../../clipboard/common/basehalfClipboard.js';
 import { BaseHalfTransferPart, baseHalfCreateTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../../markdown/common/basehalfMarkdownAttachment.js';
-import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
-import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
-import { BASEHALF_VIDEO_INPUT_EXTENSIONS, BaseHalfTakenInputKind } from '../../../video/common/basehalfVideoCatalog.js';
-import { createBaseHalfDraftPanel } from '../../../video/browser/basehalfDraftPanels.js';
-import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../../video/browser/basehalfGenerationRecordPanel.js';
-import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../video/browser/basehalfVideoNodePanel.js';
+import { baseHalfPathHoldsDraft } from '../../../generation/common/basehalfGenerationDraft.js';
+import { BaseHalfGenerationKind } from '../../../generation/common/basehalfGenerationInfo.js';
+import { BASEHALF_VIDEO_INPUT_EXTENSIONS, BaseHalfTakenInputKind } from '../../../generation/common/basehalfVideoCatalog.js';
+import { createBaseHalfDraftPanel } from '../../../generation/browser/basehalfDraftPanels.js';
+import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../../generation/browser/basehalfGenerationRecordPanel.js';
+import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../generation/browser/basehalfVideoNodePanel.js';
 
 /** What the canvas needs of the panel under a generation card. */
 export interface IBaseHalfCanvasVideoPanelWidget extends IDisposable {

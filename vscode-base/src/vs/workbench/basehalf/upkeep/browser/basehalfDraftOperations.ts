@@ -15,9 +15,9 @@ import { BaseHalfCanvasStateConflict, IBaseHalfCanvasMirrorService } from '../..
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfBadgeMirrorService } from '../../references/common/basehalfBadgeMirror.js';
-import { baseHalfIsDraft, baseHalfIsDraftInformation, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
-import { BASEHALF_GENERATION_INFO_FILE, baseHalfGenerationDraftNameRule, baseHalfGenerationKindOfPath, isBaseHalfGenerationTaskEnded } from '../../video/common/basehalfGenerationInfo.js';
-import { IBaseHalfGenerationTaskStore } from '../../video/common/basehalfVideoGeneration.js';
+import { baseHalfIsDraft, baseHalfIsDraftInformation, baseHalfReadDraftFacts } from '../../generation/common/basehalfGenerationDraft.js';
+import { BASEHALF_GENERATION_INFO_FILE, baseHalfGenerationDraftNameRule, baseHalfGenerationKindOfPath, isBaseHalfGenerationTaskEnded } from '../../generation/common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationTaskStore } from '../../generation/common/basehalfVideoGeneration.js';
 import { baseHalfRelocateBadgeText } from '../common/basehalfMirrorCascadeOperation.js';
 import { baseHalfDeleteMirrorFile, baseHalfReadMirrorFile, baseHalfWriteMirrorFile } from '../common/basehalfMirrorFiles.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot, baseHalfPruneEmptyMirrorDirectories } from '../../workspace/common/basehalfMirrorTree.js';

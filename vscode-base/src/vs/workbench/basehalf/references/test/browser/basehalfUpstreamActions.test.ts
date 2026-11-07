@@ -29,7 +29,7 @@ import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCan
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfReferenceEditOptions, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceUndoElementOptions } from '../../common/basehalfReferenceEdit.js';
 import { IBaseHalfIndexedDownstream, IBaseHalfReferenceIndexService, IBaseHalfUpstreamEntryView, IBaseHalfUpstreamView } from '../../common/basehalfReferenceIndex.js';
-import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../../generation/common/basehalfVideoGeneration.js';
 
 const workspace = URI.file('/work');
 

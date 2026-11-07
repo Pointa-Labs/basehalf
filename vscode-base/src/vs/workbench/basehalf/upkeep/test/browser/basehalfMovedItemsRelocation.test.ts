@@ -31,10 +31,10 @@ import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../../workspace/common/baseha
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
-import { createBaseHalfGenerationTask } from '../../../video/common/basehalfGenerationInfo.js';
-import { IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { createBaseHalfGenerationTask } from '../../../generation/common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationTaskStore } from '../../../generation/common/basehalfVideoGeneration.js';
 import { BaseHalfDraftOperations } from '../../browser/basehalfDraftOperations.js';
-import { BaseHalfRecordingGenerationTaskStore } from '../../../video/test/browser/basehalfGenerationTaskStoreFake.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../generation/test/browser/basehalfGenerationTaskStoreFake.js';
 import { BaseHalfMovedItemsService, IBaseHalfMovedItemsService, IBaseHalfMovedItemsTiming } from '../../common/basehalfMovedItemsService.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { IBaseHalfDraftOperations } from '../../common/basehalfDraftOperations.js';

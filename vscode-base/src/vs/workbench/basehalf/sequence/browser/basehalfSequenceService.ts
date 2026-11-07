@@ -25,8 +25,8 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IFileQuery, ISearchService, QueryType } from '../../../services/search/common/search.js';
 import { IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfProjectFileTransitionService } from '../../upkeep/common/basehalfProjectFileTransitions.js';
-import { inspectBaseHalfGenerationCard, isBaseHalfOrdinaryFileInside } from '../../video/common/basehalfGenerationCardInspection.js';
-import { IBaseHalfGenerationCardStore } from '../../video/common/basehalfVideoGeneration.js';
+import { inspectBaseHalfGenerationCard, isBaseHalfOrdinaryFileInside } from '../../generation/common/basehalfGenerationCardInspection.js';
+import { IBaseHalfGenerationCardStore } from '../../generation/common/basehalfVideoGeneration.js';
 import {
 	addBaseHalfSequenceItem,
 	BASEHALF_SEQUENCE_FILE_NAME,

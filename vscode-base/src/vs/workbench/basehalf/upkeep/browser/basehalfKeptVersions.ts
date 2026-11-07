@@ -27,7 +27,7 @@ import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../canvas/common/ba
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_UPSTREAM_SIDECAR_FILE_NAME } from '../../references/common/basehalfReferenceStore.js';
 import { BASEHALF_EDIT_RECORD_FILE, baseHalfIsEditOriginalName } from '../../mediaEdit/common/basehalfEditRecord.js';
-import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../video/common/basehalfGenerationInfo.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../generation/common/basehalfGenerationInfo.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfMovedItemsService } from '../common/basehalfMovedItemsService.js';

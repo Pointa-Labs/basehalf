@@ -15,8 +15,8 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { INativeHostService } from '../../../../platform/native/common/native.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
-import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
-import { baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
+import { baseHalfPathHoldsDraft } from '../../generation/common/basehalfGenerationDraft.js';
+import { baseHalfGenerationKindOfPath } from '../../generation/common/basehalfGenerationInfo.js';
 import { BASEHALF_CLIPBOARD_WEB_CUSTOM_DATA_TYPE, BaseHalfTransfer, IBaseHalfClipboardService, IBaseHalfTransferItem, baseHalfClipboardRecord, parseBaseHalfClipboardFileNames, parseBaseHalfClipboardRecord, parseBaseHalfClipboardWebCustomData } from '../common/basehalfClipboard.js';
 
 /** The list of the files that the clipboard holds as files, in the form the system gives for all of them at once. */

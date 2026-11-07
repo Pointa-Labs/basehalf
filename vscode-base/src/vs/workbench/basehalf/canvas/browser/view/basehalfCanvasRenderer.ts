@@ -32,8 +32,8 @@ import { baseHalfMirrorRoot } from '../../../workspace/common/basehalfMirrorTree
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX } from '../../../shell/common/basehalfConfiguration.js';
 import { baseHalfUserFacingErrorMessage } from '../../../workspace/common/basehalfPlainFailureReason.js';
-import { IBaseHalfGenerationCardEntry } from '../../../video/common/basehalfVideoGeneration.js';
-import { baseHalfVideoChoiceRatio, IBaseHalfVideoCatalog } from '../../../video/common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationCardEntry } from '../../../generation/common/basehalfVideoGeneration.js';
+import { baseHalfVideoChoiceRatio, IBaseHalfVideoCatalog } from '../../../generation/common/basehalfVideoCatalog.js';
 import { IBaseHalfCanvasPicture } from '../basehalfCanvasPictureShapes.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneEdge } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';

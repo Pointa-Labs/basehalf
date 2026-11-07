@@ -45,10 +45,10 @@ import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../..
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
-import { IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
-import { serializeBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationTaskStore } from '../../../generation/common/basehalfVideoGeneration.js';
+import { serializeBaseHalfGenerationMade } from '../../../generation/common/basehalfGenerationInfo.js';
 import { BaseHalfDraftOperations } from '../../../upkeep/browser/basehalfDraftOperations.js';
-import { BaseHalfRecordingGenerationTaskStore } from '../../../video/test/browser/basehalfGenerationTaskStoreFake.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../generation/test/browser/basehalfGenerationTaskStoreFake.js';
 import { IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../common/basehalfReferenceIndex.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';

@@ -22,11 +22,11 @@ import { IStorageService } from '../../../../../platform/storage/common/storage.
 import { IWebviewService } from '../../../../contrib/webview/browser/webview.js';
 import { BaseHalfMediaCardDetail } from '../../browser/basehalfMediaCardDetail.js';
 import { IBaseHalfDocumentCoverService } from '../../../documents/browser/basehalfDocumentCovers.js';
-import { IBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
-import { IBaseHalfGenerationVoiceService, IBaseHalfVoices } from '../../../video/common/basehalfGenerationVoices.js';
-import { IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from '../../../video/common/basehalfVideoCatalog.js';
-import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../../video/common/basehalfVideoGeneration.js';
-import { TEST_AUDIO_CATALOG } from '../../../video/test/common/basehalfVideoCatalogFixture.js';
+import { IBaseHalfGenerationMade } from '../../../generation/common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationVoiceService, IBaseHalfVoices } from '../../../generation/common/basehalfGenerationVoices.js';
+import { IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from '../../../generation/common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../../generation/common/basehalfVideoGeneration.js';
+import { TEST_AUDIO_CATALOG } from '../../../generation/test/common/basehalfVideoCatalogFixture.js';
 
 const WORKSPACE = URI.file('/workspace');
 const SOUND = URI.joinPath(WORKSPACE, 'shots', 'speech.mp3');

@@ -7,7 +7,7 @@ import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind
 import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
 import type { BaseHalfCanvasDropFolder } from './basehalfCanvasFolderDrop.js';
 import type { BaseHalfMarkdownFormatCommand, IBaseHalfMarkdownFormatState } from '../../markdown/common/basehalfMarkdownFormatting.js';
-import type { BaseHalfGenerationToolbarAction } from '../../video/common/basehalfVideoCardPresentation.js';
+import type { BaseHalfGenerationToolbarAction } from '../../generation/common/basehalfVideoCardPresentation.js';
 
 export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
 export const BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT = 'basehalf-note-format-state';

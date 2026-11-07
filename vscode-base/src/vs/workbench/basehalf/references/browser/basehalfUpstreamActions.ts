@@ -47,7 +47,7 @@ import {
 	IBaseHalfUpstreamIssue,
 	IBaseHalfUpstreamView
 } from '../common/basehalfReferenceIndex.js';
-import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../generation/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
 import { baseHalfItemDisplayName, BASEHALF_CANVAS_SKIP_NAMES, isBaseHalfCanvasPathEligible } from '../../workspace/common/basehalfItems.js';
 

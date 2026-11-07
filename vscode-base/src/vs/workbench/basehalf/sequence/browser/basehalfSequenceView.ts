@@ -20,7 +20,7 @@ import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../.
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { IBaseHalfCardDetailSurfaceInstance } from '../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfGenerationCardStore } from '../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationCardStore } from '../../generation/common/basehalfVideoGeneration.js';
 import { BASEHALF_SEQUENCE_MAX_ITEMS, BASEHALF_SEQUENCE_PROJECTION_ID, IBaseHalfSequenceItemInspection, resolveBaseHalfSequenceVideo } from '../common/basehalfSequence.js';
 import {
 	BaseHalfSequenceArtifactPaths,

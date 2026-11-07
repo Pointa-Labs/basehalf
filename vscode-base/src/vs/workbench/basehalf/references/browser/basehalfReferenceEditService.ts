@@ -34,8 +34,8 @@ import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorF
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, BaseHalfMirrorSymbolicLinkError } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfPlainFailureReason, baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
-import { baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
-import { baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
+import { baseHalfGenerationKindOfPath } from '../../generation/common/basehalfGenerationInfo.js';
+import { baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../../generation/common/basehalfGenerationDraft.js';
 import {
 	BASEHALF_REFERENCE_FLUSH_TIMEOUT_MS,
 	BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY,

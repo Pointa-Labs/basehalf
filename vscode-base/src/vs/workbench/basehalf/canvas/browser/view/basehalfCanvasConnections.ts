@@ -19,8 +19,8 @@ import {
 	IBaseHalfCanvasItem,
 	IBaseHalfCanvasItemRelationships
 } from '../../common/basehalfCanvasModel.js';
-import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
-import { baseHalfGenerationGeneratingInputsRefusal, baseHalfGenerationMadeInputsRefusal, IBaseHalfGenerationInputChange } from '../../../video/common/basehalfVideoGeneration.js';
+import { BaseHalfGenerationKind } from '../../../generation/common/basehalfGenerationInfo.js';
+import { baseHalfGenerationGeneratingInputsRefusal, baseHalfGenerationMadeInputsRefusal, IBaseHalfGenerationInputChange } from '../../../generation/common/basehalfVideoGeneration.js';
 import { baseHalfCanvasResolveSiblingUpstream } from '../../../references/common/basehalfCanvasUpstream.js';
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceStoreEdit } from '../../../references/common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexState, IBaseHalfUpstreamView } from '../../../references/common/basehalfReferenceIndex.js';

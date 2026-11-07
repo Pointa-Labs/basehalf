@@ -42,8 +42,8 @@ import {
 import { BaseHalfTransfer } from '../../../clipboard/common/basehalfClipboard.js';
 import { baseHalfDragHoldsFilesItems, baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../../clipboard/browser/basehalfTransfer.js';
 import { BaseHalfCopiedNoteText, BaseHalfTransferContent, baseHalfWriteTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
-import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
-import { BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
+import { baseHalfPathHoldsDraft } from '../../../generation/common/basehalfGenerationDraft.js';
+import { BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../generation/common/basehalfGenerationInfo.js';
 import { planBaseHalfMarkdownUpstreamEdit } from '../../../references/common/basehalfReferenceStore.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, isBaseHalfCanvasDraftCreateKind } from '../../common/basehalfCanvasEditing.js';
