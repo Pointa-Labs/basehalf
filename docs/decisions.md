@@ -6198,3 +6198,25 @@ hosts the editors of notes, media, and PDFs, and one order would have split near
 - A new folder gets a place in the order of each layer. When a module needs a folder above its own, what they share moves down,
   or behind a service interface in `common/`, rather than the order bending.
 - Tests are not bound by the order: they compose the services of several folders, and nothing imports them.
+
+## D125 — VS Code's entry files reach BaseHalf through one file of BaseHalf's each (NEW, 2026-11-08)
+
+**Decision.** `workbench.common.main.ts` imports `basehalf/basehalf.common.main.ts`, which loads every service and
+contribution of BaseHalf's that a window has, in the order they start. `workbench.desktop.main.ts` imports
+`basehalf/basehalf.desktop.main.ts`. The shared process calls `registerBaseHalfSharedProcessServices` and
+`registerBaseHalfSharedProcessChannels` of `sharedProcess/contrib/basehalfSharedProcess.ts`. A new service or contribution of
+BaseHalf's goes into these files, and lint allows VS Code's entry files no other import of BaseHalf's apart from the
+allowlist of extensions (D22). See [code organization](harness/code-organization.md#changes-to-vs-codes-own-files).
+
+**Why.** These three files are the ones every update of VS Code changes, and every feature of BaseHalf's had added its lines
+to them: against VS Code's import commit they differed in 93 lines: 35 imports among VS Code's in three places of the
+workbench's file, 7 in the desktop window's, and 38 lines in the shared process's for five services and their channels. VS Code reaches
+its own large parts the same way, as `terminal.all.ts` and `editor.all.ts` do. The files now differ in 25 lines, most of
+them `// BaseHalf:` marks, and one place lists everything BaseHalf adds to a window.
+
+**Consequences.**
+- The contributions start in the order they did: `basehalf.common.main.ts` keeps the order the workbench's file had. The four
+  service modules that the workbench's file imported among VS Code's services load with the contributions now; they only
+  register delayed singletons, so when they load changes nothing.
+- The allowlist of extensions still takes the place of VS Code's service in the workbench's file and the shared process's,
+  marked there, since a replacement of a service is a change to that file.

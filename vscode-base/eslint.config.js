@@ -1854,6 +1854,24 @@ export default defineConfig(
 					]
 				},
 				{
+					// BaseHalf: the file that loads BaseHalf's services and contributions into every window (D124)
+					'target': 'src/vs/workbench/basehalf/basehalf.common.main.ts',
+					'layer': 'browser',
+					'restrictions': [
+						'vs/workbench/basehalf/*/~',
+						'vs/workbench/basehalf/canvas/basehalfCanvas.all.js'
+					]
+				},
+				{
+					// BaseHalf: the file that loads what a desktop window of BaseHalf's adds (D124)
+					'target': 'src/vs/workbench/basehalf/basehalf.desktop.main.ts',
+					'layer': 'electron-browser',
+					'restrictions': [
+						'vs/platform/*/~',
+						'vs/workbench/basehalf/*/~'
+					]
+				},
+				{
 					// BaseHalf: the one file that loads the canvas core and every canvas feature
 					'target': 'src/vs/workbench/basehalf/canvas/basehalfCanvas.all.ts',
 					'layer': 'browser',
@@ -2068,8 +2086,9 @@ export default defineConfig(
 						'vs/workbench/api/~',
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
-						'vs/workbench/basehalf/*/~',
-						'vs/workbench/basehalf/canvas/basehalfCanvas.all.js',
+						// BaseHalf: one file of BaseHalf's loads its services and contributions (D124)
+						'vs/workbench/basehalf/basehalf.common.main.js',
+						'vs/workbench/basehalf/shell/common/basehalfAllowedExtensionsService.js',
 						'vs/workbench/contrib/terminal/terminal.all.js',
 						'vs/sessions/common/theme.js', // side-effect import for color registry
 						'vs/sessions/common/sizes.js' // side-effect import for size registry
@@ -2123,7 +2142,8 @@ export default defineConfig(
 						'vs/workbench/api/~',
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
-						'vs/workbench/workbench.common.main.js'
+						'vs/workbench/workbench.common.main.js',
+						'vs/workbench/basehalf/basehalf.desktop.main.js' // BaseHalf (D124)
 					]
 				},
 				{

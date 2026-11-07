@@ -200,9 +200,21 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 - Use VS Code's own extension points before changing one of its files:
   services and their registration, registries, menus and context keys, the
   editor resolver, and contribution points.
-- VS Code's files import only BaseHalf's `common/` modules, apart from the
-  workbench entry files that load BaseHalf's contributions. Lint reports each
-  such import: it is a place where BaseHalf hooks into VS Code.
+- VS Code's entry files reach BaseHalf through one file of BaseHalf's each,
+  as VS Code's own entry files reach the terminal through `terminal.all.ts`.
+  `workbench.common.main.ts` imports `basehalf/basehalf.common.main.ts`, which
+  loads every service and contribution of BaseHalf's that a window has, in the
+  order they start; `workbench.desktop.main.ts` imports
+  `basehalf/basehalf.desktop.main.ts`, with what only a desktop window has;
+  and the shared process's `sharedProcessMain.ts` calls the two functions of
+  `code/electron-utility/sharedProcess/contrib/basehalfSharedProcess.ts`,
+  which add BaseHalf's services there and the channels by which a window
+  reaches them. A new service or contribution of BaseHalf's goes into these
+  files, never into VS Code's. Lint allows VS Code's entry files no other
+  import of BaseHalf's, apart from the allowlist of extensions that takes the
+  place of VS Code's service (D22).
+- VS Code's other files import only BaseHalf's `common/` modules. Lint reports
+  each such import: it is a place where BaseHalf hooks into VS Code.
 - Mark each change in a VS Code file with a `// BaseHalf:` comment that says
   why, so that a VS Code update can find it.
 - Record each VS Code file ported from a newer release in
@@ -243,6 +255,9 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   item glyph, and the sideways scrollbar went from `shell/` to `ui/`; and
   what moves the records of every feature went from `workspace/` to
   `upkeep/`. `video/` is `generation/`, as it holds images and sounds too.
+- 2026-11-08: VS Code's three entry files reach BaseHalf through one file of
+  BaseHalf's each (D125). Against VS Code's import commit, they differed in
+  93 lines and now in 25, most of them `// BaseHalf:` marks.
 - Next: parts that are features of their own move on into `canvasContrib/`,
   in the order of how often their code changed: the generation cards and
   their actions, connections, creating cards, the badge editor, Card Detail,

@@ -37,11 +37,13 @@ path. Their history remains available for archaeology.
   editor and terminal are. New canvas behavior is a canvas feature in
   `canvasContrib/<feature>/`, not more code in the canvas view, and the core
   never imports a feature.
-- VS Code's own files import only BaseHalf's `common/` modules, apart from the
-  workbench entry files, and every change in a VS Code file is marked with a
-  `// BaseHalf:` comment.
+- VS Code's entry files reach BaseHalf through one file of BaseHalf's each
+  (`basehalf.common.main.ts`, `basehalf.desktop.main.ts`, and the shared
+  process's `basehalfSharedProcess.ts`); VS Code's other files import only
+  BaseHalf's `common/` modules, and every change in a VS Code file is marked
+  with a `// BaseHalf:` comment.
 
-See [code organization](code-organization.md) and public decisions D60 and D124.
+See [code organization](code-organization.md) and public decisions D60, D124, and D125.
 
 ## Product shell
 

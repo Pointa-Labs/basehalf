@@ -126,6 +126,7 @@ import { getDesktopEnvironment } from '../../../base/common/desktopEnvironmentIn
 import { getCodeDisplayProtocol, getDisplayProtocol } from '../../../base/node/osDisplayProtocolInfo.js';
 import { RequestService } from '../../../platform/request/electron-utility/requestService.js';
 import { DefaultExtensionsInitializer } from './contrib/defaultExtensionsInitializer.js';
+// BaseHalf: the curated extension allowlist, in place of VS Code's service (D22).
 import { BaseHalfServerAllowedExtensionsService } from '../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { IExtensionGalleryManifestService } from '../../../platform/extensionManagement/common/extensionGalleryManifest.js';
 import { ExtensionGalleryManifestIPCService } from '../../../platform/extensionManagement/common/extensionGalleryManifestServiceIpc.js';
@@ -145,22 +146,8 @@ import { PlaywrightChannel } from '../../../platform/browserView/node/playwright
 import { AgentNetworkFilterService } from '../../../platform/networkFilter/common/networkFilterService.js';
 import { ILocalGitService } from '../../../platform/git/common/localGitService.js';
 import { LocalGitService } from '../../../platform/git/node/localGitService.js';
-// BaseHalf: the provider service of generation cards runs here, for every window (D75).
-import { BaseHalfProviderChannel } from '../../../platform/basehalfProviders/common/basehalfProviderChannel.js';
-import { BASEHALF_PROVIDERS_CHANNEL, IBaseHalfProviderService } from '../../../platform/basehalfProviders/common/basehalfProviders.js';
-import { BaseHalfProviderService } from '../../../platform/basehalfProviders/electron-utility/basehalfProviderService.js';
-// BaseHalf: the times of files, which a step of undo sets and a window cannot (exact undo, D82).
-import { BASEHALF_FILE_TIMES_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileTimes.js';
-import { BaseHalfFileTimesService } from '../../../platform/basehalfFiles/node/basehalfFileTimesService.js';
-// BaseHalf: the links that install the agent skill, which a window cannot make (D83).
-import { BASEHALF_FILE_LINKS_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileLinks.js';
-import { BaseHalfFileLinksService } from '../../../platform/basehalfFiles/node/basehalfFileLinksService.js';
-// BaseHalf: the clones of files, which keep the original of an edited file and a window cannot make (D84).
-import { BASEHALF_FILE_CLONES_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileClones.js';
-import { BaseHalfFileClonesService } from '../../../platform/basehalfFiles/node/basehalfFileClonesService.js';
-// BaseHalf: the write of the clipboard in several forms at once, which a window cannot make (D104).
-import { BASEHALF_PASTEBOARD_CHANNEL } from '../../../platform/basehalfClipboard/common/basehalfPasteboard.js';
-import { BaseHalfPasteboardService } from '../../../platform/basehalfClipboard/node/basehalfPasteboardService.js';
+// BaseHalf: BaseHalf's services in the shared process, which every window reaches (docs/harness/code-organization.md).
+import { registerBaseHalfSharedProcessChannels, registerBaseHalfSharedProcessServices } from './contrib/basehalfSharedProcess.js';
 
 class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
@@ -376,7 +363,7 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		services.set(IExtensionsProfileScannerService, new SyncDescriptor(ExtensionsProfileScannerService, undefined, true));
 		services.set(IExtensionsScannerService, new SyncDescriptor(ExtensionsScannerService, undefined, true));
 		services.set(IExtensionSignatureVerificationService, new SyncDescriptor(ExtensionSignatureVerificationService, undefined, true));
-		services.set(IAllowedExtensionsService, new SyncDescriptor(BaseHalfServerAllowedExtensionsService, undefined, true));
+		services.set(IAllowedExtensionsService, new SyncDescriptor(BaseHalfServerAllowedExtensionsService, undefined, true)); // BaseHalf: in place of AllowedExtensionsService
 		services.set(INativeServerExtensionManagementService, new SyncDescriptor(ExtensionManagementService, undefined, true));
 
 		// MCP Management
@@ -434,8 +421,8 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		// Local Git
 		services.set(ILocalGitService, new SyncDescriptor(LocalGitService, undefined, false /* proxied to other processes */));
 
-		// BaseHalf: the provider service of generation cards (D75)
-		services.set(IBaseHalfProviderService, new SyncDescriptor(BaseHalfProviderService, undefined, true));
+		// BaseHalf: BaseHalf's services
+		registerBaseHalfSharedProcessServices(services);
 
 		// SSH Remote Agent Host
 		services.set(ISSHRemoteAgentHostMainService, new SyncDescriptor(SSHRemoteAgentHostMainService, undefined, true));
@@ -525,20 +512,8 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		const localGitChannel = ProxyChannel.fromService(accessor.get(ILocalGitService), this._store);
 		this.server.registerChannel('localGit', localGitChannel);
 
-		// BaseHalf: the provider service of generation cards (D75)
-		this.server.registerChannel(BASEHALF_PROVIDERS_CHANNEL, new BaseHalfProviderChannel(accessor.get(IBaseHalfProviderService)));
-
-		// BaseHalf: the times of files that a step of undo sets (D82)
-		this.server.registerChannel(BASEHALF_FILE_TIMES_CHANNEL, ProxyChannel.fromService(new BaseHalfFileTimesService(), this._store));
-
-		// BaseHalf: the links that install the agent skill (D83)
-		this.server.registerChannel(BASEHALF_FILE_LINKS_CHANNEL, ProxyChannel.fromService(new BaseHalfFileLinksService(), this._store));
-
-		// BaseHalf: the clones of files that keep the original of an edited file (D84)
-		this.server.registerChannel(BASEHALF_FILE_CLONES_CHANNEL, ProxyChannel.fromService(new BaseHalfFileClonesService(), this._store));
-
-		// BaseHalf: the write of the clipboard in several forms at once (D104)
-		this.server.registerChannel(BASEHALF_PASTEBOARD_CHANNEL, ProxyChannel.fromService(new BaseHalfPasteboardService(), this._store));
+		// BaseHalf: the channels to BaseHalf's services
+		registerBaseHalfSharedProcessChannels(this.server, accessor, this._store);
 
 		// SSH Remote Agent Host
 		const sshRemoteAgentHostChannel = ProxyChannel.fromService(accessor.get(ISSHRemoteAgentHostMainService), this._store);

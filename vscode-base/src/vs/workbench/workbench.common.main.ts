@@ -146,10 +146,6 @@ import './services/chat/common/chatEntitlementService.js';
 import './services/agentHost/common/agentHostResourceService.js';
 import '../platform/agentHost/browser/agentHostConnectionsService.js';
 import './services/log/common/defaultLogLevels.js';
-import './basehalf/navigation/common/basehalfCanvasNavigationService.js';
-import './basehalf/canvas/common/basehalfCanvasViewportState.js';
-import './basehalf/references/common/basehalfBadgeMirror.js';
-import './basehalf/references/common/basehalfReferenceIndex.js';
 
 import { InstantiationType, registerSingleton } from '../platform/instantiation/common/extensions.js';
 import { GlobalExtensionEnablementService } from '../platform/extensionManagement/common/extensionEnablementService.js';
@@ -173,6 +169,7 @@ import { IgnoredExtensionsManagementService, IIgnoredExtensionsManagementService
 import { ExtensionStorageService, IExtensionStorageService } from '../platform/extensionManagement/common/extensionStorage.js';
 import { IUserDataSyncLogService } from '../platform/userDataSync/common/userDataSync.js';
 import { UserDataSyncLogService } from '../platform/userDataSync/common/userDataSyncLog.js';
+// BaseHalf: the curated extension allowlist, in place of VS Code's service (D22).
 import { BaseHalfAllowedExtensionsService } from './basehalf/shell/common/basehalfAllowedExtensionsService.js';
 import { IAllowedMcpServersService, IMcpGalleryService } from '../platform/mcp/common/mcpManagement.js';
 import { McpGalleryService } from '../platform/mcp/common/mcpGalleryService.js';
@@ -181,7 +178,7 @@ import { IWebWorkerService } from '../platform/webWorker/browser/webWorkerServic
 import { WebWorkerService } from '../platform/webWorker/browser/webWorkerServiceImpl.js';
 
 registerSingleton(IUserDataSyncLogService, UserDataSyncLogService, InstantiationType.Delayed);
-registerSingleton(IAllowedExtensionsService, BaseHalfAllowedExtensionsService, InstantiationType.Delayed);
+registerSingleton(IAllowedExtensionsService, BaseHalfAllowedExtensionsService, InstantiationType.Delayed); // BaseHalf: in place of AllowedExtensionsService
 registerSingleton(IIgnoredExtensionsManagementService, IgnoredExtensionsManagementService, InstantiationType.Delayed);
 registerSingleton(IGlobalExtensionEnablementService, GlobalExtensionEnablementService, InstantiationType.Delayed);
 registerSingleton(IExtensionStorageService, ExtensionStorageService, InstantiationType.Delayed);
@@ -479,36 +476,7 @@ import './contrib/editTelemetry/browser/editTelemetry.contribution.js';
 // Opener
 import './contrib/opener/browser/opener.contribution.js';
 
-// BaseHalf product profile
-import './basehalf/shell/browser/basehalfConfiguration.contribution.js';
-import './basehalf/generation/browser/basehalfVideoProviders.contribution.js';
-import './basehalf/sequence/browser/basehalfSequence.contribution.js';
-import './basehalf/changes/browser/basehalfChanges.contribution.js';
-import './basehalf/mediaEdit/browser/basehalfMediaEdit.contribution.js';
-import './basehalf/cardDetail/browser/basehalfCardDetailPagePinch.js';
-import './basehalf/shell/browser/basehalfReleaseNotes.contribution.js';
-import './basehalf/shell/browser/basehalfAbout.contribution.js';
-import './basehalf/shell/browser/basehalfHover.contribution.js';
-import './basehalf/shell/browser/basehalfWorkbenchProfile.contribution.js';
-import './basehalf/navigation/browser/basehalfNavigation.contribution.js';
-import './basehalf/canvas/basehalfCanvas.all.js';
-import './basehalf/upkeep/browser/basehalfMirrorCascade.contribution.js';
-import './basehalf/upkeep/browser/basehalfKeptVersions.contribution.js';
-import './basehalf/markdown/browser/basehalfNoteFileRetention.contribution.js';
-import './basehalf/markdown/browser/basehalfNoteFileRoutes.contribution.js';
-import './basehalf/markdown/browser/basehalfNoteFileGit.contribution.js';
-import './basehalf/markdown/browser/basehalfNoteFileCopies.contribution.js';
-import './basehalf/generation/browser/basehalfGenerationCardCopy.contribution.js';
-import './basehalf/generation/browser/basehalfGenerationMentionFollower.contribution.js';
-import './basehalf/references/browser/basehalfBadgeQuickAccess.contribution.js';
-import './basehalf/references/browser/basehalfReferences.contribution.js';
-import './basehalf/references/browser/basehalfReferenceMigration.contribution.js';
-import './basehalf/upkeep/browser/basehalfLegacyCleanup.contribution.js';
-import './basehalf/upkeep/browser/basehalfGitExclude.contribution.js';
-import './basehalf/agentArea/browser/basehalfAgentSkill.contribution.js';
-import './basehalf/agentArea/browser/basehalfAgentSelection.contribution.js';
-import './basehalf/agentArea/browser/basehalfAgentArea.contribution.js';
-import './basehalf/agentArea/browser/basehalfAgentAreaTerminal.contribution.js';
-import './basehalf/generation/browser/basehalfNodeCommandBridge.contribution.js';
+// BaseHalf: every service and contribution of BaseHalf's (docs/harness/code-organization.md)
+import './basehalf/basehalf.common.main.js';
 
 //#endregion
