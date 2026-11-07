@@ -30,9 +30,9 @@ import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelection
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
 import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
 import { baseHalfNoteFileLinks } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
-import { playBaseHalfNoteMedia } from './basehalfCanvasNoteMedia.js';
-import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
-import { restoreBaseHalfSidewaysScroll } from '../../shell/browser/basehalfSidewaysScrollbar.js';
+import { playBaseHalfNoteMedia } from '../../playback/browser/basehalfNoteMedia.js';
+import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
+import { restoreBaseHalfSidewaysScroll } from '../../ui/browser/basehalfSidewaysScrollbar.js';
 
 const CANVAS_MARKDOWN_INLINE_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-markdown-inline-out';
 const CANVAS_MARKDOWN_INLINE_VENDOR_SCRIPT = 'canvasMarkdownInline.js';

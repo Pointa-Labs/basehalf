@@ -1513,7 +1513,7 @@ original goes to the Trash with it, and its record is deleted.
   a video that a press inside or outside the yellow frame moves and keeps
   inside it, no move of the frame by a drag inside it, Play that plays once
   while viewing and editing, and Escape goes back to viewing; and of the player
-  (`basehalfCanvasCardVideoPlayer.test.ts`): its position slider spans the
+  (`basehalfVideoPlayer.test.ts`): its position slider spans the
   part kept while viewing.
 - Unit tests of the crop's gestures (D97): the part kept when the picture
   zooms under a fixed frame, with turns, angles, ratios, the smallest part,

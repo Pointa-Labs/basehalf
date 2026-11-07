@@ -6,7 +6,7 @@
 import './media/basehalfCanvasAdjacentChrome.css';
 import './media/basehalfCanvasSelectionToolbar.css';
 import { localize } from '../../../../../nls.js';
-import { BASEHALF_HOVER_ATTRIBUTE } from '../../../shell/common/basehalfHover.js';
+import { BASEHALF_HOVER_ATTRIBUTE } from '../../../ui/common/basehalfHover.js';
 import { BaseHalfCanvasArrangement, IBaseHalfCanvasArrangeCard, baseHalfCanvasBoundingRect } from '../../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasSceneSelectionAction, baseHalfCanvasSceneSelectionActions, BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';

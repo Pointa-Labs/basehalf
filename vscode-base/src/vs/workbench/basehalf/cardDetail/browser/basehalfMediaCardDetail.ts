@@ -26,13 +26,13 @@ import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
-import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, whenBaseHalfCanvasMediaDrawn } from '../../canvas/browser/basehalfCanvasCardMedia.js';
-import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { BASEHALF_MEDIA_DRAWN_TIMEOUT_MS, whenBaseHalfMediaDrawn, baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
+import { createBaseHalfVideoPlayer, IBaseHalfVideoPlayer } from '../../playback/browser/basehalfVideoPlayer.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfMediaEditing, IBaseHalfMediaEditingSession } from '../../mediaEdit/browser/basehalfMediaEditing.js';
 import { baseHalfMediaKeyAction, baseHalfMediaPressKeepsKeyboard } from './basehalfMediaKeys.js';
-import { baseHalfMediaVersion, IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
-import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
+import { IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
+import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
 import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
 import { BASEHALF_PAGE_PINCH_MESSAGE } from '../common/basehalfCardDetailZoom.js';
 import { BaseHalfVideoPictureZoom } from './basehalfVideoPictureZoom.js';
@@ -207,7 +207,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	/** The page of an image, a PDF, or a book, with its listeners: an image that BaseHalf can edit has none. */
 	private readonly webviewStore = this._register(new MutableDisposable<DisposableStore>());
 	private readonly playerStore = this._register(new MutableDisposable<DisposableStore>());
-	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
+	private player: IBaseHalfVideoPlayer | undefined;
 	/** The editing of a video, an image, or a sound, which shows its editor where BaseHalf can edit it (editing media). */
 	private readonly editingStore = this._register(new MutableDisposable<BaseHalfMediaEditing>());
 	private readonly editingListener = this._register(new MutableDisposable());
@@ -563,7 +563,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			}
 			await new Promise<void>(resolve => {
 				this.drawn = resolve;
-				this.webviewStore.value?.add(disposableTimeout(resolve, BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS));
+				this.webviewStore.value?.add(disposableTimeout(resolve, BASEHALF_MEDIA_DRAWN_TIMEOUT_MS));
 			});
 			return;
 		}
@@ -579,7 +579,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			if (focused) {
 				editing.focus();
 			}
-			await raceTimeout(shown?.drawn ?? Promise.resolve(), BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS);
+			await raceTimeout(shown?.drawn ?? Promise.resolve(), BASEHALF_MEDIA_DRAWN_TIMEOUT_MS);
 			return;
 		}
 		// The waveform plays the edit itself: no player stands above it.
@@ -647,7 +647,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		const source = session ? session.source : state.resource.with({ query: [state.resource.query, `basehalfMediaVersion=${version}`].filter(Boolean).join('&') });
 		const stage = append(this.webviewHost, $('.basehalf-card-detail-video-stage'));
 		stage.classList.toggle('sound', sound);
-		const player = this.player = store.add(createBaseHalfCanvasCardVideoPlayer(stage, null, {
+		const player = this.player = store.add(createBaseHalfVideoPlayer(stage, null, {
 			source,
 			// The player stands for the file: its card gives it its frame, and takes the one where it stops.
 			file: state.resource,
@@ -688,7 +688,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		}
 		return new Promise<void>(resolve => {
 			store.add(toDisposable(resolve));
-			whenBaseHalfCanvasMediaDrawn(player.video, store, resolve);
+			whenBaseHalfMediaDrawn(player.video, store, resolve);
 		});
 	}
 

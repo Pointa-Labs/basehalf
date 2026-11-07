@@ -21,7 +21,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../canvas/common/basehalfCanvasScene.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH } from '../common/basehalfGenerationInfo.js';
 import { IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { createBaseHalfGenerationRecordPresentation, IBaseHalfGenerationRecordInput, IBaseHalfGenerationRecordPresentation } from '../common/basehalfGenerationRecordPresentation.js';

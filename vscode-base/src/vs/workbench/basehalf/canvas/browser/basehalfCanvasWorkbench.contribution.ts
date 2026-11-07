@@ -55,7 +55,7 @@ import { BaseHalfCanvasAppearanceWrites, IBaseHalfCanvasAppearanceService } from
 import { BaseHalfCanvasCardListenerStores } from '../common/basehalfCanvasCardListeners.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from '../../workspace/common/basehalfMirrorTree.js';
-import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNoteFocusLeaseOwner, BaseHalfCanvasNoteFormatSelectionBarrier, IBaseHalfCanvasNoteFocusLease } from '../common/basehalfCanvasNoteFormatLifecycle.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
@@ -64,8 +64,8 @@ import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } fro
 import { BaseHalfCanvasViewportPersister, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
-import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { DiffEditorInput } from '../../../common/editor/diffEditorInput.js';
 import { TokenizationRegistry } from '../../../../editor/common/languages.js';
@@ -87,11 +87,11 @@ import {
 	IBaseHalfCanvasSceneCardPresentation,
 	IBaseHalfCanvasSceneEdge
 } from '../common/basehalfCanvasScene.js';
-import { layoutBaseHalfCanvasCardVideoPlayers } from './basehalfCanvasCardVideoPlayer.js';
-import { playBaseHalfCanvasMediaOneAtATime } from './basehalfCanvasCardMedia.js';
+import { layoutBaseHalfVideoPlayers } from '../../playback/browser/basehalfVideoPlayer.js';
+import { playBaseHalfMediaOneAtATime } from '../../playback/browser/basehalfMediaElements.js';
 import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfCanvasCodeCards, BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
-import { IBaseHalfKeptVersionsService } from '../../workspace/browser/basehalfKeptVersions.js';
+import { IBaseHalfKeptVersionsService } from '../../upkeep/browser/basehalfKeptVersions.js';
 import { baseHalfStructuralResourceOutcome, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationStamp, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfCanvasRenderer } from './view/basehalfCanvasRenderer.js';
 import { BaseHalfCanvasPreviews } from './view/basehalfCanvasPreviews.js';
@@ -536,8 +536,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			this.selectionActions.reportAgentSelection();
 		}));
 		// The controls of a card's video player show on a picture wide enough on screen.
-		this._register(this.onDidChangeZoomEmitter.event(() => layoutBaseHalfCanvasCardVideoPlayers()));
-		this._register(playBaseHalfCanvasMediaOneAtATime(this.cards));
+		this._register(this.onDidChangeZoomEmitter.event(() => layoutBaseHalfVideoPlayers()));
+		this._register(playBaseHalfMediaOneAtATime(this.cards));
 		this._register(this.cardProjectionRegistryService.onDidChangeProjections(() => this.cardDetailHost.reconcileCardProjectionRegistrations()));
 		this._register(this.cardProjectionRegistryService.onDidChangeAvailability(() => this.cardDetailHost.reconcileCardProjectionAvailability()));
 		this._register(this.cardDetailSurfaceRegistryService.onDidChangeProviders(() => this.cardDetailHost.reconcileCardProjectionRegistrations()));

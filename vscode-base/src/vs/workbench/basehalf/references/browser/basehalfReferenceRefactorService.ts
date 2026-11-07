@@ -20,7 +20,7 @@ import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCa
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import {
 	BaseHalfReferenceEditFailure,

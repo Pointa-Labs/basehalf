@@ -15,9 +15,9 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaVersion, whenBaseHalfCanvasMediaDrawn } from '../../canvas/browser/basehalfCanvasCardMedia.js';
-import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
-import { noteBaseHalfNoteMediaVersion } from '../../canvas/browser/basehalfCanvasNoteMedia.js';
+import { BASEHALF_MEDIA_DRAWN_TIMEOUT_MS, baseHalfMediaVersion, whenBaseHalfMediaDrawn } from '../../playback/browser/basehalfMediaElements.js';
+import { createBaseHalfVideoPlayer, IBaseHalfVideoPlayer } from '../../playback/browser/basehalfVideoPlayer.js';
+import { noteBaseHalfNoteMediaVersion } from '../../playback/browser/basehalfNoteMedia.js';
 import { baseHalfNoteStoresAbove } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { resolveBaseHalfNoteLink } from '../../markdown/common/basehalfNoteLinks.js';
 import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
@@ -84,7 +84,7 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 	private file: IBaseHalfWorkspaceResource | undefined;
 	private stage: HTMLElement | undefined;
 	/** The player of a video, which plays the copy of its original. */
-	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
+	private player: IBaseHalfVideoPlayer | undefined;
 	private ending: Promise<void> | undefined;
 	private shown = false;
 	/** The choices when Edit was pressed, and the steps of the editor's own undo since. */
@@ -129,7 +129,7 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 		placeStage(stage, kind, this.target.box);
 		// Hidden until the media is drawn in it: the note's own shows meanwhile.
 		stage.classList.add('drawing');
-		await raceTimeout(this.draw(stage, editing, session) ?? Promise.resolve(), BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS);
+		await raceTimeout(this.draw(stage, editing, session) ?? Promise.resolve(), BASEHALF_MEDIA_DRAWN_TIMEOUT_MS);
 		// One frame more, hidden: the editor lays out its media again once the line under it is there.
 		await new Promise<void>(resolve => this._register(scheduleAtNextAnimationFrame(getWindow(stage), resolve)));
 		if (this._store.isDisposed) {
@@ -188,7 +188,7 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 			return editing.show({ stage, editing: true })?.drawn;
 		}
 		const holder = append(stage, $('.basehalf-note-media-player'));
-		const player = this.player = this._register(createBaseHalfCanvasCardVideoPlayer(holder, null, {
+		const player = this.player = this._register(createBaseHalfVideoPlayer(holder, null, {
 			source: session.source,
 			// The player stands for the file: it plays the copy of its original from where the note's video stood.
 			file: this.file!.resource,
@@ -206,7 +206,7 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 		const store = this._register(new DisposableStore());
 		return new Promise<void>(resolve => {
 			store.add(toDisposable(resolve));
-			whenBaseHalfCanvasMediaDrawn(player.video, store, resolve);
+			whenBaseHalfMediaDrawn(player.video, store, resolve);
 		});
 	}
 
@@ -224,7 +224,7 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 				await this.mediaEditService.flush(resource);
 			}
 			const stat = resource ? await this.fileService.stat(resource).catch(() => undefined) : undefined;
-			const version = stat ? baseHalfCanvasMediaVersion(stat) : undefined;
+			const version = stat ? baseHalfMediaVersion(stat) : undefined;
 			if (resource && version && step) {
 				// The note's card and Preview play the file anew at its version (D114).
 				noteBaseHalfNoteMediaVersion(resource, version);
@@ -380,7 +380,7 @@ export function applyBaseHalfNoteMediaChoices(accessor: ServicesAccessor, note: 
 		}
 		await mediaEditService.flush(file.resource);
 		const stat = await fileService.stat(file.resource).catch(() => undefined);
-		const version = stat ? baseHalfCanvasMediaVersion(stat) : undefined;
+		const version = stat ? baseHalfMediaVersion(stat) : undefined;
 		if (version) {
 			noteBaseHalfNoteMediaVersion(file.resource, version);
 		}

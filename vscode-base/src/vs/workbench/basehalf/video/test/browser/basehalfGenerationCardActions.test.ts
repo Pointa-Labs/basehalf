@@ -41,7 +41,6 @@ import { BaseHalfGenerationCardStore } from '../../browser/basehalfGenerationCar
 import { BaseHalfGenerationKind, serializeBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
 import { BaseHalfVideoCatalogState, findBaseHalfVideoRegion, IBaseHalfVideoCatalog, IBaseHalfVideoCatalogProvider, IBaseHalfVideoCheckResult, IBaseHalfVideoGenerationChoice } from '../../common/basehalfVideoCatalog.js';
 import {
-	IBaseHalfDraftOperations,
 	IBaseHalfGenerationCardStore,
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationService,
@@ -50,6 +49,7 @@ import {
 } from '../../common/basehalfVideoGeneration.js';
 import { TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import { BaseHalfTestFileSystemProvider, FakeDraftOperations } from './basehalfVideoTestFixtures.js';
+import { IBaseHalfDraftOperations } from '../../../upkeep/common/basehalfDraftOperations.js';
 
 const root = URI.file('/work');
 

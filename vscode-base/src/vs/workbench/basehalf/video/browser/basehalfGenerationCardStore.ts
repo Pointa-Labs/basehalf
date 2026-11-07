@@ -23,13 +23,12 @@ import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanv
 import { IBaseHalfReferenceEditService, IBaseHalfReferenceStoreResult } from '../../references/common/basehalfReferenceEdit.js';
 import { baseHalfNormalizeUpstreamEntry, baseHalfUpstreamEntryProblem, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../../references/common/basehalfReferenceEntries.js';
 import { baseHalfUpstreamSidecarResource, readBaseHalfSidecarUpstream } from '../../references/common/basehalfReferenceStore.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { BaseHalfMirrorWriteRejected } from '../../workspace/common/basehalfMirrorYaml.js';
 import { BASEHALF_EDIT_RECORD_FILE, IBaseHalfMediaChoices, parseBaseHalfEditRecord } from '../../mediaEdit/common/basehalfEditRecord.js';
-import { baseHalfCanvasMediaVersion } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
 import { baseHalfIsDraft, baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import {
 	BASEHALF_GENERATION_FILE_MAX_BYTES,
@@ -61,6 +60,7 @@ import {
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 /** How often a write is planned again when the file changed under it. */
 const MAX_WRITE_ATTEMPTS = 8;
@@ -532,7 +532,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			return Object.freeze({ path, kind: 'other', available: true });
 		}
 		if (stat) {
-			return Object.freeze({ path, kind: baseHalfVideoInputKindOfPath(path), available: true, file: resource, fileVersion: baseHalfCanvasMediaVersion(stat) });
+			return Object.freeze({ path, kind: baseHalfVideoInputKindOfPath(path), available: true, file: resource, fileVersion: baseHalfMediaVersion(stat) });
 		}
 		const kind = baseHalfGenerationKindOfPath(path);
 		if (kind && await baseHalfPathHoldsDraft(this.fileService, workspaceFolder, path).catch(() => false)) {

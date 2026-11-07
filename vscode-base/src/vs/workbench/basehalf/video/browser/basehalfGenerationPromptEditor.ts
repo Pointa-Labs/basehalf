@@ -11,7 +11,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { RedoCommand, SelectAllCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
-import { baseHalfCanvasMediaUrlAt } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { baseHalfMediaUrlAt } from '../../playback/browser/basehalfMediaElements.js';
 import { baseHalfMentionedIndex, baseHalfMentionLabels, findBaseHalfPromptMentions, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
 
@@ -730,7 +730,7 @@ export function baseHalfPromptChip(mention: IBaseHalfPromptMention, entries: rea
 	const input = inputOf(index);
 	const kind = input?.kind ?? baseHalfVideoInputKindOfPath(path);
 	// At the file's version: an input edited shows as it is now.
-	const picture = kind === 'image' && input?.available && input.file ? baseHalfCanvasMediaUrlAt(input.file, input.fileVersion) : undefined;
+	const picture = kind === 'image' && input?.available && input.file ? baseHalfMediaUrlAt(input.file, input.fileVersion) : undefined;
 	return Object.freeze({ kind, label: baseHalfMentionLabels(entries).get(path) ?? path, ...(picture ? { picture } : {}), known: true });
 }
 

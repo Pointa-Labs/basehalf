@@ -92,7 +92,6 @@ import {
 	IBaseHalfExtensionAgentProviderResult
 } from '../common/basehalfAgentArea.js';
 import { IBaseHalfAgentSkillService } from '../common/basehalfAgentSkill.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import {
 	BaseHalfFocusDir,
 	BaseHalfSplitDir,
@@ -134,8 +133,9 @@ import {
 	undoAgentClose
 } from '../common/basehalfAgentTabsModel.js';
 import { baseHalfInstallTerminalEdges } from './basehalfTerminalEdges.js';
-import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { BaseHalfSetting, normalizeBaseHalfAgentDefaultSession } from '../../shell/common/basehalfConfiguration.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 export const BASEHALF_AGENT_AREA_FOCUSED_CONTEXT_KEY = new RawContextKey<boolean>('basehalfAgentAreaFocused', false);
 

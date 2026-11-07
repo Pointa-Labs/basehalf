@@ -9,7 +9,7 @@ import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../
 import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
+import { renderBaseHalfItemGlyph } from '../../ui/browser/basehalfItemGlyph.js';
 import { BaseHalfGenerationKind } from '../common/basehalfGenerationInfo.js';
 import { baseHalfGenerationCardPresentation, BaseHalfGenerationCardState, baseHalfGenerationPhaseOfTask, formatBaseHalfVideoElapsed, IBaseHalfGenerationCardPresentation } from '../common/basehalfVideoCardPresentation.js';
 import { IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';

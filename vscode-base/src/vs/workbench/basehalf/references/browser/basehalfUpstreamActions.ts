@@ -18,12 +18,10 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IFileQuery, ISearchService, QueryType } from '../../../services/search/common/search.js';
 import { IBaseHalfBadgeMirrorService } from '../common/basehalfBadgeMirror.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
-import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
-import { BASEHALF_CANVAS_SKIP_NAMES, isBaseHalfCanvasPathEligible } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
-import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
+import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import {
 	baseHalfCanvasConnectionSummary,
 	baseHalfOrderUpstreamPickerCandidates,
@@ -51,6 +49,7 @@ import {
 } from '../common/basehalfReferenceIndex.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
+import { baseHalfItemDisplayName, BASEHALF_CANVAS_SKIP_NAMES, isBaseHalfCanvasPathEligible } from '../../workspace/common/basehalfItems.js';
 
 /** A node an upstream action works on. */
 export interface IBaseHalfUpstreamActionNode extends IBaseHalfWorkspaceResource {

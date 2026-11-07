@@ -32,9 +32,9 @@ import { IWorkingCopyFileService } from '../../../../services/workingCopy/common
 import { IWorkingCopyService } from '../../../../services/workingCopy/common/workingCopyService.js';
 import { workbenchInstantiationService } from '../../../../test/browser/workbenchTestServices.js';
 import { TestContextService, TestWorkingCopy } from '../../../../test/common/workbenchTestServices.js';
-import { BaseHalfMirrorCascadeContribution } from '../../../workspace/browser/basehalfMirrorCascade.contribution.js';
-import { IBaseHalfMovedItem } from '../../../workspace/common/basehalfMovedItems.js';
-import { IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove, IBaseHalfRecognizedMoves } from '../../../workspace/common/basehalfMovedItemsService.js';
+import { BaseHalfMirrorCascadeContribution } from '../../../upkeep/browser/basehalfMirrorCascade.contribution.js';
+import { IBaseHalfMovedItem } from '../../../upkeep/common/basehalfMovedItems.js';
+import { IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove, IBaseHalfRecognizedMoves } from '../../../upkeep/common/basehalfMovedItemsService.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceRefactorService, IBaseHalfReferenceRefactorService } from '../../browser/basehalfReferenceRefactorService.js';
 import { BaseHalfRenameRefactorContribution } from '../../browser/basehalfRenameRefactor.contribution.js';
@@ -45,14 +45,15 @@ import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../..
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
-import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
 import { serializeBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
-import { BaseHalfDraftOperations } from '../../../workspace/browser/basehalfDraftOperations.js';
-import { BaseHalfRecordingGenerationTaskStore } from '../../../workspace/test/browser/basehalfGenerationTaskStoreFake.js';
+import { BaseHalfDraftOperations } from '../../../upkeep/browser/basehalfDraftOperations.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../video/test/browser/basehalfGenerationTaskStoreFake.js';
 import { IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../common/basehalfReferenceIndex.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfInMemoryFileSearchService, baseHalfNoMovedItems } from './basehalfReferenceTestFixtures.js';
+import { IBaseHalfDraftOperations } from '../../../upkeep/common/basehalfDraftOperations.js';
 
 /** What BaseHalf last saw, reduced to what the entries of a move need: the moves that are owed, and the items it followed. */
 class TestMovedItems {

@@ -7,12 +7,12 @@ import { Event } from '../../../../base/common/event.js';
 import { hasKey } from '../../../../base/common/types.js';
 import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
+import { BaseHalfItemKindIcon, baseHalfItemDisplayName, baseHalfItemIcon } from '../../workspace/common/basehalfItems.js';
+import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT } from './basehalfSelectionLines.js';
 
 /** Where the record is, below a workspace folder (the selection agents can see, "The record"). */
 export const BASEHALF_AGENT_SELECTION_SEGMENTS: readonly string[] = ['.bh', 'cache', 'selection.yaml'];
 
-import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT } from './basehalfSelectionLines.js';
 export { BASEHALF_AGENT_SELECTION_TEXT_LIMIT };
 
 /** How long the selection has to settle before the record is written. */
@@ -198,9 +198,6 @@ function quote(value: string): string {
 	return JSON.stringify(value).replace(/[\u007f-\u009f\u2028\u2029\ufffe\uffff]/g, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
-/** The icon of an item's kind, as the caption of its card draws it. */
-export type BaseHalfItemKindIcon = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'book' | 'code' | 'generic';
-
 /** The icon of the status bar entry: an item's kind, a node's kind, several cards, or selected text. */
 export type BaseHalfAgentSelectionIcon = BaseHalfItemKindIcon | 'presentation' | 'file' | 'cards' | 'selectedText';
 
@@ -231,42 +228,6 @@ export function baseHalfAgentSelectionLabel(selection: BaseHalfAgentSelection): 
 		case 'text':
 			return { icon: 'selectedText', text: selection.text.slice(0, LABEL_TEXT_LIMIT * 4).replace(/\s+/g, ' ').trim().slice(0, LABEL_TEXT_LIMIT) };
 	}
-}
-
-/**
- * The kind of an item by its name, as the caption of its card draws it. The
- * canvas and the status bar share it.
- */
-export function baseHalfItemIcon(name: string, isFolder: boolean): BaseHalfItemKindIcon {
-	if (isFolder) {
-		return 'folder';
-	}
-	const lower = name.toLowerCase();
-	const dot = lower.lastIndexOf('.');
-	const ext = dot === -1 || dot === lower.length - 1 ? '' : lower.slice(dot + 1);
-	const base = dot === -1 ? lower : lower.slice(0, dot);
-	if (['md', 'markdown', 'mdx', 'txt', 'rst', 'org', 'gitignore', 'dockerignore', 'gitattributes', 'editorconfig', 'npmrc', 'nvmrc', 'csv', 'tsv', 'log', 'text'].includes(ext) || ['readme', 'license', 'changelog', 'authors', 'notice', 'copying'].includes(base)) {
-		return 'text';
-	}
-	if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'heic', 'avif', 'ico', 'tiff'].includes(ext)) {
-		return 'image';
-	}
-	if (['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'opus'].includes(ext)) {
-		return 'audio';
-	}
-	if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(ext)) {
-		return 'video';
-	}
-	if (ext === 'pdf') {
-		return 'pdf';
-	}
-	if (['epub', 'mobi', 'azw', 'azw3', 'fb2', 'fbz', 'cbz'].includes(ext)) {
-		return 'book';
-	}
-	if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'rs', 'go', 'java', 'rb', 'c', 'cpp', 'h', 'cs', 'php', 'swift', 'kt', 'json', 'yaml', 'yml', 'toml', 'css', 'scss', 'html', 'xml', 'sh', 'sql', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'ini', 'conf', 'cfg', 'env', 'properties', 'lock', 'lua', 'pl', 'r', 'gradle', 'vue', 'svelte', 'astro', 'graphql', 'gql', 'proto'].includes(ext) || ['dockerfile', 'makefile', 'gemfile', 'rakefile', 'procfile', 'jenkinsfile', 'vagrantfile'].includes(base)) {
-		return 'code';
-	}
-	return 'generic';
 }
 
 export const IBaseHalfAgentSelectionService = createDecorator<IBaseHalfAgentSelectionService>('baseHalfAgentSelectionService');

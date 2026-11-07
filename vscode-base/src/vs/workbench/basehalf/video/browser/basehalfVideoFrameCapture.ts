@@ -8,7 +8,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
-import { baseHalfCanvasMediaUrl } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { baseHalfMediaUrl } from '../../playback/browser/basehalfMediaElements.js';
 import type { BaseHalfCanvasSceneVideoFrame } from '../../canvas/common/basehalfCanvasScene.js';
 
 /**
@@ -141,7 +141,7 @@ export function createBaseHalfVideoFrameReader(targetWindow: Window): IBaseHalfV
 			element.preload = 'auto';
 			try {
 				const loaded = waitFor(element, 'loadedmetadata', targetWindow);
-				element.src = baseHalfCanvasMediaUrl(video);
+				element.src = baseHalfMediaUrl(video);
 				await loaded;
 				if (!Number.isFinite(element.duration)) {
 					// Some recorded videos do not say how long they are: a seek past

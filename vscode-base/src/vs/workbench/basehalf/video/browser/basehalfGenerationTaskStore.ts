@@ -16,7 +16,6 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorFileCommit.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink, baseHalfMirrorResource } from '../../workspace/common/basehalfMirrorTree.js';
@@ -35,6 +34,7 @@ import {
 	serializeBaseHalfGenerationTask
 } from '../common/basehalfGenerationInfo.js';
 import { IBaseHalfGenerationTaskStore } from '../common/basehalfVideoGeneration.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 /** A record is at most this large: the whole prompt as sent is at most 256 KiB. */
 const RECORD_MAX_BYTES = 2 * 1024 * 1024;

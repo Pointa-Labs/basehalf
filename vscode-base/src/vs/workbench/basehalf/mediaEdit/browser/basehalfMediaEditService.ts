@@ -23,12 +23,11 @@ import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { readBaseHalfFileRange } from '../../workspace/common/basehalfFileRange.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfMirrorResource } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfComputeFileFingerprint } from '../../workspace/common/basehalfMovedItems.js';
-import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
+import { baseHalfComputeFileFingerprint } from '../../upkeep/common/basehalfMovedItems.js';
+import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import {
 	BASEHALF_EDIT_RECORD_FILE,
@@ -56,6 +55,8 @@ import { readBaseHalfWebmFile } from '../common/basehalfWebmReader.js';
 import { BASEHALF_IMAGE_MAX_PIXELS, BASEHALF_IMAGE_MAX_SIDE, BaseHalfImageCropError, encodeBaseHalfImageCrop } from './basehalfImageCropEncoder.js';
 import { BASEHALF_SOUND_MAX_SECONDS, BaseHalfSoundEditError, encodeBaseHalfSoundParts, IBaseHalfSoundInfo, readBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
 import { BaseHalfVideoClipError, encodeBaseHalfVideoClip, encodeBaseHalfWebmCopy } from './basehalfVideoClipEncoder.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
+import { baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
 
 /**
  * Edits media as the user changes it in Card Detail (editing media, "Changes
@@ -212,10 +213,6 @@ export function baseHalfMediaFileByteSource(fileService: IFileService, resource:
 	};
 }
 
-/** The version of a file that the state of an edit belongs to. */
-export function baseHalfMediaVersion(stat: { readonly mtime?: number; readonly size?: number }): string {
-	return `${stat.mtime ?? 0}-${stat.size ?? 0}`;
-}
 
 /** The fingerprint of bytes, as following moved items takes one of a file. */
 export async function baseHalfEditResultOf(bytes: Uint8Array): Promise<IBaseHalfEditResult> {

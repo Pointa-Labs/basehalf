@@ -35,7 +35,6 @@ import { BaseHalfReferenceEditService } from '../../../references/browser/baseha
 import { IBaseHalfReferenceEditService } from '../../../references/common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../../references/common/basehalfReferenceIndex.js';
 import { BaseHalfInMemoryFileSearchService } from '../../../references/test/browser/basehalfReferenceTestFixtures.js';
-import { BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER } from '../../../workspace/common/basehalfLegacyCleanup.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfGenerationCardCopyContribution } from '../../browser/basehalfGenerationCardCopy.contribution.js';
 import { copyBaseHalfGenerationCardInformation } from '../../browser/basehalfGenerationCardCopy.js';
@@ -45,6 +44,7 @@ import { BaseHalfVideoCatalogState, IBaseHalfVideoCatalog, IBaseHalfVideoCheckRe
 import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../common/basehalfVideoGeneration.js';
 import { TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import { BaseHalfTestFileSystemProvider } from './basehalfVideoTestFixtures.js';
+import { BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER } from '../../../workspace/common/basehalfSourceTreeMarker.js';
 
 const root = URI.file('/work');
 

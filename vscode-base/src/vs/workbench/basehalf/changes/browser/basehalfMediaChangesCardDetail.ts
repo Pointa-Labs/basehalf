@@ -17,10 +17,10 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { baseHalfCanvasMediaUrl, baseHalfCanvasMediaVersionQuery, playBaseHalfCanvasMediaOneAtATime } from '../../canvas/browser/basehalfCanvasCardMedia.js';
-import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { baseHalfMediaUrl, baseHalfMediaVersionQuery, playBaseHalfMediaOneAtATime } from '../../playback/browser/basehalfMediaElements.js';
+import { createBaseHalfVideoPlayer, IBaseHalfVideoPlayer } from '../../playback/browser/basehalfVideoPlayer.js';
 import { IBaseHalfCardDetailSurfaceInstance } from '../../cardDetail/browser/basehalfCardDetailSurface.js';
-import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
+import { baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_LARGEST_COMPARED_VERSION_BYTES, IBaseHalfFileChange, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
 
@@ -43,7 +43,7 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 	private readonly root: HTMLElement;
 	private readonly shownStore = this._register(new MutableDisposable<DisposableStore>());
 	private readonly redraw = this._register(new RunOnceScheduler(() => this.state && void this.show(this.state), 200));
-	private players: IBaseHalfCanvasCardVideoPlayer[] = [];
+	private players: IBaseHalfVideoPlayer[] = [];
 	private state: IBaseHalfCardDetailState | undefined;
 	/** The comparison shown or being read; nothing when what stands here is old. */
 	private asked: IBaseHalfFileChange | undefined;
@@ -62,7 +62,7 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 	) {
 		super();
 		this.root = append(container, $('.basehalf-card-detail-changes-media'));
-		this._register(playBaseHalfCanvasMediaOneAtATime(this.root));
+		this._register(playBaseHalfMediaOneAtATime(this.root));
 		// An agent can write the file while the view shows, and staging moves what it is compared with.
 		this._register(this.fileService.onDidFilesChange(event => {
 			if (this.state && event.contains(this.state.resource)) {
@@ -147,7 +147,7 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 		try {
 			const stat = await this.fileService.stat(version);
 			if (version.scheme === Schemas.file) {
-				return version.with({ query: baseHalfCanvasMediaVersionQuery(stat) });
+				return version.with({ query: baseHalfMediaVersionQuery(stat) });
 			}
 			if (stat.size > BASEHALF_LARGEST_COMPARED_VERSION_BYTES) {
 				return { notice: localize('basehalf.changes.versionTooLarge', "This version is too large to show here.") };
@@ -193,7 +193,7 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 				takeShape(image.naturalWidth, image.naturalHeight);
 			};
 			image.onerror = undecodable;
-			image.src = baseHalfCanvasMediaUrl(version);
+			image.src = baseHalfMediaUrl(version);
 			return;
 		}
 		stage.classList.toggle('sound', kind === 'audio');
@@ -201,7 +201,7 @@ export class BaseHalfMediaChangesCardDetail extends Disposable implements IBaseH
 			const video = event.target as HTMLVideoElement;
 			takeShape(video.videoWidth, video.videoHeight);
 		}, true));
-		const player = store.add(createBaseHalfCanvasCardVideoPlayer(stage, null, {
+		const player = store.add(createBaseHalfVideoPlayer(stage, null, {
 			source: version,
 			videoClasses: [],
 			detail: true,

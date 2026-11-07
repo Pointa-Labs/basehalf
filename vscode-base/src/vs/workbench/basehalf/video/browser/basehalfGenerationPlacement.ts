@@ -16,9 +16,9 @@ import {
 	IBaseHalfCanvasFile
 } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfGenerationKind } from '../common/basehalfGenerationInfo.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 /** The size a new card of each kind is drawn at (generation cards, "Creating a generation card"): a sound has the size of a file card. */
 export const BASEHALF_GENERATION_CARD_SIZE: Readonly<Record<BaseHalfGenerationKind, { readonly width: number; readonly height: number }>> = Object.freeze({

@@ -6,7 +6,7 @@
 import { basename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
-import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
+import { baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
 import { baseHalfBookFormatOfName } from './basehalfBookCover.js';
 
 /** A PDF or a book (PDFs and books, "Terms"). */

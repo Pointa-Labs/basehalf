@@ -28,9 +28,8 @@ import {
 	baseHalfCanvasMarkdownSourceFitsShown,
 	BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES
 } from '../../common/basehalfCanvasPreview.js';
-import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { applyBaseHalfCanvasMarkdownSidewaysScroll, BaseHalfCanvasMarkdownInlineEditor, BaseHalfCanvasMarkdownRequiresRichEditorError, IBaseHalfCanvasMarkdownInlineSelection, readBaseHalfCanvasMarkdownSidewaysScroll } from '../basehalfCanvasMarkdownInlineEditor.js';
-import { pauseBaseHalfNoteMedia } from '../basehalfCanvasNoteMedia.js';
+import { pauseBaseHalfNoteMedia } from '../../../playback/browser/basehalfNoteMedia.js';
 import { buildAllBaseHalfCanvasNoteParts, buildBaseHalfCanvasNotePartsTo } from '../basehalfCanvasNoteParts.js';
 import {
 	BaseHalfCanvasNoteBackground,
@@ -42,6 +41,7 @@ import {
 import type { BaseHalfMarkdownFormatCommand } from '../../../markdown/common/basehalfMarkdownFormatting.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, IBaseHalfActiveCanvasNoteEditor, IBaseHalfCanvasNotePreviewMount, IBaseHalfCanvasPostCreateOwner, IBaseHalfPendingCanvasNoteFocus, IBaseHalfPendingCanvasNoteFormatCommand, IBaseHalfPendingCanvasNoteNavigationGuard, appendCanvasNoteFullEditorLabel } from './basehalfCanvasViewShared.js';
+import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 interface IBaseHalfPendingMarkdownRichFormatCommand {
 	readonly resourceKey: string;

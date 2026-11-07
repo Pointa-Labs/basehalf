@@ -11,9 +11,9 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { SourceTargetPair } from '../../../services/workingCopy/common/workingCopyFileService.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfMirrorPathSegments, baseHalfMirrorRoot, baseHalfWalkMirror } from '../../workspace/common/basehalfMirrorTree.js';
 import { BASEHALF_EDIT_RECORD_FILE, parseBaseHalfEditRecord } from '../common/basehalfEditRecord.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 export interface IBaseHalfMediaEditCopyServices {
 	readonly fileService: IFileService;

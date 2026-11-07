@@ -5,7 +5,7 @@
 
 import './media/basehalfCardDetailProjections.css';
 import './media/basehalfNoteOutline.css';
-import '../../shell/browser/media/basehalfSidewaysScrollbar.css';
+import '../../ui/browser/media/basehalfSidewaysScrollbar.css';
 import { $, addDisposableListener, append, clearNode, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { MarkdownString } from '../../../../base/common/htmlContent.js';
@@ -23,9 +23,9 @@ import { ITextFileService, TextFileOperationError, TextFileOperationResult } fro
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
 import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
-import { playBaseHalfNoteMedia } from '../../canvas/browser/basehalfCanvasNoteMedia.js';
+import { playBaseHalfNoteMedia } from '../../playback/browser/basehalfNoteMedia.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
-import { installBaseHalfSidewaysScrollbar } from '../../shell/browser/basehalfSidewaysScrollbar.js';
+import { installBaseHalfSidewaysScrollbar } from '../../ui/browser/basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehalfMarkdownRichTextModel.js';
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from './basehalfNoteOutline.js';

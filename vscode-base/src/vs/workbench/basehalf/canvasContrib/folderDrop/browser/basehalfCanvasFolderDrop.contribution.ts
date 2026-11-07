@@ -22,7 +22,7 @@ import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../../canvas/common/basehal
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore } from '../../../video/common/basehalfVideoGeneration.js';
-import { IBaseHalfKeptVersionsService } from '../../../workspace/browser/basehalfKeptVersions.js';
+import { IBaseHalfKeptVersionsService } from '../../../upkeep/browser/basehalfKeptVersions.js';
 
 interface IBaseHalfFolderDropTransfer {
 	readonly source: URI;

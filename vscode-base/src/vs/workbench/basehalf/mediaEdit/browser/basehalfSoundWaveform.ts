@@ -12,7 +12,7 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { BASEHALF_PLAYHEAD_STEP_SECONDS } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { BASEHALF_PLAYHEAD_STEP_SECONDS } from '../../playback/browser/basehalfVideoPlayer.js';
 import { IBaseHalfMediaChoices, IBaseHalfMediaPart, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { BASEHALF_SOUND_ENERGY_BLOCK, baseHalfSoundBarHeight, baseHalfSoundEnergy, baseHalfSoundReference } from '../common/basehalfSoundLoudness.js';
 import {

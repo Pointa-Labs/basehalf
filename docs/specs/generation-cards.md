@@ -2077,8 +2077,8 @@ job, so that a name in history still finds its file.
   Card Detail name voices from, asks once for a list that names their
   voice (`askOnce`), and plays the samples through an audio graph of its own. A
   sample takes its turn with the canvas's media through
-  `playBaseHalfCanvasSoundInTurn` of
-  `canvas/browser/basehalfCanvasCardMedia.ts`, which keeps one video or
+  `playBaseHalfSoundInTurn` of
+  `playback/browser/basehalfMediaElements.ts`, which keeps one video or
   sound playing at a time. Whether a value is the id of a voice is the
   provider service's one rule, `isVoiceId` of
   `platform/basehalfProviders/common/basehalfProviderVoices.ts`, which the
@@ -2600,8 +2600,8 @@ Each panel's footer (D106)
   31, what the panel's footer holds, the labels of the regions on Providers,
   and the catalog that `--list-capabilities` gives agents; the player's
   gestures, controls, and sound
-  (`basehalfCanvasCardVideoPlayer.test.ts`), and its fades with a test
-  audio graph and clock (`basehalfCanvasVideoSound.test.ts`).
+  (`basehalfVideoPlayer.test.ts`), and its fades with a test
+  audio graph and clock (`basehalfVideoSound.test.ts`).
 - Unit tests of the canvas and its interface: the folder's model with its
   drafts (`basehalfCanvasModel.test.ts`), the card's face
   (`basehalfVideoCard.test.ts`), the panel host
@@ -2660,7 +2660,7 @@ Each panel's footer (D106)
   none for another region than the one in use, and none until the
   provider is set up (`basehalfGenerationVoiceMenu.test.ts`); a sample that a video playing
   without sound leaves playing and one with sound stops
-  (`basehalfCanvasCardMedia.test.ts`); the voice and "Song 1 of 2" in
+  (`basehalfMediaElements.test.ts`); the voice and "Song 1 of 2" in
   the panel of a card with its file (`basehalfGenerationRecordPresentation.test.ts`,
   `basehalfGenerationRecordPanel.test.ts`); a voice that only the
   provider's list names, which a draft's panel, the panel of a card with

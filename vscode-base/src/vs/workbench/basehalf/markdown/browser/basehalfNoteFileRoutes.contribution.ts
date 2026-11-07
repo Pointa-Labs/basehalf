@@ -21,7 +21,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWorkingCopyFileService, SourceTargetPair } from '../../../services/workingCopy/common/workingCopyFileService.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
-import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { baseHalfNoteHome } from '../common/basehalfMarkdownAttachment.js';
 import { baseHalfCopyNoteFiles, baseHalfNoteFileCloneEdits } from '../common/basehalfNoteFileCopies.js';
 import { baseHalfApplyNoteRouteEdits, baseHalfNoteFileRouteEdits, baseHalfNoteStoresBelow, IBaseHalfNoteFileRouteServices, IBaseHalfNoteRouteEdit } from '../common/basehalfNoteFileRoutes.js';

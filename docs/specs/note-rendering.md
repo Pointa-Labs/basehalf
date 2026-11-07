@@ -524,7 +524,7 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
   first is built, and scrolls it to its last paragraph; it also keeps the
   place of the note when the note is redrawn and when its editor opens and
   closes.
-- Unit: `basehalfCanvasNoteMedia.test.ts` covers rule 4b: a drawing of a
+- Unit: `basehalfNoteMedia.test.ts` covers rule 4b: a drawing of a
   note takes over the players of the drawing it replaces, in their order, one
   that plays goes on playing, and the player of a block that has left the
   note goes. Smoke: `canvas-note-media-plays-on-when-drawn-again` covers

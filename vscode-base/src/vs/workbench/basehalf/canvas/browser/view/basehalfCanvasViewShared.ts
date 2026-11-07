@@ -20,13 +20,12 @@ import { IBaseHalfCanvasDamage, IBaseHalfCanvasStateTransition } from '../../com
 import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasNavigationState, IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNoteFormatNavigationOwnership, IBaseHalfCanvasNoteFocusLease } from '../../common/basehalfCanvasNoteFormatLifecycle.js';
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
-import { baseHalfItemDisplayName } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { BaseHalfItemKindIcon, baseHalfItemIcon } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfCanvasMarkdownInlineEditor, IBaseHalfCanvasMarkdownInlineSelection } from '../basehalfCanvasMarkdownInlineEditor.js';
 import { IBaseHalfCanvasNoteEditPoint } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../../markdown/common/basehalfMarkdownFormatting.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfItemDisplayName, BaseHalfItemKindIcon, baseHalfItemIcon } from '../../../workspace/common/basehalfItems.js';
 
 /**
  * Types, constants, and small functions that several parts of the canvas view

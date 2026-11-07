@@ -17,9 +17,8 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IFileQuery, ISearchService, QueryType } from '../../../services/search/common/search.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfIsCanvasEligiblePath } from '../../canvas/common/basehalfCanvasModel.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfPlainFailureReason } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfPlainFailureReason } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfIsDraft, baseHalfIsDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
 import {
@@ -42,6 +41,7 @@ import {
 	readBaseHalfMarkdownUpstream,
 	readBaseHalfSidecarUpstream
 } from './basehalfReferenceStore.js';
+import { baseHalfIsCanvasEligiblePath } from '../../workspace/common/basehalfItems.js';
 
 export const IBaseHalfReferenceIndexService = createDecorator<IBaseHalfReferenceIndexService>('baseHalfReferenceIndexService');
 

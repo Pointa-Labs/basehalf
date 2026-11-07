@@ -24,7 +24,7 @@ import { BulkEditService } from '../../../../contrib/bulkEdit/browser/bulkEditSe
 import { ITextFileService } from '../../../../services/textfile/common/textfiles.js';
 import { workbenchInstantiationService } from '../../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
-import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../../upkeep/common/basehalfMovedItemsService.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../../canvas/common/basehalfCanvasEditing.js';
 import { BaseHalfNoteFileRoutesContribution } from '../../browser/basehalfNoteFileRoutes.contribution.js';
 

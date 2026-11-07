@@ -18,13 +18,13 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasChildPath, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CARD_IS_DRAFT, IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
-import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfCanvasSceneContextMenuRequest, BaseHalfCanvasSceneSelectionAction } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasCardPick, IBaseHalfCanvasCardPickCard } from '../../common/basehalfCanvasCardPick.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from '../basehalfCanvasContextMenu.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { IBaseHalfCanvasPostCreateOwner, badgeType, cardDisplayName } from './basehalfCanvasViewShared.js';
+import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 const CARD_SELECTOR = '.basehalf-canvas-card[data-basehalf-card-path]';
 /** How far a press of Pick on Canvas may move and still be a click, in screen pixels. */

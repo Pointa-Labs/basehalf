@@ -9,12 +9,11 @@ import './media/basehalfCanvasVideoSelectionControls.css';
 import { isMacintosh, isWindows } from '../../../../../base/common/platform.js';
 import { localize } from '../../../../../nls.js';
 import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
-import { BASEHALF_HOVER_ATTRIBUTE } from '../../../shell/common/basehalfHover.js';
+import { BASEHALF_HOVER_ATTRIBUTE } from '../../../ui/common/basehalfHover.js';
 import {
 	baseHalfCanvasSceneVideoSelectionActions,
 	IBaseHalfCanvasSceneVideoPanelLayout,
 	IBaseHalfCanvasSceneVideoPanelSurface,
-	BaseHalfCanvasSceneVideoAction,
 	BaseHalfCanvasSceneVideoFrame,
 	BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT
 } from '../../common/basehalfCanvasScene.js';
@@ -22,6 +21,7 @@ import { BaseHalfVideoPanelSide } from '../../../video/common/basehalfVideoNodeP
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import { BaseHalfCanvasFlowNode, baseHalfCanvasClickedByPointer, IBaseHalfCanvasSceneEnvironment, isCanvasElement, numericStyle, screenSpaceCanvasStyle } from './basehalfCanvasSceneShared.js';
 import { baseHalfCanvasVideoToolbarWidth, NOTE_CONTROLS_SCREEN_MARGIN, resolveBaseHalfCanvasVideoPanelPlacement, resolveBaseHalfCanvasVideoSelectionPlacement } from './basehalfCanvasSelectionControlsPlacement.js';
+import { BaseHalfGenerationToolbarAction } from '../../../video/common/basehalfVideoCardPresentation.js';
 
 const VIDEO_CAPTURE_FRAMES: readonly BaseHalfCanvasSceneVideoFrame[] = Object.freeze(['first', 'current', 'last']);
 /** The menu of frames: three items of 26 pixels, its padding, and its border. */
@@ -158,7 +158,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 		}
 
 		const media = controls.media ?? 'video';
-		const labels: Readonly<Record<BaseHalfCanvasSceneVideoAction, string>> = {
+		const labels: Readonly<Record<BaseHalfGenerationToolbarAction, string>> = {
 			captureFrame: localize('basehalf.canvas.video.captureFrame', "Capture Frame"),
 			revealVideo: baseHalfCanvasRevealVideoLabel(),
 			openFullPreview: localize('basehalf.canvas.video.open', "Open")
@@ -168,7 +168,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			current: localize('basehalf.canvas.video.currentFrame', "Current Frame"),
 			last: localize('basehalf.canvas.video.lastFrame', "Last Frame")
 		};
-		const invoke = (action: BaseHalfCanvasSceneVideoAction, anchor: HTMLElement, frame?: BaseHalfCanvasSceneVideoFrame): void => {
+		const invoke = (action: BaseHalfGenerationToolbarAction, anchor: HTMLElement, frame?: BaseHalfCanvasSceneVideoFrame): void => {
 			void delegate.invokeVideoAction(
 				node.data.sceneKey,
 				node.data.structuralEpoch,
@@ -245,7 +245,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 		// when it fits there; otherwise it opens over the card.
 		const menuOpensAbove = placement.top * zoom + viewport.y - VIDEO_CAPTURE_MENU_SCREEN_GAP - VIDEO_CAPTURE_MENU_SCREEN_HEIGHT >= NOTE_CONTROLS_SCREEN_MARGIN;
 		const codicon = (name: string, extra = ''): ReactElement => h('span', { className: `codicon codicon-${name}${extra}`, 'aria-hidden': true });
-		const face = (action: BaseHalfCanvasSceneVideoAction): ReactNode => {
+		const face = (action: BaseHalfGenerationToolbarAction): ReactNode => {
 			switch (action) {
 				case 'captureFrame':
 					return h(vendor.Fragment, null, codicon('device-camera'), codicon('chevron-down', ' basehalf-video-capture-chevron'));

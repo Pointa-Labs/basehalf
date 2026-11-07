@@ -15,13 +15,13 @@ import type { VoicesResult } from '../../../../platform/basehalfProviders/common
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { playBaseHalfCanvasSoundInTurn } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { playBaseHalfSoundInTurn } from '../../playback/browser/basehalfMediaElements.js';
 import {
 	BASEHALF_VIDEO_SOUND_END_SECONDS,
 	BASEHALF_VIDEO_SOUND_FADE_IN_SECONDS,
 	BASEHALF_VIDEO_SOUND_FADE_OUT_SECONDS,
 	IBaseHalfVideoSoundLevel
-} from '../../canvas/browser/basehalfCanvasVideoSound.js';
+} from '../../playback/browser/basehalfVideoSound.js';
 import { baseHalfVideoGenerateBlockerText, baseHalfVideoRefusedInRegion, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, IBaseHalfVideoProviderAccess } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 import {
@@ -367,7 +367,7 @@ export class BaseHalfGenerationVoiceService extends Disposable implements IBaseH
 	/** The sample sounds: it comes up, and goes down over its last moments, as a card's sound does. */
 	private start(current: ICurrentSample, context: IBaseHalfVoiceSampleContext, sound: IBaseHalfVoiceSampleSound): void {
 		// One sound at a time: what plays on the canvas pauses, and a video or a sound that starts there stops the sample.
-		current.turn = playBaseHalfCanvasSoundInTurn(() => {
+		current.turn = playBaseHalfSoundInTurn(() => {
 			if (this.current === current) {
 				this.stopSample();
 			}

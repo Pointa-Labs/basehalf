@@ -46,8 +46,8 @@ import {
 	IBaseHalfAgentSkillTarget
 } from '../common/basehalfAgentSkill.js';
 import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
-import { baseHalfPlainFailureReason } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfPlainFailureReason } from '../../workspace/common/basehalfPlainFailureReason.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 /** Set once the user answered the offer with Don't Ask Again or removed the skill (this machine). */
 export const BASEHALF_AGENT_SKILL_DECLINED_STORAGE_KEY = 'basehalf.agentSkill.declined';

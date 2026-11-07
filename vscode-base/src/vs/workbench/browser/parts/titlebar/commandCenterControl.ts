@@ -29,9 +29,9 @@ import { IEditorGroupsService } from '../../../services/editor/common/editorGrou
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfItemDisplayName } from '../../../basehalf/cardDetail/common/basehalfCardDetail.js';
 import { BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE } from '../../../basehalf/canvas/common/basehalfCanvasFolderDrop.js';
 import { baseHalfIsUnderBhFolder } from '../../../basehalf/workspace/common/basehalfBhFolder.js';
+import { baseHalfItemDisplayName } from '../../../basehalf/workspace/common/basehalfItems.js';
 
 const AI_DISABLED_SETTING = 'chat.disableAIFeatures';
 const AGENT_STATUS_ENABLED_SETTING = 'chat.agentsControl.enabled';

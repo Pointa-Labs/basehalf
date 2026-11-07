@@ -6,8 +6,8 @@
 import * as assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfItemIcon } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfDocumentFaceLabel, baseHalfDocumentKind, baseHalfDocumentVersion } from '../../common/basehalfDocuments.js';
+import { baseHalfItemIcon } from '../../../workspace/common/basehalfItems.js';
 
 suite('BaseHalfDocuments', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

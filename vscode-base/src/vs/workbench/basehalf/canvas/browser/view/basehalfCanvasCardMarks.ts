@@ -6,7 +6,7 @@
 import '../media/basehalfCanvasCardMarks.css';
 import { $, addDisposableListener, append } from '../../../../../base/browser/dom.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
-import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 import { IBaseHalfCanvasCardMark, IBaseHalfCanvasMark } from '../basehalfCanvasExtensions.js';
 
 /** A press and a release further apart than this are a drag of the card, not a click on its mark. */

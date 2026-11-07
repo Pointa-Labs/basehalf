@@ -14,7 +14,7 @@ import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
 import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
-import { IBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasVideoPlayRange } from '../../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { IBaseHalfVideoPlayer, IBaseHalfVideoPlayRange } from '../../../playback/browser/basehalfVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../../common/basehalfEditRecord.js';
 import { IBaseHalfVideoSample, IBaseHalfVideoTrack } from '../../common/basehalfVideoFile.js';
 import { BaseHalfImageCropView } from '../../browser/basehalfImageCropView.js';
@@ -41,7 +41,7 @@ function videoTrack(): IBaseHalfVideoTrack {
 class TestPlayer {
 	readonly element: HTMLElement;
 	readonly video: HTMLVideoElement;
-	readonly ranges: (IBaseHalfCanvasVideoPlayRange | undefined)[] = [];
+	readonly ranges: (IBaseHalfVideoPlayRange | undefined)[] = [];
 	readonly seeks: number[] = [];
 	currentTime = 0;
 	pauses = 0;
@@ -55,7 +55,7 @@ class TestPlayer {
 		container.append(this.element);
 	}
 
-	get range(): IBaseHalfCanvasVideoPlayRange | undefined {
+	get range(): IBaseHalfVideoPlayRange | undefined {
 		return this.ranges[this.ranges.length - 1];
 	}
 
@@ -69,7 +69,7 @@ class TestPlayer {
 		this.seeks.push(time);
 		this.currentTime = time;
 	}
-	setPlayRange(range: IBaseHalfCanvasVideoPlayRange | undefined): void {
+	setPlayRange(range: IBaseHalfVideoPlayRange | undefined): void {
 		this.ranges.push(range);
 	}
 }
@@ -117,7 +117,7 @@ suite('BaseHalfMediaViewing', () => {
 			const player = disposables.add(new TestPlayer(container));
 			const viewer = disposables.add(new BaseHalfVideoFrameViewer(container, {
 				video: { file: { format: 'mp4', video: videoTrack(), audio: undefined, metadata: [] }, source: { size: 500, read: () => new Promise<Uint8Array>(() => { }) } },
-				player: player as unknown as IBaseHalfCanvasCardVideoPlayer,
+				player: player as unknown as IBaseHalfVideoPlayer,
 				stage: container,
 				choices
 			}));

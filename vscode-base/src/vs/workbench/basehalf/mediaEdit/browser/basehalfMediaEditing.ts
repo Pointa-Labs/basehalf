@@ -13,7 +13,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { IBaseHalfVideoPlayer } from '../../playback/browser/basehalfVideoPlayer.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { baseHalfMediaChoicesAreNoEdit } from '../common/basehalfMediaEditFormats.js';
@@ -48,7 +48,7 @@ export interface IBaseHalfMediaEditingSession {
 /** Where Card Detail gives the editor room: a stage, with the player of a video. */
 export interface IBaseHalfMediaEditingView {
 	readonly stage: HTMLElement;
-	readonly player?: IBaseHalfCanvasCardVideoPlayer;
+	readonly player?: IBaseHalfVideoPlayer;
 	/**
 	 * Where the editor and the line under it stand when not in the stage
 	 * itself: the room under the player of a video, which opens while it is

@@ -20,7 +20,7 @@ import {
 	IBaseHalfCanvasViewport,
 	parseBaseHalfCanvasViewport
 } from '../../common/basehalfCanvasViewportState.js';
-import { baseHalfUpdateCanvasViewportsForStructuralChange } from '../../../workspace/common/basehalfMirrorCascadeOperation.js';
+import { baseHalfUpdateCanvasViewportsForStructuralChange } from '../../../upkeep/common/basehalfMirrorCascadeOperation.js';
 
 suite('BaseHalfCanvasViewportState', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();

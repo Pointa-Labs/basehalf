@@ -10,7 +10,7 @@ import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
-import { BASEHALF_PLAYHEAD_STEP_SECONDS, baseHalfVideoPlayIcon, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { BASEHALF_PLAYHEAD_STEP_SECONDS, baseHalfVideoPlayIcon, IBaseHalfVideoPlayer } from '../../playback/browser/basehalfVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { BASEHALF_ZOOM_REST_MS } from '../../cardDetail/common/basehalfCardDetailZoom.js';
 import { BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
@@ -40,7 +40,7 @@ import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
 export interface IBaseHalfVideoFrameViewerOptions {
 	/** The original of an edited video, or the video, read from the copy that the editor reads. */
 	readonly video: IBaseHalfEditVideo;
-	readonly player: IBaseHalfCanvasCardVideoPlayer;
+	readonly player: IBaseHalfVideoPlayer;
 	/** The element that holds the player and the viewer: I and O work anywhere in it. */
 	readonly stage: HTMLElement;
 	/** The choices that the viewer starts with: those of the edit before. */

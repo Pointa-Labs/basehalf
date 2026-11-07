@@ -38,20 +38,20 @@ import {
 	parseBaseHalfCanvasTemplate
 } from '../common/basehalfCanvasTemplate.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvasTemplateRegistry.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { baseHalfIsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationInfo } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfVideoInitialGeneration } from '../../video/common/basehalfVideoCatalog.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
-import { IBaseHalfKeptVersionsService } from '../../workspace/browser/basehalfKeptVersions.js';
+import { IBaseHalfKeptVersionsService } from '../../upkeep/browser/basehalfKeptVersions.js';
 import { COPY_PATH_COMMAND_ID, COPY_RELATIVE_PATH_COMMAND_ID, REVEAL_IN_EXPLORER_COMMAND_ID } from '../../../contrib/files/browser/fileConstants.js';
 import { IFilesConfiguration, UndoConfirmLevel } from '../../../contrib/files/common/files.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 export const BASEHALF_CANVAS_CARD_CONTEXT_MENU = MenuId.for('BaseHalfCanvasCardContext');
 export const BASEHALF_CANVAS_PANE_CONTEXT_MENU = MenuId.for('BaseHalfCanvasPaneContext');

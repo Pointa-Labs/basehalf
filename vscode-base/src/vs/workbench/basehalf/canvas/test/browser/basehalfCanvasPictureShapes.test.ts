@@ -8,7 +8,7 @@ import { DeferredPromise } from '../../../../../base/common/async.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfCanvasMediaUrl, baseHalfCanvasMediaVersionQuery } from '../../browser/basehalfCanvasCardMedia.js';
+import { baseHalfMediaUrl, baseHalfMediaVersionQuery } from '../../../playback/browser/basehalfMediaElements.js';
 import { BaseHalfCanvasPictureShapes, baseHalfCanvasPictureUrl, IBaseHalfCanvasPicture, IBaseHalfCanvasPictureMeasurer } from '../../browser/basehalfCanvasPictureShapes.js';
 
 suite('BaseHalfCanvasPictureShapes', () => {
@@ -65,7 +65,7 @@ suite('BaseHalfCanvasPictureShapes', () => {
 		const resource = URI.file('/workspace/photo.png');
 		const first = baseHalfCanvasPictureUrl({ resource, version: '1-10' });
 		const second = baseHalfCanvasPictureUrl({ resource, version: '2-20' });
-		const card = baseHalfCanvasMediaUrl(resource.with({ query: baseHalfCanvasMediaVersionQuery({ mtime: 2, size: 20 }) }));
+		const card = baseHalfMediaUrl(resource.with({ query: baseHalfMediaVersionQuery({ mtime: 2, size: 20 }) }));
 		assert.deepStrictEqual({ apart: first !== second, version: new URL(second).searchParams.get('basehalfCanvasVersion'), card: card === second }, { apart: true, version: '2-20', card: true });
 	});
 

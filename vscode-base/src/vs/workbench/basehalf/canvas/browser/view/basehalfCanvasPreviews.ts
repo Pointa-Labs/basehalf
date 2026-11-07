@@ -18,20 +18,20 @@ import {
 } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasMarkdownPreviewSource, BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES } from '../../common/basehalfCanvasPreview.js';
-import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../../cardDetail/common/basehalfContentRendering.js';
+import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../../workspace/common/basehalfContentRendering.js';
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { IBaseHalfCanvasPreviewHydrationBatch } from '../../common/basehalfCanvasPreviewHydration.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 import { BASEHALF_CANVAS_DRAFT_PREVIEW, BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfWorkspaceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
-import { baseHalfCanvasMediaVersionQuery } from '../basehalfCanvasCardMedia.js';
+import { baseHalfMediaVersionQuery } from '../../../playback/browser/basehalfMediaElements.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS } from '../basehalfCanvasPictureShapes.js';
 import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, badgeType, baseHalfBadgeResourceIdentity } from './basehalfCanvasViewShared.js';
 import { baseHalfCodePreviewLines, baseHalfCodePreviewLinesFor } from '../../common/basehalfCanvasCodePreview.js';
 import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
 import { PLAINTEXT_LANGUAGE_ID } from '../../../../../editor/common/languages/modesRegistry.js';
+import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 /** An excerpt shows the first lines of a file, so only its head is read, whatever its size. */
 const CARD_EXCERPT_READ_BYTES = 8192;
@@ -148,7 +148,7 @@ export class BaseHalfCanvasPreviews {
 		}
 		// The face of a PDF or a book draws its cover, which is made from the file's version.
 		const resource = mediaKind === 'pdf' || mediaKind === 'book' ? item.stat.resource : item.stat.resource.with({
-			query: baseHalfCanvasMediaVersionQuery(item.stat)
+			query: baseHalfMediaVersionQuery(item.stat)
 		});
 		return { kind: 'media', text: MEDIA_LABELS[mediaKind], mediaKind, resource };
 	}

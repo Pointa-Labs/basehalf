@@ -28,13 +28,12 @@ import { IBaseHalfAdhdMirrorService } from '../../markdown/common/basehalfAdhdMi
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfUpstreamStoreCanRebuild } from '../common/basehalfCanvasUpstream.js';
 import { IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { baseHalfMarkdownRichDocumentKey } from '../../markdown/common/basehalfMarkdownRichLiveDocument.js';
 import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, BaseHalfMirrorSymbolicLinkError } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfPlainFailureReason, baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfPlainFailureReason, baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
 import {
@@ -85,6 +84,7 @@ import {
 	readBaseHalfSidecarUpstream
 } from '../common/basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 const SIDECAR_MAX_BYTES = 64 * 1024;
 const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });

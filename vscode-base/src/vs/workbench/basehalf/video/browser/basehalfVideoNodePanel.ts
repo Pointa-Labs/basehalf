@@ -27,7 +27,7 @@ import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCa
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import {
 	BASEHALF_VIDEO_IMAGE_FORMATS,
@@ -52,7 +52,6 @@ import {
 } from '../common/basehalfVideoCatalog.js';
 import {
 	BaseHalfVideoGenerationError,
-	IBaseHalfDraftOperations,
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
 	IBaseHalfGenerationCardStore,
@@ -91,7 +90,7 @@ import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
 import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from './basehalfGenerationVoiceMenu.js';
 import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
-import { baseHalfCanvasMediaUrlAt, baseHalfCanvasMediaVersion } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { baseHalfMediaUrlAt, baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
 import { BaseHalfTransfer, IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
 import { baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
 import { BaseHalfTransferPart, baseHalfTransferParts } from '../../clipboard/browser/basehalfTransferFiles.js';
@@ -101,6 +100,7 @@ import {
 	IBaseHalfVideoPanelRect,
 	resolveBaseHalfVideoPanelMenuPlacement
 } from '../common/basehalfVideoNodePanelPlacement.js';
+import { IBaseHalfDraftOperations } from '../../upkeep/common/basehalfDraftOperations.js';
 
 /**
  * What the panel needs from the canvas. The workbench implements it.
@@ -2184,7 +2184,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		try {
 			const [stat, drafts] = await Promise.all([this.fileService.resolve(folder), this.store.listDrafts(folder)]);
 			const entries = [
-				...(stat.children ?? []).filter(child => !child.isDirectory).map(child => ({ name: child.name, file: child.resource as URI | undefined, version: baseHalfCanvasMediaVersion(child) as string | undefined })),
+				...(stat.children ?? []).filter(child => !child.isDirectory).map(child => ({ name: child.name, file: child.resource as URI | undefined, version: baseHalfMediaVersion(child) as string | undefined })),
 				...drafts.map(draft => ({ name: draft.name, file: undefined, version: undefined }))
 			];
 			for (const entry of entries) {
@@ -2679,7 +2679,7 @@ const EMPTY_CANVAS_CARDS: readonly IBaseHalfReferenceMenuKindList[] = Object.fre
 
 /** The picture of an image the window can show, at its file's version; a video and audio have their glyph. */
 function pictureOf(kind: BaseHalfReferenceMenuKind, file: URI | undefined, version: string | undefined): { readonly picture?: string } {
-	return kind === 'image' && file ? { picture: baseHalfCanvasMediaUrlAt(file, version) } : {};
+	return kind === 'image' && file ? { picture: baseHalfMediaUrlAt(file, version) } : {};
 }
 
 /** The kinds of input the reference menu lists: images, videos, sounds, and notes. */

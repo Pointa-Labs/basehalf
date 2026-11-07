@@ -19,7 +19,7 @@ import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCan
 import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfMirrorRoot } from '../../../workspace/common/basehalfMirrorTree.js';
-import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../../upkeep/common/basehalfMovedItemsService.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
 import {
 	IBaseHalfVideoCheckRequest,
@@ -30,10 +30,11 @@ import {
 	IBaseHalfVideoVoicePreviewRequest,
 	IBaseHalfVideoVoicesRequest
 } from '../../common/basehalfVideoCatalog.js';
-import { IBaseHalfDraftMoveOptions, IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationTaskStore } from '../../common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationTaskStore } from '../../common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditOptions, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfReferenceStoreResult } from '../../../references/common/basehalfReferenceEdit.js';
 import { baseHalfSidecarUpstreamText, baseHalfUpstreamSidecarResource } from '../../../references/common/basehalfReferenceStore.js';
 import { ACME, BOREALIS } from '../common/basehalfVideoCatalogFixture.js';
+import { IBaseHalfDraftMoveOptions, IBaseHalfDraftOperations, IBaseHalfDraftSnapshot } from '../../../upkeep/common/basehalfDraftOperations.js';
 
 /** The first bytes of an MP4: a `ftyp` box. */
 export const FAKE_MP4 = VSBuffer.wrap(Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32]));

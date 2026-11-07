@@ -70,7 +70,7 @@ import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { baseHalfNoteFileFailure, baseHalfNoteStoresAbove, IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';

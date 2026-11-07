@@ -14,7 +14,7 @@ import { baseHalfCanvasTidy } from '../../../canvas/common/basehalfCanvasArrange
 import { IBaseHalfCanvasCard } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 
 /** The question after a tidy, and what it needs to put the cards back. */
 interface IBaseHalfCanvasTidyQuestion {

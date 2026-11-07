@@ -9,10 +9,10 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { SourceTargetPair } from '../../../services/workingCopy/common/workingCopyFileService.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfWalkMirror } from '../../workspace/common/basehalfMirrorTree.js';
 import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, baseHalfGenerationKindOfPath } from '../common/basehalfGenerationInfo.js';
 import { IBaseHalfGenerationCardStore } from '../common/basehalfVideoGeneration.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 export interface IBaseHalfGenerationCardCopyServices {
 	readonly fileService: IFileService;

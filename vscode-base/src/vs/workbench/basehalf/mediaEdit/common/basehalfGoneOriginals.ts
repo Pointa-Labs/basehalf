@@ -8,10 +8,10 @@ import { basename, dirname, joinPath } from '../../../../base/common/resources.j
 import { URI } from '../../../../base/common/uri.js';
 import { FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorPathSegments, baseHalfWalkMirror } from '../../workspace/common/basehalfMirrorTree.js';
 import { BASEHALF_EDIT_RECORD_FILE, baseHalfIsEditOriginalName, parseBaseHalfEditRecord } from './basehalfEditRecord.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 /** How long an original stays while its file is gone (editing media, "When the file is gone"). */
 export const BASEHALF_GONE_ORIGINAL_MS = 30 * 24 * 60 * 60 * 1000;

@@ -101,7 +101,7 @@ import { installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from './notePa
 import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
-import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
+import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/ui/browser/basehalfSidewaysScrollbar.js';
 import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteZoom } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoom.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings, openBaseHalfNoteTogglesAround } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';

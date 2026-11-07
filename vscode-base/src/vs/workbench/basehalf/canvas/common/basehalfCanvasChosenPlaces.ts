@@ -10,8 +10,8 @@ import { IBaseHalfCanvasMirrorService } from './basehalfCanvasMirror.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from './basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 /** What following moved items knows about the items of a workspace folder. */
 export interface IBaseHalfCanvasPlacesMovedItems {

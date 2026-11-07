@@ -39,7 +39,6 @@ import {
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasItem
 } from '../../common/basehalfCanvasModel.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
 import { BaseHalfTransfer } from '../../../clipboard/common/basehalfClipboard.js';
 import { baseHalfDragHoldsFilesItems, baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../../clipboard/browser/basehalfTransfer.js';
 import { BaseHalfCopiedNoteText, BaseHalfTransferContent, baseHalfWriteTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
@@ -49,12 +48,13 @@ import { planBaseHalfMarkdownUpstreamEdit } from '../../../references/common/bas
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, isBaseHalfCanvasDraftCreateKind } from '../../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
-import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { baseHalfDocumentBranchBaseName, baseHalfDocumentBranchMarkdown, IBaseHalfDocumentSelection } from '../../../documents/common/basehalfDocumentBranch.js';
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasTargetTakesOwnTransfer, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget, baseHalfCanvasMoveTarget } from './basehalfCanvasViewShared.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfSourceTreeMarker.js';
+import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension } from '../../../workspace/common/basehalfItems.js';
 
 /**
  * Making things on the canvas: the inline editors that name a new item or

@@ -7,7 +7,7 @@ import { getWindows, onDidRegisterWindow } from '../../../../base/browser/dom.js
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { setupBaseHalfHovers } from './basehalfHover.js';
+import { setupBaseHalfHovers } from '../../ui/browser/basehalfHover.js';
 
 /** Every window shows the hovers that BaseHalf's elements ask for with their attribute. */
 class BaseHalfHoverContribution extends Disposable implements IWorkbenchContribution {

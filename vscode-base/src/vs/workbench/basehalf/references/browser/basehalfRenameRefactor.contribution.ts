@@ -16,9 +16,8 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../../services/workingCopy/common/workingCopyFileService.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfComposeOwedEntryMoves, IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove } from '../../workspace/common/basehalfMovedItemsService.js';
+import { baseHalfComposeOwedEntryMoves, IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfReferenceRefusalReason } from '../common/basehalfReferenceEdit.js';
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
@@ -34,6 +33,7 @@ import {
 	IBaseHalfRenameStore
 } from '../common/basehalfRenameRefactor.js';
 import { IBaseHalfReferenceRefactorInput, IBaseHalfReferenceRefactorOutcome, IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 const SIDECAR_MAX_BYTES = 64 * 1024;
 /** How long an update that a move interrupted waits for moves in progress to finish. */

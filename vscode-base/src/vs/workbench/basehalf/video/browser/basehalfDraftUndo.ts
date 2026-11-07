@@ -11,7 +11,8 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { baseHalfGenerationInfoChangedFields, IBaseHalfGenerationInfo } from '../common/basehalfGenerationInfo.js';
-import { IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationCardSnapshot } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationCardSnapshot } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfDraftOperations, IBaseHalfDraftSnapshot } from '../../upkeep/common/basehalfDraftOperations.js';
 
 /** What the steps of drafts on the canvas undo stack need. */
 export interface IBaseHalfDraftUndoServices {

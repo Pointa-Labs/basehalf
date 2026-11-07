@@ -46,8 +46,6 @@ import {
 } from '../../common/basehalfVideoCatalog.js';
 import {
 	BaseHalfVideoGenerationError,
-	IBaseHalfDraftOperations,
-	IBaseHalfDraftSnapshot,
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardEntry,
 	IBaseHalfGenerationCardSnapshot,
@@ -65,6 +63,7 @@ import { IBaseHalfGenerationVoiceService, IBaseHalfVoices, IBaseHalfVoiceSample,
 import { formatBaseHalfProvidersPageInput } from '../../common/basehalfVideoProviderSettings.js';
 import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { IBaseHalfDraftOperations, IBaseHalfDraftSnapshot } from '../../../upkeep/common/basehalfDraftOperations.js';
 
 const WORKSPACE = URI.file('/workspace');
 const NODE_PATH = 'shots/shot.mp4';

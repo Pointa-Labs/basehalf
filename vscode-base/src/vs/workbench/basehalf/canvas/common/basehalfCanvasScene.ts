@@ -7,6 +7,7 @@ import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind
 import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
 import type { BaseHalfCanvasDropFolder } from './basehalfCanvasFolderDrop.js';
 import type { BaseHalfMarkdownFormatCommand, IBaseHalfMarkdownFormatState } from '../../markdown/common/basehalfMarkdownFormatting.js';
+import type { BaseHalfGenerationToolbarAction } from '../../video/common/basehalfVideoCardPresentation.js';
 
 export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
 export const BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT = 'basehalf-note-format-state';
@@ -42,17 +43,10 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 	readonly height: number;
 }
 
-/**
- * The actions of the toolbar above a selected generation card with its file
- * (generation cards, "The toolbar"): Reveal and Open, and Capture Frame for a
- * video. A draft has no toolbar (D71).
- */
-export type BaseHalfCanvasSceneVideoAction = 'captureFrame' | 'revealVideo' | 'openFullPreview';
-
 /** The frame that Capture Frame takes: the first, the one the card's player shows, or the last. */
 export type BaseHalfCanvasSceneVideoFrame = 'first' | 'current' | 'last';
 
-const BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER: readonly BaseHalfCanvasSceneVideoAction[] = Object.freeze([
+const BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER: readonly BaseHalfGenerationToolbarAction[] = Object.freeze([
 	'captureFrame',
 	'revealVideo',
 	'openFullPreview'
@@ -60,8 +54,8 @@ const BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER: readonly BaseHalfCanvasSceneVid
 
 /** The actions of the toolbar of a selected generation card, each once, in the toolbar's order. */
 export function baseHalfCanvasSceneVideoSelectionActions(
-	actions: readonly BaseHalfCanvasSceneVideoAction[]
-): readonly BaseHalfCanvasSceneVideoAction[] {
+	actions: readonly BaseHalfGenerationToolbarAction[]
+): readonly BaseHalfGenerationToolbarAction[] {
 	const advertised = new Set(actions);
 	return Object.freeze(BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER.filter(action => advertised.has(action)));
 }
@@ -78,7 +72,7 @@ export type BaseHalfCanvasSceneCardControls =
 	| {
 		/** A generation card, of an image, a video, or a sound: the panel goes beside it. */
 		readonly kind: 'video';
-		readonly actions: readonly BaseHalfCanvasSceneVideoAction[];
+		readonly actions: readonly BaseHalfGenerationToolbarAction[];
 		/** What the card makes, so that its toolbar is named for an image, a video, or a sound. A video when absent. */
 		readonly media?: 'image' | 'video' | 'audio';
 	};
@@ -387,7 +381,7 @@ export interface IBaseHalfCanvasSceneDelegate {
 	setNoteBackground(sceneKey: string, structuralEpoch: number, path: string, background: BaseHalfCanvasNoteBackground): Promise<void>;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
 	/** Runs a toolbar action of a selected Video card. Capture Frame names the frame it takes. */
-	invokeVideoAction(sceneKey: string, structuralEpoch: number, path: string, action: BaseHalfCanvasSceneVideoAction, anchor: HTMLElement, frame?: BaseHalfCanvasSceneVideoFrame): Promise<void>;
+	invokeVideoAction(sceneKey: string, structuralEpoch: number, path: string, action: BaseHalfGenerationToolbarAction, anchor: HTMLElement, frame?: BaseHalfCanvasSceneVideoFrame): Promise<void>;
 	showCreateMenu(sceneKey: string, structuralEpoch: number, position: { readonly x: number; readonly y: number }): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;

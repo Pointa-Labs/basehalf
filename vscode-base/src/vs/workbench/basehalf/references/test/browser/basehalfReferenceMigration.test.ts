@@ -33,11 +33,11 @@ import { ISearchService } from '../../../../services/search/common/search.js';
 import { IWorkingCopyFileService } from '../../../../services/workingCopy/common/workingCopyFileService.js';
 import { workbenchInstantiationService } from '../../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
-import { BaseHalfMirrorCascadeContribution } from '../../../workspace/browser/basehalfMirrorCascade.contribution.js';
-import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
-import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
-import { BaseHalfDraftOperations } from '../../../workspace/browser/basehalfDraftOperations.js';
-import { BaseHalfRecordingGenerationTaskStore } from '../../../workspace/test/browser/basehalfGenerationTaskStoreFake.js';
+import { BaseHalfMirrorCascadeContribution } from '../../../upkeep/browser/basehalfMirrorCascade.contribution.js';
+import { IBaseHalfMovedItemsService } from '../../../upkeep/common/basehalfMovedItemsService.js';
+import { IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { BaseHalfDraftOperations } from '../../../upkeep/browser/basehalfDraftOperations.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../video/test/browser/basehalfGenerationTaskStoreFake.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceMigrationController } from '../../browser/basehalfReferenceMigration.contribution.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../../markdown/common/basehalfAdhdMirror.js';
@@ -61,6 +61,7 @@ import {
 } from '../../common/basehalfReferenceMigration.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfInMemoryFileSearchService, baseHalfNoMovedItems } from './basehalfReferenceTestFixtures.js';
+import { IBaseHalfDraftOperations } from '../../../upkeep/common/basehalfDraftOperations.js';
 
 const folder = URI.file('/work');
 const recordPath = `.bh/${BASEHALF_LEGACY_REFERENCES_RECORD_FILE_NAME}`;

@@ -9,7 +9,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { baseHalfCanvasNotePartSource, BASEHALF_CANVAS_NOTE_PART_LENGTH, IBaseHalfCanvasNoteParts, planBaseHalfCanvasNoteParts } from '../common/basehalfCanvasPreview.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasStoredMarkdown } from './basehalfCanvasMarkdownInlineEditor.js';
-import { playBaseHalfNoteMedia } from './basehalfCanvasNoteMedia.js';
+import { playBaseHalfNoteMedia } from '../../playback/browser/basehalfNoteMedia.js';
 
 /** The class of the element that holds one built part. It takes no box of its own. */
 export const BASEHALF_CANVAS_NOTE_PART_CLASS = 'bh-md-part';

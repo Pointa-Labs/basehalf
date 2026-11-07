@@ -18,7 +18,7 @@ import { InMemoryFileSystemProvider } from '../../../../../platform/files/common
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { testWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
-import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../../upkeep/common/basehalfMovedItemsService.js';
 import { BASEHALF_NOTE_FILE_RESCAN_MS, BaseHalfNoteFileRetentionContribution } from '../../browser/basehalfNoteFileRetention.contribution.js';
 import { BASEHALF_NOTE_FILE_RELEASE_MS } from '../../common/basehalfNoteFileRetention.js';
 

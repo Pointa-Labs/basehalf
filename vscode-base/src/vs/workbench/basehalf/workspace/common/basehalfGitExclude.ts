@@ -7,7 +7,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { isEqualOrParent, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
-import { baseHalfIsWorkspaceFolderMarked } from './basehalfLegacyCleanup.js';
+import { baseHalfIsWorkspaceFolderMarked } from './basehalfSourceTreeMarker.js';
 
 // The files the system makes by itself stay out of git, by a rule only this
 // repository on this computer has (Git/SCM/GitHub/GitGraph, "Files The System

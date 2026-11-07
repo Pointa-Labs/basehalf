@@ -10,7 +10,7 @@ import { IBaseHalfCanvasBounds, IBaseHalfCanvasCard } from '../../common/basehal
 import { IBaseHalfCanvasCardStateTransition, IBaseHalfCanvasEdgeStateTransition, IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport } from '../../common/basehalfCanvasViewportState.js';
-import { baseHalfUserFacingErrorMessage } from '../../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../../workspace/common/basehalfPlainFailureReason.js';
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
 import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';

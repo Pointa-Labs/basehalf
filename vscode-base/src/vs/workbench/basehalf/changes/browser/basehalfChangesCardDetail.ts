@@ -35,7 +35,7 @@ import { IBaseHalfCardDetailSurfaceInstance } from '../../cardDetail/browser/bas
 import { BaseHalfCardDetailSaveState, BaseHalfTextFileSaving } from '../../cardDetail/browser/basehalfTextFileSaving.js';
 import { BASEHALF_NOTE_COPY_SOURCE } from '../../markdown/common/basehalfNoteFileLinks.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { BASEHALF_CHANGES_PROJECTION_ID, BASEHALF_LARGEST_COMPARED_VERSION_BYTES, BaseHalfChangesViewShownContext, IBaseHalfFileChange, IBaseHalfFileChangesService } from '../common/basehalfFileChanges.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IBaseHalfFilePlacesService } from '../../cardDetail/common/basehalfFilePlaces.js';

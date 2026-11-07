@@ -17,7 +17,7 @@ import { createKeyedMutex } from '../../workspace/common/basehalfKeyedMutex.js';
 import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes, IBaseHalfMirrorPreservedEvent } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfWalkMirror } from '../../workspace/common/basehalfMirrorTree.js';
-import { baseHalfPlainFailureReason } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfPlainFailureReason } from '../../workspace/common/basehalfPlainFailureReason.js';
 import {
 	baseHalfMirrorPathNamesNode,
 	BaseHalfMirrorWriteRejected,

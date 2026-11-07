@@ -33,8 +33,6 @@ import {
 import {
 	baseHalfGenerationGeneratingInputsRefusal,
 	baseHalfGenerationMadeInputsRefusal,
-	IBaseHalfDraftOperations,
-	IBaseHalfDraftSnapshot,
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardStore,
 	IBaseHalfGenerationInputChange,
@@ -45,6 +43,7 @@ import {
 import { BaseHalfDraftUndoChange, BaseHalfDraftUndoElement, IBaseHalfDraftUndoServices } from './basehalfDraftUndo.js';
 import { createBaseHalfNewVersion } from './basehalfGenerationNewVersion.js';
 import { baseHalfParentCanvasFolder } from './basehalfGenerationPlacement.js';
+import { IBaseHalfDraftOperations, IBaseHalfDraftSnapshot } from '../../upkeep/common/basehalfDraftOperations.js';
 
 /** How long a new draft waits for a catalog that is still on its way, to know its model's format. */
 const CATALOG_WAIT_MS = 2000;

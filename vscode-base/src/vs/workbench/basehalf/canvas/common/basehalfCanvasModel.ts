@@ -6,8 +6,9 @@
 import { basename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileStat } from '../../../../platform/files/common/files.js';
-import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
+import { baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
 import type { BaseHalfGenerationKind } from '../../video/common/basehalfGenerationInfo.js';
+import { isBaseHalfCanvasEntry } from '../../workspace/common/basehalfItems.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;
 export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH = 300;
@@ -36,36 +37,6 @@ export const BASEHALF_CANVAS_DEFAULT_HEIGHT = 1600;
 export const BASEHALF_CANVAS_GRID_COLUMN_GAP = 40;
 export const BASEHALF_CANVAS_GRID_ROW_GAP = 60;
 const BASEHALF_CANVAS_DEFAULT_PADDING = 96;
-
-const SKIP_NAMES = new Set([
-	'.git',
-	'.bh',
-	'.DS_Store',
-	'Thumbs.db',
-	'.idea',
-	'.vscode',
-	'.turbo',
-	'.next',
-	'.nuxt',
-	'.svelte-kit',
-	'node_modules',
-	'dist',
-	'build',
-	'out',
-	'__pycache__',
-	'.pytest_cache',
-	'target',
-	'vendor'
-]);
-
-const HIDDEN_FILE_NAMES = new Set([
-	'.DS_Store',
-	'Thumbs.db',
-	'desktop.ini'
-]);
-
-const AGENT_HINT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
-
 export type BaseHalfCanvasItemKind = 'file' | 'folder';
 export type BaseHalfCanvasAnchor = 'north' | 'east' | 'south' | 'west';
 
@@ -275,67 +246,6 @@ export interface IBaseHalfCanvasModelOptions {
 	 * removes them, so their places are open for a card that appears.
 	 */
 	readonly released?: ReadonlySet<string>;
-}
-
-export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): boolean {
-	const name = basename(stat.resource);
-	if (stat.isDirectory) {
-		return !SKIP_NAMES.has(name);
-	}
-
-	if (!stat.isFile) {
-		return false;
-	}
-
-	if (rootLevel && AGENT_HINT_FILES.has(name)) {
-		return false;
-	}
-
-	return !HIDDEN_FILE_NAMES.has(name);
-}
-
-/**
- * Whether the canvas could show the item at `relativePath` below a workspace
- * folder: every segment of the path is one the canvas shows as a card.
- */
-export function baseHalfIsCanvasEligiblePath(workspaceFolder: URI, relativePath: string, isDirectory: boolean): boolean {
-	const segments = relativePath.split('/');
-	let current = workspaceFolder;
-	for (let position = 0; position < segments.length; position++) {
-		current = URI.joinPath(current, segments[position]);
-		const directory = position < segments.length - 1 || isDirectory;
-		const stat: IFileStat = { resource: current, name: segments[position], isFile: !directory, isDirectory: directory, isSymbolicLink: false, children: undefined };
-		if (!isBaseHalfCanvasEntry(stat, position === 0)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-/** Directory names the canvas never shows as cards (and never walks into). */
-export const BASEHALF_CANVAS_SKIP_NAMES: ReadonlySet<string> = SKIP_NAMES;
-
-/**
- * Whether every segment of a workspace-relative path is one the canvas could
- * show as a card, by name alone (the same rules as {@link isBaseHalfCanvasEntry}).
- */
-export function isBaseHalfCanvasPathEligible(relativePath: string, isDirectory: boolean): boolean {
-	if (!relativePath) {
-		return false;
-	}
-	const segments = relativePath.split('/');
-	return segments.every((name, index) => {
-		if (!name) {
-			return false;
-		}
-		if (index < segments.length - 1 || isDirectory) {
-			return !SKIP_NAMES.has(name);
-		}
-		if (index === 0 && AGENT_HINT_FILES.has(name)) {
-			return false;
-		}
-		return !HIDDEN_FILE_NAMES.has(name);
-	});
 }
 
 export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHalfCanvasModelOptions): IBaseHalfCanvasFolderModel {

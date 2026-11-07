@@ -13,7 +13,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
-import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
+import { baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
 import { baseHalfIsUnderBhFolder } from '../../workspace/common/basehalfBhFolder.js';
 import { ISCMRepository, ISCMResource, ISCMService } from '../../../contrib/scm/common/scm.js';
 

@@ -30,9 +30,8 @@ import {
 } from '../../common/basehalfCanvasModel.js';
 import { baseHalfMirrorRoot } from '../../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX } from '../../../shell/common/basehalfConfiguration.js';
-import { baseHalfUserFacingErrorMessage } from '../../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../../workspace/common/basehalfPlainFailureReason.js';
 import { IBaseHalfGenerationCardEntry } from '../../../video/common/basehalfVideoGeneration.js';
 import { baseHalfVideoChoiceRatio, IBaseHalfVideoCatalog } from '../../../video/common/basehalfVideoCatalog.js';
 import { IBaseHalfCanvasPicture } from '../basehalfCanvasPictureShapes.js';
@@ -40,6 +39,7 @@ import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHa
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, IBaseHalfCanvasCardRenderCacheEntry, baseHalfBadgeResourceIdentity, baseHalfCanvasLayoutNotice, baseHalfCanvasSceneEdgeId, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasRetainedCardChromeIsStale } from './basehalfCanvasViewShared.js';
+import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 /**
  * The longest the canvas waits with a redraw for items that are being

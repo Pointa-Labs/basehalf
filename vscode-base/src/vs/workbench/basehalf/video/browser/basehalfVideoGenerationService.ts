@@ -28,7 +28,7 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
-import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { baseHalfIsDraftInformation, baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import {
@@ -116,7 +116,6 @@ import {
 	baseHalfGenerationMissingFileMessage,
 	BaseHalfVideoGenerationError,
 	BaseHalfVideoGenerationPhase,
-	IBaseHalfDraftOperations,
 	IBaseHalfGenerateOptions,
 	IBaseHalfGenerationCardSnapshot,
 	IBaseHalfGenerationCardStore,
@@ -130,6 +129,7 @@ import {
 import { BaseHalfDraftUndoElement } from './basehalfDraftUndo.js';
 import { createBaseHalfNewVersion } from './basehalfGenerationNewVersion.js';
 import { BASEHALF_GENERATION_CARD_SIZE, baseHalfParentCanvasFolder, placeBaseHalfCardsBeside } from './basehalfGenerationPlacement.js';
+import { IBaseHalfDraftOperations } from '../../upkeep/common/basehalfDraftOperations.js';
 
 /** The first question to the provider comes this long after it accepted the task. */
 export const BASEHALF_VIDEO_FIRST_POLL_DELAY = 3_000;

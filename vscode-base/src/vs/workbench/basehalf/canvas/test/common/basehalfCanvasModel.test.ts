@@ -36,10 +36,9 @@ import {
 	baseHalfCanvasTransferPlaces,
 	baseHalfCanvasTransferPosition,
 	IBaseHalfCanvasCard,
-	IBaseHalfCanvasItemRelationships,
-	isBaseHalfCanvasEntry,
-	isBaseHalfCanvasPathEligible
+	IBaseHalfCanvasItemRelationships
 } from '../../common/basehalfCanvasModel.js';
+import { isBaseHalfCanvasEntry, isBaseHalfCanvasPathEligible } from '../../../workspace/common/basehalfItems.js';
 
 suite('BaseHalfCanvasModel', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

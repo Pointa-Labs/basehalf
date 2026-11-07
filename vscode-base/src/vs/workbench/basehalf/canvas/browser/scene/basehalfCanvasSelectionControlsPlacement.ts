@@ -7,13 +7,14 @@ import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfigur
 import {
 	baseHalfCanvasSceneVideoSelectionActions,
 	IBaseHalfCanvasSceneViewport,
-	BaseHalfCanvasSceneVideoAction,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT
 } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfVideoPanelSide, IBaseHalfVideoPanelLayout, resolveBaseHalfVideoPanelPlacement } from '../../../video/common/basehalfVideoNodePanelPlacement.js';
+import { BaseHalfGenerationToolbarAction } from '../../../video/common/basehalfVideoCardPresentation.js';
+
 const SELECTION_TOOLBAR_SCREEN_GAP = 10;
 const SELECTION_TOOLBAR_SCREEN_HEIGHT = 36;
 const SELECTION_TOOLBAR_SCREEN_MARGIN = 8;
@@ -150,7 +151,7 @@ export function resolveBaseHalfCanvasVideoSelectionPlacement(
 	};
 }
 
-export function baseHalfCanvasVideoToolbarWidth(actions: readonly BaseHalfCanvasSceneVideoAction[]): number {
+export function baseHalfCanvasVideoToolbarWidth(actions: readonly BaseHalfGenerationToolbarAction[]): number {
 	const canonicalActions = baseHalfCanvasSceneVideoSelectionActions(actions);
 	if (canonicalActions.length === 0) {
 		return 0;

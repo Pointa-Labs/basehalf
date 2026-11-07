@@ -6,7 +6,6 @@
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import type { VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
-import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import {
 	BASEHALF_GENERATION_MOST_FILES,
 	baseHalfDefaultModeId,
@@ -64,6 +63,7 @@ import {
 import { buildBaseHalfPromptParts } from './basehalfGenerationMentions.js';
 import { baseHalfGenerationChoice, IBaseHalfGenerationInfo } from './basehalfGenerationInfo.js';
 import { baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
+import { baseHalfItemDisplayName } from '../../workspace/common/basehalfItems.js';
 
 /**
  * Everything the panel under a selected generation card draws (D63, D64,

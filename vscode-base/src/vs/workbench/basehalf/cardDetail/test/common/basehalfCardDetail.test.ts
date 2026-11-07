@@ -6,7 +6,8 @@
 import * as assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { BaseHalfCardProjectionRegistryService, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, defaultBaseHalfCardDetailProjection, isBaseHalfMarkdownResource, isBaseHalfMediaResource, normalizeBaseHalfCardDetailProjection } from '../../common/basehalfCardDetail.js';
+import { BaseHalfCardProjectionRegistryService, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, defaultBaseHalfCardDetailProjection, normalizeBaseHalfCardDetailProjection } from '../../common/basehalfCardDetail.js';
+import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource, isBaseHalfMediaResource } from '../../../workspace/common/basehalfItems.js';
 
 suite('BaseHalfCardDetail', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

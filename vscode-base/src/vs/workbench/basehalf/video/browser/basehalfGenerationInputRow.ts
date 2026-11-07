@@ -11,7 +11,7 @@ import { Disposable, DisposableStore, toDisposable } from '../../../../base/comm
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
-import { baseHalfCanvasMediaUrlAt } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { baseHalfMediaUrlAt } from '../../playback/browser/basehalfMediaElements.js';
 import { BaseHalfVideoInputKind } from '../common/basehalfVideoCatalog.js';
 
 /** One input of the row (generation cards, "The panel", D68). */
@@ -417,7 +417,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			sound.preload = 'metadata';
 			sound.setAttribute('aria-hidden', 'true');
 			length(sound);
-			sound.src = baseHalfCanvasMediaUrlAt(tile.file, tile.fileVersion);
+			sound.src = baseHalfMediaUrlAt(tile.file, tile.fileVersion);
 			store.add(toDisposable(() => {
 				sound.removeAttribute('src');
 				sound.load();
@@ -428,7 +428,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			glyph();
 			return;
 		}
-		const source = baseHalfCanvasMediaUrlAt(tile.file, tile.fileVersion);
+		const source = baseHalfMediaUrlAt(tile.file, tile.fileVersion);
 		if (tile.kind === 'image') {
 			const image = append(container, $<HTMLImageElement>('img'));
 			image.alt = '';

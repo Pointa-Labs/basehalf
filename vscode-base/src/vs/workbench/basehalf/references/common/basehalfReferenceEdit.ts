@@ -11,7 +11,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoRedoGroup, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { IBaseHalfUpstreamItemValue } from './basehalfReferenceEntries.js';
 import { BaseHalfUpstreamStoreKind, baseHalfUpstreamItemsEqual } from './basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';

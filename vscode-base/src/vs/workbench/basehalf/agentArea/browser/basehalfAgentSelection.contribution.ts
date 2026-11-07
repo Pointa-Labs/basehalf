@@ -34,10 +34,10 @@ import {
 } from '../common/basehalfAgentSelection.js';
 import { IBaseHalfAgentSkillService } from '../common/basehalfAgentSkill.js';
 import { BASEHALF_SHOW_AGENT_SKILL_OFFER_COMMAND_ID, IBaseHalfAgentSkillNotifier } from './basehalfAgentSkill.contribution.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
-import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
+import { renderBaseHalfItemGlyph } from '../../ui/browser/basehalfItemGlyph.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 export function baseHalfAgentSelectionResource(workspaceFolder: URI): URI {
 	return URI.joinPath(workspaceFolder, ...BASEHALF_AGENT_SELECTION_SEGMENTS);

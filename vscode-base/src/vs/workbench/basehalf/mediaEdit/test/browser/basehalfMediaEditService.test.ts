@@ -25,7 +25,7 @@ import { UndoRedoService } from '../../../../../platform/undoRedo/common/undoRed
 import { TestLifecycleService } from '../../../../test/common/workbenchTestServices.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../../canvas/common/basehalfCanvasEditing.js';
 import { baseHalfNoMovedItems } from '../../../references/test/browser/basehalfReferenceTestFixtures.js';
-import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../../upkeep/common/basehalfMovedItemsService.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfMediaEditService } from '../../browser/basehalfMediaEditService.js';
 import { parseBaseHalfEditRecord } from '../../common/basehalfEditRecord.js';

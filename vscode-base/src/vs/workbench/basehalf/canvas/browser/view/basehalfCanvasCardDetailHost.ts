@@ -18,7 +18,7 @@ import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/def
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction } from '../../common/basehalfCanvasEditing.js';
-import { BaseHalfCardDetailProjection, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
+import { BaseHalfCardDetailProjection, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfMarkdownPreviewCardDetail } from '../../../cardDetail/browser/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from '../../../cardDetail/browser/basehalfMarkdownRichCardDetail.js';
@@ -26,13 +26,14 @@ import { BaseHalfSourceCardDetail } from '../../../cardDetail/browser/basehalfSo
 import { BaseHalfChangesCardDetail } from '../../../changes/browser/basehalfChangesCardDetail.js';
 import { BaseHalfMediaChangesCardDetail } from '../../../changes/browser/basehalfMediaChangesCardDetail.js';
 import { BASEHALF_CHANGES_PROJECTION_ID } from '../../../changes/common/basehalfFileChanges.js';
-import { baseHalfRenderableContentKind } from '../../../cardDetail/common/basehalfContentRendering.js';
+import { baseHalfRenderableContentKind } from '../../../workspace/common/basehalfContentRendering.js';
 import { IBaseHalfCardDetailSurfaceInstance } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { BaseHalfMediaCardDetail } from '../../../cardDetail/browser/basehalfMediaCardDetail.js';
-import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 import { BaseHalfStructuralResourceOutcome } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS, BaseHalfCardDetailTransition } from './basehalfCanvasCardDetailTransition.js';
+import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 

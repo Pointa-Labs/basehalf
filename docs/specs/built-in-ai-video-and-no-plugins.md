@@ -255,7 +255,7 @@ Paths are under `vscode-base/` unless they start with a dot.
   in `cardDetail/common/basehalfCardDetail.ts`, and the capabilities agents
   read in `agentArea/common/basehalfAgentCapabilities.ts`. Project file
   transitions with their upstream guard are in
-  `workspace/common/basehalfProjectFileTransitions.ts`.
+  `upkeep/common/basehalfProjectFileTransitions.ts`.
 - The extension allowlist and the install policy:
   `basehalfAllowedExtensionsService.ts` and `basehalfExtensionInstallPolicy.ts`
   in `src/vs/workbench/basehalf/shell/common/`, beside the product profile

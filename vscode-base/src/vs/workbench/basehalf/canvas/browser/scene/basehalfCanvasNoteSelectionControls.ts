@@ -8,7 +8,7 @@ import './media/basehalfCanvasNoteToolbar.css';
 import './media/basehalfCanvasNoteSelectionControls.css';
 import { localize } from '../../../../../nls.js';
 import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
-import { BASEHALF_HOVER_ATTRIBUTE } from '../../../shell/common/basehalfHover.js';
+import { BASEHALF_HOVER_ATTRIBUTE } from '../../../ui/common/basehalfHover.js';
 import {
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,

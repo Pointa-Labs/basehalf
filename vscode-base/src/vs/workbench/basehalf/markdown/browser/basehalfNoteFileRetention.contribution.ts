@@ -13,7 +13,7 @@ import { FileSystemProviderCapabilities, IFileService } from '../../../../platfo
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { baseHalfReleaseUnmentionedNoteFiles } from '../common/basehalfNoteFileRetention.js';
 
 /** How often a window that stays open looks whether a folder's day has passed (files in notes, rule 37). */

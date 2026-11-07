@@ -17,13 +17,11 @@ import {
 	baseHalfCanvasGenerationCardSize,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasItem,
-	IBaseHalfCanvasItemRelationships,
-	isBaseHalfCanvasEntry
+	IBaseHalfCanvasItemRelationships
 } from '../../common/basehalfCanvasModel.js';
 import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
 import { baseHalfGenerationGeneratingInputsRefusal, baseHalfGenerationMadeInputsRefusal, IBaseHalfGenerationInputChange } from '../../../video/common/basehalfVideoGeneration.js';
 import { baseHalfCanvasResolveSiblingUpstream } from '../../../references/common/basehalfCanvasUpstream.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceStoreEdit } from '../../../references/common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexState, IBaseHalfUpstreamView } from '../../../references/common/basehalfReferenceIndex.js';
 import { baseHalfUpstreamStoreKind } from '../../../references/common/basehalfReferenceStore.js';
@@ -39,6 +37,8 @@ import {
 } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { baseHalfCanvasSceneEdgeId } from './basehalfCanvasViewShared.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfSourceTreeMarker.js';
+import { isBaseHalfCanvasEntry } from '../../../workspace/common/basehalfItems.js';
 
 /**
  * Connections on the canvas: reading them from the reference graph,

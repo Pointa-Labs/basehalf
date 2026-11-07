@@ -8,7 +8,7 @@ import { $, addDisposableListener, append } from '../../../../../base/browser/do
 import { Disposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
-import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 
 /**
  * The button among the canvas view controls that turns snapping on and off:

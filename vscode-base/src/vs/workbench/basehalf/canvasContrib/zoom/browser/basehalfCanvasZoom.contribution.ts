@@ -12,7 +12,7 @@ import { localize } from '../../../../../nls.js';
 import { IContextViewDelegate, IContextViewService } from '../../../../../platform/contextview/browser/contextView.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
-import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 
 /**
  * The zoom of the canvas among its view controls: a button that shows the

@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import type { BaseHalfCanvasSceneVideoAction } from '../../canvas/common/basehalfCanvasScene.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationTask, IBaseHalfGenerationTaskCard, isBaseHalfGenerationTaskEnded } from './basehalfGenerationInfo.js';
 import type { BaseHalfVideoGenerationPhase, IBaseHalfVideoGenerationProgress } from './basehalfVideoGeneration.js';
 
@@ -199,14 +198,21 @@ export function baseHalfGenerationPhaseText(phase: BaseHalfVideoGenerationPhase)
 }
 
 /**
+ * The actions of the toolbar above a selected generation card with its file
+ * (generation cards, "The toolbar"): Reveal and Open, and Capture Frame for a
+ * video. A draft has no toolbar (D71).
+ */
+export type BaseHalfGenerationToolbarAction = 'captureFrame' | 'revealVideo' | 'openFullPreview';
+
+/**
  * The actions of the toolbar above a selected generation card (generation
  * cards, "The toolbar"): Reveal and Open above a card with its file, and
  * Capture Frame above a video. A draft has none: what it takes is added from
  * its panel (D71).
  */
-export function baseHalfGenerationCardToolbarActions(kind: BaseHalfGenerationKind, phase: BaseHalfGenerationPhase): readonly BaseHalfCanvasSceneVideoAction[] {
+export function baseHalfGenerationCardToolbarActions(kind: BaseHalfGenerationKind, phase: BaseHalfGenerationPhase): readonly BaseHalfGenerationToolbarAction[] {
 	if (phase === 'file') {
-		return Object.freeze<BaseHalfCanvasSceneVideoAction[]>(kind === 'video' ? ['captureFrame', 'revealVideo', 'openFullPreview'] : ['revealVideo', 'openFullPreview']);
+		return Object.freeze<BaseHalfGenerationToolbarAction[]>(kind === 'video' ? ['captureFrame', 'revealVideo', 'openFullPreview'] : ['revealVideo', 'openFullPreview']);
 	}
 	return Object.freeze([]);
 }

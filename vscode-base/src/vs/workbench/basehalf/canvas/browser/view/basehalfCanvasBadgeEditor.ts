@@ -23,7 +23,7 @@ import {
 	baseHalfShouldVetoForBadgeDrafts,
 	baseHalfTransitionBadgeDraftIdentity
 } from '../basehalfCanvasConnectionTransaction.js';
-import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../../../shell/common/basehalfWorkbenchProfile.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { IBaseHalfBadgeDescriptionDraft, IBaseHalfBadgeDescriptionPending, IBaseHalfCanvasMutationGuard, baseHalfBadgeResourceIdentity } from './basehalfCanvasViewShared.js';

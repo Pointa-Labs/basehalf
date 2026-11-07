@@ -8,7 +8,7 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IFileQuery, ISearchComplete, ISearchService } from '../../../../services/search/common/search.js';
-import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
+import { IBaseHalfMovedItemsService } from '../../../upkeep/common/basehalfMovedItemsService.js';
 
 /** A moved-items service for tests in which nothing is moved outside BaseHalf. */
 export const baseHalfNoMovedItems: IBaseHalfMovedItemsService = {

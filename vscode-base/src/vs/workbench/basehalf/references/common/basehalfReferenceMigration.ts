@@ -15,13 +15,13 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BaseHalfBadgeLegacyKey, baseHalfLegacyBadgePathAccepted, IBaseHalfBadgeLegacyReferences, IBaseHalfBadgeMirrorService } from './basehalfBadgeMirror.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, BaseHalfReferenceRefusalReason, IBaseHalfReferenceEditService } from './basehalfReferenceEdit.js';
 import { baseHalfUpstreamEntryGrammarProblem, baseHalfUpstreamEntryProblem, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from './basehalfReferenceEntries.js';
 import { IBaseHalfReferenceIndexService, IBaseHalfUpstreamView } from './basehalfReferenceIndex.js';
 import { BaseHalfUpstreamStoreKind } from './basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 
 /**
  * Migration from legacy badge pairs (reference graph, D37).

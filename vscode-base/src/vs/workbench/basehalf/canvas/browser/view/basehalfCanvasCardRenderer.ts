@@ -14,23 +14,21 @@ import { localize } from '../../../../../nls.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasChildPath, baseHalfCanvasItemBounds, baseHalfCanvasShowsDocument, IBaseHalfCanvasBounds, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from '../../../shell/browser/basehalfItemGlyph.js';
+import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from '../../../ui/browser/basehalfItemGlyph.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { IBaseHalfGenerationCardFace, renderBaseHalfGenerationCardFace } from '../../../video/browser/basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from '../../../video/browser/basehalfVideoFrameCapture.js';
-import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase, IBaseHalfGenerationCardPresentation } from '../../../video/common/basehalfVideoCardPresentation.js';
+import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase, IBaseHalfGenerationCardPresentation, BaseHalfGenerationToolbarAction } from '../../../video/common/basehalfVideoCardPresentation.js';
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
-import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaUrl, baseHalfCanvasMediaVersionQuery, baseHalfCanvasPictureCover, whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
-import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
+import { BASEHALF_MEDIA_DRAWN_TIMEOUT_MS, baseHalfMediaUrl, baseHalfMediaVersionQuery, baseHalfPictureCover, whenBaseHalfMediaDrawn } from '../../../playback/browser/basehalfMediaElements.js';
+import { createBaseHalfVideoPlayer, IBaseHalfVideoPlayer } from '../../../playback/browser/basehalfVideoPlayer.js';
 import { IBaseHalfCanvasCardDocumentFace, renderBaseHalfCanvasCardDocument } from '../basehalfCanvasCardDocument.js';
 import { baseHalfDocumentVersion } from '../../../documents/common/basehalfDocuments.js';
-import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
+import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 import {
 	BaseHalfCanvasSceneCardControls,
-	BaseHalfCanvasSceneVideoAction,
 	BaseHalfCanvasSceneVideoFrame,
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
@@ -43,6 +41,7 @@ import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkb
 import { IBaseHalfCanvasCodeFace } from '../basehalfCanvasExtensions.js';
 import { appendCanvasNoteFullEditorLabel, badgeType, cardDisplayName, isVideoMediaPreview } from './basehalfCanvasViewShared.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../../markdown/browser/basehalfNoteLinkRouter.js';
+import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 type BaseHalfCanvasGlyphType = BaseHalfItemGlyph;
 
@@ -66,7 +65,7 @@ function glyphTone(type: BaseHalfCanvasGlyphType, orphan: boolean): string {
  */
 export class BaseHalfCanvasCardRenderer {
 	/** The player of the video file drawn in each card element. */
-	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfCanvasCardVideoPlayer>();
+	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfVideoPlayer>();
 	/** The face drawn last for each generation card, while it is drawn. */
 	private readonly generationFaces = new Map<string, IBaseHalfGenerationCardFace>();
 	/** Where each card element draws its badge toggle, to draw it again in place when only its connections change. */
@@ -102,7 +101,7 @@ export class BaseHalfCanvasCardRenderer {
 		sceneKey: string,
 		structuralEpoch: number,
 		path: string,
-		action: BaseHalfCanvasSceneVideoAction,
+		action: BaseHalfGenerationToolbarAction,
 		_anchor: HTMLElement,
 		frame?: BaseHalfCanvasSceneVideoFrame
 	): Promise<void> {
@@ -218,7 +217,7 @@ export class BaseHalfCanvasCardRenderer {
 		// A card drawn anew, as for a file written anew by an edit in Card
 		// Detail, shows the picture of the card it replaces until it can draw
 		// its own: no frame shows it without a picture.
-		const pictureCover = this.pictureCoverOf(this.lastCards.get(item.path)?.deref(), baseHalfCanvasMediaVersionQuery(item.stat));
+		const pictureCover = this.pictureCoverOf(this.lastCards.get(item.path)?.deref(), baseHalfMediaVersionQuery(item.stat));
 		this.lastCards.set(item.path, new WeakRef(card));
 		// The element this one replaces stays on screen, with its listeners,
 		// until the scene mounts this one.
@@ -229,7 +228,7 @@ export class BaseHalfCanvasCardRenderer {
 			listeners.add(disposableTimeout(() => {
 				this.pictureCovers.delete(card);
 				pictureCover.remove();
-			}, BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS));
+			}, BASEHALF_MEDIA_DRAWN_TIMEOUT_MS));
 		}
 		const presentationListeners = new MutableDisposable<DisposableStore>();
 		listeners.add(presentationListeners);
@@ -641,7 +640,7 @@ export class BaseHalfCanvasCardRenderer {
 	}
 
 	/** The player of the video that the card of `path` shows, while it shows one. */
-	private playerOf(path: string): IBaseHalfCanvasCardVideoPlayer | undefined {
+	private playerOf(path: string): IBaseHalfVideoPlayer | undefined {
 		const element = this.view.renderedCardElementsByPath.get(path);
 		return element ? this.mediaVideoPlayers.get(element) : undefined;
 	}
@@ -655,7 +654,7 @@ export class BaseHalfCanvasCardRenderer {
 		let image: URI;
 		try {
 			image = await captureBaseHalfVideoFrame(this.view.fileService, {
-				video: item.stat.resource.with({ query: baseHalfCanvasMediaVersionQuery(item.stat) }),
+				video: item.stat.resource.with({ query: baseHalfMediaVersionQuery(item.stat) }),
 				folder: folder.resource,
 				title: baseHalfCanvasCardBaseName(item.name),
 				frame,
@@ -714,9 +713,9 @@ export class BaseHalfCanvasCardRenderer {
 			image.draggable = false;
 			image.loading = 'lazy';
 			if (drawn) {
-				whenBaseHalfCanvasMediaDrawn(image, listeners, drawn);
+				whenBaseHalfMediaDrawn(image, listeners, drawn);
 			}
-			image.src = baseHalfCanvasMediaUrl(preview.resource);
+			image.src = baseHalfMediaUrl(preview.resource);
 			this.coverUntilDrawn(card, image, preview.resource.query, listeners);
 			image.addEventListener('error', () => {
 				image.remove();
@@ -734,7 +733,7 @@ export class BaseHalfCanvasCardRenderer {
 		if (preview.mediaKind === 'video' || preview.mediaKind === 'audio') {
 			// A video or a sound plays as in the player of every card that shows one (generation cards, "The player").
 			const kind = preview.mediaKind;
-			const player = createBaseHalfCanvasCardVideoPlayer(container, container.firstChild, {
+			const player = createBaseHalfVideoPlayer(container, container.firstChild, {
 				source: preview.resource,
 				videoClasses: ['basehalf-canvas-card-media-visual'],
 				sound: kind === 'audio',
@@ -760,7 +759,7 @@ export class BaseHalfCanvasCardRenderer {
 			listeners.add(player);
 			this.coverUntilDrawn(card, player.video, preview.resource.query, listeners);
 			if (drawn) {
-				whenBaseHalfCanvasMediaDrawn(player.video, listeners, drawn);
+				whenBaseHalfMediaDrawn(player.video, listeners, drawn);
 			}
 			if (card) {
 				this.mediaVideoPlayers.set(card, player);
@@ -788,7 +787,7 @@ export class BaseHalfCanvasCardRenderer {
 		const held = this.pictureCovers.get(previous);
 		if (!held) {
 			const shown = this.cardPictures.get(previous);
-			return shown && shown.version !== version ? baseHalfCanvasPictureCover(shown.picture) : undefined;
+			return shown && shown.version !== version ? baseHalfPictureCover(shown.picture) : undefined;
 		}
 		// The element that holds it stays on screen until this one is mounted: this one draws a copy.
 		const copy = held.ownerDocument.createElement('canvas');
@@ -813,7 +812,7 @@ export class BaseHalfCanvasCardRenderer {
 		// Over the picture, under the player's controls.
 		picture.after(cover);
 		listeners.add(toDisposable(() => cover.remove()));
-		whenBaseHalfCanvasMediaDrawn(picture, listeners, () => cover.remove());
+		whenBaseHalfMediaDrawn(picture, listeners, () => cover.remove());
 	}
 
 	/**
