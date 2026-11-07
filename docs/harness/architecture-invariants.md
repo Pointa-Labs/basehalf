@@ -29,6 +29,10 @@ path. Their history remains available for archaeology.
 - BaseHalf's workbench code is under `src/vs/workbench/basehalf/`, in a folder
   per feature with VS Code's layer folders and its own tests. It is never
   spread into VS Code's `contrib/` or `services/` folders.
+- Within each layer, BaseHalf's folders are in an order, and a folder imports,
+  in its own layer, only the folders before it. What every feature reads is at
+  the bottom (`workspace/`, `ui/`, `playback/`), never in one feature for the
+  others to import.
 - The canvas is a core with features registered beside it, as VS Code's code
   editor and terminal are. New canvas behavior is a canvas feature in
   `canvasContrib/<feature>/`, not more code in the canvas view, and the core
@@ -37,7 +41,7 @@ path. Their history remains available for archaeology.
   workbench entry files, and every change in a VS Code file is marked with a
   `// BaseHalf:` comment.
 
-See [code organization](code-organization.md) and public decision D60.
+See [code organization](code-organization.md) and public decisions D60 and D124.
 
 ## Product shell
 
@@ -91,7 +95,7 @@ See [code organization](code-organization.md) and public decision D60.
   show nothing more under the pointer. Where a
   specification speaks of a tooltip, it means this hover. An element gets
   it from the `data-basehalf-hover` attribute
-  (`shell/browser/basehalfHover.ts`) or from the hover service directly.
+  (`ui/browser/basehalfHover.ts`) or from the hover service directly.
 - Card Detail fades in and out where it is, over the canvas area: no frame
   shows it empty, and no frame draws anything of it outside the canvas
   area. Once open it takes the keyboard, and Escape closes it wherever in it

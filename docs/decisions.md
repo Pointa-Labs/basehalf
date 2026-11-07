@@ -6165,3 +6165,36 @@ the text editor because it is either binary or uses an unsupported text encoding
 
 **Consequences.** Admitting them took one line each in `basehalfBuiltInExtensions.ts`, which is also what ships them (D122). A
 picture that Card Detail opens opens there as before, since BaseHalf's way to a file comes first.
+
+## D124 — BaseHalf's folders are in an order in each layer, with what every feature reads at the bottom (NEW, 2026-11-08)
+
+**Decision.** Within each of VS Code's layers, BaseHalf's folders are in an order, and a module imports, in its own layer,
+only the folders that come before its folder; it may import the lower layers of any folder. The models (`common/`) and the
+views (`browser/`) have orders of their own. What every feature reads goes to the bottom: what a workspace and its items are
+to `workspace/`, the player and what plays media to `playback/`, and the parts several surfaces draw to `ui/`. What moves the
+records of every feature goes to the top, in `upkeep/`. Lint reports an import against the order as an error. `video/` is
+named `generation/`, after what it holds. See [code organization](harness/code-organization.md#the-order-of-the-folders).
+
+**Why.** The owner asked for the code to be structured as a top architect would, with VS Code as the reference. Measured on
+2026-11-08: no module was in an import cycle, but all 20 of BaseHalf's folders were one cycle of imports between folders, so a
+change to any folder could reach every other, and no folder could be read without the rest. By layer, the models of 9 folders
+were one cycle and the views of 5 another. The causes were few and plain: what an item is (a note or media, its name, the icon
+of its kind, whether BaseHalf shows it) was in four folders, the canvas's model, Card Detail, the Agent Area's selection, and
+the information of generation cards; 23 files of 8 folders imported the 980 lines of legacy cleanup for one check of a marker,
+and with it the canvas's viewport service; the player, which Card Detail, Changes, media editing, and generation cards play
+with, was in `canvas/browser/`; and `workspace/` held both what every feature reads and what moves every feature's records.
+VS Code itself keeps a hard order of `base/`, `platform/`, `editor/`, and `workbench/`, with its services below its features,
+but not between its features: by folder, 85 of its 150 `contrib/` folders are one cycle, and by layer its models hold a cycle of
+5 folders. BaseHalf's 20 folders are few enough to keep in an order outright. One order for all layers was weighed and set
+aside: a feature's model is often read far below its view, as Card Detail's projections are read by navigation while its view
+hosts the editors of notes, media, and PDFs, and one order would have split nearly every folder in two.
+
+**Consequences.**
+- No cycle of imports passes through two folders. The order is checked by `local/code-basehalf-folder-order`, which reported
+  0 imports against it in the product's code after the moves, and does report a module that breaks it.
+- The moves changed no behavior: code moved as it was, exported names that said "canvas" in `playback/` lost the word, and the
+  generation card's toolbar actions are `BaseHalfGenerationToolbarAction`. Two definitions of a media file's version were one
+  function twice; the copy in media editing is gone.
+- A new folder gets a place in the order of each layer. When a module needs a folder above its own, what they share moves down,
+  or behind a service interface in `common/`, rather than the order bending.
+- Tests are not bound by the order: they compose the services of several folders, and nothing imports them.
