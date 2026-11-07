@@ -147,6 +147,7 @@ export default defineConfig(
 	{
 		files: [
 			'build/basehalf/**/*.{js,mjs,ts,mts}',
+			'build/lib/test/basehalf*.test.ts',
 			'extensions/basehalf/**/*.{js,mjs,ts,mts,tsx}',
 			'scripts/basehalf-*.{js,mjs,ts,mts}',
 			'scripts/basehalf-*/**/*.{js,mjs,ts,mts}',
@@ -2347,6 +2348,43 @@ export default defineConfig(
 						} // node module allowed even in /browser/
 					]
 				},
+			]
+		}
+	},
+	// BaseHalf: within each of VS Code's layers, BaseHalf's folders are in an order, and a folder imports,
+	// in its own layer, only the folders before it; it may import the lower layers of any folder.
+	// The models (common) and the views (browser) each have their order (D124, docs/harness/code-organization.md).
+	{
+		files: [
+			'src/vs/workbench/basehalf/**/*.ts'
+		],
+		languageOptions: {
+			parser: tseslint.parser,
+		},
+		plugins: {
+			'local': pluginLocal,
+		},
+		rules: {
+			'local/code-basehalf-folder-order': [
+				'error',
+				{
+					'root': 'src/vs/workbench/basehalf',
+					'layers': ['common', 'browser', 'electron-browser'],
+					'order': {
+						'common': [
+							'workspace', 'ui', 'playback', 'cardDetail', 'navigation', 'mediaEdit', 'markdown', 'agentArea', 'video',
+							'references', 'documents', 'canvas', 'canvasContrib/*', 'changes', 'clipboard', 'sequence', 'shell', 'upkeep'
+						],
+						'browser': [
+							'workspace', 'ui', 'playback', 'navigation', 'clipboard', 'documents', 'markdown', 'mediaEdit', 'cardDetail',
+							'changes', 'references', 'upkeep', 'video', 'canvas', 'canvasContrib/*', 'sequence', 'agentArea', 'shell'
+						],
+						'electron-browser': [
+							'workspace', 'ui', 'playback', 'navigation', 'clipboard', 'documents', 'markdown', 'mediaEdit', 'cardDetail',
+							'changes', 'references', 'upkeep', 'video', 'canvas', 'canvasContrib/*', 'sequence', 'agentArea', 'shell'
+						]
+					}
+				}
 			]
 		}
 	},
