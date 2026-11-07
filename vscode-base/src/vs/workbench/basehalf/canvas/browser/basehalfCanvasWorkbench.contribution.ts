@@ -523,7 +523,6 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		close.setAttribute('aria-label', 'Close');
 		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
-		this.cardDetailHost.registerCardDetailSurfaceProviders();
 
 		this.editorContainer.prepend(this.root);
 

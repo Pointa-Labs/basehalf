@@ -179,6 +179,19 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   the features' view controls.
 - New behavior on the canvas is a canvas feature, not more code in the canvas
   view.
+- Card Detail draws a file in projections, and each projection registers how
+  it is drawn from its own folder, as VS Code's editors register their panes:
+  `IBaseHalfCardDetailSurfaceRegistryService` takes a provider for each
+  projection, and the view that hosts Card Detail creates it with an
+  `IBaseHalfCardDetailHost` (`cardDetail/browser/basehalfCardDetailSurface.ts`),
+  what a projection reaches of Card Detail: the header's save status and its
+  places for a projection's actions, what agents see selected, and what the
+  canvas under Card Detail does for a projection. Rich, Preview, Source, and
+  the view of media register in
+  `cardDetail/browser/basehalfCardDetailProjections.contribution.ts`, Changes
+  in `changes/`, and Sequence in `sequence/`; the canvas imports none of
+  them. When a projection needs more of Card Detail, the host grows by what
+  it needs.
 - The canvas view itself is a set of parts, one concern per file, as VS Code's
   code editor widget delegates to its view, model, and controllers. The view,
   `canvas/browser/basehalfCanvasWorkbench.contribution.ts`, builds the
@@ -258,6 +271,10 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 - 2026-11-08: VS Code's three entry files reach BaseHalf through one file of
   BaseHalf's each (D125). Against VS Code's import commit, they differed in
   93 lines and now in 25, most of them `// BaseHalf:` marks.
+- 2026-11-08: Card Detail's projections register how they are drawn from
+  their own folders, beside their descriptors. The canvas, which had made
+  all five built-in ones itself, hosts them through `IBaseHalfCardDetailHost`
+  and imports none of them.
 - Next: parts that are features of their own move on into `canvasContrib/`,
   in the order of how often their code changed: the generation cards and
   their actions, connections, creating cards, the badge editor, Card Detail,

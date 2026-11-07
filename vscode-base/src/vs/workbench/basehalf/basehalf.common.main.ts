@@ -26,6 +26,7 @@ import './sequence/browser/basehalfSequence.contribution.js';
 import './changes/browser/basehalfChanges.contribution.js';
 import './mediaEdit/browser/basehalfMediaEdit.contribution.js';
 import './cardDetail/browser/basehalfCardDetailPagePinch.js';
+import './cardDetail/browser/basehalfCardDetailProjections.contribution.js';
 import './shell/browser/basehalfReleaseNotes.contribution.js';
 import './shell/browser/basehalfAbout.contribution.js';
 import './shell/browser/basehalfHover.contribution.js';

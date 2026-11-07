@@ -20,22 +20,13 @@ import { IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCan
 import { baseHalfCanvasInlineEditKeyAction } from '../../common/basehalfCanvasEditing.js';
 import { BaseHalfCardDetailProjection, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
-import { BaseHalfMarkdownPreviewCardDetail } from '../../../cardDetail/browser/basehalfMarkdownPreviewCardDetail.js';
-import { BaseHalfMarkdownRichCardDetail } from '../../../cardDetail/browser/basehalfMarkdownRichCardDetail.js';
-import { BaseHalfSourceCardDetail } from '../../../cardDetail/browser/basehalfSourceCardDetail.js';
-import { BaseHalfChangesCardDetail } from '../../../changes/browser/basehalfChangesCardDetail.js';
-import { BaseHalfMediaChangesCardDetail } from '../../../changes/browser/basehalfMediaChangesCardDetail.js';
 import { BASEHALF_CHANGES_PROJECTION_ID } from '../../../changes/common/basehalfFileChanges.js';
-import { baseHalfRenderableContentKind } from '../../../workspace/common/basehalfContentRendering.js';
-import { IBaseHalfCardDetailSurfaceInstance } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
-import { BaseHalfMediaCardDetail } from '../../../cardDetail/browser/basehalfMediaCardDetail.js';
+import { BaseHalfCardDetailSaveStatus, IBaseHalfCardDetailHost, IBaseHalfCardDetailSurfaceInstance } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 import { BaseHalfStructuralResourceOutcome } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS, BaseHalfCardDetailTransition } from './basehalfCanvasCardDetailTransition.js';
 import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
-
-type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 
 interface IBaseHalfCardDetailSurface {
 	readonly host: HTMLElement;
@@ -46,8 +37,9 @@ interface IBaseHalfCardDetailSurface {
 
 /**
  * Card Detail inside the canvas: its header, title, and save status, the
- * projections that draw a file, and keeping the open item when it is renamed
- * or moved.
+ * projections that draw a file, which their own folders register and which
+ * reach Card Detail through the host this part gives them, and keeping the
+ * open item when it is renamed or moved.
  *
  * A part of the canvas view (README.md in this folder): it keeps its own state,
  * and reaches the state the view shares and the other parts through `view`.
@@ -650,7 +642,18 @@ export class BaseHalfCanvasCardDetailHost {
 	}
 
 	private createDetailSurface(projection: BaseHalfCardDetailProjection, cardDetail: IBaseHalfCardDetailState): IBaseHalfCardDetailSurface {
-		const created = this.view.cardDetailSurfaceRegistryService.create(projection, this.view.detailBody, cardDetail);
+		const detailHost: IBaseHalfCardDetailHost = {
+			setSaveStatus: status => this.setDetailSaveStatus(status),
+			setSelectionForAgents: selected => this.setAgentSelectionDetailText(projection, selected),
+			close: () => void this.view.canvasNavigationService.closeCardDetail(),
+			modeActions: this.view.detailModeActions,
+			editActions: this.view.detailEditActions,
+			closeBadgePopover: () => this.view.badgeEditor.closeDetailBadgePopover(cardDetail, false),
+			takeFormatCommands: () => this.view.noteEditing.takeMarkdownRichFormatCommands(cardDetail.resource),
+			createDocumentBranch: (resource, selection) => this.view.creation.createDocumentBranch(resource, selection),
+			noteUserInteraction: () => this.view.markCanvasUserInteraction()
+		};
+		const created = this.view.cardDetailSurfaceRegistryService.create(projection, this.view.detailBody, cardDetail, detailHost);
 		const { host, instance } = created;
 		const store = new DisposableStore();
 		store.add(toDisposable(() => host.remove()));
@@ -659,96 +662,6 @@ export class BaseHalfCanvasCardDetailHost {
 		const whenRendered = instance.open(cardDetail).catch(error => this.view.logService.error(error));
 		instance.setStructuralFrozen?.(this.view.workspaceMutationCoordinator.isResourceMutationFenced(cardDetail.workspaceFolder, cardDetail.relativePath));
 		return { host, store, instance, whenRendered };
-	}
-
-	registerCardDetailSurfaceProviders(): void {
-		this.view.register(this.view.cardDetailSurfaceRegistryService.registerProvider('rich', {
-			create: (parent, state) => {
-				const host = append(parent, $('.basehalf-card-detail-surface'));
-				const instance = this.view.instantiationService.createInstance(
-					BaseHalfMarkdownRichCardDetail,
-					host,
-					() => this.view.badgeEditor.closeDetailBadgePopover(state, false),
-					status => this.setDetailSaveStatus(status),
-					{
-						onSelectionChange: selected => this.setAgentSelectionDetailText('rich', selected),
-						onDetailCloseRequest: () => void this.view.canvasNavigationService.closeCardDetail()
-					}
-				);
-				for (const command of this.view.noteEditing.takeMarkdownRichFormatCommands(state.resource)) {
-					instance.runEditorCommand(command);
-				}
-				return {
-					host,
-					instance
-				};
-			}
-		}));
-		this.view.register(this.view.cardDetailSurfaceRegistryService.registerProvider('preview', {
-			create: parent => {
-				const host = append(parent, $('.basehalf-card-detail-surface'));
-				return {
-					host,
-					instance: this.view.instantiationService.createInstance(
-						BaseHalfMarkdownPreviewCardDetail,
-						host,
-						status => this.setDetailSaveStatus(status)
-					)
-				};
-			}
-		}));
-		this.view.register(this.view.cardDetailSurfaceRegistryService.registerProvider('media', {
-			create: parent => {
-				const host = append(parent, $('.basehalf-card-detail-surface'));
-				this.setDetailSaveStatus('saved');
-				return {
-					host,
-					instance: this.view.instantiationService.createInstance(
-						BaseHalfMediaCardDetail,
-						host,
-						(resource, selection) => this.view.creation.createDocumentBranch(resource, selection),
-						() => this.view.markCanvasUserInteraction(),
-						() => void this.view.canvasNavigationService.closeCardDetail(),
-						selected => this.setAgentSelectionDetailText('media', selected),
-						this.view.detailModeActions,
-						this.view.detailEditActions
-					)
-				};
-			}
-		}));
-		this.view.register(this.view.cardDetailSurfaceRegistryService.registerProvider(BASEHALF_CHANGES_PROJECTION_ID, {
-			create: (parent, state) => {
-				const host = append(parent, $('.basehalf-card-detail-surface'));
-				if (baseHalfRenderableContentKind(state.resource)) {
-					this.setDetailSaveStatus('saved');
-					return { host, instance: this.view.instantiationService.createInstance(BaseHalfMediaChangesCardDetail, host) };
-				}
-				return {
-					host,
-					instance: this.view.instantiationService.createInstance(
-						BaseHalfChangesCardDetail,
-						host,
-						status => this.setDetailSaveStatus(status),
-						selected => this.setAgentSelectionDetailText(BASEHALF_CHANGES_PROJECTION_ID, selected),
-						this.view.detailModeActions
-					)
-				};
-			}
-		}));
-		this.view.register(this.view.cardDetailSurfaceRegistryService.registerProvider('source', {
-			create: parent => {
-				const host = append(parent, $('.basehalf-card-detail-surface'));
-				return {
-					host,
-					instance: this.view.instantiationService.createInstance(
-						BaseHalfSourceCardDetail,
-						host,
-						status => this.setDetailSaveStatus(status),
-						selected => this.setAgentSelectionDetailText('source', selected)
-					)
-				};
-			}
-		}));
 	}
 
 	/** To the view, or where a press on the header's blank part leaves it when the view takes none: on nothing, no key reaches Card Detail. */
