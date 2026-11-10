@@ -6,21 +6,17 @@
 import { localize } from '../../../../nls.js';
 import type { VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import {
-	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
-	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
 	baseHalfKindNamesModes,
 	BaseHalfModelKind,
 	BaseHalfVideoCatalogState,
-	BaseHalfVideoInputKind,
 	baseHalfVideoRecordedSettingsSummary,
-	findBaseHalfVideoModel,
-	IBaseHalfVideoInputSource,
-	planBaseHalfVideoInputs
+	findBaseHalfVideoModel
 } from './basehalfVideoCatalog.js';
 import { IBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
 import { baseHalfMediaChoicesAreNoEdit } from '../../mediaEdit/common/basehalfMediaEditFormats.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from './basehalfGenerationInfo.js';
 import { baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
+import { BASEHALF_IMAGE_DEFAULT_MODE_INPUTS, BASEHALF_VIDEO_DEFAULT_MODE_INPUTS, BaseHalfVideoInputKind, IBaseHalfVideoInputSource, planBaseHalfVideoInputs } from './basehalfGenerationInputs.js';
 
 /**
  * What the panel of a card with its file draws (D67, D78, generation cards,

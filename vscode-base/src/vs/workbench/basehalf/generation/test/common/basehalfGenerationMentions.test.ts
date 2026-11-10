@@ -16,7 +16,8 @@ import {
 	rebaseBaseHalfPromptMentions,
 	rewriteBaseHalfPromptMentions
 } from '../../common/basehalfGenerationMentions.js';
-import { BASEHALF_VIDEO_DEFAULT_MODE_INPUTS, BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, IBaseHalfVideoInputSource, IBaseHalfVideoModeInputs, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoModeInputs } from '../../common/basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_DEFAULT_MODE_INPUTS, BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, IBaseHalfVideoInputSource, planBaseHalfVideoInputs } from '../../common/basehalfGenerationInputs.js';
 
 function entry(path: string, key = path.toLowerCase()): IBaseHalfMentionEntry {
 	return { path, key };

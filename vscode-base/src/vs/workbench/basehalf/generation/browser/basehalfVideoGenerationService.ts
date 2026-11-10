@@ -26,7 +26,7 @@ import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvas
 import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { baseHalfGenerationChoice, baseHalfGenerationClaimWinner, baseHalfGenerationInfoOfMade, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts, BaseHalfGenerationPathKey, baseHalfGenerationTaskCardIndex, baseHalfGenerationTaskNamesCard, createBaseHalfGenerationTask, createBaseHalfGenerationTaskId, failBaseHalfGenerationCard, failBaseHalfGenerationTask, IBaseHalfGenerationInfo, IBaseHalfGenerationTask, isBaseHalfGenerationTaskEnded, isBaseHalfGenerationTaskSettled, isBaseHalfGenerationTaskStale, reviveBaseHalfGenerationTask, runBaseHalfGenerationTask, stopBaseHalfGenerationTask, submitBaseHalfGenerationTask } from '../common/basehalfGenerationInfo.js';
-import { baseHalfVideoGenerateBlockerText, BaseHalfVideoImageFormat, baseHalfVideoModeThatIsUsed, BaseHalfVideoModeId, BaseHalfVideoParams, baseHalfVideoRefusedParam, findBaseHalfVideoModel, findBaseHalfVideoProvider, getBaseHalfVideoGenerateBlocker, IBaseHalfVideoCatalog, IBaseHalfVideoGenerationChoice, IBaseHalfVideoInputPlanItem, IBaseHalfVideoModelRef, IBaseHalfVideoPlannedMedia, IBaseHalfVideoProviderAccess, IBaseHalfVideoSubmitRequest, baseHalfModelOutputCount, normalizeBaseHalfVideoParams } from '../common/basehalfVideoCatalog.js';
+import { BaseHalfVideoImageFormat, BaseHalfVideoModeId, BaseHalfVideoParams, baseHalfVideoRefusedParam, findBaseHalfVideoModel, findBaseHalfVideoProvider, IBaseHalfVideoCatalog, IBaseHalfVideoGenerationChoice, IBaseHalfVideoModelRef, IBaseHalfVideoPlannedMedia, IBaseHalfVideoProviderAccess, IBaseHalfVideoSubmitRequest, baseHalfModelOutputCount, normalizeBaseHalfVideoParams } from '../common/basehalfVideoCatalog.js';
 import { baseHalfGenerationMissingFileMessage, BaseHalfVideoGenerationError, BaseHalfVideoGenerationPhase, IBaseHalfGenerateOptions, IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationProgress, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoResolvedInput } from '../common/basehalfVideoGeneration.js';
 import { BaseHalfDraftUndoElement } from './basehalfDraftUndo.js';
 import { createBaseHalfNewVersion } from './basehalfGenerationNewVersion.js';
@@ -39,6 +39,9 @@ import { BaseHalfVideoImageRasterizer, rasterizeBaseHalfVideoImage } from './bas
 import { BaseHalfGenerationPreparation } from './basehalfGenerationPreparation.js';
 import { BaseHalfGenerationLanding, sourceOfOutput } from './basehalfGenerationLanding.js';
 import { BaseHalfGenerationTakeover } from './basehalfGenerationTakeover.js';
+import { baseHalfVideoGenerateBlockerText, getBaseHalfVideoGenerateBlocker } from '../common/basehalfGenerateBlocker.js';
+import { baseHalfVideoModeThatIsUsed, IBaseHalfVideoInputPlanItem } from '../common/basehalfGenerationInputs.js';
+
 /** Answers to a question about the task that cannot be read end the generation after this many in a row. */
 const UNREADABLE_ANSWERS = 3;
 

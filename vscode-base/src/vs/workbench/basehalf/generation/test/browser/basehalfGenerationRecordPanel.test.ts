@@ -22,7 +22,7 @@ import type { VoicesResult } from '../../../../../platform/basehalfProviders/com
 import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../browser/basehalfGenerationRecordPanel.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
 import { IBaseHalfGenerationVoiceService, IBaseHalfVoices } from '../../common/basehalfGenerationVoices.js';
-import { BaseHalfModelKind, BaseHalfVideoCatalogState, baseHalfVideoInputKindOfPath, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, parseBaseHalfVideoCatalog } from '../../common/basehalfVideoCatalog.js';
+import { BaseHalfModelKind, BaseHalfVideoCatalogState, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from '../../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
@@ -31,6 +31,8 @@ import {
 	IBaseHalfVideoResolvedInput
 } from '../../common/basehalfVideoGeneration.js';
 import { DUNLIN, DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { parseBaseHalfVideoCatalog } from '../../common/basehalfVideoCatalogParsing.js';
+import { baseHalfVideoInputKindOfPath } from '../../common/basehalfGenerationInputs.js';
 
 const WORKSPACE = URI.file('/workspace');
 const CARD = URI.joinPath(WORKSPACE, 'shots', 'shot.mp4');

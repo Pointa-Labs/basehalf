@@ -8,26 +8,18 @@ import { localize } from '../../../../nls.js';
 import type { VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import {
 	BASEHALF_GENERATION_MOST_FILES,
-	baseHalfDefaultModeId,
-	baseHalfDefaultModeInputs,
 	baseHalfKindInputKinds,
 	baseHalfKindNamesModes,
 	BaseHalfTakenInputKind,
 	BaseHalfVideoCatalogParameter,
 	BaseHalfVideoCatalogState,
-	BaseHalfVideoGenerateBlocker,
-	BaseHalfVideoInputKind,
-	BaseHalfVideoInputUse,
 	BaseHalfVideoModeId,
 	BaseHalfVideoParams,
 	BaseHalfVideoParamValue,
-	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoLimitRange,
 	baseHalfVideoListedModels,
 	baseHalfVideoModelAbilities,
 	baseHalfVideoModeParameters,
-	baseHalfVideoModeThatIsUsed,
-	baseHalfVideoModeUsesEveryInput,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
 	baseHalfVideoParameterDefault,
@@ -41,7 +33,6 @@ import {
 	findBaseHalfVideoModel,
 	fitBaseHalfVideoParams,
 	formatBaseHalfVideoNumber,
-	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalogMode,
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCatalogProvider,
@@ -49,21 +40,19 @@ import {
 	IBaseHalfVideoCheckLimit,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
-	IBaseHalfVideoInputPlanItem,
-	IBaseHalfVideoInputSource,
 	IBaseHalfVideoModeInputs,
 	IBaseHalfVideoModelRef,
 	IBaseHalfVideoNumberParameter,
 	IBaseHalfVideoProviderSetup,
 	isBaseHalfSpokenOrSungPrompt,
-	isBaseHalfVideoModelBlocker,
-	normalizeBaseHalfVideoParams,
-	planBaseHalfVideoInputs
+	normalizeBaseHalfVideoParams
 } from './basehalfVideoCatalog.js';
 import { buildBaseHalfPromptParts } from './basehalfGenerationMentions.js';
 import { baseHalfGenerationChoice, IBaseHalfGenerationInfo } from './basehalfGenerationInfo.js';
 import { baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
 import { baseHalfItemDisplayName } from '../../workspace/common/basehalfItems.js';
+import { BaseHalfVideoGenerateBlocker, baseHalfVideoGenerateBlockerText, getBaseHalfVideoGenerateBlocker, isBaseHalfVideoModelBlocker } from './basehalfGenerateBlocker.js';
+import { baseHalfDefaultModeId, baseHalfDefaultModeInputs, BaseHalfVideoInputKind, BaseHalfVideoInputUse, baseHalfVideoModeThatIsUsed, baseHalfVideoModeUsesEveryInput, IBaseHalfVideoInputPlanItem, IBaseHalfVideoInputSource, planBaseHalfVideoInputs } from './basehalfGenerationInputs.js';
 
 /**
  * Everything the panel under a selected generation card draws (D63, D64,

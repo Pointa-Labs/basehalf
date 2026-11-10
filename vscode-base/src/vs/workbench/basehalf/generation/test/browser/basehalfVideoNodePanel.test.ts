@@ -33,14 +33,12 @@ import {
 	BaseHalfVideoCatalogState,
 	baseHalfVideoChangeParam,
 	BaseHalfVideoMedia,
-	baseHalfVideoInputKindOfPath,
 	findBaseHalfVideoRegion,
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
-	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoPlannedMedia,
 	IBaseHalfVideoProviderAccess
 } from '../../common/basehalfVideoCatalog.js';
@@ -64,6 +62,7 @@ import { formatBaseHalfProvidersPageInput } from '../../common/basehalfVideoProv
 import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import { IBaseHalfDraftOperations, IBaseHalfDraftSnapshot } from '../../../upkeep/common/basehalfDraftOperations.js';
+import { baseHalfVideoInputKindOfPath, IBaseHalfVideoInputPlanItem } from '../../common/basehalfGenerationInputs.js';
 
 const WORKSPACE = URI.file('/workspace');
 const NODE_PATH = 'shots/shot.mp4';

@@ -13,7 +13,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { RedoCommand, SelectAllCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { baseHalfMediaUrlAt } from '../../playback/browser/basehalfMediaElements.js';
 import { baseHalfMentionedIndex, baseHalfMentionLabels, findBaseHalfPromptMentions, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
-import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
+import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfGenerationInputs.js';
 
 /** What the chip of a mention shows. */
 export interface IBaseHalfPromptChip {

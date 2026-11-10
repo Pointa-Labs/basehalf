@@ -5,8 +5,9 @@
 
 import { isHighSurrogate } from '../../../../base/common/strings.js';
 import { baseHalfPromptNoteText, baseHalfSpokenNoteText, isBaseHalfMarkdownNotePath } from './basehalfGenerationSpokenText.js';
-import { BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, BaseHalfVideoPromptPart, IBaseHalfVideoInputPlanItem, IBaseHalfVideoPromptInput } from './basehalfVideoCatalog.js';
+import { BaseHalfVideoPromptPart, IBaseHalfVideoPromptInput } from './basehalfVideoCatalog.js';
 import { baseHalfItemDisplayName } from '../../workspace/common/basehalfItems.js';
+import { BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, IBaseHalfVideoInputPlanItem } from './basehalfGenerationInputs.js';
 
 /**
  * The mentions in a prompt (generation cards, "Mentions", D74). A mention is

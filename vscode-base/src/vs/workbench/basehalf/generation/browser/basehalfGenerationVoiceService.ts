@@ -22,7 +22,7 @@ import {
 	BASEHALF_VIDEO_SOUND_FADE_OUT_SECONDS,
 	IBaseHalfVideoSoundLevel
 } from '../../playback/browser/basehalfVideoSound.js';
-import { baseHalfVideoGenerateBlockerText, baseHalfVideoRefusedInRegion, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, IBaseHalfVideoProviderAccess } from '../common/basehalfVideoCatalog.js';
+import { baseHalfVideoRefusedInRegion, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, IBaseHalfVideoProviderAccess } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 import {
 	IBaseHalfGenerationVoiceService,
@@ -31,6 +31,7 @@ import {
 	IBaseHalfVoiceSampleFailure,
 	parseBaseHalfVoicesResult
 } from '../common/basehalfGenerationVoices.js';
+import { baseHalfVideoGenerateBlockerText } from '../common/basehalfGenerateBlocker.js';
 
 /**
  * The window's voice service (D78; generation cards, "The panel"; providers,

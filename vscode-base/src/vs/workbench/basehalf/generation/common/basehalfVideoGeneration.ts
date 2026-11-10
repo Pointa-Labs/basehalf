@@ -17,14 +17,13 @@ import {
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
-	IBaseHalfVideoInputPlanItem,
-	IBaseHalfVideoInputSource,
 	IBaseHalfVideoPlannedMedia,
 	IBaseHalfVideoProviderAccess,
 	IBaseHalfVideoProviderSetup
 } from './basehalfVideoCatalog.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationInfo, IBaseHalfGenerationMade, IBaseHalfGenerationTask } from './basehalfGenerationInfo.js';
 import { IBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
+import { IBaseHalfVideoInputPlanItem, IBaseHalfVideoInputSource } from './basehalfGenerationInputs.js';
 
 /**
  * The services of generation cards (D63, D64): the catalog service holds the

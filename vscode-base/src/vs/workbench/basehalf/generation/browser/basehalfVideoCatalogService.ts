@@ -18,11 +18,10 @@ import {
 	BaseHalfVideoCatalogState,
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCheckRequest,
-	IBaseHalfVideoCheckResult,
-	parseBaseHalfVideoCatalog,
-	parseBaseHalfVideoCheckResult
+	IBaseHalfVideoCheckResult
 } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
+import { parseBaseHalfVideoCatalog, parseBaseHalfVideoCheckResult } from '../common/basehalfVideoCatalogParsing.js';
 
 /** How long a failed request for the catalog waits before it is tried once more. */
 export const BASEHALF_VIDEO_CATALOG_RETRY_DELAY = 1_000;

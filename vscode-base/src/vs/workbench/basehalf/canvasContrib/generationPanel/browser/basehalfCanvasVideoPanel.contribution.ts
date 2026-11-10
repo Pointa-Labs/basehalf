@@ -24,10 +24,11 @@ import { BaseHalfTransferPart, baseHalfCreateTransferFile } from '../../../clipb
 import { IBaseHalfMarkdownAttachmentService } from '../../../markdown/common/basehalfMarkdownAttachment.js';
 import { baseHalfPathHoldsDraft } from '../../../generation/common/basehalfGenerationDraft.js';
 import { BaseHalfGenerationKind } from '../../../generation/common/basehalfGenerationInfo.js';
-import { BASEHALF_VIDEO_INPUT_EXTENSIONS, BaseHalfTakenInputKind } from '../../../generation/common/basehalfVideoCatalog.js';
+import { BaseHalfTakenInputKind } from '../../../generation/common/basehalfVideoCatalog.js';
 import { createBaseHalfDraftPanel } from '../../../generation/browser/basehalfDraftPanels.js';
 import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../../generation/browser/basehalfGenerationRecordPanel.js';
 import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../generation/browser/basehalfVideoNodePanel.js';
+import { BASEHALF_VIDEO_INPUT_EXTENSIONS } from '../../../generation/common/basehalfGenerationInputs.js';
 
 /** What the canvas needs of the panel under a generation card. */
 export interface IBaseHalfCanvasVideoPanelWidget extends IDisposable {

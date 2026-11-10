@@ -48,7 +48,7 @@ import {
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../../common/basehalfGenerationInfo.js';
-import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoCheckRequest, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoCheckRequest, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef } from '../../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
 import { createBaseHalfVideoPanelPresentation } from '../../common/basehalfVideoNodePanelPresentation.js';
 import { ACME, BOREALIS, CORVID, DUNLIN, TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
@@ -75,6 +75,7 @@ import {
 import { BASEHALF_VIDEO_TASK_TIME_LIMIT } from '../../browser/basehalfGenerationFollowed.js';
 import { closedWhileAnsweringMessage, orphanedSubmissionMessage, unknownOutcomeMessage } from '../../browser/basehalfVideoGenerationMessages.js';
 import { readBaseHalfVideoTextInput } from '../../browser/basehalfGenerationInputReading.js';
+import { planBaseHalfVideoInputs } from '../../common/basehalfGenerationInputs.js';
 
 const START = Date.parse('2026-10-22T08:00:00.000Z');
 const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DOWNLOAD, cancel: CANCEL, place: PLACE } = PROVIDER_CALL;

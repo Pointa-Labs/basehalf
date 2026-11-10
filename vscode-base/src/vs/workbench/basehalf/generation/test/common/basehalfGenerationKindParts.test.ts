@@ -16,13 +16,13 @@ import {
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoCheckResult,
-	IBaseHalfVideoGenerationChoice,
-	IBaseHalfVideoInputSource
+	IBaseHalfVideoGenerationChoice
 } from '../../common/basehalfVideoCatalog.js';
 import { createBaseHalfGenerationRecordPresentation } from '../../common/basehalfGenerationRecordPresentation.js';
 import { baseHalfReferenceMenuRows } from '../../common/basehalfGenerationReferenceMenu.js';
 import { BaseHalfVideoPanelControl, createBaseHalfVideoPanelPresentation, IBaseHalfVideoPanelPresentation } from '../../common/basehalfVideoNodePanelPresentation.js';
 import { CORVID_PAINT, TEST_AUDIO_CATALOG } from './basehalfVideoCatalogFixture.js';
+import { IBaseHalfVideoInputSource } from '../../common/basehalfGenerationInputs.js';
 
 /** An image model that makes up to 15 images in one generation, as some do. */
 const QUILL_WIDE: IBaseHalfVideoCatalogModel = {

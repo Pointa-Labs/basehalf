@@ -12,7 +12,7 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfMediaUrlAt } from '../../playback/browser/basehalfMediaElements.js';
-import { BaseHalfVideoInputKind } from '../common/basehalfVideoCatalog.js';
+import { BaseHalfVideoInputKind } from '../common/basehalfGenerationInputs.js';
 
 /** One input of the row (generation cards, "The panel", D68). */
 export interface IBaseHalfInputTile {

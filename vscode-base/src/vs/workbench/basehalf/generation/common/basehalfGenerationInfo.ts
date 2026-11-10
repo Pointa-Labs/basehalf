@@ -20,7 +20,6 @@ import {
 import {
 	BASEHALF_MODEL_KINDS,
 	BASEHALF_VIDEO_MODE_IDS,
-	BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH,
 	baseHalfModelFileExtension,
 	BaseHalfModelKind,
 	BaseHalfVideoModeId,
@@ -30,6 +29,7 @@ import {
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoGenerationChoice
 } from './basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH } from './basehalfGenerationInputs.js';
 
 /**
  * The generation information of a card (D63, generation cards): what its next

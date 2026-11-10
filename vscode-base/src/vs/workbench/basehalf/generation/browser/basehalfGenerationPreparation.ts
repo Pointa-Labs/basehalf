@@ -10,13 +10,16 @@ import { extname } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
 import { IBaseHalfGenerationRequest, IBaseHalfGenerationTask } from '../common/basehalfGenerationInfo.js';
 import { buildBaseHalfPromptParts } from '../common/basehalfGenerationMentions.js';
-import { BASEHALF_VIDEO_IMAGE_FORMATS, BaseHalfVideoGenerateBlocker, baseHalfVideoGenerateBlockerText, BaseHalfVideoImageFormat, baseHalfVideoInputProblem, BaseHalfVideoMedia, baseHalfVideoSentParams, findBaseHalfVideoProvider, fitBaseHalfVideoParams, IBaseHalfVideoCatalog, IBaseHalfVideoCatalogMode, IBaseHalfVideoCatalogProvider, IBaseHalfVideoInputPlanItem, IBaseHalfVideoModelRef, IBaseHalfVideoPlannedMedia, IBaseHalfVideoProviderAccess, IBaseHalfVideoSubmitRequest, isBaseHalfSpokenOrSungPrompt, normalizeBaseHalfVideoParams, parseBaseHalfVideoCheckResult, planBaseHalfVideoInputs } from '../common/basehalfVideoCatalog.js';
+import { BaseHalfVideoImageFormat, BaseHalfVideoMedia, baseHalfVideoSentParams, findBaseHalfVideoProvider, fitBaseHalfVideoParams, IBaseHalfVideoCatalog, IBaseHalfVideoCatalogMode, IBaseHalfVideoCatalogProvider, IBaseHalfVideoModelRef, IBaseHalfVideoPlannedMedia, IBaseHalfVideoProviderAccess, IBaseHalfVideoSubmitRequest, isBaseHalfSpokenOrSungPrompt, normalizeBaseHalfVideoParams } from '../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfGenerationCardSnapshot, IBaseHalfVideoResolvedInput } from '../common/basehalfVideoGeneration.js';
 import { FollowedGeneration, type IPreparedGeneration, BASEHALF_VIDEO_CATALOG_WAIT } from './basehalfGenerationFollowed.js';
 import { errorDetail } from './basehalfProviderAnswers.js';
 import { throwIfCancelled, missingInputMessage, inputName } from './basehalfVideoGenerationMessages.js';
 import { readBaseHalfVideoTextInput } from './basehalfGenerationInputReading.js';
 import type { BaseHalfVideoGenerationService } from './basehalfVideoGenerationService.js';
+import { BASEHALF_VIDEO_IMAGE_FORMATS, parseBaseHalfVideoCheckResult } from '../common/basehalfVideoCatalogParsing.js';
+import { BaseHalfVideoGenerateBlocker, baseHalfVideoGenerateBlockerText } from '../common/basehalfGenerateBlocker.js';
+import { baseHalfVideoInputProblem, IBaseHalfVideoInputPlanItem, planBaseHalfVideoInputs } from '../common/basehalfGenerationInputs.js';
 
 /** The largest image BaseHalf draws to PNG in the window. */
 const RASTER_MAX_BYTES = 64 * 1024 * 1024;

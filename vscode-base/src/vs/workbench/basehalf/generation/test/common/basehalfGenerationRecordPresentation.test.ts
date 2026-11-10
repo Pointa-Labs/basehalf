@@ -7,8 +7,9 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
 import { createBaseHalfGenerationRecordPresentation } from '../../common/basehalfGenerationRecordPresentation.js';
-import { BaseHalfModelKind, BaseHalfVideoCatalogState, IBaseHalfVideoInputSource } from '../../common/basehalfVideoCatalog.js';
+import { BaseHalfModelKind, BaseHalfVideoCatalogState } from '../../common/basehalfVideoCatalog.js';
 import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from './basehalfVideoCatalogFixture.js';
+import { IBaseHalfVideoInputSource } from '../../common/basehalfGenerationInputs.js';
 
 /** The kind of an audio card (D78). */
 const AUDIO = 'audio' as BaseHalfModelKind as BaseHalfGenerationKind;

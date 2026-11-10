@@ -325,7 +325,10 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   lines) with four parts (the strip of tabs, what the body shows, the panes
   an agent extension draws, and the panes that hold a terminal), and two
   modules: how a session's terminal starts, and an extension's view as a
-  pane.
+  pane. The model catalog, which was one module of 1,880 lines, keeps
+  finding, values, and what the settings say (about 980 lines); the reading
+  of the provider's answers, the inputs of a generation card, and whether a
+  card can generate are modules of their own.
 - Next: what draws the face of a generation card and runs its toolbar is the
   one part of the canvas core that is a feature of its own; it moves into
   `canvasContrib/` as code cards did. Connections, the badge editor, and note

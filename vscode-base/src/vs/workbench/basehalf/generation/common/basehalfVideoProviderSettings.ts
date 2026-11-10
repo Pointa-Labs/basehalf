@@ -6,7 +6,8 @@
 import { localize } from '../../../../nls.js';
 import { parseCustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfCustomProviders.js';
 import type { CustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
-import { BASEHALF_MODEL_KINDS, BASEHALF_VIDEO_PROVIDER_ID_PATTERN, BaseHalfModelKind } from './basehalfVideoCatalog.js';
+import { BASEHALF_MODEL_KINDS, BaseHalfModelKind } from './basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_PROVIDER_ID_PATTERN } from './basehalfVideoCatalogParsing.js';
 
 /**
  * How the providers of the catalog are set up on this computer (D59, video

@@ -51,7 +51,7 @@ import {
 	serializeBaseHalfGenerationMade,
 	writeBaseHalfGenerationInfoFields
 } from '../common/basehalfGenerationInfo.js';
-import { baseHalfVideoInputKindOfPath, findBaseHalfVideoModel } from '../common/basehalfVideoCatalog.js';
+import { findBaseHalfVideoModel } from '../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfGenerationCardEntry,
 	IBaseHalfGenerationCardSnapshot,
@@ -61,6 +61,7 @@ import {
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
+import { baseHalfVideoInputKindOfPath } from '../common/basehalfGenerationInputs.js';
 
 /** How often a write is planned again when the file changed under it. */
 const MAX_WRITE_ATTEMPTS = 8;

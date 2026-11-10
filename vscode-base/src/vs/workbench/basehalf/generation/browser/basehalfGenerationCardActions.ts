@@ -26,7 +26,6 @@ import {
 import {
 	baseHalfVideoChoiceRatio,
 	baseHalfVideoInitialGeneration,
-	baseHalfVideoAddedInputRefusal,
 	findBaseHalfVideoModel,
 	IBaseHalfVideoCatalog
 } from '../common/basehalfVideoCatalog.js';
@@ -44,6 +43,7 @@ import { BaseHalfDraftUndoChange, BaseHalfDraftUndoElement, IBaseHalfDraftUndoSe
 import { createBaseHalfNewVersion } from './basehalfGenerationNewVersion.js';
 import { baseHalfParentCanvasFolder } from './basehalfGenerationPlacement.js';
 import { IBaseHalfDraftOperations, IBaseHalfDraftSnapshot } from '../../upkeep/common/basehalfDraftOperations.js';
+import { baseHalfVideoAddedInputRefusal } from '../common/basehalfGenerationInputs.js';
 
 /** How long a new draft waits for a catalog that is still on its way, to know its model's format. */
 const CATALOG_WAIT_MS = 2000;

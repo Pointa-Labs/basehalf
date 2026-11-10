@@ -26,7 +26,7 @@ import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPane
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
-import { BASEHALF_VIDEO_IMAGE_FORMATS, BaseHalfModelKind, BaseHalfTakenInputKind, BaseHalfVideoImageFormat, findBaseHalfVideoModel, IBaseHalfVideoCheckRequest, IBaseHalfVideoCheckResult, IBaseHalfVideoInputPlanItem } from '../common/basehalfVideoCatalog.js';
+import { BaseHalfModelKind, BaseHalfTakenInputKind, BaseHalfVideoImageFormat, findBaseHalfVideoModel, IBaseHalfVideoCheckRequest, IBaseHalfVideoCheckResult } from '../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfGenerationCardActions, IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoResolvedInput } from '../common/basehalfVideoGeneration.js';
 import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, IBaseHalfGenerationInfo, setBaseHalfGenerationPrompt } from '../common/basehalfGenerationInfo.js';
 import { baseHalfUpstreamSidecarResource } from '../../references/common/basehalfReferenceStore.js';
@@ -48,6 +48,8 @@ import { BaseHalfGenerationPanelMenus } from './basehalfGenerationPanelMenus.js'
 import { BaseHalfGenerationPanelChoices } from './basehalfGenerationPanelChoices.js';
 import { BaseHalfGenerationPanelReferences } from './basehalfGenerationPanelReferences.js';
 import { BaseHalfGenerationPanelInputs } from './basehalfGenerationPanelInputs.js';
+import { BASEHALF_VIDEO_IMAGE_FORMATS } from '../common/basehalfVideoCatalogParsing.js';
+import { IBaseHalfVideoInputPlanItem } from '../common/basehalfGenerationInputs.js';
 
 /**
  * What the panel needs from the canvas. The workbench implements it.

@@ -11,12 +11,13 @@ import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCa
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, IBaseHalfReferenceEditResult } from '../../references/common/basehalfReferenceEdit.js';
-import { baseHalfVideoAddedInputRefusal, findBaseHalfVideoModel, IBaseHalfVideoCatalogModel } from '../common/basehalfVideoCatalog.js';
+import { findBaseHalfVideoModel, IBaseHalfVideoCatalogModel } from '../common/basehalfVideoCatalog.js';
 import { baseHalfVideoPanelInputFileName } from '../common/basehalfVideoNodePanelPresentation.js';
 import { BaseHalfTransfer } from '../../clipboard/common/basehalfClipboard.js';
 import { baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
 import { baseHalfTransferParts } from '../../clipboard/browser/basehalfTransferFiles.js';
 import type { BaseHalfVideoNodePanel } from './basehalfVideoNodePanel.js';
+import { baseHalfVideoAddedInputRefusal } from '../common/basehalfGenerationInputs.js';
 
 /** The draft itself, while it picks: a click on it does nothing, and nothing says so. */
 const PICK_SELF: IBaseHalfCanvasCardPickCard = Object.freeze({ action: 'self' });

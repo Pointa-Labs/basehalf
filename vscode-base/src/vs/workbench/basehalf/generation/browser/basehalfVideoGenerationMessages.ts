@@ -7,9 +7,10 @@ import { localize } from '../../../../nls.js';
 import { BaseHalfGenerationKind } from '../common/basehalfGenerationInfo.js';
 import { plainDetail, type ProviderAnswer, errorDetail } from './basehalfProviderAnswers.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
-import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoProviderAccess, baseHalfVideoRefusedInRegion, baseHalfVideoGenerateBlockerText } from '../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoProviderAccess, baseHalfVideoRefusedInRegion } from '../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError } from '../common/basehalfVideoGeneration.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { baseHalfVideoGenerateBlockerText } from '../common/basehalfGenerateBlocker.js';
 
 // What a generation that failed, stopped, or lost something says on its card, and the errors Generate rejects with.
 

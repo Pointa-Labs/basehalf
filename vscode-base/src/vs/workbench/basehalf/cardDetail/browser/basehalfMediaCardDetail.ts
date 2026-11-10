@@ -44,21 +44,15 @@ import { baseHalfBookReaderHtml, baseHalfBookReaderLabels } from '../../document
 import { IBaseHalfDocumentCoverService } from '../../documents/browser/basehalfDocumentCovers.js';
 import { formatBaseHalfVideoElapsed } from '../../generation/common/basehalfVideoCardPresentation.js';
 import {
-	BASEHALF_AUDIO_DEFAULT_MODE_INPUTS,
-	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
-	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
-	BaseHalfVideoInputKind,
-	baseHalfVideoInputKindOfPath,
 	baseHalfVideoParamValueLabel,
 	findBaseHalfVideoModel,
 	findBaseHalfVideoProvider,
-	IBaseHalfVideoCatalog,
-	IBaseHalfVideoInputPlanItem,
-	planBaseHalfVideoInputs
+	IBaseHalfVideoCatalog
 } from '../../generation/common/basehalfVideoCatalog.js';
 import { baseHalfPromptAsText } from '../../generation/common/basehalfGenerationMentions.js';
 import { baseHalfRecordedVoiceList, baseHalfVoiceLabel, IBaseHalfGenerationVoiceService } from '../../generation/common/basehalfGenerationVoices.js';
 import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../generation/common/basehalfVideoGeneration.js';
+import { BASEHALF_AUDIO_DEFAULT_MODE_INPUTS, BASEHALF_IMAGE_DEFAULT_MODE_INPUTS, BASEHALF_VIDEO_DEFAULT_MODE_INPUTS, BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath, IBaseHalfVideoInputPlanItem, planBaseHalfVideoInputs } from '../../generation/common/basehalfGenerationInputs.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');

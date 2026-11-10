@@ -6,9 +6,6 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
-	BASEHALF_AUDIO_DEFAULT_MODE_INPUTS,
-	baseHalfDefaultModeId,
-	baseHalfDefaultModeInputs,
 	baseHalfModelFileExtension,
 	baseHalfModelMakesSeveral,
 	baseHalfModelMostOutputs,
@@ -18,21 +15,15 @@ import {
 	baseHalfVideoRecordedSettingsSummary,
 	BaseHalfVideoCatalogState,
 	baseHalfVideoCatalogForAgents,
-	BaseHalfVideoGenerateBlocker,
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
 	baseHalfVideoChooseModel,
 	baseHalfVideoChoiceRatio,
-	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoInitialGeneration,
-	baseHalfVideoInputKindOfPath,
-	baseHalfVideoInputProblem,
 	baseHalfVideoLimitRange,
 	baseHalfVideoListedModels,
 	baseHalfVideoModelAbilities,
 	baseHalfVideoModeOf,
-	baseHalfVideoModeThatIsUsed,
-	baseHalfVideoModeUsesEveryInput,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
 	baseHalfVideoRefusedInRegion,
@@ -42,27 +33,21 @@ import {
 	findBaseHalfVideoModel,
 	findBaseHalfVideoRegion,
 	fitBaseHalfVideoParams,
-	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCatalogProvider,
-	IBaseHalfVideoGenerateBlockerInput,
 	IBaseHalfVideoGenerationChoice,
-	IBaseHalfVideoInputPlanItem,
-	IBaseHalfVideoInputSource,
 	IBaseHalfVideoNumberParameter,
 	IBaseHalfVideoVoiceParameter,
 	isBaseHalfModelDeprecated,
 	isBaseHalfSpokenOrSungPrompt,
-	isBaseHalfVideoModelBlocker,
 	isBaseHalfVideoParamValueAccepted,
-	normalizeBaseHalfVideoParams,
-	parseBaseHalfVideoCatalog,
-	parseBaseHalfVideoCheckResult,
-	planBaseHalfVideoInputs,
-	stripBaseHalfMarkdownFrontMatter
+	normalizeBaseHalfVideoParams
 } from '../../common/basehalfVideoCatalog.js';
 import { baseHalfVoiceLabel, baseHalfVoiceParameter } from '../../common/basehalfGenerationVoices.js';
 import { ACME, ACME_MOTION, BOREALIS, DUNLIN, DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG, testVideoModel } from './basehalfVideoCatalogFixture.js';
+import { parseBaseHalfVideoCatalog, parseBaseHalfVideoCheckResult } from '../../common/basehalfVideoCatalogParsing.js';
+import { BaseHalfVideoGenerateBlocker, baseHalfVideoGenerateBlockerText, getBaseHalfVideoGenerateBlocker, IBaseHalfVideoGenerateBlockerInput, isBaseHalfVideoModelBlocker } from '../../common/basehalfGenerateBlocker.js';
+import { BASEHALF_AUDIO_DEFAULT_MODE_INPUTS, baseHalfDefaultModeId, baseHalfDefaultModeInputs, baseHalfVideoInputKindOfPath, baseHalfVideoInputProblem, baseHalfVideoModeThatIsUsed, baseHalfVideoModeUsesEveryInput, IBaseHalfVideoInputPlanItem, IBaseHalfVideoInputSource, planBaseHalfVideoInputs, stripBaseHalfMarkdownFrontMatter } from '../../common/basehalfGenerationInputs.js';
 
 suite('BaseHalfVideoCatalog', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

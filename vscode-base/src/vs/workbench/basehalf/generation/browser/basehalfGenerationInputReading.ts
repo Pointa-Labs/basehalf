@@ -7,8 +7,8 @@ import { VSBuffer, encodeBase64 } from '../../../../base/common/buffer.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { URI } from '../../../../base/common/uri.js';
 import { extname } from '../../../../base/common/resources.js';
-import { stripBaseHalfMarkdownFrontMatter } from '../common/basehalfVideoCatalog.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { stripBaseHalfMarkdownFrontMatter } from '../common/basehalfGenerationInputs.js';
 
 // Reading the inputs a generation sends: a text file up to a limit, and a picture drawn again in a format a
 // provider takes.

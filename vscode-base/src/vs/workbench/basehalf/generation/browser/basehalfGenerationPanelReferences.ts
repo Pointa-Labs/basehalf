@@ -7,7 +7,6 @@ import { getWindow } from '../../../../base/browser/dom.js';
 import { compareFileNames } from '../../../../base/common/comparers.js';
 import { dirname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { baseHalfVideoInputKindOfPath, BaseHalfVideoInputKind } from '../common/basehalfVideoCatalog.js';
 import { baseHalfVideoPanelInputFileName } from '../common/basehalfVideoNodePanelPresentation.js';
 import { baseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { BaseHalfReferenceMenuKind, IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
@@ -15,6 +14,7 @@ import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMe
 import { baseHalfMediaUrlAt, baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
 import { PROMPT_LINE_HEIGHT } from './basehalfGenerationPanelShared.js';
 import type { BaseHalfVideoNodePanel } from './basehalfVideoNodePanel.js';
+import { baseHalfVideoInputKindOfPath, BaseHalfVideoInputKind } from '../common/basehalfGenerationInputs.js';
 
 /** The canvas's cards before the reference menu read them. */
 const EMPTY_CANVAS_CARDS: readonly IBaseHalfReferenceMenuKindList[] = Object.freeze([

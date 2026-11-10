@@ -10,9 +10,7 @@ import {
 	BaseHalfVideoCatalogState,
 	findBaseHalfVideoRegion,
 	IBaseHalfVideoCatalogProvider,
-	IBaseHalfVideoGenerationChoice,
-	IBaseHalfVideoInputSource,
-	parseBaseHalfVideoCatalog
+	IBaseHalfVideoGenerationChoice
 } from '../../common/basehalfVideoCatalog.js';
 import {
 	BaseHalfVideoPanelControl,
@@ -26,6 +24,8 @@ import {
 	swapBaseHalfVideoUpstreamEntries
 } from '../../common/basehalfVideoNodePanelPresentation.js';
 import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from './basehalfVideoCatalogFixture.js';
+import { parseBaseHalfVideoCatalog } from '../../common/basehalfVideoCatalogParsing.js';
+import { IBaseHalfVideoInputSource } from '../../common/basehalfGenerationInputs.js';
 
 suite('BaseHalfVideoNodePanelPresentation', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

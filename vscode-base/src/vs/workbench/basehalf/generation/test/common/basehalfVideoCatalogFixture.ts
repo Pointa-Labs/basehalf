@@ -7,9 +7,9 @@ import {
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCatalogMode,
 	IBaseHalfVideoCatalogModel,
-	IBaseHalfVideoCatalogProvider,
-	parseBaseHalfVideoCatalog
+	IBaseHalfVideoCatalogProvider
 } from '../../common/basehalfVideoCatalog.js';
+import { parseBaseHalfVideoCatalog } from '../../common/basehalfVideoCatalogParsing.js';
 
 /**
  * A model catalog of invented providers and models, as the provider service would answer
