@@ -11,8 +11,11 @@ import { OperatingSystem } from '../../../../../base/common/platform.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IShellLaunchConfig } from '../../../../../platform/terminal/common/terminal.js';
-import { baseHalfTuiSessionLaunchConfig } from '../../common/basehalfAgentArea.js';
+import { BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID, baseHalfTuiSessionLaunchConfig } from '../../common/basehalfAgentArea.js';
 import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
+import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
+import '../../browser/basehalfAgentArea.contribution.js';
+import { BaseHalfAgentAreaService } from '../../browser/basehalfAgentAreaService.js';
 import { baseHalfCreateAgentAreaTerminalConfig, baseHalfRelaunchTerminalAfterExit } from '../../browser/basehalfAgentAreaTerminalConfig.js';
 
 /**
@@ -52,6 +55,14 @@ class ExitingTerminal {
 
 suite('BaseHalfAgentAreaTerminalConfig', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('the Agent Area loads: its service with its parts, and its actions', () => {
+		// No other unit test evaluates these modules; a fault of one of them at load would show only in a window.
+		assert.deepStrictEqual({
+			service: typeof BaseHalfAgentAreaService,
+			toggle: typeof CommandsRegistry.getCommand(BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID)?.handler
+		}, { service: 'function', toggle: 'function' });
+	});
 
 	test('passes the Claude Code launch instruction through to the terminal launch configuration', () => {
 		const tui = baseHalfTuiSessionLaunchConfig('tui-claude', { isRemote: false, os: OperatingSystem.Macintosh, hasMarkedWorkspaceFolder: false });

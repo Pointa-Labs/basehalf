@@ -6,10 +6,16 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { baseHalfMarkdownRichColdFlushResult } from '../../../markdown/common/basehalfMarkdownRichFlush.js';
+import { BaseHalfMarkdownRichCardDetail } from '../../browser/basehalfMarkdownRichCardDetail.js';
 import { applyBaseHalfMarkdownRichFirstFrameState, baseHalfMarkdownRichColdGenerationAction, baseHalfMarkdownRichFirstFrameAcknowledgement, baseHalfMarkdownRichShouldGuardQuickInput, BaseHalfMarkdownRichQuickInputFocusGuard, setBaseHalfMarkdownRichInteractionEnabled } from '../../browser/basehalfMarkdownRichWebviewPage.js';
 
 suite('BaseHalfMarkdownRichCardDetail', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('the Rich projection loads with its parts', () => {
+		// No other unit test evaluates these modules; a fault of one of them at load would show only in a window.
+		assert.strictEqual(typeof BaseHalfMarkdownRichCardDetail, 'function');
+	});
 
 	test('keeps a cold rich webview inert until its focus boundary settles', () => {
 		const surface = document.createElement('div');
