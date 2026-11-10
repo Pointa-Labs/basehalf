@@ -11,9 +11,9 @@ import { OperatingSystem } from '../../../../../base/common/platform.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IShellLaunchConfig } from '../../../../../platform/terminal/common/terminal.js';
-import { baseHalfCreateAgentAreaTerminalConfig, baseHalfRelaunchTerminalAfterExit } from '../../browser/basehalfAgentArea.contribution.js';
 import { baseHalfTuiSessionLaunchConfig } from '../../common/basehalfAgentArea.js';
 import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
+import { baseHalfCreateAgentAreaTerminalConfig, baseHalfRelaunchTerminalAfterExit } from '../../browser/basehalfAgentAreaTerminalConfig.js';
 
 /**
  * Follows the order in which `TerminalInstance` handles a process exit with
