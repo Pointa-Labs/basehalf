@@ -73,6 +73,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	readonly landing = new BaseHalfGenerationLanding(this);
 	/** Following the generations of the task records */
 	readonly takeover = new BaseHalfGenerationTakeover(this);
+
 	declare readonly _serviceBrand: undefined;
 
 	private readonly _onDidChangeProgress = this._register(new Emitter<URI>());

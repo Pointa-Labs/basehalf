@@ -85,6 +85,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	readonly extensionPanes = new BaseHalfAgentAreaExtensionPanes(this);
 	/** Panes that hold a terminal */
 	readonly terminalPanes = new BaseHalfAgentAreaTerminalPanes(this);
+
 	declare readonly _serviceBrand: undefined;
 
 	private static nextId = 1;
