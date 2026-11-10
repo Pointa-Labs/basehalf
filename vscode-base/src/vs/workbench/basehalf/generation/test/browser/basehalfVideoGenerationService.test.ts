@@ -24,12 +24,7 @@ import { BaseHalfGenerationCardStore } from '../../browser/basehalfGenerationCar
 import { baseHalfGenerationTaskFolder, BaseHalfGenerationTaskStore } from '../../browser/basehalfGenerationTaskStore.js';
 import { BaseHalfVideoCatalogService } from '../../browser/basehalfVideoCatalogService.js';
 import {
-	BASEHALF_VIDEO_TASK_TIME_LIMIT,
-	BaseHalfVideoGenerationService,
-	closedWhileAnsweringMessage,
-	orphanedSubmissionMessage,
-	readBaseHalfVideoTextInput,
-	unknownOutcomeMessage
+	BaseHalfVideoGenerationService
 } from '../../browser/basehalfVideoGenerationService.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
 import { baseHalfCanvasGenerationCardSize } from '../../../canvas/common/basehalfCanvasModel.js';
@@ -77,6 +72,9 @@ import {
 	TestChecksumService,
 	testDigestHex
 } from './basehalfVideoTestFixtures.js';
+import { BASEHALF_VIDEO_TASK_TIME_LIMIT } from '../../browser/basehalfGenerationFollowed.js';
+import { closedWhileAnsweringMessage, orphanedSubmissionMessage, unknownOutcomeMessage } from '../../browser/basehalfVideoGenerationMessages.js';
+import { readBaseHalfVideoTextInput } from '../../browser/basehalfGenerationInputReading.js';
 
 const START = Date.parse('2026-10-22T08:00:00.000Z');
 const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DOWNLOAD, cancel: CANCEL, place: PLACE } = PROVIDER_CALL;

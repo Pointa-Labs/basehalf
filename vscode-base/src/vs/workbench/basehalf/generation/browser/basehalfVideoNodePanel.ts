@@ -89,7 +89,6 @@ import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile 
 import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
 import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from './basehalfGenerationVoiceMenu.js';
-import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
 import { baseHalfMediaUrlAt, baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
 import { BaseHalfTransfer, IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
 import { baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
@@ -101,6 +100,7 @@ import {
 	resolveBaseHalfVideoPanelMenuPlacement
 } from '../common/basehalfVideoNodePanelPlacement.js';
 import { IBaseHalfDraftOperations } from '../../upkeep/common/basehalfDraftOperations.js';
+import { readBaseHalfVideoTextInput } from './basehalfGenerationInputReading.js';
 
 /**
  * What the panel needs from the canvas. The workbench implements it.

@@ -312,7 +312,11 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   all five built-in ones itself, hosts them through `IBaseHalfCardDetailHost`
   and imports none of them.
 - 2026-11-10: a file can be read whole everywhere, not only in the canvas
-  (D126).
+  (D126). The generation service, which was one file of 2,457 lines, is the
+  service (about 930 lines) with three parts (what a generation sends, the
+  landing of its files, and following the generations of the task records)
+  and four modules of what it only calls (the generation it follows, the
+  provider's answers, its messages, and the reading of inputs).
 - Next: what draws the face of a generation card and runs its toolbar is the
   one part of the canvas core that is a feature of its own; it moves into
   `canvasContrib/` as code cards did. Connections, the badge editor, and note
