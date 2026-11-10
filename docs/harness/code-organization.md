@@ -316,7 +316,11 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   service (about 930 lines) with three parts (what a generation sends, the
   landing of its files, and following the generations of the task records)
   and four modules of what it only calls (the generation it follows, the
-  provider's answers, its messages, and the reading of inputs).
+  provider's answers, its messages, and the reading of inputs). The panel
+  under a generation card, which was one class of 2,702 lines, is the panel
+  (about 1,330 lines) with four parts: the menu that opens from a button,
+  what the menus hold, the `@` menu with its mentions, and changing the
+  card's inputs.
 - Next: what draws the face of a generation card and runs its toolbar is the
   one part of the canvas core that is a feature of its own; it moves into
   `canvasContrib/` as code cards did. Connections, the badge editor, and note

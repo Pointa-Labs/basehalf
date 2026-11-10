@@ -4,15 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfVideoNode.css';
-import { $, addDisposableListener, append, clearNode, getWindow, isHTMLButtonElement, isHTMLElement, isHTMLInputElement } from '../../../../base/browser/dom.js';
-import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
+import { $, addDisposableListener, append, getWindow, isHTMLElement, isHTMLInputElement } from '../../../../base/browser/dom.js';
 import { DeferredPromise, RunOnceScheduler, TimeoutTimer } from '../../../../base/common/async.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { compareFileNames } from '../../../../base/common/comparers.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
-import { basename, dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
+import { basename, isEqual } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
@@ -22,85 +20,34 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { IBaseHalfCanvasCardPick, IBaseHalfCanvasCardPickCard } from '../../canvas/common/basehalfCanvasCardPick.js';
-import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
+import { IBaseHalfCanvasCardPick } from '../../canvas/common/basehalfCanvasCardPick.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
-import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
-import {
-	BASEHALF_VIDEO_IMAGE_FORMATS,
-	BaseHalfModelKind,
-	BaseHalfTakenInputKind,
-	BaseHalfVideoImageFormat,
-	BaseHalfVideoModeId,
-	BaseHalfVideoParamValue,
-	baseHalfVideoAddedInputRefusal,
-	baseHalfVideoChangeParam,
-	baseHalfVideoChooseMode,
-	baseHalfVideoChooseModel,
-	baseHalfVideoInputKindOfPath,
-	BaseHalfVideoInputKind,
-	findBaseHalfVideoModel,
-	IBaseHalfVideoCatalogModel,
-	IBaseHalfVideoCheckRequest,
-	IBaseHalfVideoCheckResult,
-	IBaseHalfVideoGenerationChoice,
-	IBaseHalfVideoInputPlanItem,
-	IBaseHalfVideoModelRef
-} from '../common/basehalfVideoCatalog.js';
-import {
-	BaseHalfVideoGenerationError,
-	IBaseHalfGenerationCardActions,
-	IBaseHalfGenerationCardSnapshot,
-	IBaseHalfGenerationCardStore,
-	IBaseHalfVideoCatalogService,
-	IBaseHalfVideoGenerationService,
-	IBaseHalfVideoProviderSettingsService,
-	IBaseHalfVideoResolvedInput
-} from '../common/basehalfVideoGeneration.js';
-import {
-	BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
-	baseHalfGenerationChoice,
-	baseHalfGenerationDraftRenameExtension,
-	baseHalfGenerationNameOrdinal,
-	baseHalfGenerationNameParts,
-	IBaseHalfGenerationInfo,
-	setBaseHalfGenerationChoice,
-	setBaseHalfGenerationPrompt
-} from '../common/basehalfGenerationInfo.js';
+import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
+import { BASEHALF_VIDEO_IMAGE_FORMATS, BaseHalfModelKind, BaseHalfTakenInputKind, BaseHalfVideoImageFormat, findBaseHalfVideoModel, IBaseHalfVideoCheckRequest, IBaseHalfVideoCheckResult, IBaseHalfVideoInputPlanItem } from '../common/basehalfVideoCatalog.js';
+import { BaseHalfVideoGenerationError, IBaseHalfGenerationCardActions, IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoResolvedInput } from '../common/basehalfVideoGeneration.js';
+import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, IBaseHalfGenerationInfo, setBaseHalfGenerationPrompt } from '../common/basehalfGenerationInfo.js';
 import { baseHalfUpstreamSidecarResource } from '../../references/common/basehalfReferenceStore.js';
-import {
-	BaseHalfVideoPanelControl,
-	baseHalfVideoPanelInputFileName,
-	baseHalfVideoPanelPlaceholder,
-	createBaseHalfVideoPanelPresentation,
-	IBaseHalfVideoPanelAuto,
-	IBaseHalfVideoPanelChoice,
-	IBaseHalfVideoPanelInputItem,
-	IBaseHalfVideoPanelPresentation
-} from '../common/basehalfVideoNodePanelPresentation.js';
-import { baseHalfPromptMention, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
-import { BaseHalfReferenceMenuKind, IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
+import { baseHalfVideoPanelPlaceholder, createBaseHalfVideoPanelPresentation, IBaseHalfVideoPanelInputItem, IBaseHalfVideoPanelPresentation } from '../common/basehalfVideoNodePanelPresentation.js';
+import { IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { baseHalfVoiceNeedsList, IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
 import { BaseHalfGenerationAddButtons } from './basehalfGenerationAddButtons.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
 import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
-import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from './basehalfGenerationVoiceMenu.js';
-import { baseHalfMediaUrlAt, baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
-import { BaseHalfTransfer, IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
-import { baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
-import { BaseHalfTransferPart, baseHalfTransferParts } from '../../clipboard/browser/basehalfTransferFiles.js';
-import {
-	BASEHALF_VIDEO_PANEL_MAX_HEIGHT,
-	BASEHALF_VIDEO_PANEL_MIN_HEIGHT,
-	IBaseHalfVideoPanelRect,
-	resolveBaseHalfVideoPanelMenuPlacement
-} from '../common/basehalfVideoNodePanelPlacement.js';
+import { IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
+import { baseHalfDragHoldsTransfer } from '../../clipboard/browser/basehalfTransfer.js';
+import { BaseHalfTransferPart } from '../../clipboard/browser/basehalfTransferFiles.js';
+import { BASEHALF_VIDEO_PANEL_MAX_HEIGHT, BASEHALF_VIDEO_PANEL_MIN_HEIGHT } from '../common/basehalfVideoNodePanelPlacement.js';
 import { IBaseHalfDraftOperations } from '../../upkeep/common/basehalfDraftOperations.js';
 import { readBaseHalfVideoTextInput } from './basehalfGenerationInputReading.js';
+import { HOVER_GROUP, PROMPT_LINE_HEIGHT, renderCodicon, IOpenMenu } from './basehalfGenerationPanelShared.js';
+import { BaseHalfGenerationPanelMenus } from './basehalfGenerationPanelMenus.js';
+import { BaseHalfGenerationPanelChoices } from './basehalfGenerationPanelChoices.js';
+import { BaseHalfGenerationPanelReferences } from './basehalfGenerationPanelReferences.js';
+import { BaseHalfGenerationPanelInputs } from './basehalfGenerationPanelInputs.js';
 
 /**
  * What the panel needs from the canvas. The workbench implements it.
@@ -203,34 +150,9 @@ const FOOTER_HEIGHT = 32;
 /** The reason line: one line beside its action, or two lines of text. */
 const REASON_MIN_HEIGHT = 20;
 const REASON_MAX_HEIGHT = 32;
-const PROMPT_LINE_HEIGHT = 20;
 const PROMPT_PADDING = 4;
 const PROMPT_MIN_LINES = 3;
 const PROMPT_MAX_LINES = 5;
-/** The voice menu is as wide as the model menu (D78). */
-const MENU_WIDTHS = { add: 200, model: 300, voice: 300, settings: 300 } as const;
-const HOVER_GROUP = 'basehalf-video-panel';
-
-type BaseHalfVideoPanelMenuKind = keyof typeof MENU_WIDTHS;
-
-interface IOpenMenu {
-	readonly kind: BaseHalfVideoPanelMenuKind;
-	readonly element: HTMLElement;
-	/** Where the focus goes back when the menu closes. */
-	readonly trigger: HTMLElement;
-	readonly store: DisposableStore;
-	/** What the menu's current items hold; cleared each time they are drawn again. */
-	readonly content: DisposableStore;
-	/** The control the menu opened from, for placing it. */
-	readonly anchor: () => DOMRect | undefined;
-	readonly align: 'start' | 'end';
-	/** A click opened it, not a key: it has no current item until an arrow key chooses one. */
-	readonly byPointer: boolean;
-	/** What the items show, so they are drawn again only when it changes. */
-	contentKey?: string;
-	/** The voice menu, which draws its own rows and keeps its search while the panel changes. */
-	voice?: BaseHalfGenerationVoiceMenu;
-}
 
 /** A check the panel asks with the files a generation would send. */
 interface IPendingCheck {
@@ -266,6 +188,16 @@ interface IPendingCheck {
  */
 export abstract class BaseHalfVideoNodePanel extends Disposable {
 
+	// The parts, one concern each; they reach this object as `panel`.
+	/** The menu that opens from a button of the panel */
+	readonly menus = new BaseHalfGenerationPanelMenus(this);
+	/** What the menus hold: what to add, the models, the voices, and the settings */
+	readonly choices = new BaseHalfGenerationPanelChoices(this);
+	/** The `@` menu and the mentions in the prompt */
+	readonly references = new BaseHalfGenerationPanelReferences(this);
+	/** Changing the card's inputs */
+	readonly inputChanges = new BaseHalfGenerationPanelInputs(this);
+
 	readonly element: HTMLElement;
 
 	private readonly _onDidChangeHeight = this._register(new Emitter<number>());
@@ -276,12 +208,12 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	private readonly firstRead = new DeferredPromise<void>();
 
 	/** The card's connections as tiles (D68). */
-	private readonly inputRow: BaseHalfGenerationInputRow;
+	readonly inputRow: BaseHalfGenerationInputRow;
 	/** Pick on Canvas and Import File…, at the start of the footer of every kind (D71, D106). */
 	private readonly addButtons: BaseHalfGenerationAddButtons;
 	private readonly promptBox: HTMLElement;
 	/** The prompt, whose names of inputs are chips (D68). */
-	private readonly editor: BaseHalfGenerationPromptEditor;
+	readonly editor: BaseHalfGenerationPromptEditor;
 	private readonly promptState: HTMLElement;
 	private readonly notice: HTMLElement;
 	private readonly reason: HTMLElement;
@@ -296,22 +228,19 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	private readonly settingsLabel: HTMLElement;
 	private readonly generateButton: HTMLButtonElement;
 	private readonly generateIcon: HTMLElement;
-	private readonly layer: HTMLElement;
+	readonly layer: HTMLElement;
 
-	private readonly menu = this._register(new MutableDisposable<DisposableStore>());
+	readonly menu = this._register(new MutableDisposable<DisposableStore>());
 	/** The reference menu that `@` opened, and where its `@` is in the prompt. */
-	private readonly referenceMenu = this._register(new MutableDisposable<BaseHalfGenerationReferenceMenu>());
-	private mentionAt: number | undefined;
-	/** The cards of the canvas of the card's folder, as the reference menu last read them. */
-	private canvasCards: readonly IBaseHalfReferenceMenuKindList[] | undefined;
+	readonly referenceMenu = this._register(new MutableDisposable<BaseHalfGenerationReferenceMenu>());
 	/** The inputs the chips of the prompt were drawn for. */
 	private chipInputsKey: string | undefined;
 	private readonly saveTimer = this._register(new TimeoutTimer());
 	private saveScheduled = false;
-	private openMenu: IOpenMenu | undefined;
+	openMenu: IOpenMenu | undefined;
 
-	private snapshot: IBaseHalfGenerationCardSnapshot | undefined;
-	private inputs: readonly IBaseHalfVideoResolvedInput[] = [];
+	snapshot: IBaseHalfGenerationCardSnapshot | undefined;
+	inputs: readonly IBaseHalfVideoResolvedInput[] = [];
 	/** The text of the text inputs, for the prompt that `check` sees. */
 	private texts: ReadonlyMap<string, string> = new Map();
 	/** What the panel asked `check` last, and the last answer for the node's model in its region. */
@@ -322,12 +251,10 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	private lastCheck: { readonly model: string; readonly result: IBaseHalfVideoCheckResult } | undefined;
 	private readonly checkScheduler: RunOnceScheduler;
 	/** Whether the settings show the advanced parameters. */
-	private moreOpen = false;
-	/** A text value typed into the settings and not saved yet. */
-	private pendingText: { readonly name: string; readonly value: string } | undefined;
+	moreOpen = false;
 	private optimistic: IBaseHalfGenerationInfo | undefined;
 	private optimisticWrites = 0;
-	private presentation: IBaseHalfVideoPanelPresentation | undefined;
+	presentation: IBaseHalfVideoPanelPresentation | undefined;
 	private readError: string | undefined;
 	private refreshSequence = 0;
 	/** The upstream list whose inputs the panel drew last, as the host was told it. */
@@ -339,46 +266,42 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	private notSaved: string | undefined;
 	private promptLines = PROMPT_MIN_LINES;
 	private currentHeight: number;
-	private layout: IBaseHalfCanvasSceneVideoPanelLayout | undefined;
+	layout: IBaseHalfCanvasSceneVideoPanelLayout | undefined;
 	private focusWhenShown: boolean;
 	private starting = false;
 	/** What the Generate button was drawn as last: Generate or Stop. */
 	private generateKind: 'generate' | 'stop' | undefined;
 	private modelTitle: string | undefined;
 	/** Pick on Canvas while it is on (D69). */
-	private readonly pick = this._register(new MutableDisposable<IDisposable>());
-	private readonly _onDidChangePick = this._register(new Emitter<void>());
+	readonly pick = this._register(new MutableDisposable<IDisposable>());
+	readonly _onDidChangePick = this._register(new Emitter<void>());
 	/** What a click on each card does depends on this: when it changes, the canvas asks again. */
-	private pickKey: string | undefined;
-	/** The cards whose click is being carried out: a second click on one of them does nothing. */
-	private readonly picksRunning = new Set<string>();
-	/** The clicks of Pick on Canvas, carried out one after the other. */
-	private pickQueue: Promise<unknown> = Promise.resolve();
+	pickKey: string | undefined;
 	/** The panel's width when the prompt was last measured. */
 	private measuredWidth: number | undefined;
 	private readonly saveDelay: number;
-	private disposed = false;
+	disposed = false;
 
 	constructor(
-		private readonly resource: URI,
-		private readonly host: IBaseHalfVideoNodePanelHost,
+		public readonly resource: URI,
+		public readonly host: IBaseHalfVideoNodePanelHost,
 		options: IBaseHalfVideoNodePanelOptions | undefined,
-		@IBaseHalfGenerationCardStore private readonly store: IBaseHalfGenerationCardStore,
-		@IBaseHalfDraftOperations private readonly draftOperations: IBaseHalfDraftOperations,
-		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
-		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
+		@IBaseHalfGenerationCardStore public readonly store: IBaseHalfGenerationCardStore,
+		@IBaseHalfDraftOperations public readonly draftOperations: IBaseHalfDraftOperations,
+		@IBaseHalfVideoCatalogService public readonly catalogService: IBaseHalfVideoCatalogService,
+		@IBaseHalfVideoProviderSettingsService public readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfVideoGenerationService private readonly generationService: IBaseHalfVideoGenerationService,
-		@IBaseHalfGenerationCardActions private readonly cardActions: IBaseHalfGenerationCardActions,
+		@IBaseHalfGenerationCardActions public readonly cardActions: IBaseHalfGenerationCardActions,
 		@IBaseHalfGenerationVoiceService private readonly voiceService: IBaseHalfGenerationVoiceService,
-		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
-		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
+		@IBaseHalfReferenceEditService public readonly referenceEditService: IBaseHalfReferenceEditService,
+		@IBaseHalfCanvasMirrorService public readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@IFileService private readonly fileService: IFileService,
-		@IHoverService private readonly hoverService: IHoverService,
-		@INotificationService private readonly notificationService: INotificationService,
-		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@ILogService private readonly logService: ILogService,
-		@IBaseHalfClipboardService private readonly clipboardService: IBaseHalfClipboardService
+		@IFileService public readonly fileService: IFileService,
+		@IHoverService public readonly hoverService: IHoverService,
+		@INotificationService public readonly notificationService: INotificationService,
+		@IInstantiationService public readonly instantiationService: IInstantiationService,
+		@ILogService public readonly logService: ILogService,
+		@IBaseHalfClipboardService public readonly clipboardService: IBaseHalfClipboardService
 	) {
 		super();
 		this.saveDelay = options?.saveDelay ?? BASEHALF_VIDEO_PANEL_PROMPT_SAVE_DELAY;
@@ -400,7 +323,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 				return;
 			}
 			event.preventDefault();
-			void this.pasteTransfer(false);
+			void this.inputChanges.pasteTransfer(false);
 		}));
 		this._register(addDisposableListener(this.element, 'dragover', event => {
 			if (baseHalfDragHoldsTransfer(event.dataTransfer)) {
@@ -413,44 +336,44 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 				return;
 			}
 			event.preventDefault();
-			void this.dropTransfer(event.dataTransfer, false);
+			void this.inputChanges.dropTransfer(event.dataTransfer, false);
 		}));
 
 		// Menus and the look at an input lie over everything else of the panel; the layer is added last.
 		this.layer = $('.bh-video-panel-layer');
 		this.inputRow = this._register(new BaseHalfGenerationInputRow({
-			remove: path => { void this.disconnect(path); },
-			insertMention: path => this.insertMention(path),
-			move: (path, before) => { void this.moveInput(path, before); },
+			remove: path => { void this.inputChanges.disconnect(path); },
+			insertMention: path => this.references.insertMention(path),
+			move: (path, before) => { void this.inputChanges.moveInput(path, before); },
 			swap: () => {
 				const order = this.presentation?.inputRow?.swappedUpstream;
 				if (order) {
-					void this.reorder(order);
+					void this.inputChanges.reorder(order);
 				}
 			},
 			openAddMenu: (trigger, byPointer) => {
 				// An empty frame while picking ends picking, as Pick on Canvas does.
-				if (this.picking) {
-					this.endPick();
+				if (this.inputChanges.picking) {
+					this.inputChanges.endPick();
 				} else {
-					this.toggleMenu('add', trigger, byPointer);
+					this.menus.toggleMenu('add', trigger, byPointer);
 				}
 			},
-			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
+			canvasBounds: () => this.menus.canvasRect(this.element.getBoundingClientRect())
 		}, this.layer));
 		this.inputRow.element.hidden = true;
 		this.addButtons = this._register(new BaseHalfGenerationAddButtons({
 			togglePick: () => {
-				this.closeMenu(false);
-				if (this.picking) {
-					this.endPick();
+				this.menus.closeMenu(false);
+				if (this.inputChanges.picking) {
+					this.inputChanges.endPick();
 				} else {
-					this.startPick();
+					this.inputChanges.startPick();
 				}
 			},
 			importFile: () => {
-				this.closeMenu(false);
-				void this.importFile();
+				this.menus.closeMenu(false);
+				void this.inputChanges.importFile();
 			},
 			setupHover: (element, content) => this.hoverService.setupDelayedHover(element, () => ({ content }), { groupId: HOVER_GROUP })
 		}));
@@ -464,8 +387,8 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
 			chipOf: mention => this.chipOf(mention),
 			// Files and pictures pasted or dropped into the prompt become inputs and are mentioned (copy, paste, and drop).
-			pasteFiles: () => { void this.pasteTransfer(true); },
-			dropTransfer: dataTransfer => { void this.dropTransfer(dataTransfer, true); }
+			pasteFiles: () => { void this.inputChanges.pasteTransfer(true); },
+			dropTransfer: dataTransfer => { void this.inputChanges.dropTransfer(dataTransfer, true); }
 		}));
 		// The field grows with its text from three lines to five, and scrolls beyond.
 		Object.assign(this.editor.element.style, {
@@ -581,7 +504,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		if (this.promptDirty || this.saveScheduled) {
 			await this.savePrompt();
 		}
-		this.saveTextParam();
+		this.choices.saveTextParam();
 		await this.writeQueue.catch(() => undefined);
 	}
 
@@ -646,9 +569,9 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	override dispose(): void {
-		this.saveTextParam();
+		this.choices.saveTextParam();
 		this.disposed = true;
-		this.closeMenu(false);
+		this.menus.closeMenu(false);
 		this.referenceMenu.clear();
 		// Nobody waits for a panel that is gone.
 		void this.firstRead.complete();
@@ -695,14 +618,14 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	private scheduleRefresh(): void {
+	scheduleRefresh(): void {
 		if (!this.disposed && !this.refreshScheduler.isScheduled()) {
 			this.refreshScheduler.schedule();
 		}
 	}
 
 	/** The generation information the panel shows: the file's, or what a write on its way makes of it. */
-	private info(): IBaseHalfGenerationInfo {
+	info(): IBaseHalfGenerationInfo {
 		return this.optimistic ?? this.snapshot?.info ?? EMPTY_INFO;
 	}
 
@@ -715,7 +638,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	/** Changes the settings or the model: shown at once, saved right after. */
-	private async writeSettings(mutate: (info: IBaseHalfGenerationInfo) => IBaseHalfGenerationInfo): Promise<void> {
+	async writeSettings(mutate: (info: IBaseHalfGenerationInfo) => IBaseHalfGenerationInfo): Promise<void> {
 		this.optimistic = mutate(this.info());
 		this.optimisticWrites++;
 		this.render();
@@ -847,9 +770,9 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		}));
 		this._register(addDisposableListener(this.editor.element, 'keydown', event => this.onPromptKeyDown(event)));
 
-		this._register(addDisposableListener(this.modelButton, 'click', event => this.toggleMenu('model', this.modelButton, clickedByPointer(event))));
-		this._register(addDisposableListener(this.voiceButton, 'click', event => this.toggleMenu('voice', this.voiceButton, clickedByPointer(event))));
-		this._register(addDisposableListener(this.settingsButton, 'click', event => this.toggleMenu('settings', this.settingsButton, clickedByPointer(event))));
+		this._register(addDisposableListener(this.modelButton, 'click', event => this.menus.toggleMenu('model', this.modelButton, clickedByPointer(event))));
+		this._register(addDisposableListener(this.voiceButton, 'click', event => this.menus.toggleMenu('voice', this.voiceButton, clickedByPointer(event))));
+		this._register(addDisposableListener(this.settingsButton, 'click', event => this.menus.toggleMenu('settings', this.settingsButton, clickedByPointer(event))));
 		this._register(addDisposableListener(this.generateButton, 'click', () => { void this.generate(); }));
 		this._register(addDisposableListener(this.reasonAction, 'click', () => {
 			const action = this.presentation?.reason?.action;
@@ -865,11 +788,11 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		this.layout = layout;
 		this.element.dataset.placement = layout.placement;
 		if (!layout.visible || layout.following) {
-			this.closeMenu(false);
-			this.closeReferenceMenu(false);
+			this.menus.closeMenu(false);
+			this.references.closeReferenceMenu(false);
 		} else {
 			if (this.openMenu) {
-				this.placeMenu(this.openMenu);
+				this.menus.placeMenu(this.openMenu);
 			}
 			this.referenceMenu.value?.layout();
 		}
@@ -901,7 +824,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		}
 		this.render();
 		this.updatePromptLines();
-		this.openReferenceMenuAtCaret();
+		this.references.openReferenceMenuAtCaret();
 	}
 
 	private onPromptKeyDown(event: KeyboardEvent): void {
@@ -922,15 +845,15 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		event.preventDefault();
 		event.stopPropagation();
 		if (this.openMenu) {
-			this.closeMenu(true);
+			this.menus.closeMenu(true);
 			return;
 		}
 		if (this.referenceMenu.value) {
-			this.closeReferenceMenu(true);
+			this.references.closeReferenceMenu(true);
 			return;
 		}
-		if (this.picking) {
-			this.endPick();
+		if (this.inputChanges.picking) {
+			this.inputChanges.endPick();
 			return;
 		}
 		this.host.focusCard();
@@ -940,7 +863,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 
 	//#region Rendering
 
-	private render(): void {
+	render(): void {
 		if (this.disposed) {
 			return;
 		}
@@ -982,19 +905,19 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		this.editor.readOnly = locked;
 		this.element.classList.toggle('generating', locked);
 		if (locked) {
-			this.closeReferenceMenu(false);
+			this.references.closeReferenceMenu(false);
 			if (this.openMenu) {
-				this.closeMenu(false);
+				this.menus.closeMenu(false);
 			}
 			this.pick.clear();
 		}
 		this.renderInputRow();
 		this.renderReason();
 		this.renderFooter();
-		this.refreshMenu();
+		this.menus.refreshMenu();
 		this.updateHeight();
 		if (this.pick.value) {
-			const key = this.pickStateKey();
+			const key = this.inputChanges.pickStateKey();
 			if (key !== this.pickKey) {
 				this.pickKey = key;
 				this._onDidChangePick.fire();
@@ -1008,7 +931,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	/** The draft generates: its prompt, inputs, model, and settings show what is being generated and cannot be changed (D67). */
-	private isLocked(): boolean {
+	isLocked(): boolean {
 		return this.presentation?.generate.kind === 'stop';
 	}
 
@@ -1028,7 +951,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	private renderInputRow(): void {
 		this.inputRow.update(this.inputRowModel());
 		// Wherever the kind placed them, the two buttons show whether the draft picks, and go while it generates (D67, D69).
-		this.addButtons.update(this.picking);
+		this.addButtons.update(this.inputChanges.picking);
 		this.addButtons.element.hidden = this.isLocked();
 	}
 
@@ -1063,7 +986,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			tiles: row.items.map(item => tile(item)),
 			...(row.emptyHint ? { hint: row.emptyHint } : {}),
 			editable: !this.isLocked(),
-			picking: this.picking
+			picking: this.inputChanges.picking
 		});
 	}
 
@@ -1319,1275 +1242,6 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		this._onDidChangeHeight.fire(height);
 	}
 
-	//#endregion
-
-	//#region Menus
-
-	private toggleMenu(kind: BaseHalfVideoPanelMenuKind, trigger: HTMLElement, byPointer: boolean): void {
-		if (this.openMenu?.kind === kind && this.openMenu.trigger === trigger) {
-			this.closeMenu(true);
-			return;
-		}
-		// While the draft generates, the model and the settings show their values and open nothing (D67).
-		if (this.isLocked()) {
-			return;
-		}
-		this.closeReferenceMenu(false);
-		this.showMenu(kind, trigger, byPointer);
-	}
-
-	private showMenu(kind: BaseHalfVideoPanelMenuKind, trigger: HTMLElement, byPointer = false): void {
-		this.closeMenu(false);
-		if (!this.presentation) {
-			return;
-		}
-		const store = new DisposableStore();
-		const element = append(this.layer, $(`.bh-video-panel-menu.${kind}`));
-		element.style.width = `${MENU_WIDTHS[kind]}px`;
-		store.add(toDisposable(() => element.remove()));
-		const menu: IOpenMenu = {
-			kind,
-			element,
-			trigger,
-			store,
-			content: store.add(new DisposableStore()),
-			anchor: () => this.menuAnchor(kind, trigger),
-			// The settings, the voice, and the model end the footer: their menus end where the button ends,
-			// over the panel; an empty frame's menu begins where the frame begins (D106).
-			align: kind === 'add' ? 'start' : 'end',
-			byPointer
-		};
-		this.openMenu = menu;
-		this.menu.value = store;
-		trigger.setAttribute('aria-expanded', 'true');
-		store.add(toDisposable(() => trigger.setAttribute('aria-expanded', 'false')));
-		store.add(addDisposableListener(element, 'focusout', event => {
-			const next = event.relatedTarget;
-			if (isHTMLElement(next) && !element.contains(next) && next !== trigger) {
-				this.closeMenu(false);
-			}
-		}));
-		store.add(addDisposableListener(getWindow(this.element), 'pointerdown', event => {
-			// A type check of this element's own window: the panel can live in an auxiliary window.
-			const target = event.target;
-			if (isHTMLElement(target) && (element.contains(target) || trigger.contains(target))) {
-				return;
-			}
-			this.closeMenu(false);
-		}, true));
-		store.add(addDisposableListener(element, 'keydown', event => this.onMenuKeyDown(event, menu)));
-		this.fillMenu(menu);
-		this.placeMenu(menu);
-		this.focusFirstMenuItem(menu);
-	}
-
-	private closeMenu(restoreFocus: boolean): void {
-		const menu = this.openMenu;
-		if (!menu) {
-			return;
-		}
-		this.openMenu = undefined;
-		if (menu.kind === 'settings') {
-			this.saveTextParam();
-		}
-		this.menu.clear();
-		if (restoreFocus) {
-			menu.trigger.focus({ preventScroll: true });
-		}
-	}
-
-	private refreshMenu(): void {
-		const menu = this.openMenu;
-		if (!menu) {
-			return;
-		}
-		if (!menu.trigger.isConnected) {
-			// The control it opened from was drawn again: open from the new one.
-			const key = menu.trigger.dataset.key;
-			const replacement = key ? this.findByKey(this.inputRow.element, key) : undefined;
-			if (!replacement) {
-				this.closeMenu(false);
-				return;
-			}
-			this.showMenu(menu.kind, replacement, menu.byPointer);
-			return;
-		}
-		if (menu.kind === 'voice') {
-			// The voice menu keeps its search and draws its own rows: it learns the card's voice and model.
-			const target = this.voiceTarget();
-			if (target) {
-				menu.voice?.update(target);
-			} else {
-				this.closeMenu(false);
-			}
-			return;
-		}
-		if (this.menuContentKey(menu.kind) === menu.contentKey) {
-			return;
-		}
-		const focusedKey = this.focusedKey(menu.element);
-		this.fillMenu(menu);
-		this.placeMenu(menu);
-		this.restoreFocus(menu.element, focusedKey);
-	}
-
-	private menuContentKey(kind: BaseHalfVideoPanelMenuKind): string {
-		const presentation = this.presentation;
-		switch (kind) {
-			case 'model': return JSON.stringify(presentation?.modelMenu);
-			case 'settings': return JSON.stringify([presentation?.ref?.provider.id, presentation?.ref?.model.id, presentation?.settingsView, this.moreOpen]);
-			default: return kind;
-		}
-	}
-
-	private fillMenu(menu: IOpenMenu): void {
-		menu.contentKey = this.menuContentKey(menu.kind);
-		menu.content.clear();
-		clearNode(menu.element);
-		switch (menu.kind) {
-			case 'add': return this.fillAddMenu(menu.element);
-			case 'model': return this.fillModelMenu(menu.element);
-			case 'voice': return this.fillVoiceMenu(menu);
-			case 'settings': return this.fillSettings(menu.element);
-		}
-	}
-
-	private placeMenu(menu: IOpenMenu): void {
-		const anchor = menu.anchor();
-		if (!anchor) {
-			return;
-		}
-		const panel = this.element.getBoundingClientRect();
-		const canvas = this.canvasRect(panel);
-		const trigger: IBaseHalfVideoPanelRect = {
-			left: anchor.left - canvas.left,
-			top: anchor.top - canvas.top,
-			right: anchor.right - canvas.left,
-			bottom: anchor.bottom - canvas.top
-		};
-		menu.element.style.maxHeight = '';
-		const wanted = menu.element.scrollHeight;
-		const placement = resolveBaseHalfVideoPanelMenuPlacement(trigger, canvas, { width: MENU_WIDTHS[menu.kind], height: wanted }, { align: menu.align });
-		menu.element.dataset.side = placement.side;
-		menu.element.style.width = `${placement.width}px`;
-		menu.element.style.maxHeight = `${placement.maxHeight}px`;
-		// The layer that holds the menu lies inside the panel's border.
-		menu.element.style.left = `${placement.left - (panel.left + this.element.clientLeft - canvas.left)}px`;
-		menu.element.style.top = `${placement.top - (panel.top + this.element.clientTop - canvas.top)}px`;
-	}
-
-	/**
-	 * Where a menu opens from: its control. A menu of the footer that opens
-	 * below opens below the panel, so it never covers the panel's edge; one that
-	 * opens upward opens from the control, over the prompt.
-	 */
-	private menuAnchor(kind: BaseHalfVideoPanelMenuKind, trigger: HTMLElement): DOMRect | undefined {
-		if (!trigger.isConnected) {
-			return undefined;
-		}
-		const rect = trigger.getBoundingClientRect();
-		if (kind !== 'model' && kind !== 'voice' && kind !== 'settings') {
-			return rect;
-		}
-		const panel = this.element.getBoundingClientRect();
-		const DOMRectConstructor = getWindow(this.element).DOMRect;
-		return new DOMRectConstructor(rect.left, rect.top, rect.width, Math.max(rect.height, panel.bottom - rect.top));
-	}
-
-	/** The canvas in window coordinates: what the scene reported, or the window itself before the scene places the panel. */
-	private canvasRect(panel: DOMRect): { readonly left: number; readonly top: number; readonly width: number; readonly height: number } {
-		const layout = this.layout;
-		if (layout && layout.canvasWidth > 0 && layout.canvasHeight > 0) {
-			return { left: panel.left - layout.left, top: panel.top - layout.top, width: layout.canvasWidth, height: layout.canvasHeight };
-		}
-		const targetWindow = getWindow(this.element);
-		return { left: 0, top: 0, width: targetWindow.innerWidth, height: targetWindow.innerHeight };
-	}
-
-	private onMenuKeyDown(event: KeyboardEvent, menu: IOpenMenu): void {
-		// The settings follow their controls, and the voice menu its search field.
-		if (menu.kind === 'settings' || menu.kind === 'voice') {
-			return;
-		}
-		const items = this.menuItems(menu.element);
-		const index = items.findIndex(item => item === getWindow(this.element).document.activeElement);
-		let next: number | undefined;
-		// Without a current item (index -1), Down goes to the first item and Up to the last.
-		if (event.key === 'ArrowDown') {
-			next = (index + 1) % items.length;
-		} else if (event.key === 'ArrowUp') {
-			next = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length;
-		} else if (event.key === 'Home') {
-			next = 0;
-		} else if (event.key === 'End') {
-			next = items.length - 1;
-		} else if (event.key === 'Tab') {
-			this.closeMenu(true);
-			return;
-		}
-		if (next === undefined || items.length === 0) {
-			return;
-		}
-		event.preventDefault();
-		event.stopPropagation();
-		items[next].focus({ preventScroll: true });
-	}
-
-	private menuItems(container: HTMLElement): HTMLElement[] {
-		const items: HTMLElement[] = [];
-		const visit = (element: Element) => {
-			for (const child of element.children) {
-				if (isHTMLElement(child) && child.dataset.menuItem === 'true' && !child.hasAttribute('disabled')) {
-					items.push(child);
-				}
-				visit(child);
-			}
-		};
-		visit(container);
-		return items;
-	}
-
-	/**
-	 * A menu focuses its checked item. Without one, a menu opened from the
-	 * keyboard focuses its first item, and a menu that a click opened holds the
-	 * focus itself, with no current item, as the workbench's menus do: an item
-	 * focused there would show no ring, and Enter would choose it unseen. The
-	 * settings focus their first control.
-	 */
-	private focusFirstMenuItem(menu: IOpenMenu): void {
-		if (menu.voice) {
-			// The search field has the keyboard, with the card's voice current.
-			menu.voice.focus();
-			return;
-		}
-		const items = this.menuItems(menu.element);
-		const checked = items.find(item => item.getAttribute('aria-checked') === 'true');
-		if (!checked && menu.byPointer && items.length > 0) {
-			menu.element.tabIndex = -1;
-			menu.element.focus({ preventScroll: true });
-			return;
-		}
-		(checked ?? items[0] ?? this.firstControl(menu.element))?.focus({ preventScroll: true });
-	}
-
-	private firstControl(container: HTMLElement): HTMLElement | undefined {
-		for (const child of container.children) {
-			if (!isHTMLElement(child)) {
-				continue;
-			}
-			const control = (isHTMLButtonElement(child) || isHTMLInputElement(child)) && !child.disabled && child.tabIndex >= 0
-				? child
-				: this.firstControl(child);
-			if (control) {
-				return control;
-			}
-		}
-		return undefined;
-	}
-
-	private menuItem(parent: HTMLElement, label: string, run: () => void, options?: { readonly role?: string; readonly checked?: boolean; readonly key?: string; readonly title?: string; readonly icon?: ThemeIcon; readonly detail?: string }): HTMLButtonElement {
-		const item = append(parent, $<HTMLButtonElement>('button.bh-video-panel-menu-item'));
-		item.type = 'button';
-		item.tabIndex = -1;
-		item.dataset.menuItem = 'true';
-		item.dataset.key = options?.key ?? label;
-		item.setAttribute('role', options?.role ?? 'menuitem');
-		if (options?.checked !== undefined) {
-			item.setAttribute('aria-checked', String(options.checked));
-		}
-		if (options?.icon) {
-			item.append(renderCodicon(options.icon, 'bh-video-panel-menu-icon'));
-		}
-		if (options?.detail) {
-			// A second line under the name; the item is named by its label alone.
-			const text = append(item, $('span.bh-video-panel-menu-text'));
-			append(text, $('span.bh-video-panel-menu-label')).textContent = label;
-			append(text, $('span.bh-video-panel-menu-detail')).textContent = options.detail;
-			item.classList.add('detailed');
-			item.setAttribute('aria-label', label);
-			item.setAttribute('aria-description', options.detail);
-		} else {
-			append(item, $('span.bh-video-panel-menu-label')).textContent = label;
-		}
-		if (options?.checked) {
-			item.append(renderCodicon(Codicon.check, 'bh-video-panel-menu-check'));
-		}
-		if (options?.title) {
-			const title = options.title;
-			this.openMenu?.content.add(this.hoverService.setupDelayedHover(item, () => ({ content: title }), { groupId: HOVER_GROUP }));
-		}
-		item.addEventListener('click', event => {
-			event.preventDefault();
-			event.stopPropagation();
-			run();
-		});
-		return item;
-	}
-
-	private fillAddMenu(element: HTMLElement): void {
-		element.setAttribute('role', 'menu');
-		element.setAttribute('aria-label', addInputLabel());
-		this.menuItem(element, localize('basehalf.video.panel.pickOnCanvas', "Pick on Canvas"), () => {
-			this.closeMenu(false);
-			this.startPick();
-		}, { key: 'pick', icon: Codicon.inspect });
-		this.menuItem(element, localize('basehalf.video.panel.importFile', "Import File…"), () => {
-			this.closeMenu(false);
-			void this.importFile();
-		}, { key: 'import', icon: Codicon.attach });
-	}
-
-	private fillModelMenu(element: HTMLElement): void {
-		const presentation = this.presentation;
-		if (!presentation) {
-			return;
-		}
-		const menu = presentation.modelMenu;
-		element.setAttribute('role', 'menu');
-		element.setAttribute('aria-label', localize('basehalf.video.panel.models', "Models"));
-		if (menu.message) {
-			const message = append(element, $('.bh-video-panel-menu-empty'));
-			message.textContent = menu.message;
-			message.setAttribute('role', 'status');
-		}
-		for (const group of menu.groups) {
-			const section = append(element, $('.bh-video-panel-menu-group'));
-			section.setAttribute('role', 'group');
-			section.setAttribute('aria-label', group.detail ? `${group.label}, ${group.detail}` : group.label);
-			section.dataset.provider = group.provider;
-			const heading = append(section, $('.bh-video-panel-menu-heading'));
-			heading.setAttribute('aria-hidden', 'true');
-			append(heading, $('span.bh-video-panel-menu-heading-label')).textContent = group.label;
-			if (group.detail) {
-				append(heading, $('span.bh-video-panel-menu-heading-detail')).textContent = group.detail;
-			}
-			for (const item of group.items) {
-				const button = this.menuItem(section, item.label, () => {
-					this.closeMenu(true);
-					this.chooseModel(item.provider, item.model);
-				}, { role: 'menuitemradio', checked: item.checked, key: `model:${item.provider}:${item.model}`, title: item.title, detail: item.detail });
-				if (item.unavailable) {
-					// Dimmed with the reason; it can still be chosen.
-					button.classList.add('unavailable');
-					button.setAttribute('aria-description', item.detail ? `${item.unavailable}. ${item.detail}` : item.unavailable);
-				}
-			}
-		}
-		append(element, $('.bh-video-panel-menu-separator')).setAttribute('role', 'separator');
-		this.menuItem(element, menu.settingsLabel, () => {
-			this.closeMenu(false);
-			void this.providerSettings.openSettings(this.info().provider, this.snapshot?.kind).catch(error => this.logService.error(error));
-		}, { key: 'providers', icon: Codicon.settingsGear });
-	}
-
-	/**
-	 * The voice menu (D78): the voices of the card's model, which it asks the
-	 * provider for each time it opens. Choosing one saves it as any value of
-	 * the settings is saved, closes the menu, and gives the keyboard back.
-	 */
-	private fillVoiceMenu(menu: IOpenMenu): void {
-		const target = this.voiceTarget();
-		if (!target) {
-			return;
-		}
-		menu.voice = menu.content.add(this.instantiationService.createInstance(BaseHalfGenerationVoiceMenu, menu.element, target, {
-			choose: voice => {
-				this.closeMenu(true);
-				this.changeParam(target.parameter.name, voice);
-			},
-			dismiss: () => this.closeMenu(true),
-			layout: () => {
-				if (this.openMenu === menu) {
-					this.placeMenu(menu);
-				}
-			}
-		}));
-	}
-
-	/** What the voice menu lists from: the card's model and its voice, while the model speaks. */
-	private voiceTarget(): IBaseHalfVoiceMenuTarget | undefined {
-		const presentation = this.presentation;
-		const voice = presentation?.voice;
-		return presentation?.ref && voice
-			? Object.freeze({ provider: presentation.ref.provider, model: presentation.ref.model, parameter: voice.parameter, voice: voice.value })
-			: undefined;
-	}
-
-	/** Chooses a model of the catalog: every value it accepts is kept, the others take its defaults. */
-	private chooseModel(providerId: string, modelId: string): void {
-		const catalog = this.catalogService.state;
-		const ref = catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, providerId, modelId) : undefined;
-		if (ref) {
-			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChooseModel(baseHalfGenerationChoice(info), ref)))
-				.then(() => this.followModelFormat(ref.model));
-		}
-	}
-
-	/**
-	 * A draft's extension follows its model (generation cards, "Creating a
-	 * generation card"): an image or an audio model that delivers another
-	 * format renames the draft to that format's extension at once, with the
-	 * next free number when that name is taken, as a rename does.
-	 */
-	private async followModelFormat(model: IBaseHalfVideoCatalogModel): Promise<void> {
-		const snapshot = this.snapshot;
-		const extension = !this.disposed && snapshot && !snapshot.hasFile && !snapshot.made ? baseHalfGenerationDraftRenameExtension(snapshot.path, snapshot.kind, model) : undefined;
-		if (extension === undefined) {
-			return;
-		}
-		const name = basename(this.resource);
-		const folder = dirname(this.resource);
-		try {
-			const next = await this.store.nextFreeName(folder, baseHalfGenerationNameParts(name).base, extension, baseHalfGenerationNameOrdinal(name));
-			const target = joinPath(folder, next);
-			await this.draftOperations.move(this.resource, target);
-			this.host.didRenameCard?.(target);
-		} catch (error) {
-			this.logService.warn('[BaseHalf] the panel could not rename the draft to the format of its model', error);
-			this.notificationService.notify({ severity: Severity.Warning, message: baseHalfUserFacingErrorMessage(error) });
-		}
-	}
-
-	/** Saves one value of the card's model, for the mode that is used: the panel shows the change at once. */
-	private changeParam(name: string, value: BaseHalfVideoParamValue | undefined): void {
-		const ref = this.presentation?.ref;
-		const usedMode = this.presentation?.mode?.id;
-		if (ref) {
-			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChangeParam(this.generationOf(info, ref), ref.model, name, value, usedMode)));
-		}
-	}
-
-	private changeMode(mode: BaseHalfVideoModeId): void {
-		const ref = this.presentation?.ref;
-		if (ref) {
-			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChooseMode(this.generationOf(info, ref), ref.model, mode)));
-		}
-	}
-
-	/** The card's generation of `ref`, as a change starts from it. */
-	private generationOf(info: IBaseHalfGenerationInfo, ref: IBaseHalfVideoModelRef): IBaseHalfVideoGenerationChoice {
-		const choice = baseHalfGenerationChoice(info);
-		return choice.model ? choice : { ...choice, provider: ref.provider.id, model: ref.model.id };
-	}
-
-	/** Saves a text value typed into the settings, now. */
-	private saveTextParam(): void {
-		const pending = this.pendingText;
-		this.pendingText = undefined;
-		if (pending) {
-			this.changeParam(pending.name, pending.value);
-		}
-	}
-
-	private fillSettings(element: HTMLElement): void {
-		const view = this.presentation?.settingsView;
-		if (!view) {
-			return;
-		}
-		element.setAttribute('role', 'dialog');
-		element.setAttribute('aria-label', localize('basehalf.video.panel.settingsTitle', "Settings"));
-		if (view.modes) {
-			this.radioGroup(element, localize('basehalf.video.panel.setting.mode', "Mode"), view.modes, 'buttons', mode => {
-				if (mode !== undefined) {
-					this.changeMode(mode);
-				}
-			});
-		}
-		for (const control of view.controls) {
-			this.renderControl(element, control);
-		}
-		if (view.advanced.length) {
-			const more = append(element, $<HTMLButtonElement>('button.bh-video-panel-more'));
-			more.type = 'button';
-			more.dataset.key = 'more';
-			more.setAttribute('aria-expanded', String(this.moreOpen));
-			more.append(renderCodicon(this.moreOpen ? Codicon.chevronDown : Codicon.chevronRight));
-			append(more, $('span')).textContent = localize('basehalf.video.panel.more', "More");
-			more.addEventListener('click', () => {
-				this.moreOpen = !this.moreOpen;
-				this.refreshMenu();
-				this.findByKey(this.openMenu?.element ?? element, 'more')?.focus({ preventScroll: true });
-			});
-			if (this.moreOpen) {
-				const advanced = append(element, $('.bh-video-panel-advanced'));
-				for (const control of view.advanced) {
-					this.renderControl(advanced, control);
-				}
-			}
-		}
-	}
-
-	/**
-	 * Why a number goes less far than its model declares, under it, and read
-	 * with its slider or field (generation cards, "Settings"; D70). A button
-	 * beyond the range has the reason itself.
-	 */
-	private renderLimit(section: HTMLElement, control: BaseHalfVideoPanelControl, described?: HTMLElement): void {
-		if (control.limit) {
-			append(section, $('.bh-video-panel-setting-note.limit')).textContent = control.limit;
-			described?.setAttribute('aria-description', control.limit);
-		}
-	}
-
-	/** One parameter, drawn as the specification says for its kind (generation cards, "Settings"). */
-	private renderControl(parent: HTMLElement, control: BaseHalfVideoPanelControl): void {
-		switch (control.kind) {
-			case 'buttons':
-			case 'list':
-			case 'ratio': {
-				const section = this.radioGroup(parent, control.label, control.choices, control.kind, value => this.changeParam(control.name, value), control.tooltip, control.columns);
-				section.dataset.parameter = control.name;
-				this.renderLimit(section, control);
-				return;
-			}
-			case 'slider': {
-				const section = this.settingSection(parent, control.label, control.tooltip);
-				section.dataset.parameter = control.name;
-				const row = append(section, $('.bh-video-panel-number'));
-				const slider = append(row, $<HTMLInputElement>('input.bh-video-panel-slider'));
-				slider.type = 'range';
-				slider.min = String(control.min);
-				slider.max = String(control.max);
-				slider.step = String(control.step);
-				slider.value = String(control.value);
-				slider.dataset.key = `${control.name}:slider`;
-				slider.setAttribute('aria-label', control.label);
-				slider.disabled = control.auto?.selected === true;
-				const value = append(row, $('span.bh-video-panel-number-value'));
-				value.textContent = control.valueLabel;
-				slider.addEventListener('input', () => {
-					value.textContent = control.unit === 'seconds'
-						? localize('basehalf.video.panel.secondsValue', "{0}s", slider.value)
-						: slider.value;
-				});
-				slider.addEventListener('change', () => this.changeParam(control.name, Number(slider.value)));
-				if (control.auto) {
-					this.autoSwitch(row, control.name, control.auto);
-				}
-				this.renderLimit(section, control, slider);
-				return;
-			}
-			case 'number': {
-				const section = this.settingSection(parent, control.label, control.tooltip);
-				section.dataset.parameter = control.name;
-				const row = append(section, $('.bh-video-panel-number'));
-				const field = append(row, $<HTMLInputElement>('input.bh-video-panel-field'));
-				field.type = 'text';
-				field.inputMode = control.integer && control.min >= 0 ? 'numeric' : 'decimal';
-				field.spellcheck = false;
-				field.value = control.text;
-				field.placeholder = control.placeholder;
-				field.dataset.key = `${control.name}:field`;
-				field.setAttribute('aria-label', control.unit === 'seconds' ? localize('basehalf.video.panel.secondsField', "{0}, in seconds", control.label) : control.label);
-				field.disabled = control.auto?.selected === true;
-				if (control.unit === 'seconds') {
-					const unit = append(row, $('span.bh-video-panel-number-unit'));
-					unit.textContent = localize('basehalf.video.panel.secondsUnit', "s");
-					unit.setAttribute('aria-hidden', 'true');
-				}
-				const commit = () => {
-					const text = field.value.trim();
-					if (!text) {
-						this.changeParam(control.name, undefined);
-						return;
-					}
-					const number = Number(text);
-					// A value the parameter does not take is given back its default by the normalization.
-					this.changeParam(control.name, Number.isFinite(number) ? number : undefined);
-				};
-				field.addEventListener('change', commit);
-				field.addEventListener('keydown', event => {
-					if (event.key === 'Enter' && !event.isComposing) {
-						event.preventDefault();
-						commit();
-					}
-				});
-				if (control.auto) {
-					this.autoSwitch(row, control.name, control.auto);
-				}
-				this.renderLimit(section, control, field);
-				return;
-			}
-			case 'fixed': {
-				const section = this.settingSection(parent, control.label, control.tooltip);
-				section.dataset.parameter = control.name;
-				section.classList.add('fixed');
-				append(section, $('.bh-video-panel-setting-note')).textContent = control.text;
-				return;
-			}
-			case 'switch': {
-				const section = this.settingSection(parent, control.label, control.tooltip);
-				section.dataset.parameter = control.name;
-				this.switchButton(section, control.on
-					? localize('basehalf.video.panel.switchOn', "On")
-					: localize('basehalf.video.panel.switchOff', "Off"), control.on, control.name, on => this.changeParam(control.name, on), control.label);
-				return;
-			}
-			case 'text': {
-				const section = this.settingSection(parent, control.label, control.tooltip);
-				section.dataset.parameter = control.name;
-				const field = control.multiline
-					? append(section, $<HTMLTextAreaElement>('textarea.bh-video-panel-field.multiline'))
-					: append(section, $<HTMLInputElement>('input.bh-video-panel-field'));
-				field.value = this.pendingText?.name === control.name ? this.pendingText.value : control.text;
-				field.maxLength = control.maxLength;
-				field.spellcheck = false;
-				field.dataset.key = `${control.name}:text`;
-				field.setAttribute('aria-label', control.label);
-				// Saved when the field loses the focus, on Enter, and when the popover
-				// closes: a save draws the popover again, which must not happen while
-				// the user types.
-				field.addEventListener('input', () => {
-					this.pendingText = { name: control.name, value: field.value };
-				});
-				field.addEventListener('change', () => this.saveTextParam());
-				const element: HTMLElement = field;
-				element.addEventListener('keydown', event => {
-					if (event.key === 'Enter' && !event.isComposing && !control.multiline) {
-						event.preventDefault();
-						this.saveTextParam();
-					}
-				});
-				return;
-			}
-		}
-	}
-
-	private autoSwitch(parent: HTMLElement, name: string, auto: IBaseHalfVideoPanelAuto): void {
-		const toggle = this.switchButton(parent, auto.label, auto.selected, `${name}:auto`, on => this.changeParam(name, on ? auto.value : auto.fallback));
-		toggle.classList.add('auto');
-	}
-
-	private settingSection(parent: HTMLElement, label: string, tooltip?: string): HTMLElement {
-		const section = append(parent, $('.bh-video-panel-setting'));
-		const title = append(section, $('.bh-video-panel-setting-label'));
-		title.textContent = label;
-		if (tooltip) {
-			this.openMenu?.content.add(this.hoverService.setupDelayedHover(title, () => ({ content: tooltip }), { groupId: HOVER_GROUP }));
-		}
-		return section;
-	}
-
-	private radioGroup<T extends BaseHalfVideoParamValue>(
-		parent: HTMLElement,
-		label: string,
-		choices: readonly IBaseHalfVideoPanelChoice<T>[],
-		kind: 'buttons' | 'list' | 'ratio',
-		choose: (value: T | undefined) => void,
-		tooltip?: string,
-		columns?: number
-	): HTMLElement {
-		// Returns the section, which holds the label and the choices.
-		const section = this.settingSection(parent, label, tooltip);
-		section.classList.add(kind === 'ratio' ? 'ratios' : kind);
-		const group = append(section, $('.bh-video-panel-choices'));
-		group.setAttribute('role', 'radiogroup');
-		group.setAttribute('aria-label', label);
-		if (columns) {
-			// Buttons that wrap into rows, as a long count's (D91).
-			group.classList.add('rows');
-			group.style.setProperty('--bh-video-panel-choice-columns', String(columns));
-		}
-		const buttons: HTMLButtonElement[] = [];
-		const selectedIndex = Math.max(0, choices.findIndex(choice => choice.selected));
-		choices.forEach((choice, index) => {
-			const button = append(group, $<HTMLButtonElement>('button.bh-video-panel-choice'));
-			button.type = 'button';
-			button.dataset.key = choice.key;
-			button.setAttribute('role', 'radio');
-			button.setAttribute('aria-checked', String(choice.selected));
-			button.tabIndex = index === selectedIndex ? 0 : -1;
-			if (kind === 'ratio') {
-				const shape = append(button, $('span.bh-video-panel-ratio-shape'));
-				if (choice.shape) {
-					const scale = 16 / Math.max(choice.shape.width, choice.shape.height);
-					shape.style.width = `${Math.max(4, Math.round(choice.shape.width * scale))}px`;
-					shape.style.height = `${Math.max(4, Math.round(choice.shape.height * scale))}px`;
-				} else {
-					shape.classList.add('free');
-				}
-			}
-			append(button, $('span.bh-video-panel-choice-label')).textContent = choice.label;
-			const reason = choice.disabled ?? choice.unavailable;
-			if (reason) {
-				// Dimmed with the reason. A mode the region does not offer can still be chosen; one that cannot use every input cannot.
-				button.classList.add('unavailable');
-				button.setAttribute('aria-description', reason);
-				this.openMenu?.content.add(this.hoverService.setupDelayedHover(button, () => ({ content: reason }), { groupId: HOVER_GROUP }));
-			}
-			if (choice.disabled) {
-				button.setAttribute('aria-disabled', 'true');
-			}
-			button.addEventListener('click', () => {
-				if (!choice.selected && !choice.disabled) {
-					choose(choice.value);
-				}
-			});
-			buttons.push(button);
-		});
-		group.addEventListener('keydown', event => {
-			const index = buttons.findIndex(button => button === getWindow(this.element).document.activeElement);
-			if (index < 0) {
-				return;
-			}
-			let next: number | undefined;
-			if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-				next = (index + 1) % buttons.length;
-			} else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-				next = (index - 1 + buttons.length) % buttons.length;
-			} else if (event.key === 'Home') {
-				next = 0;
-			} else if (event.key === 'End') {
-				next = buttons.length - 1;
-			}
-			if (next === undefined) {
-				return;
-			}
-			event.preventDefault();
-			event.stopPropagation();
-			buttons[next].focus({ preventScroll: true });
-			buttons[next].scrollIntoView({ block: 'nearest' });
-			const choice = choices[next];
-			if (!choice.selected && !choice.disabled) {
-				choose(choice.value);
-			}
-		});
-		return section;
-	}
-
-	private switchButton(parent: HTMLElement, label: string, on: boolean, key: string, toggle: (on: boolean) => void, accessibleName?: string): HTMLButtonElement {
-		const button = append(parent, $<HTMLButtonElement>('button.bh-video-panel-switch'));
-		button.type = 'button';
-		button.dataset.key = key;
-		button.setAttribute('role', 'switch');
-		button.setAttribute('aria-checked', String(on));
-		if (accessibleName) {
-			button.setAttribute('aria-label', accessibleName);
-		}
-		append(button, $('span.bh-video-panel-switch-track')).append($('span.bh-video-panel-switch-thumb'));
-		append(button, $('span.bh-video-panel-switch-label')).textContent = label;
-		button.addEventListener('click', () => toggle(!on));
-		return button;
-	}
-
-	//#endregion
-
-	//#region Names and the reference menu
-
-	/**
-	 * Opens the reference menu when the user typed `@` at the caret (generation
-	 * cards, "The panel", D68): after the start of the prompt, a space, or
-	 * anything that is not a Latin letter or digit, so that an e-mail address
-	 * does not; a full-width `＠` too.
-	 */
-	private openReferenceMenuAtCaret(): void {
-		if (this.isLocked() || this.referenceMenu.value || !this.editor.hasFocus()) {
-			return;
-		}
-		const selection = this.editor.selection();
-		if (!selection || selection.start !== selection.end || selection.start === 0) {
-			return;
-		}
-		const text = this.editor.value;
-		const at = selection.start - 1;
-		const mark = text.charAt(at);
-		if (mark !== '@' && mark !== '\uff20') {
-			return;
-		}
-		if (at > 0 && /[A-Za-z0-9._%+-]/.test(text.charAt(at - 1))) {
-			return;
-		}
-		this.openReferenceMenu(at);
-	}
-
-	private openReferenceMenu(at: number): void {
-		this.closeMenu(false);
-		// Where the menu opens, kept relative to the panel, so that it follows the panel when the canvas moves.
-		const caret = this.editor.caretRect();
-		const panel = this.element.getBoundingClientRect();
-		const offset = caret ? { left: caret.left - panel.left, top: caret.top - panel.top, width: caret.width, height: caret.height } : undefined;
-		const anchor = (): DOMRect | undefined => {
-			if (!offset) {
-				return undefined;
-			}
-			const now = this.element.getBoundingClientRect();
-			const DOMRectConstructor = getWindow(this.element).DOMRect;
-			return new DOMRectConstructor(now.left + offset.left, now.top + offset.top, Math.max(1, offset.width), offset.height || PROMPT_LINE_HEIGHT);
-		};
-		this.mentionAt = at;
-		const menu = new BaseHalfGenerationReferenceMenu(this.referenceMenuModel(), {
-			choose: item => { void this.chooseReference(item); },
-			dismiss: () => this.closeReferenceMenu(true),
-			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
-		}, this.layer, anchor);
-		this.referenceMenu.value = menu;
-		menu.focus();
-		void this.readCanvasCards().then(cards => {
-			if (cards && this.referenceMenu.value === menu) {
-				this.canvasCards = cards;
-				menu.update(this.referenceMenuModel());
-			}
-		});
-	}
-
-	/** Closes the reference menu; with `restoreFocus`, the caret goes back after the `@`, which stays as typed. */
-	private closeReferenceMenu(restoreFocus: boolean): void {
-		if (!this.referenceMenu.value) {
-			return;
-		}
-		const at = this.mentionAt;
-		this.referenceMenu.clear();
-		this.mentionAt = undefined;
-		if (restoreFocus && !this.disposed) {
-			this.editor.focus(at !== undefined ? at + 1 : undefined);
-		}
-	}
-
-	/** The card's images, videos, sounds, and notes, in the order of the input row, then the canvas's cards by kind, as the menu lists them. */
-	private referenceMenuModel(): IBaseHalfReferenceMenuModel {
-		const row = this.presentation?.inputRow;
-		const connected: IBaseHalfReferenceMenuItem[] = [];
-		for (const item of row ? [...row.slots.flatMap(slot => slot.item ? [slot.item] : []), ...row.items] : []) {
-			if (isReferenceMenuKind(item.kind)) {
-				const input = this.inputs[item.index];
-				connected.push(Object.freeze<IBaseHalfReferenceMenuItem>({
-					path: item.path,
-					kind: item.kind,
-					title: item.fileName,
-					connected: true,
-					...pictureOf(item.kind, input?.available ? input.file : undefined, input?.fileVersion)
-				}));
-			}
-		}
-		const upstream = new Set(this.snapshot?.upstream ?? []);
-		const canvas = (this.canvasCards ?? EMPTY_CANVAS_CARDS).map(list => Object.freeze({
-			...list,
-			items: list.items.map(item => upstream.has(item.path) ? Object.freeze({ ...item, connected: true }) : item)
-		}));
-		return Object.freeze({ connected, canvas });
-	}
-
-	/**
-	 * Reads the images, videos, audio, and notes of the card's folder, drafts
-	 * too, apart from the card itself, and asks for each kind whether the
-	 * draft's model takes one more. `undefined` when the folder cannot be read.
-	 */
-	private async readCanvasCards(): Promise<readonly IBaseHalfReferenceMenuKindList[] | undefined> {
-		const snapshot = this.snapshot;
-		if (!snapshot) {
-			return undefined;
-		}
-		const folder = dirname(this.resource);
-		const slash = snapshot.path.lastIndexOf('/');
-		const folderPath = slash < 0 ? '' : snapshot.path.slice(0, slash);
-		const items: IBaseHalfReferenceMenuItem[] = [];
-		try {
-			const [stat, drafts] = await Promise.all([this.fileService.resolve(folder), this.store.listDrafts(folder)]);
-			const entries = [
-				...(stat.children ?? []).filter(child => !child.isDirectory).map(child => ({ name: child.name, file: child.resource as URI | undefined, version: baseHalfMediaVersion(child) as string | undefined })),
-				...drafts.map(draft => ({ name: draft.name, file: undefined, version: undefined }))
-			];
-			for (const entry of entries) {
-				const path = folderPath ? `${folderPath}/${entry.name}` : entry.name;
-				const kind = baseHalfVideoInputKindOfPath(path);
-				if (path === snapshot.path || entry.name.startsWith('.') || !isReferenceMenuKind(kind)) {
-					continue;
-				}
-				items.push(Object.freeze({ path, kind, title: baseHalfVideoPanelInputFileName(path), ...pictureOf(kind, entry.file, entry.version) }));
-			}
-		} catch (error) {
-			this.logService.warn('[BaseHalf] the reference menu could not read the cards of the canvas', error);
-			return undefined;
-		}
-		// In the order of Files.
-		items.sort((left, right) => compareFileNames(left.title, right.title));
-		const connected = new Set(snapshot.upstream);
-		const lists: IBaseHalfReferenceMenuKindList[] = [];
-		// A kind that no model of the card's kind takes is not listed: an image card lists images and notes (D90).
-		for (const kind of this.presentation?.inputKinds ?? (['image', 'video', 'audio', 'text'] as const)) {
-			const ofKind = items.filter(item => item.kind === kind);
-			// The model takes one more of a kind or none, whichever card it is: asked once, for the first that is not connected.
-			const candidate = ofKind.find(item => !connected.has(item.path));
-			let disabled: string | undefined;
-			try {
-				disabled = candidate ? await this.cardActions.inputRefusal(this.resource, { add: candidate.path }) : undefined;
-			} catch (error) {
-				this.logService.warn('[BaseHalf] the reference menu could not ask whether the model takes an input', error);
-			}
-			lists.push(Object.freeze({ kind, items: ofKind, ...(disabled ? { disabled } : {}) }));
-		}
-		return lists;
-	}
-
-	/**
-	 * Puts the chosen input's mention in place of the `@` (D74). A card that is
-	 * not connected is connected first, as a connection on the canvas is, or
-	 * the reason it cannot be is shown and the `@` stays.
-	 */
-	private async chooseReference(item: IBaseHalfReferenceMenuItem): Promise<void> {
-		const at = this.mentionAt;
-		this.referenceMenu.clear();
-		this.mentionAt = undefined;
-		if (!this.snapshot?.upstream.includes(item.path)) {
-			const connected = await this.acceptInput(item.path) && await this.connect(item.path);
-			if (this.disposed) {
-				return;
-			}
-			if (!connected) {
-				this.editor.focus(at !== undefined ? at + 1 : undefined);
-				return;
-			}
-			// The chip is drawn with the new input once the panel has read it.
-			await this.refresh();
-		}
-		this.replaceMention(at, item.path);
-	}
-
-	/** Puts the mention of `path` and a space in place of the `@` at `at`, or at the caret when it is not there any more. */
-	private replaceMention(at: number | undefined, path: string): void {
-		const text = this.editor.value;
-		if (at !== undefined && (text.charAt(at) === '@' || text.charAt(at) === '\uff20')) {
-			this.editor.focus(at + 1);
-			this.editor.replace(at, at + 1, `${baseHalfPromptMention(path)} `);
-			return;
-		}
-		this.insertMention(path);
-	}
-
-	/** Puts the mention of an input into the prompt at its caret, or at the end, with a space after it, and gives the prompt the keyboard. */
-	private insertMention(path: string): void {
-		if (this.isLocked()) {
-			return;
-		}
-		const selection = this.editor.hasFocus() ? this.editor.selection() : undefined;
-		const end = this.editor.value.length;
-		const start = selection?.start ?? end;
-		this.editor.focus(start);
-		this.editor.replace(start, selection?.end ?? end, `${baseHalfPromptMention(path)} `);
-	}
-
-	//#endregion
-
-	//#region Paste and drop
-
-	/** A paste in the panel: what the clipboard holds becomes inputs, and from the prompt is mentioned. */
-	private async pasteTransfer(mention: boolean): Promise<void> {
-		let transfer: BaseHalfTransfer | undefined;
-		try {
-			transfer = await this.clipboardService.read();
-		} catch (error) {
-			this.reportReferenceError(error);
-			return;
-		}
-		if (!transfer || this.disposed) {
-			return;
-		}
-		// Text pasted into the prompt is typed, not made a note.
-		if (mention && transfer.kind === 'text') {
-			if (!this.isLocked()) {
-				this.editor.insert(transfer.text);
-			}
-			return;
-		}
-		await this.takeTransfer(transfer, mention);
-	}
-
-	/** A drop on the panel, as a paste there; on the prompt, at the caret where it was let go. */
-	private async dropTransfer(dataTransfer: DataTransfer, mention: boolean): Promise<void> {
-		let transfer: BaseHalfTransfer | undefined;
-		try {
-			transfer = await baseHalfTransferFromDrop(dataTransfer);
-		} catch (error) {
-			this.reportReferenceError(error);
-			return;
-		}
-		if (!transfer || this.disposed) {
-			return;
-		}
-		if (mention && transfer.kind === 'text') {
-			if (!this.isLocked()) {
-				this.editor.insert(transfer.text);
-			}
-			return;
-		}
-		await this.takeTransfer(transfer, mention);
-	}
-
-	/**
-	 * Each thing a paste or a drop hands over becomes an input, one after the
-	 * other, as Pick on Canvas connects a card: what the model cannot use is
-	 * refused with the reason, and an input that is connected already stays
-	 * where it is. From the prompt, each is then mentioned at the caret (D74).
-	 */
-	private async takeTransfer(transfer: BaseHalfTransfer, mention: boolean): Promise<void> {
-		if (this.isLocked()) {
-			return;
-		}
-		const taken: string[] = [];
-		for (const part of baseHalfTransferParts(transfer)) {
-			let path: string | undefined;
-			try {
-				path = await this.host.takeInput(part, async candidate => this.snapshot?.upstream.includes(candidate) || await this.acceptInput(candidate));
-			} catch (error) {
-				this.reportReferenceError(error);
-				continue;
-			}
-			if (this.disposed) {
-				return;
-			}
-			if (!path || (!this.snapshot?.upstream.includes(path) && !await this.connect(path))) {
-				continue;
-			}
-			// The next one is asked about with this one among the inputs, and its chip is drawn.
-			await this.refresh();
-			taken.push(path);
-		}
-		if (mention && !this.disposed) {
-			for (const path of taken) {
-				this.insertMention(path);
-			}
-		}
-	}
-
-	//#endregion
-
-	//#region Inputs
-
-	private async reorder(upstream: readonly string[]): Promise<void> {
-		try {
-			// The names of the prompt follow their inputs from what was typed last (D68).
-			await this.flush();
-			const snapshot = await this.store.reorderUpstream(this.resource, upstream);
-			if (!this.disposed) {
-				this.snapshot = snapshot;
-				this.scheduleRefresh();
-			}
-		} catch (error) {
-			this.reportReferenceError(error);
-		}
-	}
-
-	/** Moves an input to the place of `before` in the list, or last, as a dragged tile does. */
-	private async moveInput(path: string, before: string | undefined): Promise<void> {
-		const upstream = this.snapshot?.upstream;
-		if (!upstream?.includes(path)) {
-			return;
-		}
-		const rest = upstream.filter(entry => entry !== path);
-		const index = before === undefined ? rest.length : rest.indexOf(before);
-		if (index < 0) {
-			return;
-		}
-		const order = [...rest.slice(0, index), path, ...rest.slice(index)];
-		if (order.every((entry, position) => entry === upstream[position])) {
-			return;
-		}
-		await this.reorder(order);
-	}
-
-	//#region Pick on Canvas
-
-	private get picking(): boolean {
-		return !!this.pick.value;
-	}
-
-	/**
-	 * Starts Pick on Canvas (D69): until it is ended, a click on a card of the
-	 * canvas connects it, or removes it when it is connected.
-	 */
-	private startPick(): void {
-		if (this.pick.value || this.isLocked() || !this.snapshot || this.disposed) {
-			return;
-		}
-		this.pickKey = this.pickStateKey();
-		this.pick.value = this.host.startPick({
-			title: localize('basehalf.video.panel.pickTitle', "Click cards to connect them to {0}, or a connected card to remove it.", baseHalfVideoPanelInputFileName(this.snapshot.path)),
-			cardOf: (path, folder) => this.pickCardOf(path, folder),
-			pick: path => this.pickCard(path),
-			ended: () => this.endPick(),
-			onDidChange: this._onDidChangePick.event
-		});
-		this.render();
-	}
-
-	private endPick(): void {
-		if (!this.pick.value) {
-			return;
-		}
-		this.pick.clear();
-		this.render();
-	}
-
-	/** What a click on the card at `path` does while picking, as a connection drawn on the canvas would be refused (D67). */
-	private pickCardOf(path: string, folder: boolean): IBaseHalfCanvasCardPickCard {
-		const snapshot = this.snapshot;
-		if (!snapshot || path === snapshot.path) {
-			return PICK_SELF;
-		}
-		if (folder) {
-			return Object.freeze({ action: 'refused', label: localize('basehalf.video.panel.pickFolder', "A folder cannot be an input.") });
-		}
-		const name = baseHalfVideoPanelInputFileName(path);
-		if (snapshot.upstream.includes(path)) {
-			return Object.freeze({ action: 'remove', label: localize('basehalf.video.panel.pickRemove', "Remove {0}", name) });
-		}
-		const reason = baseHalfVideoAddedInputRefusal(this.model(), snapshot.upstream, path);
-		return Object.freeze(reason
-			? { action: 'refused', label: reason }
-			: { action: 'connect', label: localize('basehalf.video.panel.pickConnect', "Connect {0}", name) });
-	}
-
-	/** What `pickCardOf` answers from: the card, its list, and its model. */
-	private pickStateKey(): string {
-		const info = this.info();
-		return JSON.stringify([this.snapshot?.path, this.snapshot?.upstream, info.provider, info.model, this.catalogService.state.kind]);
-	}
-
-	/** The draft's model, as the panel shows it. */
-	private model(): IBaseHalfVideoCatalogModel | undefined {
-		const catalog = this.catalogService.state;
-		const info = this.info();
-		return catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, info.provider, info.model)?.model : undefined;
-	}
-
-	/**
-	 * A click while picking: connects the card at the end of the list, or
-	 * removes a connected one. Clicks are carried out one after the other,
-	 * each from the list as the one before left it.
-	 */
-	private pickCard(path: string): void {
-		if (this.picksRunning.has(path)) {
-			return;
-		}
-		this.picksRunning.add(path);
-		const run = async () => {
-			try {
-				const snapshot = this.snapshot;
-				if (!snapshot || this.disposed || this.isLocked()) {
-					return;
-				}
-				if (snapshot.upstream.includes(path)) {
-					await this.disconnect(path);
-				} else if (!await this.acceptInput(path) || !await this.connect(path)) {
-					return;
-				}
-				await this.refresh();
-			} finally {
-				this.picksRunning.delete(path);
-			}
-		};
-		this.pickQueue = this.pickQueue.then(run, run);
-	}
-
-	//#endregion
-
-	private async importFile(): Promise<void> {
-		let path: string | undefined;
-		try {
-			// Nothing is copied for a file the model cannot use (D67).
-			path = await this.host.importFile(candidate => this.acceptInput(candidate), this.presentation?.inputKinds ?? ['image', 'video', 'audio', 'text']);
-		} catch (error) {
-			this.reportReferenceError(error);
-			return;
-		}
-		if (path && !this.disposed) {
-			await this.connect(path);
-		}
-	}
-
-	/**
-	 * Whether the draft takes `path` as one more input; when it does not, the
-	 * reason is shown, as for a connection on the canvas (D67).
-	 */
-	private async acceptInput(path: string): Promise<boolean> {
-		let reason: string | undefined;
-		try {
-			reason = await this.cardActions.inputRefusal(this.resource, { add: path });
-		} catch (error) {
-			this.logService.warn('[BaseHalf] the panel could not ask whether the model takes an input', error);
-		}
-		if (reason && !this.disposed) {
-			this.notificationService.notify({ severity: Severity.Warning, message: reason });
-		}
-		return !reason;
-	}
-
-	/** Connects an input; resolves with whether it was connected. */
-	private async connect(entry: string): Promise<boolean> {
-		const node = this.workspaceNode();
-		if (!node || entry === node.relativePath) {
-			return false;
-		}
-		const label = localize('basehalf.video.panel.connectUndo', "Connect Input");
-		return this.runReferenceEdit(label, () => this.referenceEditService.add(node, entry, { label }));
-	}
-
-	private async disconnect(entry: string): Promise<void> {
-		const node = this.workspaceNode();
-		if (!node) {
-			return;
-		}
-		// The names of the prompt follow their inputs from what was typed last (D68).
-		await this.flush();
-		const label = localize('basehalf.video.panel.disconnectUndo', "Remove Input");
-		await this.runReferenceEdit(label, () => this.referenceEditService.remove(node, entry, { label }));
-	}
-
-	/** Runs a connection edit as one step of the canvas undo stack, and says why one did not run. Resolves with whether it ran. */
-	private async runReferenceEdit(label: string, operation: () => Promise<IBaseHalfReferenceEditResult>): Promise<boolean> {
-		const node = this.workspaceNode();
-		if (!node) {
-			return false;
-		}
-		try {
-			this.pushUndo(await operation(), label, node);
-			return true;
-		} catch (error) {
-			if (error instanceof BaseHalfReferenceEditFailure) {
-				this.pushUndo(error.result, label, node);
-			} else {
-				this.reportReferenceError(error);
-			}
-			return false;
-		} finally {
-			this.scheduleRefresh();
-			this.host.didChangeConnections?.();
-		}
-	}
-
-	private pushUndo(result: IBaseHalfReferenceEditResult, label: string, node: IBaseHalfWorkspaceResource): void {
-		const slash = node.relativePath.lastIndexOf('/');
-		const parent = slash < 0 ? '' : node.relativePath.slice(0, slash);
-		const canvas = this.canvasMirrorService.canvasResource({
-			resource: parent ? URI.joinPath(node.workspaceFolder, ...parent.split('/')) : node.workspaceFolder,
-			workspaceFolder: node.workspaceFolder,
-			relativePath: parent,
-			source: 'api'
-		});
-		this.referenceEditService.pushUndoElement(result, {
-			label,
-			resources: [canvas],
-			source: BASEHALF_CANVAS_UNDO_REDO_SOURCE,
-			onDidRun: () => {
-				this.scheduleRefresh();
-				this.host.didChangeConnections?.();
-			}
-		});
-	}
-
-	private reportReferenceError(error: unknown): void {
-		if (error instanceof BaseHalfReferenceEditFailure) {
-			// The edit service already said which files changed.
-			return;
-		}
-		if (error instanceof BaseHalfReferenceEditRefusal) {
-			this.notificationService.prompt(Severity.Warning, error.message, []);
-			return;
-		}
-		this.logService.error(error instanceof Error ? error : String(error));
-		this.notificationService.error(baseHalfUserFacingErrorMessage(error));
-	}
-
 	private async stop(): Promise<void> {
 		try {
 			await this.generationService.stop(this.resource);
@@ -2598,7 +1252,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	private workspaceNode(): IBaseHalfWorkspaceResource | undefined {
+	workspaceNode(): IBaseHalfWorkspaceResource | undefined {
 		const snapshot = this.snapshot;
 		const folder = this.workspaceContextService.getWorkspaceFolder(this.resource);
 		return snapshot && folder ? { resource: this.resource, workspaceFolder: folder.uri, relativePath: snapshot.path } : undefined;
@@ -2623,12 +1277,12 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 
 	//#region Focus by key
 
-	private focusedKey(container: HTMLElement): string | undefined {
+	focusedKey(container: HTMLElement): string | undefined {
 		const active = getWindow(this.element).document.activeElement;
 		return isHTMLElement(active) && container.contains(active) ? active.dataset.key : undefined;
 	}
 
-	private findByKey(container: HTMLElement, key: string): HTMLElement | undefined {
+	findByKey(container: HTMLElement, key: string): HTMLElement | undefined {
 		for (const child of container.children) {
 			if (isHTMLElement(child)) {
 				if (child.dataset.key === key) {
@@ -2643,7 +1297,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		return undefined;
 	}
 
-	private restoreFocus(container: HTMLElement, key: string | undefined): void {
+	restoreFocus(container: HTMLElement, key: string | undefined): void {
 		if (key) {
 			this.findByKey(container, key)?.focus({ preventScroll: true });
 		}
@@ -2652,40 +1306,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	//#endregion
 }
 
-/** An icon of the codicon font. Its element carries the icon's classes only, never a font of its own. */
-function renderCodicon(icon: ThemeIcon, className?: string): HTMLElement {
-	const element = renderIcon(icon);
-	if (className) {
-		element.classList.add(className);
-	}
-	element.setAttribute('aria-hidden', 'true');
-	return element;
-}
-
-function addInputLabel(): string {
-	return localize('basehalf.video.panel.addInput', "Add Input");
-}
-
 const EMPTY_INFO: IBaseHalfGenerationInfo = Object.freeze({ prompt: '' });
-/** The draft itself, while it picks: a click on it does nothing, and nothing says so. */
-const PICK_SELF: IBaseHalfCanvasCardPickCard = Object.freeze({ action: 'self' });
-
-/** The canvas's cards before the reference menu read them. */
-const EMPTY_CANVAS_CARDS: readonly IBaseHalfReferenceMenuKindList[] = Object.freeze([
-	Object.freeze({ kind: 'image' as const, items: [] }),
-	Object.freeze({ kind: 'video' as const, items: [] }),
-	Object.freeze({ kind: 'audio' as const, items: [] })
-]);
-
-/** The picture of an image the window can show, at its file's version; a video and audio have their glyph. */
-function pictureOf(kind: BaseHalfReferenceMenuKind, file: URI | undefined, version: string | undefined): { readonly picture?: string } {
-	return kind === 'image' && file ? { picture: baseHalfMediaUrlAt(file, version) } : {};
-}
-
-/** The kinds of input the reference menu lists: images, videos, sounds, and notes. */
-function isReferenceMenuKind(kind: BaseHalfVideoInputKind): kind is BaseHalfReferenceMenuKind {
-	return kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'text';
-}
 
 /** The panel's name for assistive technology, by the card's kind. */
 function panelLabel(kind: BaseHalfModelKind, name: string): string {
