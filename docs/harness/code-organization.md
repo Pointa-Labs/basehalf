@@ -26,7 +26,7 @@ per feature:
 | `markdown/` | The Markdown document under the rich, source, and preview projections, how each format of a note is written and read back, the links of a note, and the reading aids of `adhd.yaml` | [Note rendering](../specs/note-rendering.md), [formats of a note](../specs/note-formats.md), roadmap track 5 |
 | `references/` | The reference graph: its stores and index, reference edits, the rename refactor, migration, and the badge editor | [Reference graph](../specs/reference-graph.md) |
 | `canvas/` | The canvas: its model and layout file, its view, scene, gestures, placement, and arrangement | The canvas specifications in the [harness routes](README.md#task-routes) |
-| `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/`, `snap/`, `tidy/`, and `generationPanel/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
+| `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/`, `snap/`, `tidy/`, `generationPanel/`, and `templates/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
 | `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5, [formats of a note](../specs/note-formats.md) |
 | `documents/` | PDFs and books: which files they are, their covers and the cache that keeps them, the readers of covers, and the book reader's page | [PDFs and books](../specs/documents-and-books.md) |
 | `changes/` | What git says about a file as BaseHalf's surfaces read it, the Changes view of Card Detail with a picture's two versions, and what the rows of Source Control open | [The changes of a file](../specs/changes-of-a-file.md) |
@@ -333,10 +333,21 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   lines) with three parts (what the editor's page asks of the workbench,
   what the editor wrote reaching the file, and the page from its webview to
   its first frame) and a module for the page itself.
+- 2026-11-10: making a project from a template is a canvas feature,
+  `canvasContrib/templates/`: its two commands, and the setup that writes a
+  project in steps a closed window can resume. It had been 1,300 of the
+  1,606 lines of the file of the canvas's context menu, which the core
+  imported though it calls none of it; that file keeps the canvas's own
+  commands and menus (about 290 lines).
 - Next: what draws the face of a generation card and runs its toolbar is the
-  one part of the canvas core that is a feature of its own; it moves into
-  `canvasContrib/` as code cards did. Connections, the badge editor, and note
-  editing stay parts of the core (D126).
+  one part of the canvas core left that is a feature of its own; it moves
+  into `canvasContrib/` as code cards did. Connections, the badge editor, and
+  note editing stay parts of the core (D126).
+- Seven files stand between 1,539 and 1,761 lines, each one service or one
+  model: following moved items, the mirror cascade, the canvas's layout
+  file, reference edits, the reference index, the Markdown projection, and
+  the inline formats of a note. Each is split when it is next changed for
+  more than a fix, not in a pass of its own.
 - On 2026-10-20, 75 of VS Code's files carried BaseHalf changes, most of them
   unmarked. They are marked, or replaced by an extension point, when their
   subsystem is next ported from a newer VS Code, not in a pass of their own.

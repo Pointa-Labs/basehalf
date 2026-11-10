@@ -16,3 +16,4 @@ import '../canvasContrib/generationPanel/browser/basehalfCanvasVideoPanel.contri
 import '../canvasContrib/folderDrop/browser/basehalfCanvasFolderDrop.contribution.js';
 import '../canvasContrib/changeMarks/browser/basehalfCanvasChangeMarks.contribution.js';
 import '../canvasContrib/codeCards/browser/basehalfCanvasCodeCards.contribution.js';
+import '../canvasContrib/templates/browser/basehalfCanvasTemplates.contribution.js';
