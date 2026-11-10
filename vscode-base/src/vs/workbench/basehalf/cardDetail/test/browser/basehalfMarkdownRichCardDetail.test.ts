@@ -6,14 +6,7 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { baseHalfMarkdownRichColdFlushResult } from '../../../markdown/common/basehalfMarkdownRichFlush.js';
-import {
-	applyBaseHalfMarkdownRichFirstFrameState,
-	baseHalfMarkdownRichColdGenerationAction,
-	baseHalfMarkdownRichFirstFrameAcknowledgement,
-	baseHalfMarkdownRichShouldGuardQuickInput,
-	BaseHalfMarkdownRichQuickInputFocusGuard,
-	setBaseHalfMarkdownRichInteractionEnabled
-} from '../../browser/basehalfMarkdownRichCardDetail.js';
+import { applyBaseHalfMarkdownRichFirstFrameState, baseHalfMarkdownRichColdGenerationAction, baseHalfMarkdownRichFirstFrameAcknowledgement, baseHalfMarkdownRichShouldGuardQuickInput, BaseHalfMarkdownRichQuickInputFocusGuard, setBaseHalfMarkdownRichInteractionEnabled } from '../../browser/basehalfMarkdownRichWebviewPage.js';
 
 suite('BaseHalfMarkdownRichCardDetail', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

@@ -328,7 +328,11 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   pane. The model catalog, which was one module of 1,880 lines, keeps
   finding, values, and what the settings say (about 980 lines); the reading
   of the provider's answers, the inputs of a generation card, and whether a
-  card can generate are modules of their own.
+  card can generate are modules of their own. The Rich projection of Card
+  Detail, which was one file of 1,801 lines, is the projection (about 940
+  lines) with three parts (what the editor's page asks of the workbench,
+  what the editor wrote reaching the file, and the page from its webview to
+  its first frame) and a module for the page itself.
 - Next: what draws the face of a generation card and runs its toolbar is the
   one part of the canvas core that is a feature of its own; it moves into
   `canvasContrib/` as code cards did. Connections, the badge editor, and note
