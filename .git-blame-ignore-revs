@@ -1,6 +1,7 @@
 # Commits that moved BaseHalf's code without changing what it does. `git blame` skips them
 # (this checkout's blame.ignoreRevsFile names this file; on GitHub, the blame view reads it).
 # A commit is listed only when it moved code as it was; its message says how that was checked.
+# The list works within a file. For a line that a commit moved into a new file, use `git blame -C`.
 
 # D60: BaseHalf's workbench code in a folder per feature
 28bc88b1bdd8283cd902ef2ca979ed7aeb8959dd
@@ -10,3 +11,17 @@ e32fd50fa1a4a9c38dc0c77af9f8dbc47268f77d
 
 # D124: generation/ and canvasContrib/generationPanel/
 c151d84c588efc8558ee2136ddc09ff75975cb5b
+
+# D126: files split by concern, the code moved as it was
+# the generation service
+35f4aab6ae65d230219a8b636adb4e2c4d172415
+# the panel under a generation card
+c991243bdff6cfb56abc526e3ef83842b4a32b80
+# the Agent Area
+6d7673d1bc942472c2c93a1a04f651ecd700a41a
+# the model catalog
+7a52bdb4abf2de77a5facb8165dccf87120538c2
+# the Rich projection of Card Detail
+d6372acddc8fc569627bcf8d98197c2775876787
+# templates as a canvas feature
+5dd894a67e180340e66b6b091cc82f68cac448b0
