@@ -151,6 +151,35 @@ BaseHalf's folders are in an order, from the bottom:
   import without VS Code's global types. Check it with
   `npx tsgo --project extensions/basehalf/<bundle>-src/tsconfig.json --noEmit`.
 
+## Files that can be read whole
+
+A source file of BaseHalf's stays small enough to be read whole, by a person
+or an agent, before it is changed. A file that grows past about 1,500 lines is
+split by concern, in this order:
+
+- What a class only calls and that needs nothing of the class, such as
+  parsers, messages, formats, and constants, goes into modules of its own,
+  each named after what it holds.
+- A class that implements a service and the registrations around it are
+  separate files, as in VS Code: `<name>Service.ts` holds the class, and
+  `<name>.contribution.ts` registers it, with its actions.
+- What remains of a large class is split into parts, as VS Code's code editor
+  widget delegates to its view, model, and controllers. A part is a class in
+  a file of its own, named after its concern. The owner makes its parts as
+  its first fields and hands itself to each. A part keeps the state that only
+  it uses, and reaches the rest of the state and the other parts through the
+  owner. Members that the owner and its parts use of each other are public:
+  that is how they work together, not an interface for other code.
+- The members of a service's interface stay on the service. Where the work
+  of one is in a part, the service's method forwards to the part.
+- A split moves code as it is and changes nothing that the code does. Apart
+  from `this` written as the owner or a part, and members made public, every
+  line of the original is a line of the new files, and a check compares them.
+
+The canvas view and its React scene were split this way first
+([below](#the-canvas-a-core-and-its-features)). Public decision D126 records
+why the rule holds for every file.
+
 ## The canvas: a core and its features
 
 The canvas follows VS Code's code editor and terminal. Each keeps a core that
@@ -179,6 +208,13 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   the features' view controls.
 - New behavior on the canvas is a canvas feature, not more code in the canvas
   view.
+- A part of the canvas view becomes a feature only when the core can draw a
+  canvas without it and would reach it at a few named points, as it reaches
+  code cards (`takeCodeCards`). Connections, the badge editor, and note
+  editing are not such: a drawing calls into them at about 20 places, and
+  they use 33, 37, and 48 members of the view (measured 2026-11-10). They
+  stay parts of the core; an interface that mirrored all of that would
+  decouple nothing (D126).
 - Card Detail draws a file in projections, and each projection registers how
   it is drawn from its own folder, as VS Code's editors register their panes:
   `IBaseHalfCardDetailSurfaceRegistryService` takes a provider for each
@@ -275,10 +311,12 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   their own folders, beside their descriptors. The canvas, which had made
   all five built-in ones itself, hosts them through `IBaseHalfCardDetailHost`
   and imports none of them.
-- Next: parts that are features of their own move on into `canvasContrib/`,
-  in the order of how often their code changed: the generation cards and
-  their actions, connections, creating cards, the badge editor, Card Detail,
-  and note editing.
+- 2026-11-10: a file can be read whole everywhere, not only in the canvas
+  (D126).
+- Next: what draws the face of a generation card and runs its toolbar is the
+  one part of the canvas core that is a feature of its own; it moves into
+  `canvasContrib/` as code cards did. Connections, the badge editor, and note
+  editing stay parts of the core (D126).
 - On 2026-10-20, 75 of VS Code's files carried BaseHalf changes, most of them
   unmarked. They are marked, or replaced by an extension point, when their
   subsystem is next ported from a newer VS Code, not in a pass of their own.

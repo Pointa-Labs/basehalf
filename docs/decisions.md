@@ -6220,3 +6220,25 @@ them `// BaseHalf:` marks, and one place lists everything BaseHalf adds to a win
   register delayed singletons, so when they load changes nothing.
 - The allowlist of extensions still takes the place of VS Code's service in the workbench's file and the shared process's,
   marked there, since a replacement of a service is a change to that file.
+
+## D126 — A file can be read whole: a large class is split into parts, and what a canvas cannot be drawn without stays a part of its core (NEW, 2026-11-10)
+
+**Decision.** A source file of BaseHalf's stays under about 1,500 lines. What a class only calls goes into modules of its
+own, a service's class and its registrations are separate files, and what remains of a large class is split into parts that
+reach the rest through their owner, with the service's interface staying on the service. A part of the canvas view becomes a
+canvas feature only when the core can draw a canvas without it. See
+[code organization](harness/code-organization.md#files-that-can-be-read-whole).
+
+**Why.** D60 split the canvas view of 10,200 lines so that a person or an agent can read a file before changing it, and wrote
+the rule for the canvas alone. Three files were past it: the panel under a generation card (2,702 lines, one class of 106
+methods and 66 fields), the generation service (2,457), and the Agent Area (2,411). D60 also planned to move connections, the
+badge editor, and note editing out of the canvas core into features, in the order of how often their code changed. Measured on
+2026-11-10, a drawing of the canvas calls into them at about 20 places, and they use 33, 37, and 48 members of the view. An
+interface for a feature would have had to mirror all of that and would have decoupled nothing. A feature is what the core can
+do without, as zoom, snapping, Tidy Canvas, the marks of changes, and code cards are; these three are what a canvas is.
+
+**Consequences.**
+- The splits move code as it is. A script moves the members and rewrites only `this`, and a check compares every line of the
+  original with the new files; the type check, the unit tests, and the smoke run on each.
+- Revises D60's plan: connections, the badge editor, and note editing stay parts of the canvas core. What draws the face of a
+  generation card and runs its toolbar is the one part left that is a feature of its own.
