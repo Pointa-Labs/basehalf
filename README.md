@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/readme/logo.png" width="96" alt="BaseHalf logo: four cubes joined in a hexagon">
+</p>
+
 <h1 align="center">BaseHalf</h1>
 
 <p align="center">
