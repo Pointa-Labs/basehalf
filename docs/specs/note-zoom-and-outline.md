@@ -1,11 +1,12 @@
 # Zoom and outline of a note in Card Detail
 
-Status: Draft (2026-10-27, revised 2026-10-28, 2026-10-31, 2026-11-01, and
-2026-11-02)
+Status: Draft (2026-10-27, revised 2026-10-28, 2026-10-31, 2026-11-01,
+2026-11-02, and 2026-11-11)
 Decision: [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27),
 revised by [D105](../decisions.md#d105--a-pinch-zooms-a-note-as-a-picture-under-the-fingers-and-the-note-is-laid-out-once-they-rest-new-2026-10-31)
 and [D109](../decisions.md#d109--a-pinch-magnifies-a-note-in-card-detail-as-a-browser-magnifies-its-page-and-nothing-of-it-is-laid-out-anew-new-2026-11-01);
-headings in a toggle, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
+headings in a toggle, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02);
+scroll bars that take no room, [D127](../decisions.md#d127--basehalfs-scroll-bars-lie-over-what-they-scroll-whatever-the-system-shows-elsewhere-new-2026-11-11)
 Related: [note rendering](note-rendering.md) (what a note shows),
 [PDFs and books](documents-and-books.md#the-pdf-reader) (the zoom of a PDF
 and the text size of a book), [editing media](media-editing.md#zooming-the-picture-and-the-time)
@@ -68,6 +69,19 @@ Measured on 2026-10-27 in a development window of 1440 × 900 points:
   middle. The note moved by itself after the hand had let go of it, because
   a size of text laid out anew cannot keep the words where the fingers put
   them.
+- **With a mouse attached, the first frame of a pinch laid the note out
+  anew.** While a mouse is attached, the system shows scroll bars that are
+  always there and take 15 pixels of the box they scroll. Measured on
+  2026-11-11 with such bars, on a note shorter than the view, which has no
+  bar at 100%: the first frame of a pinch made the page larger than the
+  view, the view got both bars and was 15 pixels narrower inside, and the
+  page was laid out for that width. In a Card Detail of 1130 pixels the
+  text moved 7.5 pixels to the left at once, and after a pinch to 160% the
+  character under the pointer stood 13 pixels to the left of it; in one of
+  859 pixels the text column went from 689 to 674 pixels and the lines of
+  the paragraph under the pointer broke anew. The pinch back put all of it
+  back. The step of the smoke that pinches a short note failed 4 times of 4
+  on 2026-11-08 with a mouse attached, and passed on 2026-11-10 without it.
 
 ## Scope
 
@@ -138,9 +152,14 @@ Not in scope, and unchanged:
 5. **Moving a magnified note.** The magnified page is larger than the view
    in both directions. A two-finger swipe and the wheel move it up and down
    and sideways, as far as its edges, and so do the view's scroll bars: an
-   edge of the page stops at the edge of the view. Where zooming out brings
-   an edge of the page to the edge of the view, that edge stays there, and
-   the place under the pointer moves with it.
+   edge of the page stops at the edge of the view. The scroll bars lie over
+   the page and take none of the view's width or height, with every setting
+   of the system and with a mouse attached
+   ([architecture invariants](../harness/architecture-invariants.md#product-shell),
+   D127): a page that gets them as it is magnified, and loses them at 100%,
+   is not laid out for them. Where zooming out brings an edge of the page to
+   the edge of the view, that edge stays there, and the place under the
+   pointer moves with it.
 6. **Once the fingers rest, nothing moves.** 150 ms after the last event of
    a gesture the fingers have rested, and the page is drawn sharp at its
    level, where it is.
@@ -365,6 +384,10 @@ place. Nothing of the zoom is stored, in the profile or in the workspace.
     pixels into the text keeps that word under the pointer; a sideways swipe
     to each end then shows the room beside the text twice as wide as at
     100%, and no more.
+18. On a system that shows scroll bars always, the view of a note shorter
+    than the view keeps its width and its height in every frame of a pinch
+    to 160% and back, and criterion 3 holds, in a Card Detail of 1130 and
+    of 859 pixels.
 
 ## Verification
 
@@ -385,7 +408,9 @@ place. Nothing of the zoom is stored, in the profile or in the workspace.
   of the 300 ms after it, it checks that the point under the pointer stays
   under it and that no line breaks anew, and once the fingers rest, where
   the handles stand: 8 pixels left of the text, at the middle of the block's
-  first line.
+  first line. The smoke starts BaseHalf as on a system that shows scroll
+  bars always (its README), and on every frame of the pinch to 160% it
+  checks that the view of this short note keeps its width and its height.
 - In the window, recorded on every frame by the page itself: a pinch made
   through the browser's protocol over Rich and over Preview, on a short note
   and on the 151 KB note, in a Card Detail of 1130 and of 848 pixels; the
@@ -396,4 +421,8 @@ place. Nothing of the zoom is stored, in the profile or in the workspace.
   rest, with the pointer in the margin, over the ticks, after a click on a
   name, after typing a heading, and at 200%; the box of the handles of a
   block against the edge of the text and the block's first line on every
-  frame of a pinch, a wheel with Command, and a scroll.
+  frame of a pinch, a wheel with Command, and a scroll; with the
+  application started as on a system that shows scroll bars always, a note
+  shorter than the view through a pinch to 160% and back, in a Card Detail
+  of 1130 and of 859 pixels: the width of the view and where the lines
+  break on every frame.

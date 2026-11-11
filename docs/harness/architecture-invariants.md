@@ -98,6 +98,27 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   specification speaks of a tooltip, it means this hover. An element gets
   it from the `data-basehalf-hover` attribute
   (`ui/browser/basehalfHover.ts`) or from the hover service directly.
+- A scroll bar in BaseHalf is the same with every setting of the system
+  and with or without a mouse (D127). Where a box shows the system's bar,
+  the bar lies over what the box scrolls, shows while it scrolls, and takes
+  none of its room. While a mouse is attached, or with the system's "Show
+  scroll bars: Always", the system would give every such box a bar that is
+  always there and takes 15 pixels of it. BaseHalf sets the system's own
+  setting for its application alone, `AppleShowScrollBars` to
+  `WhenScrolling` in the application's preferences, at each start and
+  before it creates a window; that holds for the window and for the pages
+  inside it, as VS Code's own editors and lists draw their bars over their
+  content everywhere. A bar that BaseHalf draws or styles itself, as the
+  sideways bar of a table (D54) and the bar of a note that is edited on its
+  card, has its own look and room, the same everywhere. So no layout of
+  BaseHalf's changes with the system's setting or with a mouse, and none
+  changes when the system's bar comes or goes. A strip that scrolls only
+  sideways, as the tabs of the Agent Area and the tiles of a generation
+  card's inputs, also moves when the wheel turns up and down, as VS Code's
+  editor tabs do: its bar shows only while it scrolls, and a wheel that
+  turns one way would not reach what the strip cuts off. The strip of the
+  Agent Area's tabs keeps its place when it is drawn again, and brings the
+  tab that becomes active into view.
 - Card Detail fades in and out where it is, over the canvas area: no frame
   shows it empty, and no frame draws anything of it outside the canvas
   area. Once open it takes the keyboard, and Escape closes it wherever in it
@@ -139,8 +160,8 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 
-See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, D45, D65, and
-D85 in [decisions.md](../decisions.md).
+See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, D45, D65,
+D85, and D127 in [decisions.md](../decisions.md).
 
 ## Content and graph truth
 

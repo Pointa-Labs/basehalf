@@ -6242,3 +6242,52 @@ do without, as zoom, snapping, Tidy Canvas, the marks of changes, and code cards
   original with the new files; the type check, the unit tests, and the smoke run on each.
 - Revises D60's plan: connections, the badge editor, and note editing stay parts of the canvas core. What draws the face of a
   generation card and runs its toolbar is the one part left that is a feature of its own.
+
+## D127 — BaseHalf's scroll bars lie over what they scroll, whatever the system shows elsewhere (NEW, 2026-11-11)
+
+**Decision.** Where BaseHalf shows the system's scroll bar, the bar lies over what it scrolls, shows while it scrolls, and
+takes none of its room, with every setting of the system and with or without a mouse. BaseHalf sets the system's own setting
+for its application alone (`AppleShowScrollBars` to `WhenScrolling` in the application's preferences) at each start, before it
+creates a window. No layout of BaseHalf's changes with the system's setting, with a mouse, or when the system's bar comes or
+goes. See [architecture invariants](harness/architecture-invariants.md#product-shell).
+
+**Why.** While a mouse is attached, or with "Show scroll bars: Always", the system gives every scrolling box of a window a
+bar that is always there and takes 15 pixels of the box. About 20 scrolling boxes of BaseHalf's own show the system's bar,
+among them the view of a note in Card Detail, and their layouts are specified without that room. Measured on 2026-11-11: a
+note shorter than Card Detail got both bars in the first frame of a pinch, its view lost 15 pixels, and the page was laid out
+anew, which D109 rules out; the text moved 7.5 pixels at once, the character under the pointer stood 13 pixels beside it at
+160%, and in a Card Detail of 859 pixels the lines of the paragraph broke anew. The smoke's pinch of a short note failed 4
+times of 4 on 2026-11-08 with a mouse attached and passed without it, so the result of the smoke depended on what was plugged
+into the machine. A long note showed a bar that was always there, and its text stood 7.5 pixels beside the middle of Card
+Detail. The user had judged such a bar on a table on 2026-10-13: a bar is hidden unless something scrolls, lies over the
+content, and takes no room (D54). VS Code's own editors and lists draw their bars that way everywhere.
+
+**Alternatives.**
+- BaseHalf draws its own bar in each scrolling box, as it does for a table. That is about 20 boxes in the window and in the
+  pages inside it, and the next box anyone adds is wrong again until someone attaches a mouse.
+- `scrollbar-gutter: stable` on the view of a note keeps its width, with 15 empty pixels at rest and the text beside the
+  middle, and settles nothing for the other boxes.
+- Chromium's `OverlayScrollbar` feature. Measured: it changes nothing here.
+- Following the system. Every layout that is specified in pixels would need a second form, and a pinch would still lay a
+  short note out anew.
+
+**Consequences.**
+- A user who chose "Show scroll bars: Always" for the system sees BaseHalf's bars while something scrolls, as in VS Code's
+  editors. The application's own default outranks the system's; it is one key in the preferences of BaseHalf's application,
+  written at each start.
+- With a mouse, a box no longer shows by a bar at rest that it scrolls, as it never did with a trackpad. A wheel that turns
+  one way moves a box that scrolls both ways sideways with Shift held, or by the bar that shows while the box scrolls. A
+  strip that scrolls only sideways moves with the wheel turned up and down: the tiles of a generation card's inputs did, and
+  the tabs of the Agent Area do now, which before had only their bar. A tab of the Agent Area that becomes active comes into
+  view, which a tab past the end of the strip did not.
+- The two gutters that the badge editor reserved for a scroll bar are gone: with a bar that takes no room they reserved
+  nothing.
+- Measured with the application's default set to `Always` before the start, as the system's would be: before, a scrolling box
+  gave its bar 15 pixels and the note moved; after, the box gives it none, the view of a short note keeps its 1130 pixels
+  through a pinch, and the character under the pointer stays within 1.4 pixels of where it was. Told while it runs that the
+  system's setting changed to `Always`, a window without the rule gave its boxes the bar 3 ms later, and one with the rule
+  did not.
+- BaseHalf is released for one system. A release for another reaches the same rule by that system's means.
+- The smoke starts every suite as on a system that shows scroll bars always, so its result no longer depends on a mouse:
+  before each launch it sets that key to `Always`, and its first step fails unless the BaseHalf it launched replaced the key
+  before its first window. After the run it removes a key that still says `Always`.
