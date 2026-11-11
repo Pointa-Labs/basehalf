@@ -482,7 +482,6 @@
 	transform-origin: top center;
 	transform: translateX(-50%);
 	animation: basehalf-detail-badge-popover-in 110ms ease-out;
-	scrollbar-gutter: stable;
 }
 
 .monaco-workbench .basehalf-card-detail-badge-body:focus-visible {
@@ -503,7 +502,6 @@
 
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt.scrollable {
 	overflow-y: auto;
-	scrollbar-gutter: stable;
 }
 
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt:focus {

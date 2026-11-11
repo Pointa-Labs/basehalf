@@ -634,6 +634,23 @@ export class CodeApplication extends Disposable {
 			this.logService.error(error);
 		}
 
+		// BaseHalf: the system's scroll bars lie over what they scroll and
+		// take none of its room, whatever the system shows elsewhere (D127).
+		// While a mouse is attached, or with "Show scroll bars: Always", the
+		// system gives every scrolling box of a window a bar that takes 15
+		// pixels of it, and a note that gets one as it is magnified is laid
+		// out anew. The application's own default outranks the system's. It
+		// is written at every start, before any window is created, whatever
+		// a read finds: that may be the system's value, which can change
+		// while BaseHalf runs.
+		try {
+			if (isMacintosh) {
+				systemPreferences.setUserDefault('AppleShowScrollBars', 'string', 'WhenScrolling');
+			}
+		} catch (error) {
+			this.logService.error(error);
+		}
+
 		// Main process server (electron IPC based)
 		const mainProcessElectronServer = new ElectronIPCServer();
 		Event.once(this.lifecycleMainService.onWillShutdown)(e => {
