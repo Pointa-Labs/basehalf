@@ -1,6 +1,6 @@
 # Providers and the model catalog
 
-Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78; the region is the user's choice and the other region is easy to find, 2026-10-27, D94; the Providers page sorts the providers by card type, and a provider's one key serves every card type it makes, 2026-10-31, D107; custom providers in the formats that relays share, 2026-10-31, D108)
+Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78; the region is the user's choice and the other region is easy to find, 2026-10-27, D94; the Providers page sorts the providers by card type, and a provider's one key serves every card type it makes, 2026-10-31, D107; custom providers in the formats that relays share, 2026-10-31, D108; Alibaba's speech models, and a voice that only some regions offer, 2026-11-11)
 Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
@@ -267,7 +267,7 @@ reference song.
 { "name": "sound", "label": "Sound", "kind": "boolean", "default": true }
 { "name": "seed", "label": "Seed", "kind": "integer", "min": 0, "max": 2147483647, "optional": true, "advanced": true }
 { "name": "negative_prompt", "label": "Negative Prompt", "kind": "text", "maxLength": 2500, "optional": true, "advanced": true }
-{ "name": "voice", "label": "Voice", "kind": "voice", "options": [{ "value": "Kore", "label": "Kore", "description": "Firm" }], "default": "Kore", "listed": false }
+{ "name": "voice", "label": "Voice", "kind": "voice", "options": [{ "value": "Kore", "label": "Kore", "description": "Firm" }, { "value": "yuxiaoyun_v3.1", "label": "Yu Xiaoyun", "regions": ["cn"] }], "default": "Kore", "listed": false }
 ```
 
 - `kind` is `choice`, `integer`, `number`, `boolean`, `text`, or `voice`.
@@ -290,6 +290,12 @@ reference song.
   description has 1 to 300 characters. A model whose voice is `listed`
   needs a module that lists voices (`listVoices`); the catalog is not built
   otherwise.
+- `regions` of a voice lists the regions that offer it, when not every
+  region that offers the model does, as a mode's `regions` does: at least one
+  region, each once, each offering the model; the default voice has none.
+  Elsewhere the voice menu does not list it, and `check` refuses it: "<model>
+  offers the voice <voice> only in <regions>. Choose another voice, or another
+  region in Providers."
 - `count` is a parameter of an image model or a music model only.
 - `default` is used when the card has no value. `optional` parameters may be
   left unset, and nothing is sent for them.
@@ -329,7 +335,7 @@ provider module maps it to its provider's field and value.
 | `negative_prompt` | text, optional, advanced | | what the result should not show |
 | `prompt_extend` | boolean | | the provider rewrites or extends the prompt before it generates |
 | `watermark` | boolean, advanced | | the provider marks the result as made by AI |
-| `voice` | voice | the provider's voice ids; an id belongs to its provider, so choosing a model of another provider keeps a voice only when the new model declares it among its voices, and gives it the new model's default otherwise, while a model of the same provider keeps it | the voice a speech model speaks in |
+| `voice` | voice | the provider's voice ids; an id belongs to its provider, so choosing a model of another provider keeps a voice only when the new model declares it among its voices, and gives it the new model's default otherwise, while a model of the same provider keeps it, unless the previous model's catalog declares it and the new model's does not | the voice a speech model speaks in |
 | `speed` | number | from 0.5 to 2 in steps of 0.05, 1 being the voice's own pace; a narrower range where the provider has one | how fast the voice speaks |
 | `instrumental` | boolean | | music without singing |
 | `style` | text, optional | | the style of the music in `lyrics` mode, where the prompt is the lyrics |
@@ -364,7 +370,9 @@ provider that speaks in a voice of its own when a request names none may
 declare that voice as the default, an option whose value the module leaves
 out of the request (Fish Audio). Where no voice is in every account, the
 catalog declares those that the most accounts can use, and the provider's
-specification says which accounts cannot (ElevenLabs). A
+specification says which accounts cannot (ElevenLabs). A voice that only
+some regions of the provider offer says so, and is offered only there
+(Alibaba; [Parameters](#parameters)). A
 provider whose API lists voices answers, through the `voices` call
 ([Requests](#requests)), its own voices and those of the user's account:
 the voices the user cloned, designed, or saved in the provider's app. Each
@@ -381,7 +389,8 @@ listed voice has:
 
 The voices of an account change outside BaseHalf, so the window asks for
 them each time the voice menu opens and keeps the last answer for that
-provider and region while it asks again
+provider, region, and model while it asks again, since a provider's voices
+may belong to its models, as Alibaba's do
 ([generation cards, The panel](generation-cards.md#the-panel)); it also asks
 once, to name a voice of the account that a card shows before any menu
 opened. A voice that
@@ -400,8 +409,8 @@ sorts the providers by card type (D107):
   no choice.
 - **The list** holds the providers of the type chosen: each provider with a
   model of that kind that is not deprecated, in the catalog's order. A
-  provider of several types is in the list of each: on 2026-10-31, 11
-  providers make images, 12 videos, and 5 audio, and 10 of the 16 make more
+  provider of several types is in the list of each: on 2026-11-11, 11
+  providers make images, 12 videos, and 6 audio, and 10 of the 16 make more
   than one. A row shows the provider's name; under it, its region when it
   has more than one, and otherwise how many models of the type it has; and
   whether it is set up.
@@ -896,7 +905,7 @@ states:
 
 - [ByteDance (Seedance, Seedream)](providers/bytedance.md)
 - [Kling](providers/kling.md)
-- [Alibaba (Wan, Qwen-Image)](providers/alibaba.md)
+- [Alibaba (Wan, Qwen)](providers/alibaba.md)
 - [MiniMax (Hailuo)](providers/minimax.md)
 - [Vidu](providers/vidu.md)
 - [Google (Gemini)](providers/google.md)
@@ -927,7 +936,7 @@ states:
 | Black Forest Labs | `https://api.bfl.ai/v1` | API key, `x-key` | data URL for the video, plain base64 for the image models | clip of Edit and Extend as a data URL | FLUX 3 Image and FLUX.2, tasks | no |
 | OpenAI | `https://api.openai.com/v1` | API key, `Authorization: Bearer` | multipart files | none | GPT Image, answered at once | no |
 
-The audio models, of three new providers and of two that BaseHalf has for
+The audio models, of three new providers and of three that BaseHalf has for
 images and videos:
 
 | Provider | Base URL | Credentials | Audio models | Inputs | Voices listed |
@@ -937,9 +946,11 @@ images and videos:
 | Mureka | `https://api.mureka.ai` | API key, `Authorization: Bearer` | music (Mureka 9.5, Mureka O2), tasks | a reference song, by upload | – |
 | MiniMax | as above | as above | speech (Speech 2.8 HD and Turbo, Speech 2.6 HD and Turbo), answered at once | none | yes, without samples |
 | Google | as above | as above | speech (Gemini 3.8 Flash TTS and Flash-Lite TTS), answered at once through `generateContent`; music (Lyria 3.5, Lyria 3 Clip), answered at once through the Interactions API | images, inline (music) | no: 30 voices in the catalog |
+| Alibaba | as above | as above | speech (Qwen-Audio 3.1 TTS Plus and Flash, 3.0 TTS Plus and Flash), answered at once with the address of the sound | none | the account's, without samples; the system voices in the catalog, some of China (Beijing) only |
 
 The video facts were read from each provider's documentation on 2026-10-18,
-the image facts on 2026-10-22, and the audio facts on 2026-10-25; each
+the image facts on 2026-10-22, the audio facts on 2026-10-25, and
+Alibaba's speech on 2026-11-11; each
 provider's specification records the pages it follows. OpenAI's video API closed on 2026-09-24 and is not offered;
 its image models are. Google's Veo models on the Gemini API are previews
 retiring from 2026-10-22; Google is offered through the model that replaces
@@ -958,6 +969,9 @@ them.
    format, voices and the `voices` and `voicePreview` calls, Lyrics mode,
    the speech models of MiniMax and Google, Google's Lyria, and ElevenLabs,
    Fish Audio, and Mureka.
+5. Alibaba's speech models, Qwen-Audio, under the key that its image and
+   video models use, and the voices that only some regions offer
+   (2026-11-11).
 
 Later, and not in the catalog until then: the speech and sound effects that
 xAI, Kling, Vidu, and Runway sell under the keys BaseHalf already stores;
@@ -974,7 +988,9 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
 2. Every control of the settings is drawn from the selected model's
    declarations, and changing the model keeps every value the new model
    accepts and gives the others the new model's defaults; a voice of
-   another provider is kept only when the new model declares it.
+   another provider is kept only when the new model declares it, and a voice
+   of the previous model's catalog that another model of the same provider
+   does not declare gives way to that model's default.
 3. A provider is set up with its region and credentials; the credentials are
    in no workspace file, no page markup, and no log.
 4. `check` reports, before anything is written, a missing required input, too
@@ -1035,7 +1051,9 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     redirect.
 17. A `voice` value that is not among a listed parameter's options passes
     `check` when it is at most 256 characters without control characters;
-    for a parameter that is not listed, only an option passes.
+    for a parameter that is not listed, only an option passes. An option
+    whose `regions` do not hold the region in use is refused by `check`, and
+    the voice menu there does not list it.
 18. In `lyrics` mode, the prompt reaches the provider as the lyrics and
     `style` as the style, in the fields or the form the provider documents.
 19. For each provider of more than one region, the Providers page shows the
@@ -1089,8 +1107,8 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   from declarations, and of each provider module.
 - The smoke runs the generation card steps against the local test provider
   through the ByteDance module, for a video and for an image, and through
-  the ElevenLabs and Mureka modules for sounds, and reads the extension
-  host's log for criterion 12.
+  the ElevenLabs, Mureka, and Alibaba modules for sounds, and reads the
+  extension host's log for criterion 12.
 - A unit test of the window's answer when a call does not reach the service,
   and of the window's connection, which fails every waiting and later call
   once the shared process stopped (criterion 13).
@@ -1125,14 +1143,19 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   and samples on this computer for a provider elsewhere
   (`providerVoices.test.ts`), a sample's bytes over the channel between the
   processes (`basehalfProviderConnection.test.ts`), and the catalog's rules
-  for audio models (`providerCatalog.test.ts`).
+  for audio models (`providerCatalog.test.ts`), the regions of a voice among
+  them; a voice of one region refused elsewhere by `check`
+  (`providerAudio.test.ts`), and the voice menu's rows, which leave it out
+  there, and the window's lists, one for each model
+  (`basehalfGenerationVoiceMenu.test.ts`).
 - The smoke generates speech through the ElevenLabs module, with its voices
-  and a sample, and two songs in Lyrics mode through the Mureka module,
-  against the local test provider, which answers like each of them under a
-  path of its own, `/elevenlabs` and `/mureka`, as it answers like ModelArk
-  under `/api/v3`. The tests of the two modules generate against it too, as
-  the ByteDance module's do: speech in a voice of the account it lists, and
-  two songs with a reference song it takes as an upload.
+  and a sample, two songs in Lyrics mode through the Mureka module, and
+  speech of a connected note through the Alibaba module, against the local
+  test provider, which answers like each of them under a path of its own,
+  `/elevenlabs`, `/mureka`, and `/alibaba`, as it answers like ModelArk
+  under `/api/v3`. The tests of the first two modules generate against it
+  too, as the ByteDance module's do: speech in a voice of the account it
+  lists, and two songs with a reference song it takes as an upload.
 - Unit tests of the Providers page for the order of the region, the console
   link, and the credentials, the region's hint, and the link that changes
   with the region (criterion 19); of a generation and of a list of voices

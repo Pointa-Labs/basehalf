@@ -783,8 +783,13 @@ The settings of a draft are drawn from its model's
   where the new provider lists voices and would take any id: an id of one
   provider names no voice, or another voice, at another. Choosing another
   model of the same provider keeps the voice, a voice of the account
-  included. So a draft that went from Eleven v4 to Gemini 3.8 Flash TTS and
-  back speaks in ElevenLabs' default voice, not in Gemini's.
+  included, unless the previous model's catalog declares it and the new
+  model's does not: where each model speaks in voices of its own, as
+  Alibaba's do, the new model then speaks in its default voice. So a draft
+  that went from Eleven v4 to Gemini 3.8 Flash TTS and back speaks in
+  ElevenLabs' default voice, not in Gemini's, and one that went from
+  Qwen-Audio 3.1 TTS Flash in Yu Xiaoyun to Qwen-Audio 3.1 TTS Plus speaks in
+  Long An Huan, Plus's default.
 
 **A range the inputs narrow** (D70). A rule of the provider can narrow how
 far a number goes for what is connected, such as Wan 3.0, whose input videos
@@ -1061,7 +1066,7 @@ parts, in the order a panel shows them:
      whose `voice` is `listed`, such as a voice of the account, has the
      window ask for the list once, so that the button names it before its
      menu has opened: when the provider is set up and the window has not yet
-     asked for the provider's voices in the region in use. After an answer
+     asked for the provider's voices of the model in the region in use. After an answer
      or a failure there, drawing the panel again asks nothing; the menu asks
      each time it opens. Its
      tooltip is "Voice". Its menu, as wide as the model menu, holds:
@@ -1074,7 +1079,9 @@ parts, in the order a panel shows them:
        lists, the voices the user cloned, designed, or saved in the
        provider's app, when it lists any;
      - **Voices**, the provider's own voices, the catalog's first, then the
-       others the provider lists. The list scrolls.
+       others the provider lists. The list scrolls. A voice of the catalog
+       that only other regions offer ([providers, Parameters](providers.md#parameters))
+       is not listed in the region in use.
      - Each voice shows its name, its description on a second line, a play
        button when the provider gives a sample of it, and a check when it is
        the card's voice. Choosing a voice saves it at once, closes the menu,
@@ -1113,7 +1120,9 @@ parts, in the order a panel shows them:
        whole list of the account has come, its second line says "Not among
        the voices of this account."; before, and when the list was cut at
        2,000 voices, it has none, since the account may have it, also
-       beyond the first 2,000.
+       beyond the first 2,000. A voice of the catalog that the card has and
+       that the region in use does not offer shows there by its name, with
+       "Not offered in <region>."; Generate says why it cannot run.
      - The menu shows the voices as the provider service answers them: a
        sample at an address of up to 8,192 characters, and a name and a
        description cut, where the service cuts them, between characters.
@@ -1324,7 +1333,7 @@ top to bottom:
    it was made with, the voice it spoke in for a speech model, and the
    model's name, as text, with the names
    from the catalog, or for the voice from the provider's last list of
-   voices in the region the record names, when they have them, and the
+   voices of the model in the region the record names, when they have them, and the
    recorded ids otherwise; and **New Version**, which ends the footer where a
    draft has Generate, with the model's name beside it as a draft's model
    button is beside Generate. A voice that only that list names, as a voice of the
@@ -1533,7 +1542,7 @@ file of an audio card, call it a sound ("What made the sound <name>").
   region, model, mode, and each parameter and value come from the catalog
   when it has them, and are the recorded ids otherwise; the voice of a
   speech model is named as the panel of the card names it, from the
-  catalog or the provider's last list of voices in the region the record
+  catalog or the provider's last list of voices of the model in the region the record
   names, and a voice that only that list names has the window ask for it
   once, as the panel does ([The panel of a card with its file](#the-panel-of-a-card-with-its-file)).
   A file without
@@ -1938,9 +1947,10 @@ is a file does:
   it, the format an image or an audio model delivers, what an audio model
   makes, whether the provider answers with the files at once, its prompt
   rule, its modes with their input slots and limits, its parameters, with
-  the catalog's voices of a speech model and whether the provider lists
-  more, and whether it is deprecated. An agent that needs another voice
-  writes the id the user gave it.
+  the catalog's voices of a speech model, each with the regions that offer
+  it when not every region does, and whether the provider lists more, and
+  whether it is deprecated. An agent that needs another voice writes the id
+  the user gave it.
   It holds no credential, endpoint, id sent to a provider, or price. When the
   catalog could not be loaded, it lists no provider and says why in `error`.
   An agent chooses `provider`, `model`, `mode`, and `params` from it.
@@ -2073,7 +2083,7 @@ job, so that a name in history still finds its file.
   service (`browser/basehalfGenerationVoiceService.ts`, which registers with
   the other generation services through the Providers contribution) asks
   the provider service for the voices with the provider's access, keeps the
-  last list per provider and region for the window, which both panels and
+  last list per provider, region, and model for the window, which both panels and
   Card Detail name voices from, asks once for a list that names their
   voice (`askOnce`), and plays the samples through an audio graph of its own. A
   sample takes its turn with the canvas's media through
@@ -2466,7 +2476,8 @@ Audio cards (D78)
     chosen voice at once, which the button then shows; the settings summary
     names no voice. Choosing a speech model of another provider gives the
     card that model's default voice unless the model declares the card's
-    voice; another model of the same provider keeps it.
+    voice; another model of the same provider keeps it, unless it is a voice
+    of the previous model's catalog that the new model does not declare.
 84. A voice's play button plays its sample, the sound coming up and going
     down; playing another sample or closing the menu stops it, and it pauses
     a video that plays on the canvas. A video that starts with its sound
@@ -2479,7 +2490,9 @@ Audio cards (D78)
     voices…" and asks for the voices. With a list that cannot be loaded, it
     lists the catalog's voices with the reason and Try Again; a voice the
     card has that no list names shows by its id with "Not among the voices
-    of this account.", unless the list was cut at 2,000.
+    of this account.", unless the list was cut at 2,000. A voice of the
+    catalog that only another region offers is not listed; the card's own
+    such voice shows by its name with "Not offered in <region>.".
 86. A note connected to a speech draft is spoken without its name: the
     prompt `@[notes/intro.md]` with a note that says `Welcome to the coast.`
     is sent as `Welcome to the coast.`; a second connected note that the

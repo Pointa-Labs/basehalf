@@ -1,22 +1,28 @@
-# Alibaba (Wan, Qwen-Image)
+# Alibaba (Wan, Qwen)
 
-Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24)
+Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24; speech models, 2026-11-11)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
-[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
+[D78](../../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
+[D94](../../decisions.md#d94--the-region-of-a-provider-is-the-users-choice-and-the-other-region-is-easy-to-find-new-2026-10-27),
+[D107](../../decisions.md#d107--the-providers-page-sorts-the-providers-by-card-type-and-a-providers-one-key-serves-every-card-type-it-makes-new-2026-10-31)
 Related: [providers and the model catalog](../providers.md),
 [generation cards](../generation-cards.md)
 
 This specification owns the provider module `alibaba` of the provider service
-(`src/vs/platform/basehalfProviders/node/alibaba.ts`): the Wan
-and HappyHorse video models and the Qwen-Image and Wan image models of
-Alibaba Cloud Model Studio (DashScope), their declarations in the catalog,
-and the requests that run them. The sections up to
-[Image models](#image-models) are about the video models.
-Everything the six provider commands do for every provider is owned by
+(`src/vs/platform/basehalfProviders/node/alibaba.ts`, with its speech models
+in `alibabaSpeech.ts` and their voices in `alibabaVoices.ts`): the Wan and
+HappyHorse video models, the Qwen-Image and Wan image models, and the
+Qwen-Audio speech models of Alibaba Cloud Model Studio (DashScope), their
+declarations in the catalog, and the requests that run them. The sections up
+to [Image models](#image-models) are about the video models, and
+[Speech models](#speech-models) are about the speech models.
+Everything the provider commands do for every provider is owned by
 [providers and the model catalog](../providers.md).
 
-The provider is labeled **Alibaba (Wan, Qwen-Image)**.
+The provider is labeled **Alibaba (Wan, Qwen)**: Qwen names Qwen-Image and
+Qwen-Audio. One key serves the three card types (D107).
 
 ## Sources
 
@@ -67,6 +73,16 @@ under `https://www.alibabacloud.com/help/en/model-studio/`, China pages under
   workspace host, or whose account answers that a model does not exist on
   the shared host, enters `https://{WorkspaceId}.{region}.maas.aliyuncs.com`
   as the provider's **Endpoint**.
+- The shared host also serves the speech models, which came out after
+  2026-09-30, with a workspace key (`sk-ws-…`, the form the Qwen console's
+  keys take): measured on 2026-11-11 with such a key of China (Beijing),
+  which International refused (`InvalidApiKey`)
+  ([What was measured](#what-was-measured)).
+  The region host `https://cn-beijing.maas.qianwenaiapi.com`, which the Qwen
+  console's samples use, answered the same calls the same way. It is not a
+  region of the catalog: the shared host serves every model here with that
+  key, and a user who prefers the region host enters it as the
+  **Endpoint**.
 - The endpoint is used with or without `/api/v1`: the module adds `/api/v1`
   before every path unless the endpoint already ends with it.
 - Other regions (US Virginia, Germany Frankfurt, Japan Tokyo, China Hong
@@ -282,7 +298,7 @@ Every path is under `{endpoint}/api/v1`.
   after 2026-09-30 may be offered only on the workspace's own host, whose API
   host the user enters as the **Endpoint** in Providers
   ([Regions, hosts, and credentials](#regions-hosts-and-credentials)). This
-  holds for every model of the module, image and video.
+  holds for every model of the module, image, video, and speech.
 - **Limits**: 5 requests a second and 5 running tasks per account and model,
   for every model here; over either, HTTP 429 `Throttling.*`. A
   rate-limited message says so. The task query takes 20 requests a second.
@@ -555,6 +571,330 @@ is square without one. The size sent, `parameters.size`:
 5. `check` refuses 4K with references on Wan 2.7 Image Pro and too large a
    request, and a request it refuses is not sent.
 
+## Speech models
+
+The Qwen-Audio speech models speak the prompt, the text of a connected note
+among it, in a voice of Alibaba's or of the user's account (D78;
+[generation cards, Inputs](../generation-cards.md#inputs)). They are made in
+`alibabaSpeech.ts`, and their voices are declared in `alibabaVoices.ts`.
+
+### Speech sources
+
+Read on 2026-11-11, international pages under
+`https://www.alibabacloud.com/help/en/model-studio/` and China pages under
+`https://help.aliyun.com/zh/model-studio/`, which document the same calls.
+
+| Page | What it settles |
+| --- | --- |
+| `non-realtime-tts-user-guide` (updated 2026-10-29) | the models of each region, the call, `instruction`, the tags written in the text, the 24-hour address of the answer, and that a cloned or designed voice speaks only with the model it was made for |
+| `qwen-audio-tts-http-api` | the body, each field's values and default, and the answer |
+| `qwen-audio-tts-voice-list` (updated 2026-10-29) | the system voices of each model, and the regions of Qwen-Audio 3.1 TTS Flash's voices |
+| `voice-clone-design-http-api`, `voice-cloning-user-guide` | the list of the account's voices (`list_voice`), its fields and statuses; at most 1,000 voices an account; making a voice is free |
+| `rate-limit` (updated 2026-11-07) | 180 requests a minute for each model, in both regions |
+| `newly-released-models` (updated 2026-11-11) | release dates: 3.1 Flash on 2026-10-12, 3.1 Plus on 2026-10-21, the 3.0 pair on 2026-07-14 |
+| `cosyvoice-python-sdk` | 20,000 characters in one call of the SDK that serves these models; the HTTP reference gives no limit |
+| `regions` (updated 2026-11-06) | the hosts, and that the shared hosts get no new features after 2026-09-30 |
+
+### What was measured
+
+On 2026-11-11, with a workspace key (`sk-ws-…`) of China (Beijing), on the
+shared host `https://dashscope.aliyuncs.com`:
+
+- Each of the four models spoke a short sentence: HTTP 200 in 0.4 to 1.3 s,
+  `output.audio.url` and `usage`. The host `cn-beijing.maas.qianwenaiapi.com`
+  answered the same. `https://dashscope-intl.aliyuncs.com` refused the key
+  (401 `InvalidApiKey`).
+- `output.audio.url` is an `http://` address on
+  `dashscope-result-bj.oss-cn-beijing.aliyuncs.com`, valid for 24 hours
+  (`expires_at`). The same address over `https://` answered the file
+  (`audio/mpeg`), with the same signature.
+- Without `format`, the answer is a WAV, although the reference says MP3 is
+  the default.
+- Asked for MP3 at 24,000 Hz, the file is a mono MP3 at 160 kbps that starts
+  with an ID3 tag. Asked for 48,000 Hz, it is 256 kbps, and its sound above
+  12.5 kHz is 65 to 90 dB below the speech's own bands: the model makes 24 kHz
+  sound, and a higher rate only resamples it.
+- A voice that the model does not have, a voice of another model or none at
+  all, is refused with 400 `InvalidParameter`
+  "[cosyvoice:]Engine error [411]: TTS speak operation failed". 3.1 Plus took
+  its four voices and refused an English voice of 3.1 Flash so; 3.1 Flash took
+  a voice of China (Beijing) only and one of another language.
+- A `rate` beyond 2 is refused with "Engine error [421]: Invalid volume
+  parameter"; an empty text with "Please ensure input text is valid."; an
+  unknown model with "Model not exist.".
+- `rate`, `pitch`, `volume`, `seed`, `language_hints`, `instruction`, and
+  `enable_aigc_tag` were taken, also together, by 3.1 Flash and 3.0 Flash;
+  an instruction of 1,800 characters too, and an instruction with
+  `loongmary`, whose list entry says it takes none.
+- `usage.characters` counts a Chinese character as two.
+- `POST /api/v1/services/audio/tts/customization` with `list_voice` answered
+  `output.voice_list` (empty for that account), `total_count`, `page_index`,
+  and `page_size`, also for a page of 1,000.
+- The module itself, run through the provider commands with that key, spoke
+  the text of a note of two paragraphs in Yu Xiaoyun with 3.1 TTS Flash: the
+  answer's address, taken over `https`, downloaded as an MP3 of 3.6 seconds
+  at 24 kHz; `check` refused that voice in International, and 3.1 TTS Plus
+  in a voice of 3.1 TTS Flash was refused with the words that say to choose
+  another voice.
+
+### Speech models
+
+| Catalog id | Label | Voices | Regions |
+| --- | --- | --- | --- |
+| `qwen-audio-3.1-tts-plus` | Qwen-Audio 3.1 TTS Plus | 4 | both |
+| `qwen-audio-3.1-tts-flash` | Qwen-Audio 3.1 TTS Flash | 139 in China (Beijing), 70 in International | both |
+| `qwen-audio-3.0-tts-plus` | Qwen-Audio 3.0 TTS Plus | 2 | both |
+| `qwen-audio-3.0-tts-flash` | Qwen-Audio 3.0 TTS Flash | 12 | both |
+
+- Each id is sent as it is, the same in both regions, as `model`. The speech
+  models are listed after the image models, in this order.
+- Every speech model has the kind `audio`, makes `speech`, `outputFormat:
+  "mp3"`, `answersAtOnce: true`, and the one mode `reference`, labeled
+  **Speech**, which takes no input: the prompt is what the voice says.
+- The prompt is always required, and takes at most 20,000 characters, the
+  most one call of Alibaba's SDK takes. A Chinese character (a CJK
+  ideograph) counts as two, as Alibaba counts the characters it bills: the
+  declarations refuse more than 20,000 characters, and `check` refuses a
+  prompt that counts more, as it does for HappyHorse.
+- The descriptions say what each model is for, and that tags written in the
+  text, such as `[excited]` or `[laughing]`, set the feeling of what follows
+  or add a sound there, as the user guide says of the four models.
+
+### Voices of the speech models
+
+The catalog declares each model's system voices of `qwen-audio-tts-voice-list`
+as the options of its `voice` (D78; [providers, Voices](../providers.md#voices)).
+A voice belongs to one model: another refuses it (Engine error 411,
+measured). So choosing another of these models keeps the card's voice only
+when that model declares it too, or when it is a voice of the account, and
+gives the model's default otherwise
+([generation cards, Settings](../generation-cards.md#settings)). Each
+option's label is the voice's name on the list, and its
+description its gender, then in a few words its style, its accent, or its
+language, as the list gives them.
+
+- **Qwen-Audio 3.1 TTS Plus**: `longanhuan_v3.1` (Long An Huan, the
+  default), `longanlingxin_v3.1`, `xunanchuan_v3.1`, and
+  `longanfengyue_v3.1`, the flagship voices, which speak Chinese, its
+  dialects, and other languages.
+- **Qwen-Audio 3.1 TTS Flash**, in this order:
+  - the same four flagship voices, `longanhuan_v3.1` the default;
+  - 42 premium Chinese voices, China (Beijing) only: `yuxiaoyun_v3.1`,
+    `qiaoxiaojiao_v3.1`, `xiaxiaochen_v3.1`, `anmingyuan_v3.1`,
+    `wenhuaiqing_v3.1`, `anxiaolan_v3.1`, `xieshurou_v3.1`,
+    `baiqinglan_v3.1`, `xuyuyuan_v3.1`, `anruorou_v3.1`, `wenhuaizhi_v3.1`,
+    `xiaoxingzhi_v3.1`, `guyunshu_v3.1`, `huozhuoshi_v3.1`, `yeqinghe_v3.1`,
+    `yunhuanhuan_v3.1`, `xuxiaoqiao_v3.1`, `baianran_v3.1`, `xuyanchu_v3.1`,
+    `yezhiqing_v3.1`, `andi_v3.1`, `anyuqing_v3.1`, `linxiaoling_v3.1`,
+    `longfeifei_v3.1`, `longjing_v3.1`, `longqiang_v3.1`, `longyan_v3.1`,
+    `longxiaobai_v3.1`, `longyue_v3.1`, `longcheng_v3.1`, `longlaotie_v3.1`,
+    `longshao_v3.1`, `longshu_v3.1`, `longze_v3.1`, `longhao_v3.1`,
+    `longjin_v3.1`, `longnan_v3.1`, `longshuo_v3.1`, `longtian_v3.1`,
+    `longxiaocheng_v3.1`, `longke_v3.1`, and `loongbella_v3.1`;
+  - 27 other system voices, China (Beijing) only: `longanyuanfei_v3.1`,
+    `longjielidou_v3.1`, `longanlingxi_v3.1`, `longhuohuo_v3.1`,
+    `longyingtao_v3.1`, `longanya_v3.1`, `longwan_v3.1`, `longxing_v3.1`,
+    `longhua_v3.1`, `longhan_v3.1`, `longanzhi_v3.1`, `longzhe_v3.1`,
+    `longanyang_v3.1`, `libai_v3.1`, `longling_v3.1`, `longniuniu_v3.1`,
+    `longshanshan_v3.1`, `longpaopao_v3.1`, `loongstella_v3.1`,
+    `longyuan_v3.1`, `longmiao_v3.1`, `longsanshu_v3.1`, `longanli_v3.1`,
+    `longanwen_v3.1`, `longanlang_v3.1`, `longxiaoxia_v3.1`, and
+    `longanchong_v3.1`;
+  - 15 premium English voices: `Emily_v3.1`, `Luna_v3.1`, `Eric_v3.1`, and
+    `Luca_v3.1` (British), and `Abby_v3.1`, `Annie_v3.1`, `Ava_v3.1`,
+    `Beth_v3.1`, `Betty_v3.1`, `Cally_v3.1`, `Cindy_v3.1`, `Donna_v3.1`,
+    `Andy_v3.1`, `Brian_v3.1`, and `David_v3.1` (American);
+  - 51 voices of other languages, `qwen-audio-3.1-tts-flash-` and the
+    voice's name and language: `zora_bg`, `linde_nl`, `hajnal_hu`,
+    `senin_ro`, `birk_da`, `lipa_hr`, `avgi_el`, `jitrenka_cs`,
+    `solglimt_nn`, `glimma_sv`, `svar_hi`, `iskra_sk`, `aava_fi`, `sahar_ur`,
+    `jasna_sr`, `brisa_es_mx`, `ausra_lt`, `rasa_lv`, `deniz_tr`, `ava_fa`,
+    `or_he`, `ayalguu_mn`, `zarja_sl`, `ishiq_az`, `zorza_pl`, `alba_ca`,
+    `romduol_km`, `aurora_pt_br`, `dao_lo`, `tsiskari_ka`, `lente_af`,
+    `kiran_ne`, `zorka_be`, `nilaav_ml`, `staer_lb`, `drita_sq`, `nila_ta`,
+    `aruna_si`, `vennela_te`, `sade_et`, `bituon_ceb`, `vedrina_bs`,
+    `layaung_my`, `luys_hy`, `lumen_la`, `birta_is`, `zerniq_mt`, `nuru_sw`,
+    `arai_kk`, `zetwal_crs`, and `zoria_uk`; each one's description names its
+    language.
+- **Qwen-Audio 3.0 TTS Plus**: `longanlingxin` (Long An Ling Xin, the
+  default) and `longanlufeng`.
+- **Qwen-Audio 3.0 TTS Flash**: `longanhuan_v3.6` (Long An Huan, the
+  default), `longanfengyue`, `longanyuanfei`, `longanlingxi`,
+  `longanxiaoxin`, `longjielidou_v3.6`, `longpaopao_v3.6`,
+  `longhuohuo_v3.6`, `longchuanshu_v3.6`, `loongmary`, `loongeva_v3.6`,
+  and `loongjohn`.
+
+The list says of 3.1 TTS Flash that its flagship, premium English, and
+other-language voices are offered in both regions and the others in China
+(Beijing) only: those 69 options declare `regions: ["cn"]`
+([providers, Parameters](../providers.md#parameters)), so International's
+voice menu does not list them and `check` refuses them there. The list names
+no region for the voices of the other three models, which are declared in
+both. The more than 500 base voices of the 3.0 models, offered as a table to
+download, are not declared: they are voices made by cloning, which the list
+recommends less than the system voices.
+
+The voices of the account are listed (`listed: true`): the voices the user
+cloned or designed in Model Studio for the model, through
+`POST /services/audio/tts/customization` under `{endpoint}/api/v1` with
+`{"model": "voice-enrollment", "input": {"action": "list_voice", "page_index": n, "page_size": 100}}`,
+from page 0 until the pages hold `total_count` voices, a page holds none, or
+`limit` voices are listed:
+
+- each entry of `output.voice_list` whose `status` is `OK` and whose
+  `voice_id` begins with the model's id and a hyphen, as every voice of
+  these models does (`qwen-audio-3.0-tts-flash-myvoice-…` on the API page),
+  is a voice of the account (`own`); a voice still under review
+  (`DEPLOYING`), refused (`UNDEPLOYED`), or of another model is left out;
+- its label is the prefix the user gave it, the part of the id between the
+  model's id and the last hyphen, or the id when the id has no such part;
+  its description says when it was made, "Made on 2026-11-11", from
+  `gmt_create`;
+- the list has no sample of a voice; none is offered.
+
+The list is the model's own, so the window keeps it per model
+([providers, Voices](../providers.md#voices)): the voice menu of another
+model lists the voices made for that model. A voice of the account was made
+for one model, but no catalog declares it, so choosing another model keeps it
+on the card, as every provider's voice of the account is kept
+([generation cards, Settings](../generation-cards.md#settings)); that model's
+menu shows it with "Not among the voices of this account.", and Alibaba
+refuses it there with Engine error 411, which the card says as a voice the
+model does not have. The window cannot tell which model a voice of the
+account was made for: only Alibaba's ids say it.
+
+### Speech parameters
+
+| Name | Label | Kind | Values (the default in bold) | Sent as |
+| --- | --- | --- | --- | --- |
+| `voice` | Voice | voice, listed | the model's voices above | `input.voice` |
+| `speed` | Speed | number 0.5–2, step 0.05 | **1** | `input.rate` |
+| `instruction` | Instruction | text, 1,000, optional | | `input.instruction`, when not blank |
+| `pitch` | Pitch | number 0.5–2, step 0.05, More | **1** | `input.pitch` |
+| `volume` | Volume | integer 0–100, More | **50** | `input.volume` |
+| `language_hints` | Language | choice, More | **Auto** (nothing sent), Chinese `zh`, English `en`, French `fr`, German `de`, Japanese `ja`, Korean `ko`, Russian `ru`, Portuguese `pt`, Thai `th`, Indonesian `id`, Vietnamese `vi`, Spanish `es`, Italian `it`, Malay `ms`, Filipino `fil`, Arabic `ar`; also Other `other` on 3.1 Flash | `input.language_hints`, as a list of the one value |
+| `watermark` | Watermark | boolean, More | **off** (Alibaba's default) | `input.enable_aigc_tag` |
+| `seed` | Seed | integer 0–65535, optional, More | | `input.seed`, when set |
+
+- Every speech request also sends `format: "mp3"` and `sample_rate: 24000`:
+  MP3 at the rate the model makes its sound (measured), which every plan of
+  Alibaba offers; the bitrate of an MP3 is not a setting of the call.
+- `speed` is the shared name of Alibaba's `rate`, and `watermark` of its
+  `enable_aigc_tag`, which marks the file as made by AI. Pitch is a factor
+  of the voice's own, as Alibaba defines it.
+- The instruction says, in words, how the voice speaks: a dialect, a feeling,
+  or a role, such as `请讲上海话。`. Its tooltip says to write it in the
+  language of the text, as the user guide asks. Alibaba states no limit for
+  these models and took 1,800 characters (measured); BaseHalf takes 1,000.
+- The language tells the model the text's language where it could take it
+  for another; Alibaba reads only the first value of `language_hints`.
+
+### Speech requests
+
+- **Create**: `POST /services/audio/tts/SpeechSynthesizer` under
+  `{endpoint}/api/v1`, once, through `http.create`, without
+  `X-DashScope-Async` or `X-DashScope-SSE`, which waits up to ten minutes for
+  the answer:
+
+  ```json
+  {
+  	"model": "qwen-audio-3.1-tts-flash",
+  	"input": { "text": "<prompt>", "voice": "longanhuan_v3.1", "format": "mp3", "sample_rate": 24000, "rate": 1, "pitch": 1, "volume": 50, "enable_aigc_tag": false, "instruction": "…", "language_hints": ["zh"], "seed": 7 }
+  }
+  ```
+
+  `instruction`, `language_hints`, and `seed` are sent only when set.
+- **Answer**: `output.audio.url` is the one output. An `http://` address on a
+  host of `aliyuncs.com` is taken as `https://`, as the OSS host answers it
+  (measured): BaseHalf downloads only over `https`. Any other address is kept
+  as it is, and the download refuses one it does not take. An answer with
+  `output.audio.data` instead, base64 of the sound as a relay may answer, is
+  the file itself. A 2xx answer without either that carries a `code` is a
+  refusal read as an error; one without a code has an unknown outcome.
+- The download is the sound's: an MP3 that starts with its ID3 tag, without
+  the key, from the OSS host.
+- No poll and no cancel: the answer is the result.
+- **Errors**: as for the video and image models ([Requests](#requests)), with
+  these:
+  - "Engine error [411]" in a 400 `InvalidParameter` is a voice the model does
+    not have: "Qwen-Audio 3.1 TTS Plus does not speak in the voice
+    `<voice>`: choose another voice." and Alibaba's words. Another engine
+    error keeps Alibaba's words.
+  - Too many requests (`Throttling.*`, 429) says that Alibaba Cloud takes at
+    most 180 requests a minute for the model. A list of voices refused so,
+    after its retries, says Alibaba's words alone: Alibaba states no limit
+    of it.
+  - A model the host does not know says how to use the workspace's host, as
+    for every model of the module.
+- **Limits**: 180 requests a minute for each model, in each region.
+
+### Speech, left out and why
+
+- **CosyVoice** (`cosyvoice-v3.5-plus`, `-v3.5-flash`, `-v3-plus`,
+  `-v3-flash`, `-v2`): China (Beijing) only, and the family that Qwen-Audio
+  continues on the same call; the 3.5 models speak only in voices the user
+  made.
+- **Qwen3-TTS Flash** (`qwen3-tts-flash`): an earlier model with 17 voices of
+  its own, on the multimodal call, which Qwen-Audio replaces.
+- **Qwen-Audio 3.1 TTS Next** and audio generation: a scene with voices,
+  effects, and ambient sound from a script, which is dialogue with several
+  voices, later in [providers](../providers.md#phases).
+- **Streaming** (`X-DashScope-SSE`), WebSocket, and the realtime models: a
+  card waits for the whole file.
+- **SSML** (`enable_ssml`), word timestamps, `hot_fix`, `bit_rate`, and the
+  AIGC tag's `aigc_propagator` and `aigc_propagate_id`: a note's text is plain
+  text, a card has no place for timings or for a pronunciation table, the
+  bitrate is Opus's only, and the tag's defaults name the account and the
+  request.
+- **Making a voice**, by cloning or design: made in Alibaba's console
+  ([providers, Non-goals](../providers.md#non-goals)), then listed.
+- **The 3.0 base voices**: see [Voices of the speech models](#voices-of-the-speech-models).
+
+### Speech, open questions
+
+1. Alibaba gives no limit of the text of one HTTP call for these models; the
+   20,000 characters are the SDK's, counted as Alibaba bills them. A longer
+   text is refused by `check`; a shorter one that Alibaba refuses is
+   answered with Alibaba's words.
+2. The regions of the voices of 3.1 TTS Plus and of the 3.0 models are not
+   stated; they are declared in both. A voice that International does not
+   have is refused there with Engine error 411, which says to choose another
+   voice.
+3. Whether `list_voice` lists designed voices with the cloned ones; the
+   pages say only that the two share one quota.
+4. Whether the shared host keeps serving models released after 2026-09-30:
+   it served these four on 2026-11-11.
+
+### Speech, acceptance criteria
+
+1. The catalog lists the four speech models after the image models, with the
+   kind `audio`, making speech, MP3, answered at once, in both regions, with
+   the mode Speech without inputs, the prompt rule, and exactly the
+   parameters and voices above; the 69 voices of 3.1 Flash that China
+   (Beijing) alone offers declare that region.
+2. A speech request goes once to `/services/audio/tts/SpeechSynthesizer` with
+   the key and the body above, the prompt as the text, MP3 at 24,000 Hz, and
+   each setting under Alibaba's name; an unset instruction, Auto, and an
+   unset seed send nothing.
+3. The answer's address is the one output, taken over `https` for an
+   `http://` address of `aliyuncs.com`, and downloads without the key; an
+   answer with the sound inline lands as the file.
+4. `check` refuses a prompt that counts more than 20,000 characters, a voice
+   of China (Beijing) only in International, and a request it refuses is not
+   sent.
+5. A voice the model does not have answers `rejected` with words that say to
+   choose another voice; a refused key `auth`, naming both regions; too many
+   requests `rateLimited` with the limit of 180 a minute; an empty balance
+   `balance`; and an answer that never comes `unknownOutcome`, each after one
+   request.
+6. `voices` lists the account's voices of the model, those under review,
+   refused, or of another model left out, every page up to the limit, with
+   `truncated` when the account has more; a list refused for too many
+   requests names no limit of the video models; and the window keeps the
+   list of each model on its own.
+7. Under the Alibaba key, an audio draft offers the four models and their
+   voices, and speaks a connected note.
+
 ## Verification
 
 `src/vs/platform/basehalfProviders/test/node/alibaba.test.ts` runs the module through
@@ -570,3 +910,17 @@ the catalog, the body of each model with and without references, every size
 of the table and of Adaptive, answers with several images and with an
 address that is refused, the download, the errors above, and the rules of
 `check`.
+
+`src/vs/platform/basehalfProviders/test/node/alibabaSpeech.test.ts` runs the
+speech models the same way, against a local server that answers like
+DashScope's speech call and its list of voices, and one that serves the
+sound: the catalog, the body of each model with every setting set and
+unset, the address taken over `https` and the sound downloaded without the
+key, an answer with the sound inline, each error above, the voices of the
+account with their pages, and the rules of `check`, the voices of one region
+among them. The local test provider of the smoke answers like DashScope's
+speech call under `/alibaba` (`mockAlibabaSpeech.ts`), and the video suite
+of the smoke speaks a connected note through the module with a voice of 3.1
+TTS Flash (`audio-alibaba-speaks-note`). The calls of
+[What was measured](#what-was-measured) were made by hand, with the user's
+key, outside the repository.
