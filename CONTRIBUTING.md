@@ -5,35 +5,42 @@ Thanks for your interest. This is an early, company-led open-source project
 team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-> **Status note.** Pre-alpha. `@basehalf/core` ships the `workspace`, `badges`,
-> `canvas`, `focus`, `adhd`, and `search` modules (plus an internal `watcher`);
-> the Electron desktop app (v0) drives them over IPC. There is no standalone CLI
-> — a `2026-06` refactor deleted the `bh` CLI package, the `inbound` module, and
-> the `proposals` module, and moved `.bh/` to a per-node YAML mirror tree (see
-> [docs/decisions.md D19](docs/decisions.md)). Contribution surfaces are narrow
-> today — **open an issue first** to find one that's ready for outside work. See
-> [docs/roadmap.md](docs/roadmap.md) for the current plan. (A `bh decision`
-> subcommand also shipped briefly as an internal dogfood tool and has since been
-> retired; see [docs/decisions.md D18](docs/decisions.md).)
+> **Status note.** BaseHalf is early and changes quickly. The product is the
+> desktop app in `vscode-base/`, built on the open-source code of VS Code.
+> Contribution surfaces are narrow today, so **open an issue first** to find
+> one that is ready for outside work.
 
-## Build it (Node ≥ 22.12, pnpm 9)
+## Build it
+
+The product is built in `vscode-base/`, on macOS, with the Node version in
+`vscode-base/.nvmrc`:
+
+```bash
+cd vscode-base
+nvm use
+npm install
+npm run compile
+./scripts/code.sh        # run BaseHalf from source
+```
+
+Checks to run before you open a pull request:
+
+```bash
+npm run typecheck-client
+./scripts/test.sh
+npm run basehalf:smoke   # the product smoke, for changes to what the window shows
+```
+
+`packages/` holds the earlier BaseHalf core and desktop app. New product work
+does not go there, but CI still builds and tests it (Node 22.12 or later,
+pnpm 9):
 
 ```bash
 pnpm install
-pnpm -r build         # @basehalf/core, then @basehalf/desktop
-pnpm -r test          # vitest — core + desktop tests
+pnpm -r build
+pnpm -r test
 pnpm -r --if-present lint
-
-pnpm --filter @basehalf/desktop dev   # run the desktop app; Open Folder to start
 ```
-
-Everything goes through `@basehalf/core`'s `run(command, args)` — the one door.
-There is no CLI binary; the desktop app (and your tests) call core directly.
-
-> The desktop product is being migrated module-by-module onto the real VS Code
-> substrate under `vscode-base/`; `@basehalf/core` is historical migration
-> material rather than the center for new desktop orchestration. Read
-> [`AGENTS.md`](AGENTS.md) before changing desktop architecture.
 
 ## Plugins
 
@@ -42,53 +49,23 @@ nothing can be published for it. What the container shows and does with
 files is built into BaseHalf itself; what agents can do is extended through
 the agents' own skills and tool connections.
 
-## Repo layout & the rules that must not break
+## How a change is made
 
-```text
-packages/
-  core/    kernel (registry + context + mirror store) + modules (one per feature)
-  desktop/ — Electron app; React + BlockNote + React Flow on
-           the renderer, Node main process owns fs + chokidar
-```
-
-When contributing, keep these invariants (see [docs/decisions.md](docs/decisions.md) for the *why*):
-
-1. **One door.** All operations go through `@basehalf/core`'s `run(command, args)`.
-   Desktop / watcher / any future MCP or CLI shell are thin shells — never put
-   business logic in them.
-2. **Module isolation.** A module lives under `packages/core/src/modules/<name>/`,
-   registers commands via the kernel registry, and touches core only through
-   the `Context` it receives. **Modules calling other modules use `ctx.run`,
-   never imports of another module's internals.**
-3. **Dependencies point only inward.** `packages/desktop` may depend on
-   `@basehalf/core`; the reverse is forbidden. Modules don't depend on each
-   other directly — they coordinate through commands.
-4. **User files = content truth.** Modules that touch user files must be
-   **observers** (file watcher + reconcile-on-launch), never owners. `.bh/`
-   holds BaseHalf project metadata that may be committed; only `.bh/cache/` is
-   machine-local runtime state. BaseHalf does not edit `.gitignore` (see
-   [workspace state](docs/specs/workspace-state-and-legacy-cleanup.md)).
-5. **core never writes user files unprompted.** Only explicit or confirmed
-   user actions through the BaseHalf UI (block editor, rename, connecting
-   cards, a confirmed `upstream` update) write back to disk. Agents edit user
-   files with their own tools — core stays out of that path.
-6. **Primitives, not tasks.** Add small composable commands (e.g. `canvas.setCard`,
-   `adhd.markRead`), not task-specific ones (e.g. `arrange-into-heart`). The
-   agent composes them.
-7. **Publish, don't inject workspace content.** Agent-facing context lives in
-   files: each downstream file's `upstream` list, plus per-node `badge.yaml` /
-   `canvas.yaml` / `adhd.yaml` / `appearance.yaml` / `upstream.yaml` in the
-   `.bh/mirror/` tree. BaseHalf writes no focus files and no agent guides. The
-   only injected text is a static, workspace-independent instruction that
-   Agent Area passes to Claude Code at launch
-   ([agent launch context](docs/specs/agent-launch-context.md)); no MCP server
-   required.
-8. **Any RMW on a `.bh/` YAML needs a mutex.** Serialize read-modify-writes on a
-   mirror file through `createKeyedMutex` (kernel) or concurrent writers (the
-   watcher + an in-app edit) silently lose updates.
-9. **No fork of the deleted event-log impl.** It was overturned by the
-   architecture pivot ([D12](docs/decisions.md)); it lives in git history at
-   `c441f79` if you need to reference it.
+1. **Start at the [development harness](docs/harness/README.md).** It routes
+   each kind of change to the documents that own it.
+2. **Specification first.** What BaseHalf has to do is written in
+   [docs/specs/](docs/specs/). A change of behavior updates the owning
+   specification before the code; the workflow is in
+   [spec-driven development](docs/specs/spec-driven-development.md).
+3. **Keep the [architecture invariants](docs/harness/architecture-invariants.md)**,
+   and put new files where
+   [code organization](docs/harness/code-organization.md) says. The reasons
+   are in [docs/decisions.md](docs/decisions.md).
+4. **Never open this repository as a BaseHalf workspace.** The repository root
+   and `vscode-base/` are source trees. Try your build on a disposable folder
+   outside the repository.
+5. **Verify.** The checks each kind of change needs are in
+   [verification and delivery](docs/harness/verification-and-delivery.md).
 
 ## Contributor License Agreement (required)
 
@@ -145,6 +122,8 @@ carry their own name. See [docs/trademark-policy.md](docs/trademark-policy.md).
 ## Style
 
 - Small, readable, dependency-light. Match the surrounding code.
-- TypeScript with NodeNext module resolution — relative imports use `.js`
-  extensions even when source is `.ts` (Node ESM requirement). Biome enforces this.
-- Run `pnpm format` (writes) or `pnpm check` (verify) before opening a PR.
+- In `vscode-base/`, the style is that of VS Code, and its ESLint
+  configuration checks it (`npm run eslint`).
+- In `packages/`, TypeScript uses NodeNext module resolution: relative imports
+  use `.js` extensions even when the source is `.ts`. Biome enforces this; run
+  `pnpm format` (writes) or `pnpm check` (verifies).
