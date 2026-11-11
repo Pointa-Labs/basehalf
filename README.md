@@ -1,260 +1,238 @@
+<h1 align="center">BaseHalf</h1>
+
 <p align="center">
-  <img src="docs/assets/basehalf-cover.png" alt="BaseHalf">
+  <strong>A visual thinking interface for you and your AI agents.</strong><br>
+  Open a folder as a canvas. Use it as an AI whiteboard, a mind map, an AI notebook,<br>
+  or a bring-your-own-key studio for AI video. Free and open source.
 </p>
 
-> **Half AI. Half human. Half machine. Half flesh.**<br>
-> **A canvas-first desktop workspace for thinking with files and agents.**
+<p align="center">
+  <a href="https://basehalf.com/download">Download for macOS</a> ·
+  <a href="https://basehalf.com/docs/get-started">Get started</a> ·
+  <a href="https://basehalf.com/docs">Docs</a> ·
+  <a href="https://basehalf.com/blog">Blog</a> ·
+  <a href="https://discord.gg/55wqkN9tPg">Discord</a> ·
+  <a href="https://basehalf.com/zh">简体中文</a>
+</p>
 
-BaseHalf is an open-source, local-first desktop workspace built on a real VS
-Code substrate. It keeps your files in a normal folder, gives humans a
-canvas/card-detail way to navigate that folder, and records how the materials
-connect in the files themselves so agents can stay oriented in the same
-materials.
+<p align="center">
+  <img src="docs/assets/readme/hero.webp" width="100%" alt="BaseHalf with a project folder open: its files at the left, the folder as a canvas of connected notes, a design, code, a PDF and a book, with the release plan selected. At the right, Claude Code is asked “what did people ask for that this leaves out?” and answers that it took “this” to mean the selected card, and that the plan leaves out one request from the interviews.">
+</p>
 
-<div align="center">
+BaseHalf is a desktop app for thinking with AI on a canvas. Open a folder you
+already have (a project, a course, a research topic, a film) and it becomes a
+canvas. Every file is a card. A line between two cards says that one builds on
+the other. The agents you already use, such as Claude Code and Codex, work
+beside the canvas on the same files, and when you select a card and ask about
+"this", they know what you mean.
 
-[![Download][badge-download]][latest-release]
-[![Discussions][badge-discussions]][discussions]
-[![Twitter / X][badge-twitter]][twitter]
-[![Discord][badge-discord]][discord]
-[![QQ Groups][badge-qq-groups]][community]
+It stays an ordinary folder on your computer. BaseHalf has no account and no
+server of its own.
 
-[![Website][badge-website]][website]
-[![GitCGR][badge-gitcgr]][gitcgr]
-[![Apache-2.0][badge-license]][license]
+> **Half AI. Half human.** You draw the connections. AI follows them.
 
-</div>
+## What you can use it for
 
-**Status:** BaseHalf 0.6.1 is the current public macOS Apple Silicon release.
-It is usable, early, and changing quickly. The product has moved from the old
-hand-rolled Electron/core shell onto `vscode-base/`, where VS Code provides the
-application substrate and BaseHalf owns the canvas-first product layer.
+| Use it as | What you do |
+| --- | --- |
+| [**An AI whiteboard**](#an-ai-whiteboard) | Lay a problem out as cards, move them until the shape shows, then select the part an agent should look at, and ask. |
+| [**A mind map**](#a-mind-map-your-agents-can-read) | Pull a line out of a note to grow the next one. Every node is a real note, and agents can follow the branches. |
+| [**An AI notebook**](#an-ai-notebook) | Put papers, books, and your notes on one canvas. Ask about a passage, and get answers that name the note or the page they come from. |
+| [**A BYOK studio for AI video**](#a-byok-studio-for-ai-video-images-and-sound) | Connect frames and shot notes to a draft and generate video, images, and sound with your own provider keys. Your agent can do it too. |
+| [**A project workspace for agents**](#a-project-workspace-for-agents) | Keep decisions, plans, and code where every new agent session can read them, and stop explaining the project again. |
 
-Download the latest build from [GitHub Releases][latest-release]. The current
-macOS build is unsigned and unnotarized, so Gatekeeper may block the first
-launch. After dragging the app to Applications, run:
+### An AI whiteboard
 
-```bash
-xattr -dr com.apple.quarantine /Applications/BaseHalf.app
-```
+A vague complaint pasted into a chat gets a fluent answer to the wrong
+question. On a whiteboard you do the cheap part first: put the scraps down as
+cards, move them around until the shape shows, and name the question. Then
+select only the cards that belong to it, and ask.
 
-## Why BaseHalf
+A card here is a file, not a sticky note. What you worked out is still in the
+folder next month, where you and your agents can read it.
 
-AI agents are good at reading and editing files, but people think through
-spatial context, references, partial attention, and "where was I?" signals.
-BaseHalf is the meeting place: a real folder remains the source of truth, while
-the app adds a visual canvas, file cards, Markdown projections, Git/Search/File
-surfaces, and agent-readable connections beside the work.
+Ways to use it:
+[unpack a fuzzy problem][blog-fuzzy] ·
+[compare options side by side][blog-options] ·
+[what you know, what you assume, what you still need][blog-know] ·
+[observations and interpretations][blog-observations] ·
+[the problem and the proposed solutions][blog-problem]
 
-BaseHalf is not trying to become the agent. It is a substrate for compound work:
-humans keep the map, agents use their own tools, and both sides can inspect the
-same local project without a cloud account or hidden database.
+### A mind map your agents can read
 
-The workspace map is a core part of that product direction, not a legacy
-detail. Each note lists what flows into it in an `upstream` list that agents
-read along with the note, and `.bh/` holds BaseHalf project metadata such as
-canvas layout, descriptions, and reading aids. BaseHalf also records what you
-last selected (a folder, cards, or text in a note), so that an agent knows
-what you mean by "this".
+Start from one note. Pull a line out of its edge and let go on empty canvas: a
+new note appears, already connected. Keep going, make the cards small, and the
+folder is a mind map. Tidy Canvas lays it out along its branches in one move.
 
-## Product Shape
+A node holds one line or a whole page, because it is a real note. A branch is
+saved as plain text in the note it leads to, so an agent can walk the map the
+way you do, and tell you what a branch leaves out.
 
-- **Canvas first.** Folders open as canvases. Files open as full-screen card
-  detail inside the BaseHalf flow. VS Code editor tabs remain fallback plumbing,
-  not the default product model.
-- **Real files stay real.** Markdown, code, media, and project files remain in
-  the workspace folder. Git, external editors, and agents see ordinary files.
-- **Connections live in the files.** BaseHalf keeps user content in real
-  files. A note's `upstream` frontmatter lists what flows into it, and `.bh/`
-  holds BaseHalf project metadata: canvas layout, descriptions, reading aids,
-  the upstream lists of non-Markdown files, and the prompts of generated
-  images and videos.
-- **Images and videos from your own providers.** A generated image or video
-  is an ordinary file in the folder, and that file is its card. The images,
-  videos, audio, and notes connected to a card are its inputs, in order, and
-  its prompt and settings travel with the file. BaseHalf runs the image and
-  video models of 13 providers with the user's own keys.
-- **VS Code is the lower layer.** BaseHalf reuses VS Code's Explorer, Search,
-  SCM/Git, quick input, working-copy/file services, menus, settings, extension
-  host, and terminal process APIs.
-- **The left sidebar is small.** The visible sidebar product surface is Files,
-  Git, and Search. Open Editors, generic Extensions, Debug, Testing, Problems,
-  Remote Explorer, stock Chat/Copilot/Sessions, and the stock terminal panel
-  are hidden or remapped while BaseHalf keeps its own product shape.
-- **The right side is Agent Area.** Agent Area hosts TUI agents, curated
-  extension agents, and plain shell sessions with tabs, panes, splits, restart,
-  kill, resize, and zoom controls.
-- **Markdown has projections.** A Markdown file is one working copy with three
-  card-detail projections: `rich` by default, `source` for raw Markdown, and
-  `preview` for read-only rendered Markdown.
+Read more:
+[grow a connected note from any card][blog-branch] ·
+[Tidy Canvas][blog-tidy] ·
+[how connections work][docs-connections]
 
-## Agent Area
+### An AI notebook
 
-BaseHalf's first-class session choices are intentionally narrow:
+Put a paper, a book, and your own notes on one canvas. Open the paper, select a
+passage, and ask your agent about "this". Or grow a note from the passage; the
+note stays connected to its source.
 
-- **Codex** - runs the `codex` CLI as a TUI session.
-- **Claude Code** - runs the `claude` CLI as a TUI session.
-- **Codex Extension** - hosts the curated VS Code Codex extension experience.
-- **Claude Code Extension** - hosts the curated VS Code Claude Code extension
-  experience.
-- **Terminal** - opens a shell for OpenCode, Gemini CLI, or another terminal
-  based agent.
+To check that you understood, write your answer in a practice note, connect it
+to what it draws on, and ask an agent to grade it. It reads the same cards and
+sources you do, and tells you which card or page each point comes from.
 
-Extension support starts curated, not marketplace-open. BaseHalf currently
-allows only the extension families needed for Git/GitHub auth and the Codex /
-Claude agent surfaces.
+Worked examples, each written from a real session:
+[Transformers, from the paper *Attention Is All You Need*][blog-transformers] ·
+[SQL joins][blog-sql] ·
+[Git branching][blog-git] ·
+[DNS][blog-dns] ·
+[regular expressions][blog-regex] ·
+[HTTP requests][blog-http] ·
+[grow a note from a PDF or a book][blog-grow]
 
-BaseHalf offers to install a `basehalf` skill for Claude Code, Codex, and other
-agents that load skills. It tells them where a card's description and
-connections are, what moving a file does to them, and what the user last
-selected. BaseHalf asks first and adds the skill to the agents' own settings,
-not to your folder.
+### A BYOK studio for AI video, images, and sound
 
-## Local Workspace Protocol
+<p align="center">
+  <img src="docs/assets/readme/generation.webp" width="820" alt="Two storyboard frames and shot notes on a BaseHalf canvas, connected to a video draft and a sound draft, with the video draft’s prompt and settings in its panel.">
+</p>
 
-BaseHalf publishes context in files and never injects workspace content into
-prompts. Agents read the workspace files directly, including each note's
-`upstream` list, and learn where the rest is under `.bh/` from the `basehalf`
-skill. Claude Code TUI sessions started from Agent Area also receive a short,
-static BaseHalf instruction at launch. BaseHalf no longer adds instructions to
-`CLAUDE.md` or `AGENTS.md`. This protocol is the shared language between the
-app, the human's visual workspace, and file-based agents:
+The storyboard is the request. Connect frames, clips, and shot notes to a draft
+card, write the prompt, choose a model, and generate. What comes back is an
+ordinary file on the canvas, ready to be connected into the next shot. Speech,
+music, and sound effects are made the same way, and a video is trimmed where it
+stands. Your agent can do all of it too: ask Claude Code or Codex to draft the
+shots and generate them, with the same models and settings.
 
-```mermaid
-flowchart LR
-  human["Human"] --> app["BaseHalf"]
-  app --> substrate["VS Code substrate"]
-  app --> files["Workspace files"]
-  app --> mirror[".bh/mirror"]
+Bring your own keys (BYOK): BaseHalf works with 16 providers, among them
+ByteDance (Seedance), Kling, Google, Runway, Luma, MiniMax, OpenAI, and
+ElevenLabs. Requests go straight from your computer to the provider. BaseHalf
+sells no credits and stands nowhere in between.
 
-  agent["Agent"] --> area["Agent Area"]
-  area --> files
-  area --> mirror
+Read more:
+[generate from what is on the canvas][blog-generate] ·
+[trim a video][blog-trim] ·
+[AI images, video and sound][docs-ai]
 
-  files --> upstream["upstream lists"]
-  mirror --> badge["badge.yaml"]
-  mirror --> canvas["canvas.yaml"]
-  mirror --> aids["adhd.yaml / appearance.yaml"]
-  mirror --> sidecar["upstream.yaml"]
-  mirror --> generation["generation.yaml / made.yaml"]
-```
+### A project workspace for agents
 
-The format is deliberately plain:
+Keep the interviews, decisions, plans, designs, and code of a project in one
+folder. Each note records what it was written from, so a new agent session
+starts from the project and not from an empty chat. In the project on our home
+page, Claude Code found a request from the interviews that the release plan had
+left out, and the connections showed the step where it was lost.
 
-- A Markdown note lists the files that flow into it under the `upstream` key of
-  its frontmatter.
-- `.bh/mirror/<path>/upstream.yaml` keeps the upstream list of a folder, PDF,
-  image, video, or other non-Markdown file.
-- A generated image or video is an ordinary file under the name of its card.
-  `.bh/mirror/<path>/generation.yaml` holds the prompt, model, and settings
-  of its next generation, and `.bh/mirror/<path>/made.yaml` the record of the
-  generation that made it. A `generation.yaml` whose file does not exist yet
-  is a draft: a card on the canvas that has not generated.
-- `.bh/mirror/<path>/badge.yaml` stores a file or folder description.
-- `.bh/mirror/<folder>/canvas.yaml` stores the place and size of every card and
-  edge anchors for that folder canvas.
-- `.bh/mirror/<file>/adhd.yaml` stores per-file reading aids such as highlights
-  and read ranges, and `.bh/mirror/<path>/appearance.yaml` stores visual
-  presentation.
-- `.bh/cache/` holds machine-local state: the records of generations that run
-  on this computer, undo stashes, recovery copies of files BaseHalf could not
-  read, and `selection.yaml`, what the user last selected, for agents to read.
+Read more:
+[project management is context management][blog-pm] ·
+[a local folder is a better AI workspace than another chat][blog-folder] ·
+[Claude Code and Codex in one window][blog-agents] ·
+[what is worth keeping from a session][blog-compounds]
 
-BaseHalf never edits your `.gitignore`. It writes one ignore file of its own,
-`.bh/.gitignore`, which keeps card places (`canvas.yaml`) and `.bh/cache/` out
-of git. Descriptions, reading aids, non-Markdown upstream lists, and the
-prompts, drafts, and records of generated files can be committed and travel
-with the folder. Canvas viewports are kept per machine,
-outside the workspace.
+## How it works
 
-References are an explicit directed context-flow graph: `A → B` means A's
-context flows into B. The graph is not a tree; many-to-many relationships and
-cycles are valid, while self-references are not. Each reference is stored once,
-in B's upstream list; BaseHalf derives the reverse direction ("downstream") and
-never stores it. Users and Agents create cards and references explicitly, and
-may edit upstream lists as ordinary text. An entry that names a missing file
-stays visible as a broken entry until someone relinks or removes it. Markdown
-links remain ordinary document navigation and never create a BaseHalf reference
-automatically. Canvas edges visualize the same graph without relationship
-labels or notes.
+**1. A folder is a canvas.** Open a folder and its files and subfolders are
+cards: notes, images, video, sound, PDFs, books, and code, side by side. Read
+and edit them where they are. A subfolder is a canvas of its own. Opening a
+folder changes none of your files.
 
-User files remain content truth. Automated BaseHalf services observe files and
-never modify them in the background; BaseHalf changes an upstream list only
-through an operation the user starts or confirms, or when an agent in the Agent
-Area moves a file through BaseHalf. Agents edit files with their own tools.
-Claude Code sessions that receive BaseHalf's launch context (local macOS and
-Linux Agent Area sessions) move files through BaseHalf, so descriptions,
-layout, and references follow.
+**2. A line means "this builds on that".** Draw a line from a card to a note,
+and the note gets one more line of plain text that names the card. Git shows it
+in a diff, and any agent that opens the note can read it. Where a card sits is
+for your eyes only; a line is what stays.
 
-## What Works Today
+**3. "This" means what you selected.** Select a card or a passage and ask.
+BaseHalf records the selection where agents look, so "who asked for this?" is a
+complete question.
 
-- Open a real local folder and land in the BaseHalf canvas workbench.
-- Browse Files, Git, and Search using VS Code-backed side views.
-- Open folders as canvases and files as BaseHalf card detail instead of editor
-  tabs.
-- Drag cards, persist positions, explicitly connect directed context-flow
-  references with anchored edges, and use snap guides.
-- Select several cards with a marquee, move them as one set, arrange them in a
-  grid, a row, or a column, and tidy a whole canvas along its connections,
-  then keep or revert the result.
-- Rename a card in place by double-clicking its name. Notes are named without
-  `.md`.
-- Read notes rendered on their cards, with tables, images, and task boxes, and
-  edit a note of up to 128 KiB on its card.
-- Use Quick Open and Quick Text Search while result activation still routes
-  back into BaseHalf card detail.
-- Edit Markdown in rich mode, switch to source or preview, and keep Markdown as
-  the single file truth.
-- Open code and non-Markdown text through the source card detail.
-- Use VS Code's native Git provider, repository state, branch quick pick, SCM
-  refresh, and publish-branch flow.
-- Run Codex, Claude Code, curated extension agents, and shell agents inside the
-  Agent Area. Agents can read what you selected: a folder, one or several
-  cards, or text in a note. The status bar shows what they see.
-- Generate images and videos on cards with your own key for ByteDance
-  (Seedance), Kling, Alibaba (Wan), MiniMax (Hailuo), Vidu, Google, PixVerse,
-  Luma, Runway, xAI (Grok Imagine), LTX, Black Forest Labs, or OpenAI (images).
-  A new image or video card is a draft until it generates; its file then
-  lands in the folder under the card's name. The panel shows each model's own
-  settings, and a running generation continues after a restart. What a
-  generation costs is in your provider's console.
-- Find BaseHalf's settings, the Providers page, and About (the version and
-  updates) in Settings under BaseHalf.
-- Update in place: an update is downloaded once, in the background, and
-  installed when BaseHalf quits, or at the latest at its next start. Release
-  Notes opens the release page.
+<p align="center">
+  <img src="docs/assets/readme/selection.webp" width="820" alt="A sentence in a decision note on the canvas is selected. Claude Code, beside the canvas, answers “who asked for this?”: nobody asked for it directly. It quotes the selected sentence and names the notes it came from.">
+</p>
 
-The smoke guards this shape in five suites: the workbench (hidden competing
-surfaces, the Files / Git / Search sidebar, Agent Area sessions, Source
-Control, and Settings), the canvas, Card Detail with its Markdown projections,
-navigation (Quick Open, Quick Text Search, and Explorer routing), and the
-image and video cards.
+## What else it does
+
+- **Notes that look like notes.** A note shows on its card as written, with
+  tables, pictures, and task boxes. Edit it on the card, or open it full size.
+  It stays a plain Markdown file.
+- **PDFs and books on the canvas.** A PDF or an e-book is a card with its
+  cover. It opens to be read, and agents can see the passage you select.
+- **Tidy up in one move.** Line up a few selected cards, or let Tidy Canvas lay
+  out the whole folder along its connections.
+- **Undo puts it all back.** Deleting asks nothing, because one undo returns
+  the files with their places, descriptions, and connections.
+- **Files that move are followed.** Rename or move a file anywhere, even while
+  BaseHalf is closed, and its card and its connections follow it.
+- **Files, Git, and Search from VS Code.** Your branches and diffs work the way
+  they always have.
+- **Any agent that runs in a terminal.** Claude Code, Codex, OpenCode, or
+  Gemini CLI, side by side, each in a session of its own.
+
+## What it does not do
+
+- **It is not an agent, and it contains none.** You bring the agents you
+  already use. They are optional: the canvas works on its own.
+- **It does not put your folder into a prompt.** Agents open the files they
+  need, with their own tools.
+- **It does not organize for you.** It does not group your cards or guess
+  connections. A line is there because you drew it, or because an agent you
+  asked did.
+- **It does not take over your folder.** What the canvas knows about your
+  files (where the cards are, their one-line descriptions) is kept in one
+  hidden folder, `.bh/`, beside them. BaseHalf never edits your `.gitignore`,
+  your `CLAUDE.md`, or your `AGENTS.md`, and it runs no background program.
 
 ## Install
 
-1. Download `BaseHalf-0.6.1-darwin-arm64.dmg` from
-   [the latest release][latest-release].
-2. Open the DMG and drag `BaseHalf.app` into Applications.
-3. If macOS blocks first launch, remove the quarantine attribute:
+BaseHalf runs on macOS on Apple Silicon.
 
-```bash
-xattr -dr com.apple.quarantine /Applications/BaseHalf.app
-```
+1. Download the latest disk image from [basehalf.com/download][download] or
+   from [GitHub Releases][latest-release].
+2. Open it and drag BaseHalf into Applications.
+3. The app is not notarized yet, so macOS may refuse to open it the first
+   time. Run this once in a terminal, then start BaseHalf like any other app:
 
-The app's update feed is served from GitHub Releases through the signed
-BaseHalf update manifest.
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/BaseHalf.app
+   ```
 
-## Develop From Source
+4. Open a folder. [Get started][docs-get-started] walks through the first
+   canvas and the first connection.
 
-Current desktop development happens in `vscode-base/`. The older `packages/`
-tree is useful for migration history and tests, but new desktop-facing product
-work should be VS Code-aligned workbench/platform code.
+To work with agents, install the ones you want, such as the Claude Code or
+Codex command-line tools. When you open a folder, BaseHalf offers to install a
+small skill that tells them how to read a canvas. It is added to the agents'
+own settings, not to your folder.
 
-Requirements:
+BaseHalf updates itself. It is early and changes quickly; every release is
+described on the [releases page][releases].
 
-- macOS for the current desktop packaging path.
-- Node `24.17.0` from `vscode-base/.nvmrc`.
-- npm.
+## Docs
+
+- [Get started][docs-get-started]: download, first launch, and your first
+  folder.
+- [Canvas and cards][docs-canvas]: everything you can do with cards.
+- [Connections][docs-connections]: what a line means and where it is kept.
+- [Working with agents][docs-agents]: sessions, the skill, and selection.
+- [AI images, video and sound][docs-ai]: drafts, inputs, providers, and keys.
+- [Blog][blog]: worked examples, and notes on context, agents, and compound
+  thinking.
+
+## Community
+
+- [GitHub Discussions][discussions]: questions and ideas.
+- [Discord][discord]: chat.
+- [X][twitter]: short progress notes.
+- QQ groups for Chinese speakers: [users][qq-users] and
+  [developers][qq-developers].
+
+If you build something with BaseHalf, we would love to see it.
+
+## Build from source
+
+BaseHalf is built on the open-source code of VS Code. Files, Git, Search, and
+the terminals are VS Code's; the canvas, the cards, and the agent sessions
+beside them are BaseHalf's. The product's source is in `vscode-base/`, and it
+needs macOS and the Node version in `vscode-base/.nvmrc`.
 
 ```bash
 cd vscode-base
@@ -264,132 +242,46 @@ npm run compile
 ./scripts/code.sh
 ```
 
-Useful checks:
+Checks:
 
 ```bash
-cd vscode-base
 npm run typecheck-client
 ./scripts/test.sh
 npm run basehalf:smoke
 ```
 
-For BaseHalf UI/routing changes, `npm run basehalf:smoke` is the important
-product smoke. If `out/` is already current, `npm run basehalf:smoke-no-compile`
-skips the compile step. Its steps are in suites by area, each on a BaseHalf of
-its own, and `-- --suite canvas` runs one of them
-(`vscode-base/scripts/basehalf-smoke/README.md`).
+Where to read on:
 
-Package a macOS release build:
-
-```bash
-cd vscode-base
-build/basehalf/package-darwin.sh arm64
-```
-
-## Repo Layout
-
-```text
-vscode-base/                         current desktop product source
-  src/vs/workbench/basehalf/         BaseHalf's workbench code, a folder per
-                                     feature: canvas, card detail, Agent Area,
-                                     video, Sequence, references, navigation,
-                                     workspace
-  src/vs/platform/basehalfProviders/ the image and video provider modules and
-                                     the model catalog, in the shared process
-  src/vs/platform/update/            BaseHalf's update service and protocol,
-                                     beside VS Code's (basehalf*.ts)
-  extensions/basehalf/               rich Markdown editor, in-card note
-                                     editor, and other bundles
-  build/basehalf/                    macOS package, DMG, and update scripts
-  BASEHALF_UPSTREAM.md               VS Code import baseline
-
-docs/                                public specs, decisions, and policies
-  harness/                           BaseHalf's progressive development harness
-private-docs/                        private product/architecture decision corpus
-packages/                            historical BaseHalf core/desktop material
-```
-
-## Architecture Principles
-
-1. **VS Code substrate, BaseHalf product.** Prefer VS Code services and
-   workbench patterns for infrastructure; keep BaseHalf's product layer
-   canvas-first.
-2. **Module-complete migration.** Port modules to product quality rather than
-   landing placeholder UI or disconnected demo paths.
-3. **Files/Git/Search on the left.** Reuse VS Code mechanics, but route
-   activation into BaseHalf folder canvases and card detail.
-4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
-   render as Agent Area sessions, not the stock terminal panel.
-5. **Fixed shell, one main canvas.** AI Video is BaseHalf's own code: it adds
-   templates, card projections, the Sequence view, and the requests that
-   image and video cards send to their providers without replacing the
-   canvas model, BaseHalf navigation, the sidebar, or Agent Area. There is no
-   plugin platform: nothing can be installed or published for BaseHalf. See
-   [built-in AI Video and no plugins](docs/specs/built-in-ai-video-and-no-plugins.md).
-6. **Markdown shares one truth.** Rich, source, and preview projections operate
-   over the same Markdown working copy.
-7. **BaseHalf does not secretly edit user files.** Automated services never
-   write user files in the background, and BaseHalf writes no agent guides or
-   focus files into the workspace. Explicit or confirmed user actions, or
-   external agents, make content and upstream changes.
-
-## Designed For
-
-- **Curious learners using AI:** build understanding through a canvas of source
-  material, notes, references, and active agent sessions.
-- **Agent-assisted project work:** keep files, Git state, search results, and
-  agent terminals in one local workspace.
-- **Research maps:** arrange folders and files spatially, connect supporting
-  materials, and return to each canvas where you left it.
-- **Local-first project memory:** keep lightweight descriptions, references,
-  canvas positions, and reading state beside the project itself.
-
-## Community
-
-Community links are intentionally lightweight while BaseHalf is early:
-
-- [GitHub Discussions][discussions] - questions, ideas, and build-in-public
-  updates.
-- [Twitter / X][twitter] - short public progress notes.
-- [Discord][discord] - async community chat.
-- [QQ Users][qq-users] - Chinese user community.
-- [QQ Developers][qq-developers] - Chinese developer community.
-
-If you are trying BaseHalf with Codex, Claude Code, OpenCode, Gemini CLI, or
-another local-file agent, we would love to hear what you build.
+- [Development harness](docs/harness/README.md): where to start for each kind
+  of change.
+- [Specifications](docs/specs/): how each part of BaseHalf has to behave.
+- [Decisions](docs/decisions.md): why it is built this way.
+- [Roadmap](docs/roadmap.md): what is being worked on.
 
 ## Contributing
 
-BaseHalf is early and deliberately narrow. Please open an issue or discussion
-before sending a non-trivial external PR so we can align on scope first.
+BaseHalf is early and deliberately narrow. Bug reports and ideas are always
+welcome. Before a pull request that is more than a small fix, please open an
+issue or a discussion, so that we agree on the scope first.
 
-1. Read [CONTRIBUTING.md][contributing] for build/test commands and architecture
-   invariants.
-2. Open a PR; CI runs the project checks.
-3. Sign the [CLA][cla] when prompted. Contributions must use
-   permissively-licensed dependencies.
-
-Maintainers push `main` directly after local lint, typecheck, tests, and an
-in-session adversarial review.
-
-Bug reports, ideas, and discussion are always welcome. By participating you
-agree to our [Code of Conduct][code-of-conduct].
+[CONTRIBUTING.md][contributing] covers the contributor license agreement, the
+licenses a dependency may have, and the rules a change has to keep. By taking
+part you agree to our [Code of Conduct][code-of-conduct].
 
 ## License
 
-BaseHalf is [Apache-2.0][license]. VS Code-derived portions in `vscode-base/`
-retain their upstream MIT license and third-party notices.
+BaseHalf is [Apache-2.0][license]. The parts in `vscode-base/` that come from
+VS Code keep their MIT license and third-party notices.
 
 Contributions require a signed [CLA][cla]. The "BaseHalf" name and logo are
 trademarks of Pointa Labs, Inc. See the [trademark policy][trademark-policy].
 
-[website]: https://basehalf.com
+[download]: https://basehalf.com/download
 [latest-release]: https://github.com/Pointa-Labs/basehalf/releases/latest
-[gitcgr]: https://gitcgr.com/Pointa-Labs/basehalf
+[releases]: https://github.com/Pointa-Labs/basehalf/releases
 [discussions]: https://github.com/Pointa-Labs/basehalf/discussions
 [twitter]: https://x.com/JustJerry121
 [discord]: https://discord.gg/55wqkN9tPg
-[community]: #community
 [qq-users]: https://qm.qq.com/q/hNq8D39YPe
 [qq-developers]: https://qm.qq.com/q/LTidm8fKCc
 [contributing]: CONTRIBUTING.md
@@ -398,11 +290,30 @@ trademarks of Pointa Labs, Inc. See the [trademark policy][trademark-policy].
 [license]: LICENSE
 [trademark-policy]: docs/trademark-policy.md
 
-[badge-download]: https://img.shields.io/badge/Download-macOS%20Apple%20Silicon-6BA6FF?style=flat&labelColor=1A1A17
-[badge-website]: https://img.shields.io/badge/Website-basehalf.com-9FBBE0?style=flat&labelColor=1A1A17
-[badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-C0A8DD?style=flat&labelColor=1A1A17
-[badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=flat&logo=github&logoColor=DBE7FB&labelColor=1A1A17
-[badge-twitter]: https://img.shields.io/badge/X-Follow-2A2B2B?style=flat&logo=x&logoColor=DBE7FB&labelColor=1A1A17
-[badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat&logo=discord&logoColor=DBE7FB&labelColor=1A1A17
-[badge-qq-groups]: https://img.shields.io/badge/QQ-Groups-7EB8CD?style=flat&labelColor=1A1A17
-[badge-license]: https://img.shields.io/badge/License-Apache--2.0-2A2B2B?style=flat&labelColor=1A1A17
+[docs-get-started]: https://basehalf.com/docs/get-started
+[docs-canvas]: https://basehalf.com/docs/canvas-and-cards
+[docs-connections]: https://basehalf.com/docs/connections
+[docs-agents]: https://basehalf.com/docs/working-with-agents
+[docs-ai]: https://basehalf.com/docs/ai-video
+[blog]: https://basehalf.com/blog
+
+[blog-transformers]: https://basehalf.com/blog/learn-transformers-with-basehalf
+[blog-sql]: https://basehalf.com/blog/learn-sql-with-basehalf
+[blog-git]: https://basehalf.com/blog/learn-git-branching-with-basehalf
+[blog-dns]: https://basehalf.com/blog/learn-dns-with-basehalf
+[blog-regex]: https://basehalf.com/blog/learn-regex-with-basehalf
+[blog-http]: https://basehalf.com/blog/learn-http-requests-with-basehalf
+[blog-grow]: https://basehalf.com/blog/grow-note-from-pdf-or-book
+[blog-fuzzy]: https://basehalf.com/blog/unpack-fuzzy-problem-on-canvas
+[blog-options]: https://basehalf.com/blog/compare-options-on-canvas-before-ai
+[blog-know]: https://basehalf.com/blog/lay-out-know-assume-need-before-you-ask
+[blog-observations]: https://basehalf.com/blog/separate-observations-from-interpretations
+[blog-problem]: https://basehalf.com/blog/separate-problem-from-proposed-solutions
+[blog-pm]: https://basehalf.com/blog/project-management-is-context-management
+[blog-folder]: https://basehalf.com/blog/local-folder-ai-workspace
+[blog-agents]: https://basehalf.com/blog/claude-code-codex-agent-area
+[blog-compounds]: https://basehalf.com/blog/what-compounds-in-thinking
+[blog-generate]: https://basehalf.com/blog/generate-from-the-canvas
+[blog-trim]: https://basehalf.com/blog/trim-a-video-in-card-detail
+[blog-branch]: https://basehalf.com/blog/create-connected-note-from-canvas-drop
+[blog-tidy]: https://basehalf.com/blog/tidy-canvas-along-connections
