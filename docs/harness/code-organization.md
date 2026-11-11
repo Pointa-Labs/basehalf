@@ -189,16 +189,17 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 
 - `canvas/` is the core: the model and its layout file, the view and its
   lifecycle, rendering, and the services that features use.
-- A canvas feature, such as the zoom controls, the badge editor, note editing
-  on a card, the panel of a generation card, selection and arrangement,
-  connections, or tidying, is a class registered with
+- A canvas feature is a class registered with
   `registerBaseHalfCanvasContribution` in its own folder
   `canvasContrib/<feature>/`, with its own layer folders, tests, and
   stylesheets. The canvas view creates each registered feature once,
   through dependency injection, and hands it `IBaseHalfCanvasView`
   (`canvas/browser/basehalfCanvasExtensions.ts`): what a feature may read and
   do of the canvas. A feature uses nothing else of the view. When a feature
-  needs more, the interface grows by what it needs.
+  needs more, the interface grows by what it needs. The features are the
+  zoom controls, snapping, Tidy Canvas, the panel under a generation card,
+  the marks of changes, code cards, dropping into a folder, and making a
+  project from a template.
 - A canvas feature may import `canvas/` and the folders before it in its
   layer, and no other canvas feature. `canvas/` never imports a canvas
   feature; lint enforces this the way it does for VS Code's terminal, whose
@@ -214,7 +215,12 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   editing are not such: a drawing calls into them at about 20 places, and
   they use 33, 37, and 48 members of the view (measured 2026-11-10). They
   stay parts of the core; an interface that mirrored all of that would
-  decouple nothing (D126).
+  decouple nothing (D126). Nor is what draws the face of a generation card
+  and runs its toolbar: a generation card is a kind of item in the canvas's
+  model, which the core names on about 170 lines of 21 files, where it
+  names code cards on 27 lines of 7 (measured 2026-11-11, D128). What a
+  generation card looks like and does is in `generation/`, below the
+  canvas in each layer, and the panel under it is a feature.
 - Card Detail draws a file in projections, and each projection registers how
   it is drawn from its own folder, as VS Code's editors register their panes:
   `IBaseHalfCardDetailSurfaceRegistryService` takes a provider for each
@@ -339,10 +345,11 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   1,606 lines of the file of the canvas's context menu, which the core
   imported though it calls none of it; that file keeps the canvas's own
   commands and menus (about 290 lines).
-- Next: what draws the face of a generation card and runs its toolbar is the
-  one part of the canvas core left that is a feature of its own; it moves
-  into `canvasContrib/` as code cards did. Connections, the badge editor, and
-  note editing stay parts of the core (D126).
+- 2026-11-11: what draws the face of a generation card and runs its toolbar
+  stays in the canvas core (D128). D126 had named it as the one part left to
+  become a feature; measured by D126's own rule, a generation card is what
+  the canvas's model, scene, and view are built with, as a note is. No part
+  of the canvas core is left that is planned to become a feature.
 - Seven files stand between 1,539 and 1,761 lines, each one service or one
   model: following moved items, the mirror cascade, the canvas's layout
   file, reference edits, the reference index, the Markdown projection, and

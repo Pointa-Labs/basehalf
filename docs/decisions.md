@@ -6291,3 +6291,24 @@ content, and takes no room (D54). VS Code's own editors and lists draw their bar
 - The smoke starts every suite as on a system that shows scroll bars always, so its result no longer depends on a mouse:
   before each launch it sets that key to `Always`, and its first step fails unless the BaseHalf it launched replaced the key
   before its first window. After the run it removes a key that still says `Always`.
+
+## D128 — A generation card is a kind of card of the canvas core, not a canvas feature (NEW, 2026-11-11)
+
+**Decision.** What draws the face of a generation card on the canvas and runs its toolbar stays in the canvas core. What a
+generation card looks like and does stays in `generation/`, below the canvas in each layer, and the panel under the card stays
+the canvas feature `canvasContrib/generationPanel/`. See
+[code organization](harness/code-organization.md#the-canvas-a-core-and-its-features).
+
+**Why.** D126 named this code as the one part of the core left that is a feature, to move as code cards did. Measured on
+2026-11-11 by D126's own rule, it is not one. Counted by the names of generation cards, the core speaks of them on about 170
+lines of code in 21 files; it speaks of code cards, which are a feature, on 27 lines in 7 files, through one interface. An
+item of the canvas's model is a generation card by a field of its own, which the core reads at 26 places: the item's shape and
+size follow from it, and creation, connections, the scene's data, and its toolbar read it. The 190 lines of the card renderer
+that draw the face and run the toolbar use 26 members of the view; the parts that D126 kept in the core use 33, 37, and 48. A
+canvas of BaseHalf can no more be drawn without generation cards than without notes, and an interface for such a feature
+would have had to hand over the canvas.
+
+**Consequences.**
+- Revises the last consequence of D126. No part of the canvas core is left that is planned to become a feature.
+- The list of canvas features in the code organization named the badge editor, note editing, connections, and selection, which
+  D126 had kept in the core. It names the eight features that exist.
