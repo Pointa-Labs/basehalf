@@ -6,6 +6,7 @@
 import { activeAgentTab, selectAgentTab, IBaseHalfAgentTab, setAgentTabTitle, reorderAgentTab } from '../common/basehalfAgentTabsModel.js';
 import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
+import { baseHalfRevealInStrip } from '../../ui/browser/basehalfSidewaysStrip.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { toAction, Separator } from '../../../../base/common/actions.js';
@@ -22,18 +23,38 @@ export class BaseHalfAgentAreaTabStrip {
 	private editingTabId: string | undefined;
 	private editingDraft = '';
 	private tabDropIndex: number | undefined;
+	/** The tab that was active when the strip was drawn last. */
+	private drawnActiveTabId: string | null = null;
 
 	constructor(private readonly area: BaseHalfAgentAreaService) { }
 
+	/**
+	 * Draws the tabs. A strip with more tabs than it has room for scrolls
+	 * sideways: it keeps its place when it is drawn again, and brings the tab
+	 * that became active into view.
+	 */
 	renderTabStrip(): void {
 		const state = this.area.tabsState;
-		clearNode(this.area.tabStrip);
+		const strip = this.area.tabStrip;
+		const scrolled = strip.scrollLeft;
+		clearNode(strip);
 		this.area.tabsBar.classList.toggle('empty', state.tabs.length === 0);
 		this.area.empty.classList.toggle('visible', state.tabs.length === 0);
 		this.area.zoomResetButton.classList.toggle('visible', !!activeAgentTab(state)?.zoomedPaneId);
 
-		state.tabs.forEach((tab, index) => this.area.tabStrip.appendChild(this.renderTab(tab, index)));
+		let activeElement: HTMLElement | undefined;
+		state.tabs.forEach((tab, index) => {
+			const element = strip.appendChild(this.renderTab(tab, index));
+			if (tab.id === state.activeTabId) {
+				activeElement = element;
+			}
+		});
 		this.updateTabDensity();
+		strip.scrollLeft = scrolled;
+		if (activeElement && state.activeTabId !== this.drawnActiveTabId) {
+			baseHalfRevealInStrip(strip, activeElement);
+		}
+		this.drawnActiveTabId = state.activeTabId;
 	}
 
 	/**

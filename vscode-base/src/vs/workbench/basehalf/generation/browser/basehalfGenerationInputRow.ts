@@ -12,6 +12,7 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfMediaUrlAt } from '../../playback/browser/basehalfMediaElements.js';
+import { baseHalfMoveStripWithWheel } from '../../ui/browser/basehalfSidewaysStrip.js';
 import { BaseHalfVideoInputKind } from '../common/basehalfGenerationInputs.js';
 
 /** One input of the row (generation cards, "The panel", D68). */
@@ -167,14 +168,8 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				this.hideLook();
 			}
 		}));
-		this._register(addDisposableListener(this.element, 'wheel', event => {
-			// A vertical wheel scrolls the tiles sideways.
-			const list = this.list;
-			if (list && Math.abs(event.deltaY) > Math.abs(event.deltaX) && list.scrollWidth > list.clientWidth) {
-				list.scrollLeft += event.deltaY;
-				event.preventDefault();
-			}
-		}, { passive: false }));
+		// A vertical wheel scrolls the tiles sideways.
+		this._register(baseHalfMoveStripWithWheel(this.element, () => this.list));
 	}
 
 	/** Draws the row for `model`. Nothing is drawn again while it is the same, so pictures stay loaded. */

@@ -11,6 +11,7 @@ import process from 'process';
 import { app, product, runRoot } from '../../context.mts';
 import { waitForAgentAreaTerminalPrompt } from '../../lib/agentArea.mts';
 import { runCommand } from '../../lib/quickInput.mts';
+import { waitForReading } from '../../lib/steps.mts';
 
 export async function assertAgentAreaChoices(page) {
 	// The Agent Area chrome mounts when the auxiliary-bar pane materializes, so
@@ -214,6 +215,60 @@ export async function assertAgentAreaTabsAndSplits(page) {
 	await dismissAgentToasts(page);
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 1, null, { timeout: 20_000 });
 	await assertStockTerminalPanelHidden(page);
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+/**
+ * The strip of tabs with more tabs than it shows (architecture invariants, "Product shell", D127): the tab that
+ * becomes active comes into view, a wheel turned up and down moves the strip sideways, and the strip keeps its place
+ * when it is drawn again. The step makes the strip narrow, so that three tabs are more than it shows.
+ */
+export async function assertAgentAreaTabStripMovesWithTheWheel(page) {
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
+	const strip = page.locator('.basehalf-agent-tabstrip');
+	await strip.evaluate(element => { element.style.flex = '0 0 130px'; });
+	const read = () => strip.evaluate(element => {
+		const view = element.getBoundingClientRect();
+		const tabs = Array.from(element.querySelectorAll('.basehalf-agent-tab'));
+		const active = element.querySelector('.basehalf-agent-tab.active')?.getBoundingClientRect();
+		return {
+			tabs: tabs.length,
+			at: Math.round(element.scrollLeft),
+			end: element.scrollWidth - element.clientWidth,
+			active: tabs.findIndex(tab => tab.classList.contains('active')),
+			activeInView: !!active && active.left >= view.left - 1 && active.right <= view.right + 1,
+		};
+	});
+	const tabsBefore = (await read()).tabs;
+	for (let tabs = tabsBefore; tabs < 3; tabs++) {
+		await runCommand(page, 'New Agent Area Terminal');
+		await waitForReading(read, reading => reading.tabs === tabs + 1, `tab ${tabs + 1} of the Agent Area`);
+	}
+	await waitForReading(read, reading => reading.active === 2 && reading.end > 0 && reading.at === reading.end && reading.activeInView, 'the third tab, which became active, in view at the end of a strip that shows two tabs');
+	await runCommand(page, 'Go to Agent Tab 1');
+	await waitForReading(read, reading => reading.active === 0 && reading.at === 0 && reading.activeInView, 'the first tab in view once it is the active one');
+	const box = await strip.boundingBox();
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await page.mouse.wheel(0, 400);
+	const wheeled = await waitForReading(read, reading => reading.at === reading.end, 'the strip at its end after the wheel turned down over it');
+	// Drawn again with the same active tab, the strip stays where the wheel put it.
+	await runCommand(page, 'Split Agent Pane Right');
+	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 2, null, { timeout: 20_000 });
+	const drawnAgain = await read();
+	if (drawnAgain.at !== wheeled.at || drawnAgain.active !== 0) {
+		throw new Error(`The strip of tabs should keep its place when it is drawn again: ${JSON.stringify({ wheeled, drawnAgain })}`);
+	}
+	await runCommand(page, 'Close Agent Pane');
+	await dismissAgentToasts(page);
+	for (let tabs = 3; tabs > tabsBefore; tabs--) {
+		await runCommand(page, `Go to Agent Tab ${tabs}`);
+		await runCommand(page, 'Close Agent Tab');
+		await waitForReading(read, reading => reading.tabs === tabs - 1, `${tabs - 1} tabs in the Agent Area`);
+		await dismissAgentToasts(page);
+	}
+	await strip.evaluate(element => { element.style.flex = ''; });
 	await runCommand(page, 'Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }

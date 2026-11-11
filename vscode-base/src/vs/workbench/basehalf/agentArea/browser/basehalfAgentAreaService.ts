@@ -29,6 +29,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { BaseHalfViewContainerExtensionAgentProvider } from './basehalfExtensionAgentProvider.js';
 import { $, append, trackFocus } from '../../../../base/browser/dom.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
+import { baseHalfMoveStripWithWheel } from '../../ui/browser/basehalfSidewaysStrip.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { TerminalExitReason } from '../../../../platform/terminal/common/terminal.js';
 import { BaseHalfSplitDir, BaseHalfFocusDir, dropEdge } from '../common/basehalfAgentSplitTree.js';
@@ -161,6 +162,8 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 				void this.newTab();
 			}
 		});
+		// A wheel that turns up and down moves the tabs sideways: the strip scrolls no other way.
+		this._register(baseHalfMoveStripWithWheel(this.tabStrip, () => this.tabStrip));
 		this.tabStrip.addEventListener('dragover', e => {
 			if (this.tabDragId && e.target === this.tabStrip) {
 				e.preventDefault();
