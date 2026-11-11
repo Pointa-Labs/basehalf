@@ -68,6 +68,12 @@ performance.now()` is not one: a document keeps the wall clock of the moment it
 was made, and the system corrects its wall clock, so that two documents read
 times apart by whatever it corrected between their starts.
 
+Every suite starts BaseHalf as on a system that shows scroll bars always, as
+the system does by itself while a mouse is attached, so that a run finds the
+same with and without a mouse (`lib/scrollBars.mts`, D127). Before each launch
+the run sets one key in the preferences of BaseHalf's application, which
+BaseHalf replaces at its start; the smoke's README says how.
+
 For changes to the rich Markdown projection (what it reads, which blocks it
 edits, and what it writes back):
 

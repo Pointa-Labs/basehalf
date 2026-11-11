@@ -38,7 +38,8 @@ import {
 	workspacePath
 } from './context.mts';
 import { createFixtureWorkspace, recordFixtureBeforeLaunch } from './fixture.mts';
-import { passedSteps } from './lib/steps.mts';
+import { assertScrollBarsTakeNoRoom, forgetScrollBarsAlways, startWithScrollBarsAlways } from './lib/scrollBars.mts';
+import { passedSteps, step } from './lib/steps.mts';
 import { SUITES } from './suites.mts';
 
 assertProductIdentity();
@@ -130,6 +131,8 @@ try {
 			: `Dev Electron was not found at ${electronPath}. Run npm run electron or npm run basehalf:smoke first.`);
 	}
 
+	// BaseHalf starts as on a system that shows scroll bars always (lib/scrollBars.mts).
+	startWithScrollBarsAlways();
 	setApp(await _electron.launch({ executablePath: electronPath, args, timeout: 60_000, env }));
 	const page = await app.firstWindow();
 	observePage(page);
@@ -138,6 +141,8 @@ try {
 	await assertNativeWindowResizeResponsive(app, page);
 	await page.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
+
+	await step('scroll-bars-take-no-room', () => assertScrollBarsTakeNoRoom(page));
 
 	const checks = await runSteps(page);
 	const summary = {
@@ -158,6 +163,7 @@ try {
 	if (app) {
 		await closeElectronApplication(app);
 	}
+	forgetScrollBarsAlways();
 	await stopVideoSmokeProvider();
 
 	if (!opts.keep && !opts.output && !smokeFailed) {

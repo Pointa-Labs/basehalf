@@ -163,6 +163,7 @@ export async function assertMarkdownRichHandlesFollowZoom(page) {
 		character.setEnd(node, offset + 1);
 		const block = node.parentElement.closest('.bn-block-content');
 		const notePage = document.querySelector('.basehalf-markdown-rich-page');
+		const view = document.querySelector('.basehalf-markdown-rich-scroll');
 		// Where each line of the block starts, as offsets into its text.
 		const lineStarts = () => {
 			const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
@@ -193,7 +194,7 @@ export async function assertMarkdownRichHandlesFollowZoom(page) {
 		});
 		const sample = () => {
 			const box = character.getBoundingClientRect();
-			recorded.frames.push({ left: box.left, top: box.top, scale: notePage.getBoundingClientRect().width / notePage.offsetWidth, lines: lineStarts() });
+			recorded.frames.push({ left: box.left, top: box.top, scale: notePage.getBoundingClientRect().width / notePage.offsetWidth, lines: lineStarts(), inside: `${view.clientWidth} x ${view.clientHeight}` });
 			if (!recorded.stop) {
 				requestAnimationFrame(sample);
 			}
@@ -223,6 +224,12 @@ export async function assertMarkdownRichHandlesFollowZoom(page) {
 			|| Math.abs(sample.top - (centre.y + (first.top - centre.y) * grow)) > 1
 			|| sample.lines !== first.lines;
 	});
+	// This note is shorter than the view: magnified, it gets the view's scroll bars, which take none of the view's room
+	// (the run is one on a system that shows scroll bars always, lib/scrollBars.mts).
+	const narrowed = frames.filter(sample => sample.inside !== first.inside);
+	if (narrowed.length > 0) {
+		throw new Error(`The view of a note should keep its room when the magnified note gets its scroll bars: ${JSON.stringify({ first: first.inside, frames: frames.length, narrowed: narrowed.length, then: narrowed[0] })}`);
+	}
 	if (frames.length < 5 || lastGrowth < 1.3 || Math.abs(centre.x - pointer.x) > 2 || Math.abs(centre.y - pointer.y) > 2 || off.length > 0) {
 		throw new Error(`While the fingers move and once they rest, the point under the pointer should stay under it and no line break anew: ${JSON.stringify({ frames: frames.length, pointer, box, forwarded, centre, first, off: off.slice(0, 3), last })}`);
 	}

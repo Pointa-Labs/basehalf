@@ -27,6 +27,21 @@ covered window, and every step that waits for a frame or takes a screenshot
 times out while someone works in front of it. A pointer moved over the
 window, or a click that takes its focus, still disturbs a run.
 
+Every suite starts BaseHalf as on a system that shows scroll bars always, as
+the system does by itself while a mouse is attached (`lib/scrollBars.mts`).
+There a scrolling box gives its bar 15 pixels, unless BaseHalf sets its own
+default before it creates a window
+([architecture invariants](../../../docs/harness/architecture-invariants.md#product-shell),
+D127), so a run finds the same with and without a mouse on the machine.
+Before the launch the run sets the key `AppleShowScrollBars` to `Always` in
+the preferences of BaseHalf's application, the one place that outranks the
+system's own setting, and each suite starts with the step
+`scroll-bars-take-no-room`, which fails unless the BaseHalf it launched
+replaced the key in time. After the run, a key that still says `Always` is
+removed. Every BaseHalf on the machine reads that key when it starts: one
+without the rule that starts during those seconds shows scroll bars always
+until it starts again.
+
 A raw `page.mouse` action waits for a view transition of the window to end
 (`waitForViewTransitionsBeforePointerInput` in `app.mts`). While Card Detail
 grows out of its card or goes back into it, at most 260 ms, the window's root
@@ -52,7 +67,7 @@ waits by itself, since it hits nothing else until the end.
 | `context.mts` | The options and the folders of a run, the product, and the BaseHalf it launched. |
 | `fixture.mts` | The fixture workspace, its git history, and what it holds before BaseHalf first opens it. |
 | `app.mts` | Launching and closing BaseHalf: its console and errors, the size of its window, and what a failed run leaves. |
-| `lib/` | Helpers of more than one area: steps and waiting, Quick Open and commands, the canvas, Card Detail, the rich editor's frame, notifications, the workspace's files, the window's controls, the Agent Area's terminal, the Providers page, and the frames Settings paints as it opens at one of BaseHalf's pages. |
+| `lib/` | Helpers of more than one area: steps and waiting, Quick Open and commands, the canvas, Card Detail, the rich editor's frame, notifications, the workspace's files, the window's controls, the Agent Area's terminal, the Providers page, the frames Settings paints as it opens at one of BaseHalf's pages, and the system's appearance and scroll bars as BaseHalf sees them. |
 | `areas/<area>/` | The assertions of each area, a file per concern: `workbench/`, `canvas/`, `cardDetail/`, `navigation/`, and `video/` (generation cards, with the local test provider; those of sounds in `audioCards.mts`). |
 
 ## Adding a step
