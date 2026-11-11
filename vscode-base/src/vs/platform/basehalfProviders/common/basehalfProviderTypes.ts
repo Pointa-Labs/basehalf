@@ -193,6 +193,12 @@ export interface CatalogVoiceOption {
 	readonly label: string;
 	/** A few words from the provider's labels, such as its gender, accent, or style. */
 	readonly description?: string;
+	/**
+	 * The regions that offer the voice, when not every region that offers the
+	 * model does; never on the default. Elsewhere the voice menu does not list
+	 * it, and `check` refuses it.
+	 */
+	readonly regions?: readonly string[];
 }
 
 /**

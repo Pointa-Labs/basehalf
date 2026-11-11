@@ -54,7 +54,7 @@ waits by itself, since it hits nothing else until the end.
 | `canvas` | Creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, snapping, and the covers of PDFs and books. |
 | `cardDetail` | Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the trim bar of a video; back and forward from it. |
 | `navigation` | Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. |
-| `video` | Generation cards of images, videos, and sounds: drafts, the panel, the voice menu, generations against the local test provider through the ByteDance, ElevenLabs, and Mureka modules, Providers, the starter template, and Sequence. |
+| `video` | Generation cards of images, videos, and sounds: drafts, the panel, the voice menu, generations against the local test provider through the ByteDance, ElevenLabs, Mureka, and Alibaba modules, Providers, the starter template, and Sequence. |
 
 ## Files
 

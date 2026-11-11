@@ -122,7 +122,7 @@ export function baseHalfGenerationProvenance(
 	card: Pick<IBaseHalfGenerationCardSnapshot, 'kind' | 'made' | 'madeUnreadable'>,
 	displayLanguage: string = language,
 	catalog?: IBaseHalfVideoCatalog,
-	voices?: (provider: string, region: string) => VoicesResult | undefined,
+	voices?: (provider: string, region: string, model: string) => VoicesResult | undefined,
 	kindOf: (path: string) => BaseHalfVideoInputKind = baseHalfVideoInputKindOfPath
 ): IBaseHalfGenerationProvenance {
 	const made = card.made;
@@ -147,7 +147,7 @@ export function baseHalfGenerationProvenance(
 			return `${name}: ${String(value)}`;
 		}
 		const shown = parameter.kind === 'voice' && typeof value === 'string'
-			? baseHalfVoiceLabel(parameter, value, voices?.(made.provider, made.region))
+			? baseHalfVoiceLabel(parameter, value, voices?.(made.provider, made.region, made.model))
 			: baseHalfVideoParamValueLabel(parameter, value);
 		return localize('basehalf.generation.detail.setting', "{0} {1}", parameter.label, shown);
 	});
@@ -899,7 +899,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (!card) {
 			return;
 		}
-		const provenance = baseHalfGenerationProvenance(card, language, catalog, (provider, region) => this.voiceService.voices(provider, region).list);
+		const provenance = baseHalfGenerationProvenance(card, language, catalog, (provider, region, model) => this.voiceService.voices(provider, region, model).list);
 		const section = this.provenance = append(this.root, $('section.bh-generation-provenance'));
 		section.setAttribute('aria-label', card.kind === 'image'
 			? localize('basehalf.generation.detail.labelImage', "What made this image")

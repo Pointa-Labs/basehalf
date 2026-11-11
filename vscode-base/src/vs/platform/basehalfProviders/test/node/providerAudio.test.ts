@@ -15,7 +15,7 @@ import { strict as assert } from 'assert';
 import { existsSync, readFileSync } from 'fs';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../../node/commands.js';
 import type { CheckRequest, ParamValue } from '../../common/basehalfProviderTypes.js';
-import { answerAudioAtOnce, audioRequest, error, partTargets, plannedFiles, png, routed, sendJson, serveFiles, startServer, testAccess, testAudioModule, testModule, tinyMp3, tinyWav, value, type AudioRequestOptions } from './providerTestKit.js';
+import { answerAudioAtOnce, audioRequest, error, partTargets, plannedFiles, png, routed, sendJson, serveFiles, startServer, testAccess, testAudioModule, testAudioProvider, testModule, tinyMp3, tinyWav, value, type AudioRequestOptions } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
 suite('BaseHalf providers: providerAudio', () => {
@@ -245,6 +245,33 @@ suite('BaseHalf providers: providerAudio', () => {
 		});
 		// The module sees the voice that is sent: the card's, or the catalog's default.
 		assert.deepEqual(seen, ['bo', 'aria', 'JBFqnCBsd6RMkjVDRZzb', '声'.repeat(256), 'Puck']);
+	});
+
+	test('check refuses a voice of the catalog where its regions do not reach, and takes it where they do; submit sends nothing then (criterion 17)', async () => {
+		const provider = structuredClone(testAudioProvider());
+		// Puck is offered away alone; Kore, the default, wherever Speech Fixed is.
+		(provider.models[1].parameters[0] as unknown as { options: { regions?: string[] }[] }).options[1].regions = ['away'];
+		const module = testAudioModule({ describe: () => provider });
+		const server = await startServer(routed(answerAudioAtOnce({ path: '/v1/speech/speech-fixed', sounds: [tinyWav()], as: 'bytes' })));
+		try {
+			const providers = new VideoProviderCommands([module], { http: { sleep: async () => undefined } });
+			const at = (region: string, voice: string) => audioRequest(testAccess(module, server.url, { apiKey: KEY }, region), 'speech-fixed', { params: { voice } });
+			assert.deepEqual({
+				home: value(await providers.check(at('home', 'Puck'))).problems,
+				away: value(await providers.check(at('away', 'Puck'))).problems,
+				homeDefault: value(await providers.check(at('home', 'Kore'))).problems,
+				submitted: error(await providers.submit(at('home', 'Puck'))),
+				sent: server.received.length
+			}, {
+				home: ['Speech Fixed offers the voice Puck only in Away. Choose another voice, or another region in Providers.'],
+				away: [],
+				homeDefault: [],
+				submitted: { code: 'rejected', message: 'Speech Fixed offers the voice Puck only in Away. Choose another voice, or another region in Providers.' },
+				sent: 0
+			});
+		} finally {
+			await server.close();
+		}
 	});
 
 	test('in Lyrics mode the prompt is the lyrics: required whatever the model\'s rule, counted as it is sent, and Style applies there alone (D78, criterion 18)', async () => {

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 // Audio cards (D78), step by step against the local test provider, which
-// answers like ElevenLabs and like Mureka, each set up with the test key and
+// answers like ElevenLabs, Mureka, and Alibaba, each set up with the test key and
 // its endpoint at that provider; no paid provider is called. The steps work in
 // a folder of their own, on its canvas, and run in order, each where the one
 // before ended.
@@ -81,8 +81,15 @@ const ELEVEN_V4 = { provider: 'elevenlabs', model: 'eleven-v4', label: 'Eleven v
 const SOUND_EFFECTS = { provider: 'elevenlabs', model: 'eleven-text-to-sound-v2', line: 'Sound Effects · Up to 30s' };
 const MUREKA_9_5 = { provider: 'mureka', model: 'mureka-9.5', label: 'Mureka 9.5', line: 'Music · From a Description · From Lyrics · Up to 3 songs · 1 reference sound' };
 const WAV_SPEECH = { provider: 'google', model: 'gemini-3.8-flash-tts' };
+// Alibaba's speech (alibaba.md, "Speech models"): its default voice, a voice
+// of China (Beijing) alone, and the account's ready voice that the local test
+// provider lists.
+const QWEN_FLASH = { provider: 'alibaba', model: 'qwen-audio-3.1-tts-flash', label: 'Qwen-Audio 3.1 TTS Flash', line: 'Speech · Up to 20,000 characters' };
+const QWEN_DEFAULT_VOICE = { id: 'longanhuan_v3.1', label: 'Long An Huan' };
+const QWEN_CHINA_VOICE = { id: 'yuxiaoyun_v3.1', label: 'Yu Xiaoyun' };
+const QWEN_ACCOUNT_VOICE = { id: 'qwen-audio-3.1-tts-flash-coast-a1b2c3d4', label: 'coast' };
 // The providers of the catalog that make audio.
-const AUDIO_PROVIDERS = ['elevenlabs', 'fishaudio', 'google', 'minimax', 'mureka'];
+const AUDIO_PROVIDERS = ['alibaba', 'elevenlabs', 'fishaudio', 'google', 'minimax', 'mureka'];
 
 // What the empty prompt says it is (criterion 82).
 const PLACEHOLDER = {
@@ -104,7 +111,7 @@ const ELEVENLABS_MODELS = ['eleven-v4', 'eleven-v3', 'eleven-multilingual-v2', '
 //
 // Acceptance criteria 80 to 89 and the audio card's part of 96 of generation cards, and criterion 8 of
 // providers for the Providers page's Audio, through the window and against the
-// local test provider, reached through the ElevenLabs and Mureka modules.
+// local test provider, reached through the ElevenLabs, Mureka, and Alibaba modules.
 // New Audio from Create from Connection is in the canvas suite.
 
 export async function runAudioCardSteps(page) {
@@ -115,6 +122,7 @@ export async function runAudioCardSteps(page) {
 	await step('audio-voice-menu-without-a-list', () => assertVoiceMenuWithoutAList(page));
 	await step('audio-note-spoken', () => assertNoteIsSpoken(page));
 	await step('audio-songs-from-lyrics', () => assertSongsFromLyrics(page));
+	await step('audio-alibaba-speaks-note', () => assertAlibabaSpeaksNote(page));
 }
 
 // --- helpers of the steps --------------------------------------------------------------------------
@@ -715,6 +723,100 @@ async function assertSongsFromLyrics(page) {
 		}
 	}
 	// No workspace file holds the test key.
+	const holding = filesContaining(workspacePath, provider.key);
+	if (holding.length) {
+		throw new Error(`A provider's credentials are in workspace files: ${holding.join(', ')}`);
+	}
+	await clickBlankCanvas(page);
+}
+
+// --- Alibaba's speech -------------------------------------------------------------------------------
+
+// Alibaba's speech models (alibaba.md, "Speech models", criterion 7):
+// Alibaba, set up with the test key and its endpoint at the local test
+// provider, which answers like DashScope's speech call under `/alibaba`. A
+// new draft with Qwen-Audio 3.1 TTS Flash speaks in Long An Huan, its
+// default; its voice menu lists the account's ready voice and Alibaba's
+// voices, those of China (Beijing), the region in use, among them. With a
+// voice of China (Beijing) chosen and the note mentioned, Generate sends the
+// note's text alone, in that voice, as MP3 at 24 kHz, once, and the sound
+// lands on the draft from the address of the answer.
+async function assertAlibabaSpeaksNote(page) {
+	const provider = await videoSmokeProvider();
+	const providers = await openProvidersPage(page);
+	await setUpProvider(page, providers, QWEN_FLASH.provider, provider.alibabaEndpoint, provider.key);
+	await closeProvidersPage(page, providers);
+	await assertCanvasFolder(page, AUDIO_FOLDER);
+	await clickBlankCanvas(page);
+	await panBelowTheCards(page);
+	const { cardPath, panel } = await newAudioDraft(page);
+	const models = await openModelMenu(panel);
+	const line = models.groups.find(group => group.provider === QWEN_FLASH.provider)?.items.find(item => item.model === QWEN_FLASH.model)?.detail;
+	if (line !== QWEN_FLASH.line) {
+		throw new Error(`The model menu of an audio card must offer ${QWEN_FLASH.label}, saying what it makes and its limit: ${JSON.stringify(models)}`);
+	}
+	await clickModel(page, panel, QWEN_FLASH.provider, QWEN_FLASH.model);
+	await waitUntil(() => readGenerationInfo(cardPath)?.model === QWEN_FLASH.model, `${cardPath} to store ${QWEN_FLASH.model}`, 10_000);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.model === QWEN_FLASH.label && seen.voice?.label === QWEN_DEFAULT_VOICE.label && seen.placeholder === PLACEHOLDER.speech, `the draft to speak in ${QWEN_DEFAULT_VOICE.label}, the default of ${QWEN_FLASH.label}`);
+
+	await openVoiceMenu(panel);
+	const menu = await waitForReading(() => readVoiceMenu(panel), seen => seen?.status === null && seen.sections.length === 2, 'the voice menu to list the account\'s voice and Alibaba\'s');
+	const sections = menu.sections.map(section => [section.title, section.voices.length]);
+	if (JSON.stringify(sections) !== JSON.stringify([['Your Voices', 1], ['Voices', 139]]) || voiceInMenu(menu, QWEN_ACCOUNT_VOICE.label)?.id !== QWEN_ACCOUNT_VOICE.id
+		|| menu.sections[1].voices[0].id !== QWEN_DEFAULT_VOICE.id || !menu.sections[1].voices[0].checked || voiceInMenu(menu, QWEN_CHINA_VOICE.label)?.id !== QWEN_CHINA_VOICE.id
+		|| menu.sections.flatMap(section => section.voices).some(voice => voice.sample !== null)) {
+		throw new Error(`The voice menu of ${QWEN_FLASH.label} in China (Beijing) must list the account's voice and Alibaba's 139, without samples: ${JSON.stringify({ sections, first: menu.sections[1]?.voices.slice(0, 2) })}`);
+	}
+	await panel.locator(`.bh-voice-menu-option[data-key="voice:${QWEN_CHINA_VOICE.id}"]`).click();
+	await waitUntil(() => readGenerationInfo(cardPath)?.params?.voice === QWEN_CHINA_VOICE.id, `choosing ${QWEN_CHINA_VOICE.label} to save it in ${cardPath}`, 10_000);
+
+	// The note, from the reference menu, is what the voice says.
+	await panel.locator('.bh-prompt-editor').click();
+	await page.keyboard.type('@');
+	await waitForReading(() => readMentionMenu(panel), seen => seen !== null && seen.searchFocused && seen.options.some(option => option.file === 'Notes'), 'typing @ to open the reference menu with Notes');
+	await panel.locator('.bh-reference-menu-option[data-key="kind:text"]').hover();
+	const flyout = panel.locator('.bh-reference-menu.flyout');
+	await flyout.waitFor({ state: 'visible', timeout: 10_000 });
+	await flyout.locator('.bh-reference-menu-option', { hasText: 'intro' }).click();
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(cardPath)) === JSON.stringify([INTRO_NOTE]), `choosing the note in the reference menu to connect ${INTRO_NOTE}`, 10_000);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `@[${INTRO_NOTE}] ` && seen.promptFocused, 'the mention of the note to take the place of the @');
+	await page.keyboard.press('Backspace');
+	await waitForReading(() => readGenerationInfo(cardPath)?.prompt ?? null, prompt => prompt === `@[${INTRO_NOTE}]`, 'the prompt that mentions the note to be saved', 10_000);
+	const ready = await waitForReading(() => readGenerationPanel(panel), seen => seen.generate?.disabled === false && JSON.stringify(seen.chips.map(chip => chip.text)) === JSON.stringify(['intro']), 'Generate to be ready with the note mentioned');
+	if (ready.voice?.label !== QWEN_CHINA_VOICE.label || !ready.settings?.startsWith('Speech')) {
+		throw new Error(`The draft must speak in ${QWEN_CHINA_VOICE.label} with the note connected: ${JSON.stringify(ready)}`);
+	}
+
+	const requestsBefore = provider.mock.requests.length;
+	const watch = watchGenerations([AUDIO_FOLDER]);
+	await clickGenerate(panel);
+	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(cardPath)) && readMade(cardPath) !== undefined, `the speech to land on ${cardPath}`);
+	watch.stop();
+	const seen = watch.first();
+	// Alibaba answers the request with the address of the sound: there is no task to ask about.
+	if (JSON.stringify(statesOf(seen).filter(state => state !== 'landing')) !== JSON.stringify(['preparing', 'submitting']) || !seen.record.answersAtOnce || seen.record.sentPrompt !== INTRO_TEXT) {
+		throw new Error(`Alibaba's speech must be answered at once, its prompt sent as the note's text: ${JSON.stringify(seen)}`);
+	}
+	// Exactly the note's text, in the chosen voice, as MP3 at 24 kHz, once.
+	const requests = provider.requestsSince(requestsBefore);
+	const input = requests[0]?.body?.input;
+	if (requests.length !== 1 || requests[0].kind !== 'speech' || requests[0].model !== QWEN_FLASH.model || requests[0].prompt !== INTRO_TEXT || requests[0].voice !== QWEN_CHINA_VOICE.id
+		|| input?.format !== 'mp3' || input?.sample_rate !== 24000) {
+		throw new Error(`The local test provider must receive the note's text alone, in ${QWEN_CHINA_VOICE.label}, as MP3 at 24 kHz: ${JSON.stringify(requests)}`);
+	}
+	const made = readMade(cardPath);
+	if (made.provider !== QWEN_FLASH.provider || made.model !== QWEN_FLASH.model || made.providerModel !== QWEN_FLASH.model || made.mode !== 'reference' || made.prompt !== `@[${INTRO_NOTE}]`
+		|| JSON.stringify(made.inputs) !== JSON.stringify([INTRO_NOTE]) || made.params?.voice !== QWEN_CHINA_VOICE.id) {
+		throw new Error(`made.yaml must hold what made the sound: ${JSON.stringify(made)}`);
+	}
+	// The sound lands under the draft's name: the provider's own MP3, downloaded from the address it answered.
+	if (!provider.soundTag(fs.readFileSync(workspaceFile(cardPath)))?.startsWith('speech-') || JSON.stringify(cardInformationFiles(cardPath)) !== JSON.stringify(['made.yaml', 'upstream.yaml'])) {
+		throw new Error(`The sound must land as ${cardPath}, with its record: ${JSON.stringify(cardInformationFiles(cardPath))}`);
+	}
+	const record = await waitForReading(() => readRecordPanel(panel), shown => shown.record && shown.state === 'ready' && shown.model === QWEN_FLASH.label, 'the panel of the card to show what made its sound');
+	if (record.voice !== QWEN_CHINA_VOICE.label || !record.settings?.startsWith('Speech')) {
+		throw new Error(`The panel of the card must name ${QWEN_FLASH.label} and ${QWEN_CHINA_VOICE.label}: ${JSON.stringify(record)}`);
+	}
 	const holding = filesContaining(workspacePath, provider.key);
 	if (holding.length) {
 		throw new Error(`A provider's credentials are in workspace files: ${holding.join(', ')}`);

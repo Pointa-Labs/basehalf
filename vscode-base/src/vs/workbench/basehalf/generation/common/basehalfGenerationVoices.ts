@@ -82,7 +82,7 @@ export function baseHalfRecordedVoiceList(catalog: IBaseHalfVideoCatalog | undef
 
 // --- The service ---------------------------------------------------------------------------------
 
-/** What this window knows of the voices of a provider in a region. */
+/** What this window knows of the voices of a provider in a region for one of its models. */
 export interface IBaseHalfVoices {
 	/** The last list the provider answered there, kept for the window. */
 	readonly list?: VoicesResult;
@@ -113,9 +113,10 @@ export const IBaseHalfGenerationVoiceService = createDecorator<IBaseHalfGenerati
 /**
  * The voices of the speech models in this window (D78; providers, "Voices"):
  * it asks the provider service for a provider's voices and the account's,
- * with this computer's access, keeps the last answer per provider and region
- * for the window, and fetches and plays the sample of a voice, one sound at a
- * time with what plays on the canvas.
+ * with this computer's access, keeps the last answer per provider, region,
+ * and model for the window, since a provider's voices may belong to its
+ * models, and fetches and plays the sample of a voice, one sound at a time
+ * with what plays on the canvas.
  */
 export interface IBaseHalfGenerationVoiceService {
 	readonly _serviceBrand: undefined;
@@ -125,8 +126,8 @@ export interface IBaseHalfGenerationVoiceService {
 	/** Fires when a sample starts to load, plays, stops, or fails. */
 	readonly onDidChangeSample: Event<void>;
 
-	/** What the window knows of the voices of the provider `provider` in the region `region`. */
-	voices(provider: string, region: string): IBaseHalfVoices;
+	/** What the window knows of the voices of the provider `provider` in the region `region` for its model `model`. */
+	voices(provider: string, region: string, model: string): IBaseHalfVoices;
 
 	/**
 	 * Asks the provider for its voices and the account's, for `model`, in the
@@ -141,7 +142,7 @@ export interface IBaseHalfGenerationVoiceService {
 	 * draft's voice, or the one a card's file was made in. It asks only when
 	 * `region`, the region of the draft or the one its record names, is the one
 	 * in use, the provider is set up, and the window has never asked for the
-	 * voices there: no list, no request on its way, no failure. After an answer
+	 * voices of `model` there: no list, no request on its way, no failure. After an answer
 	 * or a failure it asks nothing more, so that drawing again never asks in a
 	 * loop; the voice menu asks each time it opens. Resolves when the request it
 	 * starts, or the one on its way, has its answer, and at once otherwise.
@@ -193,12 +194,17 @@ export interface IBaseHalfVoiceMenuInput {
 	readonly voice: string;
 	/** The provider's voices and the account's, when the menu has a list of them. */
 	readonly list?: VoicesResult;
+	/** The region in use, whose voices the menu lists; every voice of the catalog without it. */
+	readonly region?: { readonly id: string; readonly label: string };
 }
 
 /**
  * The rows of the voice menu (generation cards, "The panel"): **Your
  * Voices**, the account's own that the list holds, and **Voices**, the
  * catalog's first and then the others the provider lists, each voice once.
+ * A voice of the catalog that only other regions than the one in use offer
+ * is not listed, unless it is the card's, which heads Voices by its name and
+ * says that the region does not offer it.
  * A voice of the card that no list names heads Voices by its id; once a whole
  * list of the account has come, it says that it is not among them, and a list
  * cut at its most says nothing of it. A search keeps
@@ -222,7 +228,14 @@ export function baseHalfVoiceMenuRows(input: IBaseHalfVoiceMenuInput, query: str
 		checked: id === input.voice
 	});
 	const voices: IBaseHalfVoiceMenuVoice[] = [];
-	if (!input.parameter.options.some(option => option.value === input.voice) && !listed.has(input.voice) && input.voice) {
+	const region = input.region;
+	const offered = (option: VoiceParameter['options'][number]) => !region || !option.regions || option.regions.includes(region.id);
+	const declared = input.parameter.options.find(option => option.value === input.voice);
+	if (declared && region && !offered(declared)) {
+		// A voice of the catalog that another region offers: the card keeps it, and Generate says why it cannot run here.
+		seen.add(declared.value);
+		voices.push(entry(declared.value, declared.label, localize('basehalf.generation.voices.notInRegion', "Not offered in {0}.", region.label), undefined));
+	} else if (!declared && !listed.has(input.voice) && input.voice) {
 		// Another account's voice, or one deleted since: it is sent as it is, and the provider says whether it knows it.
 		// A list cut at its most may hold it no more than the account, which may have it beyond the first voices.
 		seen.add(input.voice);
@@ -230,7 +243,7 @@ export function baseHalfVoiceMenuRows(input: IBaseHalfVoiceMenuInput, query: str
 		voices.push(entry(input.voice, input.voice, notListed, undefined));
 	}
 	for (const option of input.parameter.options) {
-		if (!seen.has(option.value)) {
+		if (!seen.has(option.value) && offered(option)) {
 			seen.add(option.value);
 			const heard = listed.get(option.value);
 			voices.push(entry(option.value, option.label, option.description ?? heard?.description, heard?.sample));

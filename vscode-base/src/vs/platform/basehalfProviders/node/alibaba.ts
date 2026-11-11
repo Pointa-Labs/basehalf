@@ -4,18 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { randomUUID } from 'crypto';
+import { apiPath, readAlibabaError, refusedCreate } from './alibabaApi.js';
+import { listSpeechVoices, SPEECH_MODELS, speechCheck, speechModelOf, speechSubmit } from './alibabaSpeech.js';
 import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
-import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
-import { DEFAULT_HTTP_OPTIONS, retryAfterMs, type FormPart, type HttpAnswer, type ProviderHttp } from './http.js';
+import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, type FormPart, type HttpAnswer, type ProviderHttp } from './http.js';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.js';
-import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import type { AnsweredAtOnce, ModuleCheckResult, ModuleVoices, OutputLocation, ProviderModule, VideoLocation } from './module.js';
 import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ChoiceParameter, Media, ModeId, ModeInputs, ModeLimits, NumberParameter, Params, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ChoiceParameter, Media, ModeId, ModeInputs, ModeLimits, NumberParameter, Params, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef, VoicesRequest } from '../common/basehalfProviderTypes.js';
 
 /**
- * Alibaba Cloud Model Studio (DashScope): the Wan and HappyHorse video models
- * and the Qwen-Image and Wan image models with the user's own key (D59, D64;
- * docs/specs/providers/alibaba.md).
+ * Alibaba Cloud Model Studio (DashScope): the Wan and HappyHorse video models,
+ * the Qwen-Image and Wan image models, and the Qwen-Audio speech models with
+ * the user's own key (D59, D64, D78; docs/specs/providers/alibaba.md).
  *
  * The catalog lists one video model per version. Alibaba has one model id per
  * task of a version (text to video, image to video, references, editing); the
@@ -26,7 +28,8 @@ import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, Chec
  * provider's temporary upload, and elsewhere `check` refuses them.
  *
  * The image models are made by the synchronous call, which answers with the
- * addresses of the images (alibaba.md, "The synchronous call").
+ * addresses of the images (alibaba.md, "The synchronous call"). The speech
+ * models are made in `alibabaSpeech.ts`, which this module hands their calls.
  */
 
 type Region = 'cn' | 'intl';
@@ -65,7 +68,7 @@ interface ModelSpec {
 
 /** Every label of the provider's catalog entry, in English, in one place to translate later. */
 const LABELS = Object.freeze({
-	provider: 'Alibaba (Wan, Qwen-Image)',
+	provider: 'Alibaba (Wan, Qwen)',
 	regionCn: 'China (Beijing)',
 	regionIntl: 'International (Singapore)',
 	apiKey: 'API Key',
@@ -508,12 +511,11 @@ const PROVIDER: CatalogProvider = {
 		{ id: 'intl', label: LABELS.regionIntl, baseUrl: 'https://dashscope-intl.aliyuncs.com', console: 'https://modelstudio.console.alibabacloud.com/ap-southeast-1/model/settings/api-key' }
 	],
 	credentials: [{ id: 'apiKey', label: LABELS.apiKey, placeholder: 'sk-…' }],
-	models: [...MODEL_SPECS.map(spec => spec.model), ...IMAGE_MODEL_SPECS.map(spec => spec.model)]
+	models: [...MODEL_SPECS.map(spec => spec.model), ...IMAGE_MODEL_SPECS.map(spec => spec.model), ...SPEECH_MODELS]
 };
 
 // --- check -----------------------------------------------------------------------------------------
 
-const RATE_LIMIT_NOTE = 'Alibaba Cloud takes at most 5 requests a second and runs at most 5 tasks at once for each video model.';
 const REGION_MEDIA_REASON = 'Alibaba Cloud takes videos and audio only as addresses, and the temporary upload BaseHalf sends them through works in China (Beijing) only.';
 
 function regionOf(value: string): Region {
@@ -670,11 +672,6 @@ const MEDIA_TYPES: Readonly<Record<Family, Partial<Record<PlannedItem['slot'], s
 	'happyhorse-i2v': { startFrame: 'first_frame' },
 	'happyhorse-r2v': { image: 'reference_image' }
 });
-
-/** A path under the endpoint's `/api/v1`, which the endpoint may already end with. */
-function apiPath(http: ProviderHttp, path: string): string {
-	return /\/api\/v1$/i.test(http.endpoint.pathname) ? path : `/api/v1${path}`;
-}
 
 function taskPath(http: ProviderHttp, remoteId: string, suffix = ''): string {
 	return apiPath(http, `/tasks/${encodeURIComponent(remoteId)}${suffix}`);
@@ -1009,17 +1006,7 @@ function imageOutputsOf(body: Record<string, unknown>): OutputLocation[] {
 
 /** A refused create of an image model, read as every error is, with the model's own limit when it is a rate limit. */
 function imageCreateRefused(spec: ImageSpec, answer: HttpAnswer): ProviderFailure {
-	let body: unknown;
-	try {
-		body = answer.json();
-	} catch {
-		body = undefined;
-	}
-	const failure = failureForStatus(answer.status, readAlibabaError(answer.status, body, spec.rateLimit), true);
-	const asked = retryAfterMs(answer.headers['retry-after']);
-	return failure.code === 'rateLimited' && asked !== undefined && asked > 0
-		? new ProviderFailure(failure.code, `${failure.message} The provider asks to wait ${Math.ceil(asked / 1000)} seconds.`, failure.status)
-		: failure;
+	return refusedCreate(answer, spec.rateLimit);
 }
 
 /** Rules of an image model that its declarations cannot express, and a request too large to send. */
@@ -1078,42 +1065,6 @@ function pollStateOf(body: Record<string, unknown>): PollState {
 		default:
 			throw unreadable(`Alibaba Cloud reports a task state BaseHalf does not know: ${output.task_status.slice(0, 40)}.`);
 	}
-}
-
-/** Provider codes that say more than their HTTP status. */
-const ERROR_CODES: Readonly<Record<string, ProviderErrorReading['code']>> = Object.freeze({
-	'Arrearage': 'balance',
-	'PrepaidBillOverdue': 'balance',
-	'PostpaidBillOverdue': 'balance',
-	'BudgetLimitExceeded': 'balance',
-	'AllocationQuota.FreeTierOnly': 'balance',
-	'CommodityNotPurchased': 'rejected',
-	'DataInspectionFailed': 'rejected',
-	'IPInfringementSuspect': 'rejected'
-});
-
-/** The pages advise generating again without Prompt Rewriting when the intellectual-property check refuses. */
-const PROMPT_REWRITING_ADVICE = 'Prompt Rewriting can cause this: turn it off and generate again.';
-/** The shared hosts get no new features after 2026-09-30 (alibaba.md, "Requests"). */
-const WORKSPACE_HOST_ADVICE = 'A model released after September 30, 2026 may be offered only on the host of your workspace: enter its API host, from the Model Studio console, as the Endpoint in Providers.';
-
-/**
- * An error answer of DashScope, `{code, message, request_id}`: its message with
- * its code and what the user can do, and the contract's code where the
- * provider's says more. A rate-limited answer adds `rateLimitNote`.
- */
-function readAlibabaError(status: number, body: unknown, rateLimitNote = RATE_LIMIT_NOTE): ProviderErrorReading | undefined {
-	if (!isRecord(body)) {
-		return undefined;
-	}
-	const code = typeof body.code === 'string' && body.code.trim() ? body.code.trim() : undefined;
-	const message = typeof body.message === 'string' ? body.message.trim() : '';
-	const throttled = status === 429 && (code === undefined || code.startsWith('Throttling'));
-	const unknownModel = code === 'ModelNotFound' || (code === 'InvalidParameter' && /model not exist/i.test(message));
-	const advice = unknownModel ? WORKSPACE_HOST_ADVICE : code === 'IPInfringementSuspect' ? PROMPT_REWRITING_ADVICE : '';
-	const text = [message, code ? `(${code})` : '', throttled ? rateLimitNote : '', advice].filter(Boolean).join(' ');
-	const mapped = code && Object.hasOwn(ERROR_CODES, code) ? ERROR_CODES[code] : undefined;
-	return text || mapped ? { ...(text ? { message: text } : {}), ...(mapped ? { code: mapped } : {}) } : undefined;
 }
 
 function specOf(model: string): ModelSpec {
@@ -1187,6 +1138,10 @@ export const ALIBABA: ProviderModule = Object.freeze({
 		if (image) {
 			return imageCheck(image, request, media);
 		}
+		const speech = speechModelOf(request.model);
+		if (speech) {
+			return speechCheck(speech, request);
+		}
 		const spec = SPECS.get(request.model);
 		if (!spec) {
 			return { problems: [] };
@@ -1207,6 +1162,10 @@ export const ALIBABA: ProviderModule = Object.freeze({
 		const image = IMAGE_SPECS.get(request.model);
 		if (image) {
 			return imageSubmit(image, request, http);
+		}
+		const speech = speechModelOf(request.model);
+		if (speech) {
+			return speechSubmit(speech, request, http);
 		}
 		const spec = specOf(request.model);
 		if (spec.model.providerModels[request.region] === undefined) {
@@ -1260,5 +1219,13 @@ export const ALIBABA: ProviderModule = Object.freeze({
 			return false;
 		}
 		throw rejected(readAlibabaError(400, body)?.message ?? 'Alibaba Cloud refused to cancel the task (HTTP 400).', 400);
+	},
+
+	async listVoices(request: VoicesRequest, http: ProviderHttp, limit: number): Promise<ModuleVoices> {
+		const speech = speechModelOf(request.model);
+		if (!speech) {
+			throw rejected(`${LABELS.provider} lists voices only for its speech models.`);
+		}
+		return listSpeechVoices(speech, request, http, limit);
 	}
 });

@@ -6,7 +6,7 @@
 import { isVoiceId, MAX_SAMPLE_ADDRESS_LENGTH } from '../common/basehalfProviderVoices.js';
 import { isRecord, unreadable } from './failure.js';
 import { isSampleAddress } from './http.js';
-import type { CatalogModel, ListedVoice, VoiceParameter, VoicesResult } from '../common/basehalfProviderTypes.js';
+import type { CatalogModel, CatalogVoiceOption, ListedVoice, Params, VoiceParameter, VoicesResult } from '../common/basehalfProviderTypes.js';
 
 /**
  * The voices of a speech model as `voices` answers them (D78; providers,
@@ -22,6 +22,19 @@ const MAX_DESCRIPTION_LENGTH = 300;
 /** The `voice` parameter of a model, the one of kind `voice`; none for a model that speaks in no voice. */
 export function voiceParameterOf(model: CatalogModel): VoiceParameter | undefined {
 	return model.parameters.find((parameter): parameter is VoiceParameter => parameter.kind === 'voice');
+}
+
+/**
+ * The voice of the catalog that `params` name when only other regions than
+ * `region` offer it (providers, "Parameters"), which `check` refuses there;
+ * none for a voice every region of the model has, or one the catalog does
+ * not declare.
+ */
+export function voiceOutsideRegion(model: CatalogModel, params: Params, region: string): CatalogVoiceOption | undefined {
+	const parameter = voiceParameterOf(model);
+	const value = parameter ? params[parameter.name] ?? parameter.default : undefined;
+	const option = parameter?.options.find(candidate => candidate.value === value);
+	return option?.regions && !option.regions.includes(region) ? option : undefined;
 }
 
 /**

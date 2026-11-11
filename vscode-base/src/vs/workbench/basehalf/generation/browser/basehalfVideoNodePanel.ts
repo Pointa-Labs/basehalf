@@ -887,7 +887,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			texts: this.texts,
 			catalog,
 			setup: provider => this.providerSettings.getStatus(provider),
-			voices: (provider, region) => this.voiceService.voices(provider, region).list,
+			voices: (provider, region, model) => this.voiceService.voices(provider, region, model).list,
 			...(this.lastCheck && this.lastCheck.model === modelKey ? { check: this.lastCheck.result } : {}),
 			generating: this.generationService.isGenerating(this.resource),
 			prompt: this.editor.value

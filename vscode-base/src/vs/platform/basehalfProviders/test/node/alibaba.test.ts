@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Alibaba (Wan, Qwen-Image) provider module (docs/specs/providers/alibaba.md)
+ * The Alibaba (Wan, Qwen) provider module (docs/specs/providers/alibaba.md)
  * through the provider commands, against a local server that answers like
  * DashScope, a second one that answers like the OSS host of its temporary
  * upload, and one that serves the images it makes. Nothing here talks to
@@ -202,7 +202,7 @@ suite('BaseHalf providers: alibaba', () => {
 			models: provider.models.filter(model => model.kind === 'video').map(model => [model.id, model.label, `${model.providerModels.cn} ${model.providerModels.intl}`, model.modes.map(mode => mode.id).join('+'), model.prompt.required])
 		}, {
 			id: 'alibaba',
-			label: 'Alibaba (Wan, Qwen-Image)',
+			label: 'Alibaba (Wan, Qwen)',
 			regions: [['cn', 'https://dashscope.aliyuncs.com'], ['intl', 'https://dashscope-intl.aliyuncs.com']],
 			credentials: ['apiKey'],
 			models: [
@@ -1032,7 +1032,8 @@ suite('BaseHalf providers: alibaba', () => {
 
 	test('the image models follow the video models: PNG, answered at once, in both regions, with their references, limits, and settings', () => {
 		const provider = buildCatalog([ALIBABA]).providers[0];
-		assert.deepEqual(provider.models.map(model => model.kind), [...Array(7).fill('video'), ...Array(6).fill('image')]);
+		// The speech models follow the image models (alibabaSpeech.test.ts).
+		assert.deepEqual(provider.models.map(model => model.kind), [...Array(7).fill('video'), ...Array(6).fill('image'), ...Array(4).fill('audio')]);
 		const ratio = `ratio: adaptive=Adaptive ${RATIOS.map(entry => `${entry}=${entry}`).join(' ')} = adaptive`;
 		const seed = 'seed? (More): 0-2147483647';
 		const qwen = (negativePrompt: boolean) => [

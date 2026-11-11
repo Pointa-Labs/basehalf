@@ -655,6 +655,31 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		});
 	});
 
+	test('a voice of the catalog that only another region offers is not listed in the region in use, and the card\'s own such voice heads Voices by its name, saying that the region does not offer it', async () => {
+		// Pike speaks only in the south.
+		const southern: VoiceParameter = { ...CLOSED_VOICE, options: CLOSED_VOICE.options.map(option => option.value === 'vx-pike' ? { ...option, regions: ['south'] } : option) };
+		const model: IBaseHalfVideoCatalogModel = { ...CLOSED_SPEECH, parameters: CLOSED_SPEECH.parameters.map(parameter => parameter === CLOSED_VOICE ? southern : parameter) };
+		const ember = open({ provider: TWO_REGIONS, model, parameter: southern });
+		const pike = open({ provider: TWO_REGIONS, model, parameter: southern, voice: 'vx-pike' });
+		await settle();
+		const inMain = { ember: rows(ember.element), pike: rows(pike.element) };
+		settings.regions.set('dunlin', 'south');
+		settings.change();
+		await settle();
+		assert.deepStrictEqual({ inMain, inSouth: { ember: rows(ember.element), pike: rows(pike.element) }, name: baseHalfVoiceLabel(southern, 'vx-pike', undefined) }, {
+			inMain: {
+				ember: ['# Voices', 'Ember — Warm, low ✓ <', 'Sable'],
+				pike: ['# Voices', 'Pike — Not offered in Dunlin. ✓ <', 'Ember — Warm, low', 'Sable']
+			},
+			inSouth: {
+				ember: ['# Voices', 'Ember — Warm, low ✓ <', 'Pike — Bright, quick', 'Sable'],
+				pike: ['# Voices', 'Ember — Warm, low', 'Pike — Bright, quick ✓ <', 'Sable']
+			},
+			// The button names it as the catalog does, in any region.
+			name: 'Pike'
+		});
+	});
+
 	test('Tab reaches Set Up from the search field and leaves the menu after it; Space never types into the search', async () => {
 		settings.notSetUp.add('dunlin');
 		const { menu, element } = open();
@@ -670,29 +695,57 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		assert.deepStrictEqual({ spaceTyped: !space.defaultPrevented, onAction, back, dismissed }, { spaceTyped: false, onAction: true, back: true, dismissed: 1 });
 	});
 
-	test('the window keeps the last list per provider and region, asks once at a time, and says why when the credentials cannot be read', async () => {
+	test('the window keeps the last list per provider, region, and model, asks once at a time, and says why when the credentials cannot be read', async () => {
 		const answer = new DeferredPromise<unknown>();
 		providers.voices = () => answer.p;
 		const first = service.refresh(DUNLIN, SPEECH);
 		const second = service.refresh(DUNLIN, SPEECH);
-		const whileAsked = service.voices('dunlin', 'main');
+		const whileAsked = service.voices('dunlin', 'main', 'dunlin-voice');
 		answer.complete({ ok: true, value: LIST });
 		await Promise.all([first, second]);
-		const kept = service.voices('dunlin', 'main');
+		const kept = service.voices('dunlin', 'main', 'dunlin-voice');
 		settings.unreadable = 'BaseHalf cannot read the credentials of Dunlin Sound. Set them again in Providers.';
 		await service.refresh(DUNLIN, SPEECH);
 		assert.deepStrictEqual({
 			asked: providers.listed.length,
 			whileAsked,
 			kept: { voices: kept.list?.voices.length, loading: kept.loading },
-			otherRegion: service.voices('dunlin', 'elsewhere'),
-			unreadable: { voices: service.voices('dunlin', 'main').list?.voices.length, error: service.voices('dunlin', 'main').error }
+			otherRegion: service.voices('dunlin', 'elsewhere', 'dunlin-voice'),
+			otherModel: service.voices('dunlin', 'main', 'dunlin-voice-2'),
+			unreadable: { voices: service.voices('dunlin', 'main', 'dunlin-voice').list?.voices.length, error: service.voices('dunlin', 'main', 'dunlin-voice').error }
 		}, {
 			asked: 1,
 			whileAsked: { loading: true },
 			kept: { voices: 4, loading: false },
 			otherRegion: { loading: false },
+			// A provider's voices may belong to its models, as each of Alibaba's has its own: another model has a list of its own.
+			otherModel: { loading: false },
 			unreadable: { voices: 4, error: 'BaseHalf cannot read the credentials of Dunlin Sound. Set them again in Providers.' }
+		});
+	});
+
+	test('another model of the provider is asked for its own list, also while the first model\'s request is on its way, and neither list stands for the other', async () => {
+		const second: IBaseHalfVideoCatalogModel = { ...SPEECH, id: 'dunlin-voice-2' };
+		const answers = new Map<string, DeferredPromise<unknown>>([['dunlin-voice', new DeferredPromise<unknown>()], ['dunlin-voice-2', new DeferredPromise<unknown>()]]);
+		providers.voices = request => answers.get(request.model)!.p;
+		const first = service.refresh(DUNLIN, SPEECH);
+		const other = service.refresh(DUNLIN, second);
+		answers.get('dunlin-voice-2')!.complete({ ok: true, value: { voices: [{ id: 'dunlin-voice-2-coast-1', label: 'coast', own: true }] } });
+		await other;
+		const whileFirstAsked = { first: service.voices('dunlin', 'main', 'dunlin-voice'), second: service.voices('dunlin', 'main', 'dunlin-voice-2').list?.voices.map(voice => voice.id) };
+		answers.get('dunlin-voice')!.complete({ ok: true, value: LIST });
+		await first;
+		assert.deepStrictEqual({
+			asked: providers.listed.map(request => request.model),
+			whileFirstAsked,
+			first: service.voices('dunlin', 'main', 'dunlin-voice').list?.voices.length,
+			// Asking once for the second model asks nothing more: its own list is there.
+			askedOnce: await service.askOnce(DUNLIN, second, 'main').then(() => providers.listed.length)
+		}, {
+			asked: ['dunlin-voice', 'dunlin-voice-2'],
+			whileFirstAsked: { first: { loading: true }, second: ['dunlin-voice-2-coast-1'] },
+			first: 4,
+			askedOnce: 2
 		});
 	});
 
@@ -700,7 +753,7 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		// A provider that is not set up is not asked, and nothing kept stops the window from asking once it is.
 		settings.notSetUp.add('dunlin');
 		await service.askOnce(DUNLIN, SPEECH, 'main');
-		const notSetUp = { asked: providers.listed.length, voices: service.voices('dunlin', 'main') };
+		const notSetUp = { asked: providers.listed.length, voices: service.voices('dunlin', 'main', 'dunlin-voice') };
 		settings.notSetUp.delete('dunlin');
 		// The list of the region in use names none of another region's voices.
 		await service.askOnce(TWO_REGIONS, SPEECH, 'south');
@@ -709,10 +762,10 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		providers.voices = () => answer.p;
 		const first = service.askOnce(DUNLIN, SPEECH, 'main');
 		const second = service.askOnce(DUNLIN, SPEECH, 'main');
-		const whileAsked = service.voices('dunlin', 'main');
+		const whileAsked = service.voices('dunlin', 'main', 'dunlin-voice');
 		answer.complete({ ok: true, value: LIST });
 		await Promise.all([first, second]);
-		const answered = { asked: providers.listed.map(request => request.region), voices: service.voices('dunlin', 'main').list?.voices.length };
+		const answered = { asked: providers.listed.map(request => request.region), voices: service.voices('dunlin', 'main', 'dunlin-voice').list?.voices.length };
 		// Drawing again asks nothing more after an answer, nor after a failure.
 		await service.askOnce(DUNLIN, SPEECH, 'main');
 		settings.regions.set('dunlin', 'south');
@@ -725,7 +778,7 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 			whileAsked,
 			answered,
 			afterwards: providers.listed.map(request => request.region),
-			failed: service.voices('dunlin', 'south')
+			failed: service.voices('dunlin', 'south', 'dunlin-voice')
 		}, {
 			notSetUp: { asked: 0, voices: { loading: false } },
 			otherRegion: 0,

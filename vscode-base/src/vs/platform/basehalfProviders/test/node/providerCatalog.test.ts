@@ -133,6 +133,20 @@ suite('BaseHalf providers: providerCatalog', () => {
 		assert.doesNotThrow(audioCatalogWith(provider => { voice(provider).listed = false; }, false));
 	});
 
+	test('a voice that not every region of its model offers names regions that offer the model, each once, and the default voice names none', () => {
+		const voice = (provider: Mutable<CatalogProvider>, model = 'speech-fixed') => audioModel(provider, model).parameters[0] as Mutable<VoiceParameter>;
+		assert.doesNotThrow(audioCatalogWith(provider => { voice(provider).options[1].regions = ['away']; }));
+		assert.deepEqual(buildCatalog([testAudioModule({ describe: () => { const provider = structuredClone(testAudioProvider()) as Mutable<CatalogProvider>; voice(provider).options[1].regions = ['away']; return provider as CatalogProvider; } })]).providers[0].models[1].parameters[0], {
+			name: 'voice', label: 'Voice', kind: 'voice', options: [{ value: 'Kore', label: 'Kore', description: 'Firm' }, { value: 'Puck', label: 'Puck', description: 'Upbeat', regions: ['away'] }], default: 'Kore'
+		});
+		assert.throws(audioCatalogWith(provider => { voice(provider).options[1].regions = []; }), /model speech-fixed, parameter voice: the regions of voice Puck must name at least one region, each once/);
+		assert.throws(audioCatalogWith(provider => { voice(provider).options[1].regions = ['away', 'away']; }), /the regions of voice Puck must name at least one region, each once/);
+		assert.throws(audioCatalogWith(provider => { voice(provider).options[1].regions = ['moon']; }), /the voice Puck names the region moon, which does not offer the model/);
+		assert.throws(audioCatalogWith(provider => { voice(provider).options[0].regions = ['home']; }), /the default voice Kore is offered wherever the model is, and names no regions/);
+		// speech-1 is offered at home only.
+		assert.throws(audioCatalogWith(provider => { voice(provider, 'speech-1').options[1].regions = ['away']; }), /model speech-1, parameter voice: the voice bo names the region away, which does not offer the model/);
+	});
+
 	test('provider ids are unique, and so are model ids and parameter names within their parent', () => {
 		assert.throws(() => buildCatalog([testModule(), testModule()]), /provider testprovider: declared twice/);
 		assert.throws(catalogWith(provider => {

@@ -672,11 +672,15 @@ export function normalizeBaseHalfVideoParams(model: IBaseHalfVideoCatalogModel, 
  * to its provider (providers, "Parameters"): a model of another provider
  * keeps the voice only when it is among its own voices, and otherwise speaks
  * in its default, even where its provider lists voices and would take any
- * id; a model of the same provider keeps it.
+ * id; a model of the same provider keeps it, unless the previous model's
+ * catalog declares it and the new model's does not, as where each model
+ * speaks in voices of its own.
  */
 export function baseHalfVideoChooseModel(generation: IBaseHalfVideoGenerationChoice | undefined, ref: IBaseHalfVideoModelRef): IBaseHalfVideoGenerationChoice {
 	const mode = baseHalfVideoModeOf(ref.model, generation?.mode);
-	const params = generation?.provider === ref.provider.id ? generation.params : withoutOtherProvidersVoices(ref.model, generation?.params);
+	const params = generation?.provider === ref.provider.id
+		? withoutOtherModelsVoices(ref.provider.models.find(model => model.id === generation.model), ref.model, generation.params)
+		: withoutOtherProvidersVoices(ref.model, generation?.params);
 	return Object.freeze({
 		provider: ref.provider.id,
 		model: ref.model.id,
@@ -694,6 +698,30 @@ function withoutOtherProvidersVoices(model: IBaseHalfVideoCatalogModel, params: 
 	const kept: Record<string, BaseHalfVideoParamValue> = { ...params };
 	for (const parameter of voices) {
 		if (!parameter.options.some(option => option.value === kept[parameter.name])) {
+			delete kept[parameter.name];
+		}
+	}
+	return kept;
+}
+
+/**
+ * The values without a voice of the previous model's catalog that the new
+ * model of the same provider does not declare: a voice of a model's catalog
+ * belongs to that model, while one of the account, which no catalog declares,
+ * is the provider's and is kept.
+ */
+function withoutOtherModelsVoices(previous: IBaseHalfVideoCatalogModel | undefined, model: IBaseHalfVideoCatalogModel, params: BaseHalfVideoParams | undefined): BaseHalfVideoParams | undefined {
+	if (!params || !previous || previous.id === model.id) {
+		return params;
+	}
+	const kept: Record<string, BaseHalfVideoParamValue> = { ...params };
+	for (const parameter of model.parameters) {
+		const value = kept[parameter.name];
+		if (parameter.kind !== 'voice' || typeof value !== 'string' || parameter.options.some(option => option.value === value)) {
+			continue;
+		}
+		const before = previous.parameters.find((candidate): candidate is IBaseHalfVideoVoiceParameter => candidate.kind === 'voice' && candidate.name === parameter.name);
+		if (before?.options.some(option => option.value === value)) {
 			delete kept[parameter.name];
 		}
 	}

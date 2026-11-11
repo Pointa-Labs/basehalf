@@ -739,7 +739,7 @@ suite('BaseHalfVideoCatalog', () => {
 			});
 		});
 
-		test('a voice belongs to its provider: a model of another provider keeps it only among its own voices and otherwise speaks in its default; a model of the same provider keeps it', () => {
+		test('a voice belongs to its provider: a model of another provider keeps it only among its own voices and otherwise speaks in its default; a model of the same provider keeps it, unless the previous model\'s catalog declares it and the new model\'s does not', () => {
 			// A second provider whose speech model lists voices too, as ElevenLabs, Fish Audio, and MiniMax do; it declares one of Dunlin's ids as well.
 			const egretVoice: IBaseHalfVideoCatalogModel = {
 				...DUNLIN_VOICE,
@@ -753,7 +753,18 @@ suite('BaseHalfVideoCatalog', () => {
 			};
 			// Dunlin's second speech model, to choose within one provider.
 			const lite: IBaseHalfVideoCatalogModel = { ...DUNLIN_VOICE, id: 'dunlin-voice-lite', label: 'Dunlin Voice Lite', providerModels: { main: 'voice-lite-1' } };
-			const { catalog, problems } = parseBaseHalfVideoCatalog({ schema: 1, providers: [{ ...DUNLIN, models: [DUNLIN_VOICE, lite] }, { ...DUNLIN, id: 'egret', label: 'Egret Speech', models: [egretVoice] }] });
+			// A third, which speaks in voices of its own and Ember, as each of Alibaba's models has its own.
+			const wren: IBaseHalfVideoCatalogModel = {
+				...DUNLIN_VOICE,
+				id: 'dunlin-voice-wren',
+				label: 'Dunlin Voice Wren',
+				providerModels: { main: 'voice-wren-1' },
+				parameters: [
+					{ name: 'voice', label: 'Voice', kind: 'voice', default: 'vx-wren', listed: true, options: [{ value: 'vx-wren', label: 'Wren' }, { value: 'vx-ember', label: 'Ember' }] },
+					{ name: 'speed', label: 'Speed', kind: 'number', min: 0.5, max: 2, step: 0.05, default: 1 }
+				]
+			};
+			const { catalog, problems } = parseBaseHalfVideoCatalog({ schema: 1, providers: [{ ...DUNLIN, models: [DUNLIN_VOICE, lite, wren] }, { ...DUNLIN, id: 'egret', label: 'Egret Speech', models: [egretVoice] }] });
 			const chosen = (generation: IBaseHalfVideoGenerationChoice, provider: string, model: string) => baseHalfVideoChooseModel(generation, findBaseHalfVideoModel(catalog, provider, model)!).params;
 			const dunlinWith = (voice: string) => ({ provider: 'dunlin', model: 'dunlin-voice', mode: 'reference' as const, params: { voice, speed: 1.25 } });
 			assert.deepStrictEqual({
@@ -765,8 +776,14 @@ suite('BaseHalfVideoCatalog', () => {
 				back: chosen({ provider: 'egret', model: 'egret-voice', mode: 'reference', params: { voice: 'eg-default' } }, 'dunlin', 'dunlin-voice'),
 				// A voice that the other model declares too is kept.
 				shared: chosen(dunlinWith('vx-sable'), 'egret', 'egret-voice'),
-				// Within one provider, the account's voice stays.
+				// Within one provider, the account's voice stays, and so does a voice both models declare.
 				sameProvider: chosen(dunlinWith('own-narrator'), 'dunlin', 'dunlin-voice-lite'),
+				sameProviderCatalog: chosen(dunlinWith('vx-pike'), 'dunlin', 'dunlin-voice-lite'),
+				accountToOwnVoices: chosen(dunlinWith('own-narrator'), 'dunlin', 'dunlin-voice-wren'),
+				sharedWithOwnVoices: chosen(dunlinWith('vx-ember'), 'dunlin', 'dunlin-voice-wren'),
+				// A voice of the previous model's catalog that the new model does not declare is the previous model's: the new one speaks in its default.
+				catalogToOwnVoices: chosen(dunlinWith('vx-pike'), 'dunlin', 'dunlin-voice-wren'),
+				ownVoiceBack: chosen({ provider: 'dunlin', model: 'dunlin-voice-wren', mode: 'reference', params: { voice: 'vx-wren' } }, 'dunlin', 'dunlin-voice'),
 				// A card without a provider has no voice of the new provider's.
 				noProvider: chosen({ model: 'dunlin-voice', params: { voice: 'own-narrator' } }, 'dunlin', 'dunlin-voice')
 			}, {
@@ -776,6 +793,11 @@ suite('BaseHalfVideoCatalog', () => {
 				back: { voice: 'vx-ember', speed: 1 },
 				shared: { voice: 'vx-sable', speed: 1.25 },
 				sameProvider: { voice: 'own-narrator', speed: 1.25 },
+				sameProviderCatalog: { voice: 'vx-pike', speed: 1.25 },
+				accountToOwnVoices: { voice: 'own-narrator', speed: 1.25 },
+				sharedWithOwnVoices: { voice: 'vx-ember', speed: 1.25 },
+				catalogToOwnVoices: { voice: 'vx-wren', speed: 1.25 },
+				ownVoiceBack: { voice: 'vx-ember', speed: 1 },
 				noProvider: { voice: 'vx-ember', speed: 1 }
 			});
 		});

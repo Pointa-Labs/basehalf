@@ -35,7 +35,7 @@ export interface IBaseHalfGenerationRecordState {
 	readonly inputs: readonly IBaseHalfVideoInputSource[];
 	readonly catalog: BaseHalfVideoCatalogState;
 	/** The provider's last list of voices in a region, which names a voice the catalog does not (D78). */
-	readonly voices?: (provider: string, region: string) => VoicesResult | undefined;
+	readonly voices?: (provider: string, region: string, model: string) => VoicesResult | undefined;
 	/** What an edit of the file in Card Detail did (editing media, "Generation cards"). */
 	readonly edit?: IBaseHalfMediaChoices;
 }
@@ -117,7 +117,7 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 	// The voice a speech model spoke in, as it was sent (D78); without the catalog it is among the recorded values.
 	const voiceParameter = ref ? baseHalfVoiceParameter(ref.model) : undefined;
 	const spokenIn = voiceParameter ? made.params[voiceParameter.name] : undefined;
-	const voice = typeof spokenIn === 'string' && spokenIn ? baseHalfVoiceLabel(voiceParameter, spokenIn, state.voices?.(made.provider, made.region)) : undefined;
+	const voice = typeof spokenIn === 'string' && spokenIn ? baseHalfVoiceLabel(voiceParameter, spokenIn, state.voices?.(made.provider, made.region, made.model)) : undefined;
 	return Object.freeze({
 		readable: true,
 		inputs: Object.freeze(inputs),

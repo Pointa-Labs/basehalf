@@ -77,7 +77,7 @@ export interface IBaseHalfVideoPanelState {
 	readonly catalog: BaseHalfVideoCatalogState;
 	readonly setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup;
 	/** The provider's last list of voices in a region, which names a voice the catalog does not (D78). */
-	readonly voices?: (provider: string, region: string) => VoicesResult | undefined;
+	readonly voices?: (provider: string, region: string, model: string) => VoicesResult | undefined;
 	/** The last answer of `check` for the card's model. */
 	readonly check?: IBaseHalfVideoCheckResult;
 	/** The card generates, in this window or in another one of this computer. */
@@ -351,7 +351,7 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const row = inputRow(modeId, modeInputs, items);
 	// The voice of a model that speaks has its own button, not a setting (D78).
 	const voiceParameter = ref && mode ? baseHalfVoiceParameter(ref.model, mode.id) : undefined;
-	const voice = ref && region && voiceParameter ? voiceButton(voiceParameter, params, state.voices?.(ref.provider.id, region.id)) : undefined;
+	const voice = ref && region && voiceParameter ? voiceButton(voiceParameter, params, state.voices?.(ref.provider.id, region.id, ref.model.id)) : undefined;
 	return Object.freeze({
 		...(ref ? { ref } : {}),
 		...(mode ? { mode } : {}),

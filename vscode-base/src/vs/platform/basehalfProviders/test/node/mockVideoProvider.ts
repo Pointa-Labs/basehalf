@@ -43,6 +43,11 @@
  *     succeeded over a few seconds, with `n` choices (2 unless asked), each
  *     the address of an MP3 it serves without a key.
  *
+ * - Alibaba's DashScope under `/alibaba`, with `Authorization: Bearer <key>`:
+ *   the speech call of the Qwen-Audio models, which answers at once with the
+ *   address of an MP3 it serves without a key, and the list of the account's
+ *   voices (`mockAlibabaSpeech.ts`).
+ *
  * - A relay under `/relay/v1`, with `Authorization: Bearer <key>`, in the
  *   formats of custom providers (D108):
  *   - `POST /images/generations` (JSON) and `POST /images/edits` (a
@@ -62,7 +67,8 @@
  *     [--port <port>] [--key <key>] [--seconds <seconds>] [--fail <failure>]
  *
  * Its base URLs are `http://127.0.0.1:<port>/api/v3`,
- * `http://127.0.0.1:<port>/elevenlabs`, and `http://127.0.0.1:<port>/mureka`.
+ * `http://127.0.0.1:<port>/elevenlabs`, `http://127.0.0.1:<port>/mureka`, and
+ * `http://127.0.0.1:<port>/alibaba`.
  * Failures, for every request (`--fail`, or `POST /__mock/configure` with
  * `{"fail": ...}`), or for one request through a marker in its prompt, its
  * text, its lyrics, or its description:
@@ -101,6 +107,7 @@ import { readFileSync } from 'fs';
 import type { IncomingMessage, Server, ServerResponse } from 'http';
 import type { AddressInfo, Socket } from 'net';
 import * as zlib from 'zlib';
+import { createMockAlibaba } from './mockAlibabaSpeech.js';
 
 export const MOCK_VIDEO_PROVIDER_KEY = 'basehalf-mock-key';
 // The fixtures are in `scripts/fixtures/`; this module is in `src/vs/platform/basehalfProviders/test/node/`, or at the same depth in `out/`.
@@ -168,6 +175,8 @@ export interface MockVideoProvider {
 	readonly elevenLabsUrl: string;
 	/** The base URL to enter as Mureka's endpoint: `http://127.0.0.1:<port>/mureka`. */
 	readonly murekaUrl: string;
+	/** The base URL to enter as Alibaba's endpoint: `http://127.0.0.1:<port>/alibaba`. */
+	readonly alibabaUrl: string;
 	/** The API address of a custom provider at the local relay: `http://127.0.0.1:<port>/relay/v1`. */
 	readonly relayUrl: string;
 	readonly key: string;
@@ -268,6 +277,16 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 	const sockets = new Set<Socket>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
 	let origin = '';
+	const alibaba = createMockAlibaba({
+		key,
+		origin: () => origin,
+		fail: () => fail,
+		record: entry => requests.push(entry),
+		sound: tag => mockMp3(MOCK_SOUND_SECONDS, uniqueFiles ? tag : undefined),
+		later: answer => later(answer),
+		json,
+		sendSound
+	});
 
 	const { createServer } = await import('http');
 	const server: Server = createServer((request, response) => {
@@ -354,6 +373,10 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 		}
 		if (path === '/mureka' || path.startsWith('/mureka/')) {
 			mureka(request, response, path.slice('/mureka'.length), body);
+			return;
+		}
+		if (path === '/alibaba' || path.startsWith('/alibaba/')) {
+			alibaba(request, response, path.slice('/alibaba'.length), body);
 			return;
 		}
 		if (path === '/relay/v1' || path.startsWith('/relay/v1/')) {
@@ -911,6 +934,7 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 		baseUrl: `${origin}/api/v3`,
 		elevenLabsUrl: `${origin}/elevenlabs`,
 		murekaUrl: `${origin}/mureka`,
+		alibabaUrl: `${origin}/alibaba`,
 		relayUrl: `${origin}/relay/v1`,
 		key,
 		requests,

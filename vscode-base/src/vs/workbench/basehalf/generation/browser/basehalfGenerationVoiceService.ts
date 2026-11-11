@@ -151,8 +151,8 @@ interface ICurrentSample {
 
 /**
  * The voices of the speech models in this window (D78): the last list of
- * each provider and region, asked for through the provider service with
- * this computer's access as a generation is, and the sample that plays.
+ * each provider, region, and model, asked for through the provider service
+ * with this computer's access as a generation is, and the sample that plays.
  */
 export class BaseHalfGenerationVoiceService extends Disposable implements IBaseHalfGenerationVoiceService {
 	declare readonly _serviceBrand: undefined;
@@ -190,15 +190,15 @@ export class BaseHalfGenerationVoiceService extends Disposable implements IBaseH
 		super.dispose();
 	}
 
-	voices(provider: string, region: string): IBaseHalfVoices {
-		const entry = this.lists.get(voicesKey(provider, region));
+	voices(provider: string, region: string, model: string): IBaseHalfVoices {
+		const entry = this.lists.get(voicesKey(provider, region, model));
 		return entry
 			? Object.freeze({ ...(entry.list ? { list: entry.list } : {}), loading: entry.loading, ...(entry.error !== undefined ? { error: entry.error } : {}) })
 			: NO_VOICES;
 	}
 
 	refresh(provider: IBaseHalfVideoCatalogProvider, model: IBaseHalfVideoCatalogModel): Promise<void> {
-		const key = voicesKey(provider.id, this.providerSettings.getStatus(provider).region.id);
+		const key = voicesKey(provider.id, this.providerSettings.getStatus(provider).region.id, model.id);
 		let entry = this.lists.get(key);
 		if (!entry) {
 			entry = { loading: false };
@@ -229,7 +229,7 @@ export class BaseHalfGenerationVoiceService extends Disposable implements IBaseH
 
 	askOnce(provider: IBaseHalfVideoCatalogProvider, model: IBaseHalfVideoCatalogModel, region: string): Promise<void> {
 		// Asked there before: a list, a request on its way, or a failure.
-		const asked = this.lists.get(voicesKey(provider.id, region));
+		const asked = this.lists.get(voicesKey(provider.id, region, model.id));
 		if (asked) {
 			return asked.request ?? Promise.resolve();
 		}
@@ -429,8 +429,9 @@ export class BaseHalfGenerationVoiceService extends Disposable implements IBaseH
 
 const NO_VOICES: IBaseHalfVoices = Object.freeze({ loading: false });
 
-function voicesKey(provider: string, region: string): string {
-	return `${provider}/${region}`;
+/** A list of voices is the provider's in a region for one model: a provider's voices may belong to its models, as each of Alibaba's has its own. */
+function voicesKey(provider: string, region: string, model: string): string {
+	return `${provider}/${region}/${model}`;
 }
 
 function notAnswered(): string {

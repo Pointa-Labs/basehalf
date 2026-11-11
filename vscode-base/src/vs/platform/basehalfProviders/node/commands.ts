@@ -18,7 +18,7 @@ import { customProviderModule } from './custom.js';
 import { checkPlace, placeFile, type PlaceFileSystem } from './place.js';
 import { isPlannedInput, writeSharedPromptNames } from './prompt.js';
 import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES, validateProvider } from './registry.js';
-import { keptVoices, MAX_LISTED_VOICES, voiceParameterOf } from './voices.js';
+import { keptVoices, MAX_LISTED_VOICES, voiceOutsideRegion, voiceParameterOf } from './voices.js';
 import type {
 	CancelResult,
 	Catalog,
@@ -391,6 +391,11 @@ export class VideoProviderCommands {
 			...checkCounts(model, mode, counts),
 			...checkPrompt(model, mode, request.prompt, counts),
 		];
+		const voice = voiceOutsideRegion(model, request.params, region.id);
+		if (voice) {
+			const where = provider.regions.filter(candidate => voice.regions?.includes(candidate.id)).map(candidate => candidate.label).join(', ');
+			problems.push(`${model.label} offers the voice ${voice.label} only in ${where}. Choose another voice, or another region in Providers.`);
+		}
 		const parameterProblems = checkParams(model, mode, request.params, counts);
 		if (parameterProblems.length) {
 			return { problems: [...problems, ...parameterProblems], prompt };

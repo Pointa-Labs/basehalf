@@ -24,9 +24,10 @@ export interface VideoSmokeProvider {
 	readonly mock: MockVideoProvider;
 	/** The endpoint the smoke enters for ByteDance: the relay, at the path of ModelArk's own API. */
 	readonly endpoint: string;
-	/** The endpoints the smoke enters for ElevenLabs and Mureka: the relay, at the paths where the provider answers like each. */
+	/** The endpoints the smoke enters for ElevenLabs, Mureka, and Alibaba: the relay, at the paths where the provider answers like each. */
 	readonly elevenLabsEndpoint: string;
 	readonly murekaEndpoint: string;
+	readonly alibabaEndpoint: string;
 	/** The API address the smoke enters for a custom provider (D108): the relay, at the path where the provider answers in the formats of custom providers. */
 	readonly relayEndpoint: string;
 	readonly key: string;
@@ -47,8 +48,8 @@ export interface VideoSmokeProvider {
 	close(): Promise<void>;
 }
 
-/** The requests that create a task, images answered at once, or a sound: of ModelArk, of ElevenLabs, and of Mureka. */
-const CREATE_PATH = /\/contents\/generations\/tasks$|\/videos$|\/images\/generations$|\/elevenlabs\/v1\/(?:text-to-speech\/[^/]+|sound-generation)$|\/mureka\/v1\/(?:song\/(?:easy-)?generate|instrumental\/generate)$/;
+/** The requests that create a task, images answered at once, or a sound: of ModelArk, of ElevenLabs, of Mureka, and of Alibaba. */
+const CREATE_PATH = /\/contents\/generations\/tasks$|\/videos$|\/images\/generations$|\/elevenlabs\/v1\/(?:text-to-speech\/[^/]+|sound-generation)$|\/mureka\/v1\/(?:song\/(?:easy-)?generate|instrumental\/generate)$|\/alibaba\/api\/v1\/services\/audio\/tts\/SpeechSynthesizer$/;
 
 /**
  * Starts the test provider behind a relay on 127.0.0.1, answering files of
@@ -119,6 +120,7 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 		endpoint: `http://127.0.0.1:${port}/api/v3`,
 		elevenLabsEndpoint: `http://127.0.0.1:${port}/elevenlabs`,
 		murekaEndpoint: `http://127.0.0.1:${port}/mureka`,
+		alibabaEndpoint: `http://127.0.0.1:${port}/alibaba`,
 		relayEndpoint: `http://127.0.0.1:${port}/relay/v1`,
 		key: mock.key,
 		video,

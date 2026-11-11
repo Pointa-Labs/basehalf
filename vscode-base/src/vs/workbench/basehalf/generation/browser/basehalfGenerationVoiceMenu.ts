@@ -71,7 +71,7 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 	private readonly options = new Map<string, { readonly element: HTMLElement; readonly voice: IBaseHalfVoiceMenuVoice; readonly play?: HTMLButtonElement }>();
 	private rows: readonly BaseHalfVoiceMenuRow[] = [];
 	/** What the rows were drawn from, so that they are drawn again only when it changes. */
-	private drawn: { readonly parameter: VoiceParameter; readonly voice: string; readonly list: VoicesResult | undefined; readonly query: string } | undefined;
+	private drawn: { readonly parameter: VoiceParameter; readonly voice: string; readonly list: VoicesResult | undefined; readonly query: string; readonly region: string } | undefined;
 	/** The current voice, by key. */
 	private activeKey: string | undefined;
 	private statusKind: 'setUp' | 'retry' | undefined;
@@ -207,7 +207,7 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 	private render(): void {
 		const status = this.providerSettings.getStatus(this.target.provider);
 		const listed = this.target.parameter.listed === true;
-		const voices = this.voices.voices(this.target.provider.id, status.region.id);
+		const voices = this.voices.voices(this.target.provider.id, status.region.id, this.target.model.id);
 		// A provider that is not set up shows the catalog's voices: the account's are not known here.
 		const list = listed && status.setUp ? voices.list : undefined;
 		const line = baseHalfVoiceMenuStatus({ listed, setUp: status.setUp, providerLabel: this.target.provider.label, voices });
@@ -221,9 +221,11 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 		const drawn = this.drawn;
 		// A list that arrives, or the card's voice that changes, keeps where the list was scrolled; a search starts at its top.
 		const scrollTop = drawn?.query === this.query ? this.list.scrollTop : 0;
-		if (!drawn || drawn.parameter !== this.target.parameter || drawn.voice !== this.target.voice || drawn.list !== list || drawn.query !== this.query) {
-			this.drawn = { parameter: this.target.parameter, voice: this.target.voice, list, query: this.query };
-			this.rows = baseHalfVoiceMenuRows({ parameter: this.target.parameter, voice: this.target.voice, ...(list ? { list } : {}) }, this.query);
+		// The voices of the region in use: a voice of the catalog that only another region offers is not listed.
+		const region = status.region;
+		if (!drawn || drawn.parameter !== this.target.parameter || drawn.voice !== this.target.voice || drawn.list !== list || drawn.query !== this.query || drawn.region !== region.id) {
+			this.drawn = { parameter: this.target.parameter, voice: this.target.voice, list, query: this.query, region: region.id };
+			this.rows = baseHalfVoiceMenuRows({ parameter: this.target.parameter, voice: this.target.voice, ...(list ? { list } : {}), region: { id: region.id, label: region.label } }, this.query);
 			this.renderRows();
 		}
 		this.renderSample();

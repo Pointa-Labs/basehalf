@@ -375,7 +375,11 @@ function parseParameter(value: unknown, path: string): BaseHalfVideoCatalogParam
 					throw new Error(`${path}.options[${index}].value must be a voice id of 1 to ${MAX_VOICE_ID_LENGTH} characters without control characters.`);
 				}
 				const description = typeof candidate.description === 'string' && candidate.description.trim() ? plainText(candidate.description, 200) : undefined;
-				return Object.freeze({ value: candidate.value, label: requireText(candidate.label, `${path}.options[${index}].label`), ...(description ? { description } : {}) });
+				// The regions that offer the voice, read as a mode's are; without them, every region of the model does.
+				const regions = Array.isArray(candidate.regions) && candidate.regions.length && candidate.regions.every(region => typeof region === 'string' && region.length > 0)
+					? Object.freeze([...new Set(candidate.regions as string[])])
+					: undefined;
+				return Object.freeze({ value: candidate.value, label: requireText(candidate.label, `${path}.options[${index}].label`), ...(description ? { description } : {}), ...(regions ? { regions } : {}) });
 			});
 			if (!options.length || new Set(options.map(option => option.value)).size !== options.length) {
 				throw new Error(`${path}.options must list at least one voice, each once.`);

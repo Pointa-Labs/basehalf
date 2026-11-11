@@ -21,7 +21,7 @@ import { FISH_AUDIO } from './fishaudio.js';
 import { MUREKA } from './mureka.js';
 import type { ProviderModule } from './module.js';
 import { isVoiceId } from '../common/basehalfProviderVoices.js';
-import type { AudioFormat, AudioMakes, Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId, ModelKind } from '../common/basehalfProviderTypes.js';
+import type { AudioFormat, AudioMakes, Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId, ModelKind, VoiceParameter } from '../common/basehalfProviderTypes.js';
 
 /**
  * The provider modules of BaseHalf, in the order the window lists them. A
@@ -158,10 +158,31 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 			check(parameter.kind === 'voice' && parameter.name === 'voice' && kind === 'audio' && model.makes === 'speech', `${where}: the voice of a speech model is its parameter named voice, of kind voice, and only a speech model has one`);
 		}
 		validateParameter(parameter, modes, where);
+		if (parameter.kind === 'voice') {
+			validateVoiceRegions(parameter, model, where);
+		}
 		if (parameter.setByStartFrame !== undefined) {
 			check(typeof parameter.setByStartFrame === 'boolean', `${where}: setByStartFrame must be true or false`);
 			check(!parameter.setByStartFrame || model.modes.some(mode => (!parameter.modes || parameter.modes.includes(mode.id)) && mode.inputs.startFrame !== 'none'), `${where}: setByStartFrame needs a mode with a start frame`);
 		}
+	}
+}
+
+/**
+ * The regions of a voice that not every region of its model offers, as a
+ * mode's (providers, "Parameters"): at least one, each once, each offering
+ * the model; the default voice is offered wherever the model is.
+ */
+function validateVoiceRegions(parameter: VoiceParameter, model: CatalogModel, at: string): void {
+	for (const option of parameter.options) {
+		if (option.regions === undefined) {
+			continue;
+		}
+		check(Array.isArray(option.regions) && option.regions.length > 0 && new Set(option.regions).size === option.regions.length, `${at}: the regions of voice ${option.value} must name at least one region, each once`);
+		for (const region of option.regions) {
+			check(model.providerModels[region] !== undefined, `${at}: the voice ${option.value} names the region ${region}, which does not offer the model`);
+		}
+		check(option.value !== parameter.default, `${at}: the default voice ${option.value} is offered wherever the model is, and names no regions`);
 	}
 }
 
