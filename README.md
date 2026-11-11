@@ -1,6 +1,8 @@
 <h1 align="center">
-  <img src="docs/assets/readme/logo.png" width="60" align="center" alt="">
-  BaseHalf
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/wordmark-dark.png">
+    <img src="docs/assets/readme/wordmark-light.png" width="285" alt="BaseHalf">
+  </picture>
 </h1>
 
 <p align="center">
