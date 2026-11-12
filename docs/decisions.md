@@ -6399,10 +6399,10 @@ down while that place is taken. Among several cards to follow it stands beside t
 are placed a card and then the cards that follow it. Every other card goes to the end of the canvas as before. See
 [canvas card placement](specs/canvas-card-placement.md#beside-the-card-it-follows).
 
-**Why.** On 2026-11-12 the owner watched an agent grow a mind map in the launch film and asked why it came out untidy at first:
-"难道不应该整整齐齐地长出来思维导图吗？" Every card that nobody pointed at went to the end of the canvas (D46), whatever it was
-connected to, so thirteen notes written by an agent stood in rows of five with their lines across the rows, and became a tree
-only after Tidy Canvas. D46 puts nothing between the user's cards because a card there would look as if it belonged to them. A
+**Why.** On 2026-11-12 the owner watched an agent grow a mind map in the launch film and asked why it came out untidy at first,
+and whether a mind map should not grow in good order. Every card that nobody pointed at went to the end of the canvas (D46),
+whatever it was connected to, so thirteen notes written by an agent stood in rows of five with their lines across the rows, and
+became a tree only after Tidy Canvas. D46 puts nothing between the user's cards because a card there would look as if it belonged to them. A
 card that follows a card of the canvas does belong to one.
 
 **Consequences.**
