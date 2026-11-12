@@ -6341,3 +6341,30 @@ other side, and looped around them.
 - Measured in a development window on the film's thirteen notes: before, the tidied map had two lines from the top or the
   bottom of a card; after, all twelve run east to west, grown and tidied alike.
 - Not done: a line still passes behind a card that stands between its two cards.
+
+## D131 — A card that follows a card of the canvas appears beside it (NEW, 2026-11-12)
+
+**Decision.** A card that appears without the user pointing, and that lists a card of the same canvas upstream, gets its place
+beside that card: in the column one wide gap to its right, level with it, under the cards that follow it already, and further
+down while that place is taken. Among several cards to follow it stands beside the rightmost. Cards that appear in one drawing
+are placed a card and then the cards that follow it. Every other card goes to the end of the canvas as before. See
+[canvas card placement](specs/canvas-card-placement.md#beside-the-card-it-follows).
+
+**Why.** On 2026-11-12 the owner watched an agent grow a mind map in the launch film and asked why it came out untidy at first:
+"难道不应该整整齐齐地长出来思维导图吗？" Every card that nobody pointed at went to the end of the canvas (D46), whatever it was
+connected to, so thirteen notes written by an agent stood in rows of five with their lines across the rows, and became a tree
+only after Tidy Canvas. D46 puts nothing between the user's cards because a card there would look as if it belonged to them. A
+card that follows a card of the canvas does belong to one.
+
+**Consequences.**
+- A map that an agent grows by writing notes with upstream lists is a tree while it grows: three columns for the film's
+  thirteen notes, with no card moved to make room and no line crossing another.
+- The drawing in which a card appears reads that card's upstream list itself, also before the reference index has read the
+  file and while the index is building. A drawing in which more than 300 cards appear reads none.
+- The columns are the wide gap of Tidy Canvas apart and a card stands beside the rightmost card it follows, as a tidy puts it.
+  A tidy afterwards centers the columns on one line and puts each column in list order. On the film's thirteen notes shown
+  together it moved the root and the second column down and no card of the third. On the same notes written one by one it
+  also changed the places of two cards of the second column, which were written in another order than their names.
+- The first drawing of a folder without a layout is the plain grid only for the cards that follow no other card.
+- A place is still chosen once (D46): a file whose list is written after its card appeared stays at the end of the canvas.
+- Not verified in a window: a draft that an agent makes with inputs, which is placed by the same reading of its list.
