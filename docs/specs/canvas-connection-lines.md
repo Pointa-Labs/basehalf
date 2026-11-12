@@ -105,14 +105,18 @@ itself.
   of the line lies ahead of each of the two sides.
 - When they do not, the line takes its sides by itself. The row is kept, so
   when the cards are moved back, the remembered sides are drawn again.
-- A line that the user draws or reconnects is drawn with the sides they
-  chose from the moment they let go, as before, and the row is written as
-  before.
+- A line that the user draws or reconnects has its row written as before,
+  with the sides at which they pressed and let go. It is drawn with those
+  sides from the moment they let go when the two sides face each other.
+  Sides that do not face each other are remembered and not drawn.
 
 A user who pulls a line from the bottom of a card to a card below it gets
 that line. When the lower card is later moved beside the upper one, or above
 it, a line from the bottom would have to turn around the card: the line
-then takes the sides that face each other.
+then takes the sides that face each other. The same holds at the moment of
+drawing: a line pulled from the right side of a card to the left side of a
+card that stands below it and further left runs from the bottom of the one
+to the top of the other, and the row keeps the right and the left side.
 
 ### The sides follow the cards
 
@@ -216,7 +220,15 @@ nothing: there the rule of [remembered sides](#remembered-sides) decides.
   Canvas asks of the canvas for remembered sides, and what Revert asks
   (criterion 11 as a rule).
 - Criteria 9 to 11 were measured in a development window, as recorded
-  below. No smoke step reads the sides of a line yet.
+  below.
+- The smoke step `canvas-connected-files-appear-beside` reads the curve of
+  every line of two small maps, nine lines, as the window draws it: each
+  leaves the middle of a right side and enters the middle of a left side at
+  a right angle, and both control points lie between the two ends (criteria
+  1 and 7 in the real window). `canvas-edge-follows-card-drag-live` holds
+  that the end of a line stays on a handle of the card that is dragged, on
+  whichever side the line takes. No smoke step reads remembered sides, or
+  drags a card around another one.
 
 ### Seen in the real window (2026-11-12)
 
@@ -232,6 +244,13 @@ same steps were run on the code before this change and after it.
 | A card dragged above the card it follows, to its left, below and left of it, and far to its right and below, the line read while the card was held and after it was let go | north to south, then a loop from the top of the card around to the bottom of the other, then south to north, then east to west | north to south, west to east, south to north, east to west, each already while the card was held |
 | A line drawn from the south side of one card to the north side of the card below it, then the lower card moved up and to the right | the row south and north; the line left the bottom, swung 220 down and came back from above | the same row; the line east to west, and the row still in the layout |
 | Tidy Canvas with that row in the layout, then Undo, then Redo; and Tidy Canvas, then Revert | the row stayed | the tidy removed the row; Undo wrote it back with the places, Redo removed it, and Revert wrote it back |
+
+In the canvas suite of the smoke the same day, a line that the script drew
+from the east side of a folder's card at 200, -110 to the west side of a
+note at 240, 1010, below it and further left, kept its row of east and west
+and ran from the bottom of the folder's card straight down to the top of
+the note. The step that drags the card had expected the line on the east
+handle, and now takes the handle of the side the line is on.
 
 ## Open questions
 

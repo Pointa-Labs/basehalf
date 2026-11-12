@@ -6340,6 +6340,9 @@ other side, and looped around them.
   and Revert write them back. This is the one place where a row of remembered sides takes part in undo.
 - Measured in a development window on the film's thirteen notes: before, the tidied map had two lines from the top or the
   bottom of a card; after, all twelve run east to west, grown and tidied alike.
+- Sides that the user chose and that do not face each other are not drawn, also at the moment of drawing: a line pulled from
+  the right side of a card to a card below it and further left runs from the bottom of the one to the top of the other, and
+  the row keeps the sides that were chosen.
 - Not done: a line still passes behind a card that stands between its two cards.
 
 ## D131 — A card that follows a card of the canvas appears beside it (NEW, 2026-11-12)
@@ -6365,6 +6368,8 @@ card that follows a card of the canvas does belong to one.
   A tidy afterwards centers the columns on one line and puts each column in list order. On the film's thirteen notes shown
   together it moved the root and the second column down and no card of the third. On the same notes written one by one it
   also changed the places of two cards of the second column, which were written in another order than their names.
-- The first drawing of a folder without a layout is the plain grid only for the cards that follow no other card.
+- The first drawing of a folder without a layout is the plain grid only when none of its cards follows another. A card that
+  follows nothing and comes after such cards in the list goes to the end of the canvas as it is by then, after the last card
+  of the lowest row.
 - A place is still chosen once (D46): a file whose list is written after its card appeared stays at the end of the canvas.
 - Not verified in a window: a draft that an agent makes with inputs, which is placed by the same reading of its list.

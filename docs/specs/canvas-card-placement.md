@@ -259,11 +259,13 @@ each place counts as taken for the next. They are placed in list order,
 except that a card that follows another one comes after it
 ([the order of one drawing](#the-order-of-one-drawing)).
 
-So the first drawing of a folder that has no layout puts every card that
-follows no other card in the plain grid in list order, as before, and writes
-one row for each. Two things differ. A card that is larger than a cell keeps
-the cards after it clear of it. And the cards that follow a card stand
-beside it, in columns to its right, and not in the grid.
+So the first drawing of a folder that has no layout puts its cards in the
+plain grid in list order when none of them follows another, as before, and
+writes one row for each. Two things differ. A card that is larger than a
+cell keeps the cards after it clear of it. And the cards that follow a card
+stand beside it, in columns to its right, and not in the grid. The next card
+of the list that follows nothing then goes to the end of the canvas as it is
+by then: after the last card of the lowest row.
 
 ### The card of an image or a video has its picture's shape
 
@@ -1198,7 +1200,16 @@ written with this document.
   that has its place.
 - Criteria 41, 42, 45, and 49 in the real window on 2026-11-12, as recorded
   below, and criterion 47 there for notes that are written into a shown
-  folder whose index is ready. No smoke step covers these criteria yet.
+  folder whose index is ready.
+- The smoke step `canvas-connected-files-appear-beside` in the real window,
+  for criteria 41, 42, and 45 in small: five notes written into a shown
+  folder, three one by one and two at once, and a folder of five notes that
+  is shown for the first time. No row that was there changes, the view
+  stays, and every line runs from a right side to a left side. On the code
+  before D131 the step fails: the notes stand in one row, 340 apart.
+- The smoke step `canvas-selection-and-arrangement` writes the lists of its
+  two notes after the first drawing, and holds that no card moves for
+  them.
 
 ### Tried in the real window, 2026-10-11
 
@@ -1285,6 +1296,11 @@ done on the code before this change.
 | Tidy Canvas on that canvas | every card moved | the root and the second column moved down, and two cards of the second column changed places with the cards after them: the order of writing was not list order |
 | The same thirteen notes as a folder that is shown for the first time | the plain grid in list order, three rows of five | the root at 370, 410; the second column at x 790, y 410 to 1250 in list order; the third at x 1210, y 410 to 2370 |
 | Tidy Canvas on that canvas | every card moved | the root moved from y 410 to 1390 and the second column down by 560; no card of the third column moved |
+
+A folder of five notes, of which the second and the third list the first,
+shown for the first time in the smoke the same day: the first at 370, 690,
+the two beside it at 790, 690 and 790, 970, and the two notes that list
+nothing at 1130, 970 and 1470, 970, after the last card of the lowest row.
 
 Not driven in a window: a draft that an agent makes with inputs. It is
 placed by the same reading of its inputs' list; the unit tests cover the
