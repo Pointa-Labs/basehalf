@@ -385,7 +385,9 @@ leave by the same rule.
    undo brings all three back.
 5. Redo deletes them again, and undo brings them back again.
 6. Undo of a New Note into which text was typed takes the note away. Redo
-   brings it back with the text, its card at its place.
+   brings it back with the text, its card at its place. When the typed text
+   was a title that gave the file its name, that rename is a step of its
+   own before it ([a note's title names its file](note-title.md#undo)).
 7. Undo of a New Folder into which a file was put takes both away. Redo
    brings both back, the card at its place.
 8. Undo and redo of Duplicate and of the copies that Paste and Import

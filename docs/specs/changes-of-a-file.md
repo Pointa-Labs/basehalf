@@ -68,7 +68,10 @@ would stay.
 - **Changed file**: a file that Source Control lists under Changes or Staged
   Changes. A new file is one, and its letter says so.
 - **Mark**: what a card shows of the change: the color and letter of its name,
-  and the bar.
+  and the bar. The card of a note shows no name above it
+  ([a note's title names its file](note-title.md#a-notes-card-shows-no-name-above-it)):
+  its letter stands left of the badge button in the card's upper right
+  corner, in the color of the change.
 - **Changes view**: the view of Card Detail that shows the difference. It stands
   in the header's switch with the file's other views.
 - **Multi-file diff**: VS Code's editor of the changes of all files, opened by

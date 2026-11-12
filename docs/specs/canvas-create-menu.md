@@ -65,7 +65,8 @@ Not in scope, and unchanged:
 | 2 | Paste, Import Files... |
 
 - There is no New File, and no canvas command makes a file from a typed
-  name.
+  name. A new note starts at its title line, and the title typed there
+  names its file ([a note's title names its file](note-title.md)).
 - New Folder has no ellipsis: it asks for nothing before it acts.
 - New Audio is [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)'s,
   made on the same day as this menu, and makes a draft as New Image and New

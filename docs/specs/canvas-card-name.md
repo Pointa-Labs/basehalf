@@ -1,9 +1,11 @@
 # Canvas card name
 
 Status: Active (2026-10-13; the name of a note revised the same day for D55;
-a generation card's name is its file's name, 2026-10-22 for D63)
+a generation card's name is its file's name, 2026-10-22 for D63; a note's
+card shows no caption, 2026-11-12 for D129)
 Decisions: [D55](../decisions.md),
-[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
+[D129](../decisions.md#d129--a-notes-title-names-its-file-and-its-card-shows-no-name-above-it-new-2026-11-12)
 Related: [canvas selection and arrangement](canvas-selection-and-arrangement.md)
 (what a card of a set answers),
 [canvas card interaction continuity](canvas-card-interaction-continuity.md),
@@ -70,7 +72,10 @@ Not in scope, and unchanged:
 ## Terms
 
 - **Caption**: the row above a card. From the left it holds the kind glyph,
-  the name, and the badge button.
+  the name, and the badge button. The card of a note shows it only while
+  the note's name is edited, and when the note's file is missing: a note is
+  named by its title, in the note
+  ([a note's title names its file](note-title.md#a-notes-card-shows-no-name-above-it)).
 - **Note**: a file whose name ends with `.md` or `.markdown`, in any letter
   case.
 - **File name**: the name of the item on disk.
@@ -131,8 +136,8 @@ their extension alone, as `index.ts` and `index.css` are, so they keep it.
 
 The name is shown, and not the file name:
 
-- in the caption of a card, and in the label that assistive technology reads
-  for the card;
+- in the caption of a card, for a note in its rename editor, and in the
+  label that assistive technology reads for the card;
 - in the rows of a folder card, which name what the folder holds;
 - in the title of Card Detail;
 - in the last part of the title bar's breadcrumb while a note is open;
@@ -166,6 +171,12 @@ information and its row to the new name
 It cannot be changed in place on a card whose file is missing and that is
 not a draft: there is nothing to rename. On such a card the name target
 behaves as the rest of the caption does.
+
+The card of a note has no name target while its name is not edited: its
+caption is not shown. F2 and Rename open its rename editor, which stands in
+the caption above the card as on any card, and the note's title is changed
+in the note ([a note's title names its file](note-title.md)). What this
+document says of a note's name target holds for the other cards.
 
 ### The pointer
 
@@ -324,7 +335,7 @@ card.
 
 ## Acceptance criteria
 
-1. Over the name of a note, of another file, and of a folder the computed
+1. Over the name of a file that is no note and of a folder the computed
    cursor is `text`. Over the glyph of the same card, over a point of the
    caption 8 screen pixels right of the end of a short name, and over the
    badge button it is not `text`.
@@ -332,18 +343,19 @@ card.
    as the caption.
 3. A name that is longer than the caption ends with an ellipsis, and the
    name target ends left of the badge button.
-4. A double click on the name of a note opens the rename editor in that
-   card with the name in it, without the extension, and all of it selected.
-   No card is selected and no toolbar is shown, in every frame from the
-   first press to the open editor. No note editor and no Card Detail is
-   open.
+4. A double click on the name of a file that is no note opens the rename
+   editor in that card with the file name in it and the part before the
+   extension selected. No card is selected and no toolbar is shown, in
+   every frame from the first press to the open editor. No Card Detail is
+   open. F2 on a selected note opens the rename editor above its card with
+   the name in it, without the extension, and all of it selected.
 5. A double click on the name of a folder opens the rename editor, and the
    canvas still shows the same folder.
 6. Enter with another name renames the file. The card shows the new name at
    the place and with the size it had.
 7. Escape closes the editor, and the file has the name it had.
-8. A double click on the glyph of a note opens nothing. A double click on
-   the glyph of a folder enters the folder.
+8. A double click on the glyph of a folder enters the folder. The card of
+   a note shows no glyph.
 9. A press on a name that moves more than the drag distance moves the card
    and opens no editor.
 10. On a card whose file is missing and that is not a draft, the cursor over
@@ -385,8 +397,8 @@ card.
 
 The name that is shown
 
-16. The card of `README.md` shows `README`, and the card of a file that is
-    not a note shows its file name. A folder named `drafts.md` shows
+16. The rename editor of `README.md` holds `README`, and the card of a file
+    that is not a note shows its file name. A folder named `drafts.md` shows
     `drafts.md`.
 17. A name typed into the rename editor of `README.md` renames the file to
     that name with `.md`. A typed name that ends with `.md` gives that file
@@ -422,15 +434,18 @@ The editor in place
   table above (criteria 16 and 17 as a rule). `basehalfUpstreamActions.test.ts`
   covers the rows of the lists (criterion 19).
 - Smoke: `canvas-inline-rename` covers criteria 1, 2, 4 to 8, 12 to 15, 20
-  to 23, and the click on a name of criterion 24 in the real window. It
-  makes its first double click at a person's speed and counts the frames
-  that show a selected card. The press on the caption right of the text,
-  of criterion 22, was measured by hand: see below. It is a step of the
-  `canvas` suite. It types with the keyboard and never fills the input,
-  so an editor without the keyboard fails it. For criterion 14 it writes
-  other content into the note and checks that the card was drawn again. On
-  the code before this change the step fails at its first editor: no
-  keyboard and nothing selected.
+  to 23, and the click on a name of criterion 24 in the real window. Since
+  D129 the name it presses is the name of a file that is no note, which it
+  writes into the folder for the step, and the rename editor of a note is
+  opened with F2. It makes its first double click at a person's speed and
+  counts the frames that show a selected card. The press on the caption
+  right of the text, of criterion 22, was measured by hand: see below. It
+  is a step of the `canvas` suite. It types with the keyboard and never
+  fills the input, so an editor without the keyboard fails it. For
+  criterion 14 it writes other content into the note whose rename editor
+  is open and checks that the card was drawn again. On the code before
+  this change the step fails at its first editor: no keyboard and nothing
+  selected.
 - Criteria 3, 9, and 11 were measured in a development window on a
   disposable workspace: see below. The card of criterion 10 follows from the
   unit test and was not driven.
@@ -447,6 +462,10 @@ The editor in place
   took back an older step of the canvas.
 
 ### Seen in the real window (2026-10-13)
+
+What follows was seen before D129, when the card of a note showed its
+caption at rest. For the card of a note today, see
+[a note's title names its file](note-title.md#seen-in-the-real-window-2026-11-12).
 
 A development window at 61% zoom, on a workspace of three notes, a folder,
 and a data file. The pointer was moved and pressed as a user's is.

@@ -6312,3 +6312,49 @@ would have had to hand over the canvas.
 - Revises the last consequence of D126. No part of the canvas core is left that is planned to become a feature.
 - The list of canvas features in the code organization named the badge editor, note editing, connections, and selection, which
   D126 had kept in the core. It names the eight features that exist.
+
+## D129 — A note's title names its file, and its card shows no name above it (NEW, 2026-11-12)
+
+**Decision.** The heading at the top of a note is its title. A note that the user gives a title, or whose title the user
+changes, takes the title as the name of its file once the note is let go. A new note starts at an empty title line. The card
+of a note shows no caption: no glyph and no name above it, and the buttons of the caption stand in the card's upper right
+corner. See [a note's title names its file](specs/note-title.md).
+
+**Why.** A new note was `untitled.md`, and a card of a mind map took its title twice: as a heading in the note, and as the
+name of its file. On 2026-11-12 the launch film showed the steps for one branch of a map: a line pulled out of a card, Note,
+Heading 2, the word, a press outside, a double click on `untitled`, the word again, Enter. The user: the flow is tedious,
+changing only a title is odd, the top title of a note should be the name of its file so that nothing is written twice, and
+the default `untitled` is superfluous in the product. Once the file followed the title, the card said the same words twice,
+in its caption and in the note, and a note named by hand said two different ones. The user: the row above should not be
+shown at all, and the badge button belongs in the card's upper right corner.
+
+**Alternatives.**
+- The file follows the title while it is typed. Each letter would rename the file under the editor that holds it, under an
+  agent that reads it, and in what git shows. The file is renamed once: 180 milliseconds after the note is let go, when no
+  editor has taken it up again and no pointer button is down. Measured: 207 ms from the press outside to the new name.
+- The card shows the file's name as a title that is not in the file. What a note's card shows would not be what the file
+  holds, and an agent that reads the file would not see the title.
+- Every note follows its first heading, the notes of agents too. An agent that writes `how-they-form.md` and names it in
+  other notes would find the file under another name. A note keeps the name it was written with until the user changes its
+  title in BaseHalf.
+- A caption that stays, smaller or only under the pointer. It says the title a second time, and one that comes and goes moves
+  what stands above the card.
+
+**Consequences.**
+- A branch of a mind map is a line, Note, the title, and a press outside: 4 steps, which were 8.
+- The rename is a step of its own in the canvas's undo. After New Note and a typed title, the first undo gives the file the
+  name `untitled.md` back, and the second takes the note away.
+- A title's characters that a file name cannot hold become spaces, a title cannot hide a file behind a dot, and a name that
+  is taken gets the next free number: `Anatomy 2.md`.
+- The name and the title can differ: a rename by name leaves the title, and a note that an agent wrote keeps its name. The
+  file's name is shown where BaseHalf names items: in Files, in the title of Card Detail, in the path of the title bar, and
+  in the rename editor.
+- A note's card has no name to double-click. F2 and Rename open the rename editor, in a caption that stands above the card
+  while the editor is open. Revises D55, by which the card of a note showed its name.
+- An empty heading writes nothing into the file, so a note that was opened and left without typing is the file it was.
+- What stood in the caption or was measured from it follows the card: the letter of a changed note stands left of the badge
+  button, the toolbar of a note stands 10 pixels above the card itself, and the first line of the note and the description
+  on the card's badge face end before the buttons in the corner.
+- Open, and named in the specification: the Rich editor of Card Detail starts a note without text at an empty paragraph, a
+  rename by name does not rewrite the title, and the skill for agents does not say that a note's first heading is what its
+  card shows first.
