@@ -103,8 +103,13 @@ export async function assertCanvasSelectionAndArrangement(page) {
 
 	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
 	fs.writeFileSync(path.join(workspacePath, folderName, 'a.md'), '# A\n\nThe note that the two after it build on.\n', 'utf8');
+	// The two notes list a.md only after the first drawing. A card that follows
+	// another one appears beside it (canvas card placement, "Beside the card it
+	// follows"), and this step starts from one row of the plain grid: a list
+	// that is written later moves no card.
+	const building = (name, listed) => fs.writeFileSync(path.join(workspacePath, folderName, name), `${listed ? `---\nupstream:\n  - ${folderName}/a.md\n---\n` : ''}# ${name}\n\nA note that builds on a.md.\n`, 'utf8');
 	for (const name of ['b.md', 'c.md']) {
-		fs.writeFileSync(path.join(workspacePath, folderName, name), `---\nupstream:\n  - ${folderName}/a.md\n---\n# ${name}\n\nA note that builds on a.md.\n`, 'utf8');
+		building(name, false);
 	}
 	for (const name of ['d.md', 'e.md']) {
 		fs.writeFileSync(path.join(workspacePath, folderName, name), `# ${name}\n\nA note without a connection.\n`, 'utf8');
@@ -116,12 +121,15 @@ export async function assertCanvasSelectionAndArrangement(page) {
 		await card(name).waitFor({ state: 'visible', timeout: 15_000 });
 	}
 	await waitUntil(() => names.every(name => rowsOf()[name] !== undefined), 'the first drawing of the folder to save a row for every card', 15_000);
+	for (const name of ['b.md', 'c.md']) {
+		building(name, true);
+	}
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-canvas-edge-path').length >= 2, undefined, { timeout: 15_000 });
 	await page.waitForTimeout(1_500);
 	const first = rowsOf();
 	const [originX, originY] = first['a.md'];
 	if (!same(first, { 'a.md': [originX, originY], 'b.md': [originX + 340, originY], 'c.md': [originX + 680, originY], 'd.md': [originX + 1020, originY], 'e.md': [originX + 1360, originY] })) {
-		throw new Error(`The five cards must start in one row of the plain grid: ${JSON.stringify(first)}`);
+		throw new Error(`The five cards must start in one row of the plain grid, and a list that is written later must move no card: ${JSON.stringify(first)}`);
 	}
 
 	// A marquee selects the card it touches also when the card has a connection, and one card is one card.

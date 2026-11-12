@@ -20,6 +20,7 @@ import {
 	panCanvasToward,
 	readCanvasCardGeometry,
 	readCanvasCreateMenu,
+	readCanvasView,
 	setCanvasZoomPercent,
 	waitForCanvasCardSelection,
 	waitForCanvasNoteInlineEditor
@@ -246,6 +247,133 @@ export async function assertCanvasNewFilesGoToTheEnd(page) {
 	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
 	fs.rmSync(mirror(folderName), { recursive: true, force: true });
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+/**
+ * Canvas card placement, "Beside the card it follows", and the line of a
+ * connection: a map that an agent grows by writing notes with upstream lists
+ * is a tree while it grows. Each note appears in the column after the note it
+ * lists, level with it or under the notes that list it already, no card that
+ * was there moves, and every line runs from the right side of a card to the
+ * left side of the next and stays between the two. Notes that are there when
+ * their folder is first shown stand the same way.
+ */
+export async function assertCanvasConnectedFilesAppearBeside(page) {
+	const mirror = (...segments) => path.join(workspacePath, '.bh', 'mirror', ...segments);
+	const cardOf = (folderName, name) => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}/${name}"]`);
+	const write = (folderName, name, upstream = []) => fs.writeFileSync(
+		path.join(workspacePath, folderName, name),
+		`${upstream.length > 0 ? `---\nupstream:\n${upstream.map(entry => `  - ${folderName}/${entry}\n`).join('')}---\n` : ''}# ${name}\n\nA note of a map that grows, with words of its own: ${name}-alpha.\n`,
+		'utf8'
+	);
+	const rowsOf = (folderName, names) => {
+		const layoutPath = mirror(folderName, 'canvas.yaml');
+		const raw = fs.existsSync(layoutPath) ? fs.readFileSync(layoutPath, 'utf8') : '';
+		return Object.fromEntries(names.map(name => [name, readCanvasCardGeometry(raw, `${folderName}/${name}`)]));
+	};
+	const placed = async (folderName, names) => {
+		for (const name of names) {
+			await cardOf(folderName, name).waitFor({ state: 'visible', timeout: 15_000 });
+		}
+		await waitUntil(() => Object.values(rowsOf(folderName, names)).every(row => row !== undefined), `every card of ${folderName} to have a saved place`, 15_000);
+		return rowsOf(folderName, names);
+	};
+	const enter = async folderName => {
+		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
+		await assertCanvasFolder(page, folderName);
+	};
+	// The place of each note as a column and a row counted from the root: columns are a card and the wide
+	// gap of 120 apart, rows a card and 60.
+	const cells = (rows, root) => Object.fromEntries(Object.entries(rows).map(([name, row]) => [name, [
+		(row.x - rows[root].x) / (rows[root].width + 120),
+		(row.y - rows[root].y) / (rows[root].height + 60)
+	].join(',')]));
+	// The lines of the folder as the scene draws them: the two ends and the two control points of each curve.
+	const linesOf = folderName => page.evaluate(prefix => Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+		.map(element => ({ id: element.getAttribute('data-edge-id') ?? '', numbers: (element.getAttribute('d') ?? '').match(/-?\d+(?:\.\d+)?/g) ?? [] }))
+		.filter(line => line.id.includes(prefix))
+		.map(line => ({ id: line.id.split('\u0000').map(end => end.slice(prefix.length)).join(' -> '), points: line.numbers.map(Number) })), `${folderName}/`);
+	// Every line leaves the middle of the right side of its first card at a right angle, enters the middle of
+	// the left side of its second card at a right angle, and stays between the two sides.
+	const assertLines = async (folderName, rows, connections) => {
+		await page.waitForFunction(count => document.querySelectorAll('.basehalf-canvas-edge-path').length === count, connections.length, { timeout: 15_000 });
+		const lines = await linesOf(folderName);
+		const wrong = connections.flatMap(([from, to]) => {
+			const line = lines.find(candidate => candidate.id === `${from} -> ${to}`);
+			if (!line || line.points.length !== 8) {
+				return [`${from} -> ${to}: no line`];
+			}
+			const [x1, y1, c1x, c1y, c2x, c2y, x2, y2] = line.points;
+			const near = (a, b) => Math.abs(a - b) <= 3;
+			const eastToWest = near(x1, rows[from].x + rows[from].width) && near(y1, rows[from].y + rows[from].height / 2)
+				&& near(x2, rows[to].x) && near(y2, rows[to].y + rows[to].height / 2);
+			const between = c1y === y1 && c2y === y2 && c1x > x1 && c1x <= x2 && c2x < x2 && c2x >= x1;
+			return eastToWest && between ? [] : [`${from} -> ${to}: ${line.points.join(' ')}`];
+		});
+		if (wrong.length > 0 || lines.length !== connections.length) {
+			throw new Error(`Every line of a map must run from the right side of a card to the left side of the next, between the two: ${JSON.stringify({ wrong, lines, rows })}`);
+		}
+	};
+
+	// One by one, as an agent writes them: the root is there, then a note after it, a second one, a note
+	// after the first, and at last two at once.
+	const grown = 'grown';
+	fs.mkdirSync(path.join(workspacePath, grown), { recursive: true });
+	write(grown, 'root.md');
+	await enter(grown);
+	const steps = [
+		[['one.md', 'root.md']],
+		[['two.md', 'root.md']],
+		[['deep.md', 'one.md']],
+		[['three.md', 'root.md'], ['deeper.md', 'two.md']]
+	];
+	let names = ['root.md'];
+	let rows = await placed(grown, names);
+	const view = await readCanvasView(page);
+	const moved = [];
+	for (const notes of steps) {
+		for (const [name, upstream] of notes) {
+			write(grown, name, [upstream]);
+		}
+		const before = rows;
+		names = [...names, ...notes.map(([name]) => name)];
+		rows = await placed(grown, names);
+		moved.push(...Object.keys(before).filter(name => JSON.stringify(before[name]) !== JSON.stringify(rows[name])));
+	}
+	const grownCells = cells(rows, 'root.md');
+	const expectedGrown = { 'root.md': '0,0', 'one.md': '1,0', 'two.md': '1,1', 'deep.md': '2,0', 'three.md': '1,2', 'deeper.md': '2,1' };
+	const viewAfter = await readCanvasView(page);
+	if (JSON.stringify(grownCells) !== JSON.stringify(expectedGrown) || moved.length > 0
+		|| Math.abs(viewAfter.x - view.x) > 0.5 || Math.abs(viewAfter.y - view.y) > 0.5 || viewAfter.zoom !== view.zoom) {
+		throw new Error(`A note that lists a card of the canvas must appear beside it, and no card and no view may move: ${JSON.stringify({ grownCells, moved, view, viewAfter, rows })}`);
+	}
+	await assertLines(grown, rows, steps.flat().map(([name, upstream]) => [upstream, name]));
+
+	// All at once: a folder that is shown for the first time with its notes in it.
+	await openRootCanvas(page);
+	const sprung = 'sprung';
+	const together = [['a.md', 'root.md'], ['a1.md', 'a.md'], ['b.md', 'root.md'], ['b1.md', 'b.md']];
+	fs.mkdirSync(path.join(workspacePath, sprung), { recursive: true });
+	write(sprung, 'root.md');
+	for (const [name, upstream] of together) {
+		write(sprung, name, [upstream]);
+	}
+	await enter(sprung);
+	const sprungRows = await placed(sprung, ['root.md', ...together.map(([name]) => name)]);
+	const sprungCells = cells(sprungRows, 'root.md');
+	const expectedSprung = { 'root.md': '0,0', 'a.md': '1,0', 'a1.md': '2,0', 'b.md': '1,1', 'b1.md': '2,1' };
+	if (JSON.stringify(sprungCells) !== JSON.stringify(expectedSprung)) {
+		throw new Error(`The notes of a folder that is shown for the first time must stand beside the notes they list: ${JSON.stringify({ sprungCells, sprungRows })}`);
+	}
+	await assertLines(sprung, sprungRows, together.map(([name, upstream]) => [upstream, name]));
+
+	await openRootCanvas(page);
+	for (const folderName of [grown, sprung]) {
+		fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
+		fs.rmSync(mirror(folderName), { recursive: true, force: true });
+		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+	}
 }
 
 /**
