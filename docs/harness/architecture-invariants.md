@@ -98,6 +98,20 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   specification speaks of a tooltip, it means this hover. An element gets
   it from the `data-basehalf-hover` attribute
   (`ui/browser/basehalfHover.ts`) or from the hover service directly.
+  A hover shows after the workbench's delay only while the pointer stays on
+  its element: one whose element the pointer left, or pressed, while it
+  waited never shows, and neither does one that `hideHover` took away while
+  it waited. It goes 200 ms after the pointer leaves the element, as every
+  hover of the workbench does, so that the next button of a bar shows its
+  own at once. A hover says what its element says when it shows; a button
+  whose name says what it does now, as Play that becomes Pause, takes away
+  the hover of its former name when the name changes under the pointer
+  (`setBaseHalfHover`, `hideBaseHalfHoverOfRenamedButton`), and the pointer
+  that comes onto it again shows the new name. VS Code's hover service
+  carries both parts of the first rule for every hover: the release 1.144.0
+  cancels a waiting hover when its element is clicked or `hideHover` is
+  called, and BaseHalf's own change keeps a hover from showing once the
+  pointer left its element ([`BASEHALF_UPSTREAM.md`](../../vscode-base/BASEHALF_UPSTREAM.md)).
 - A scroll bar in BaseHalf is the same with every setting of the system
   and with or without a mouse (D127). Where a box shows the system's bar,
   the bar lies over what the box scrolls, shows while it scrolls, and takes
