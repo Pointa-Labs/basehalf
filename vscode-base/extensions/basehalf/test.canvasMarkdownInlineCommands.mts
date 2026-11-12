@@ -156,6 +156,27 @@ export function exerciseSelectedSource(units: readonly { readonly markdown: stri
 }
 
 type FixedTestUnit = { readonly markdown: string; readonly prefix: string; readonly separator: string; readonly editable: boolean; readonly appended?: boolean };
+export function exerciseTitleLine(steps: readonly string[], titleLine = true) {
+	const element = { childNodes: [], cloneNode: () => ({ textContent: '' }) } as unknown as HTMLElement;
+	const { document, records } = createDocumentUnits([{ id: '0', markdown: '', prefix: '', separator: '', editable: true, element }], titleLine);
+	let state = EditorState.create({ doc: document, selection: selectionForDocument(document) });
+	const dispatch = (transaction: Transaction) => { state = state.apply(transaction); };
+	const shown = [emptyTitleLine(state.doc) !== undefined];
+	for (const step of steps) {
+		if (step === '<backspace>') {
+			chainCommands(titleLineToParagraph, joinAcrossMarkdownUnit(-1))(state, dispatch);
+		} else if (step === '<enter>') {
+			chainCommands(titleLineToParagraph, baseKeymap.Enter)(state, dispatch);
+		} else if (step === '<clear>') {
+			dispatch(state.tr.delete(state.selection.$from.start(), state.selection.$from.end()));
+		} else {
+			dispatch(state.tr.insertText(step));
+		}
+		shown.push(emptyTitleLine(state.doc) !== undefined);
+	}
+	return { block: blockTypeForState(state), shown, markdown: serializeCanvasMarkdownDocument(state.doc, records, '\\n') };
+}
+
 export function exerciseFixedUnits(units: readonly FixedTestUnit[], action: { readonly select: number; readonly letter?: string; readonly enter?: boolean; readonly remove?: boolean; readonly typeIn?: { readonly unit: number; readonly text: string } }) {
 	const records = new Map<string, CanvasMarkdownRuntimeUnit>();
 	const nodes = units.map((unit, index) => {
@@ -222,6 +243,7 @@ const testModule = await import(`data:text/javascript;base64,${Buffer.from(modul
 	readonly exerciseTypedText: (source: string, afterText: string, typed: string) => string;
 	readonly exerciseFixedUnits: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string; readonly editable: boolean; readonly appended?: boolean }[], action: { readonly select: number; readonly letter?: string; readonly enter?: boolean; readonly remove?: boolean; readonly typeIn?: { readonly unit: number; readonly text: string } }) => { readonly markdown: string; readonly copied: string | undefined; readonly near: readonly (number | undefined)[]; readonly offsets: readonly number[] };
 	readonly canEditCanvasMarkdownUnit: (markdown: string) => boolean;
+	readonly exerciseTitleLine: (steps: readonly string[], titleLine?: boolean) => { readonly block: string; readonly shown: readonly boolean[]; readonly markdown: string };
 	readonly exerciseSelectedSource: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string }[], anchorText: string, headText: string) => { readonly text: string; readonly start: number; readonly end: number; readonly firstEnd: number; readonly lastStart: number } | undefined;
 	readonly exerciseCanvasProjectionPersistence: (
 		source: string,
@@ -427,5 +449,26 @@ assert.deepEqual({
 	nearBefore: true,
 	nearAfter: true,
 }, 'a fixed block is one unit: a letter after it starts a paragraph, Delete removes it, Copy takes its Markdown, and the line after a note of fixed blocks writes nothing until it holds text');
+
+// A note's title names its file: a note without text starts at its title line.
+assert.deepEqual({
+	opened: testModule.exerciseTitleLine([]),
+	typed: testModule.exerciseTitleLine(['Anatomy']),
+	withText: testModule.exerciseTitleLine(['Anatomy', '<enter>', 'What it is made of.']),
+	cleared: testModule.exerciseTitleLine(['A', '<clear>']),
+	backspace: testModule.exerciseTitleLine(['<backspace>']),
+	plain: testModule.exerciseTitleLine(['<backspace>', 'No title here.']),
+	skipped: testModule.exerciseTitleLine(['<enter>', 'Text below an empty title.']),
+	without: testModule.exerciseTitleLine([], false),
+}, {
+	opened: { block: 'heading1', shown: [true], markdown: '' },
+	typed: { block: 'heading1', shown: [true, false], markdown: '# Anatomy' },
+	withText: { block: 'paragraph', shown: [true, false, false, false], markdown: '# Anatomy\n\nWhat it is made of.' },
+	cleared: { block: 'heading1', shown: [true, false, true], markdown: '' },
+	backspace: { block: 'paragraph', shown: [true, false], markdown: '' },
+	plain: { block: 'paragraph', shown: [true, false, false], markdown: 'No title here.' },
+	skipped: { block: 'paragraph', shown: [true, false, false], markdown: 'Text below an empty title.' },
+	without: { block: 'paragraph', shown: [false], markdown: '' },
+}, 'a note without text is one title line: what is typed is a heading of level 1, an empty heading writes nothing, and Backspace or Enter makes the empty line a paragraph');
 
 console.log('Canvas Markdown inline command tests passed.');

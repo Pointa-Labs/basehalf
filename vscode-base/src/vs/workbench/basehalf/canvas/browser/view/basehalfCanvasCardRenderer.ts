@@ -264,6 +264,11 @@ export class BaseHalfCanvasCardRenderer {
 		card.setAttribute('aria-label', `${displayName} card${orphan ? ', missing' : ''}${issueText ? `, ${issueText}` : ''}`);
 		// A draft has no file whose description its badge would edit.
 		const canShowBadgeFace = !(item.kind === 'folder' && orphan) && !draft;
+		// A note is named by its title, in the note: its card shows no name above
+		// it, and the buttons of its caption stand in its upper right corner. The
+		// caption is back above the card while the name is edited (note title).
+		const captionFree = markdownNote && item.kind === 'file' && !orphan && !draft;
+		card.classList.toggle('caption-free', captionFree);
 		const caption = append(card, $('.basehalf-canvas-card-caption'));
 		const captionIdentity = append(caption, $('.basehalf-canvas-card-caption-identity'));
 		const icon = append(captionIdentity, $('.basehalf-canvas-card-caption-icon'));
@@ -282,6 +287,8 @@ export class BaseHalfCanvasCardRenderer {
 			listeners.add(this.view.addDisposableListener(label, 'click', event => event.stopPropagation()));
 		}
 		const captionActions = append(caption, $('.basehalf-canvas-card-caption-actions'));
+		// What a feature says of the note's file stands with the buttons, since its name is not shown.
+		const markHost = captionFree ? append(captionActions, $('.basehalf-canvas-card-corner-mark')) : captionIdentity;
 		if (!orphan && baseHalfCanvasShowsDocument(item)) {
 			// Before the badge toggle, in a box of its own, so that the badge toggle is drawn again without it.
 			this.renderCoverToggle(append(captionActions, $('.basehalf-canvas-card-cover-toggle-slot')), item, card, displayName, listeners);
@@ -295,7 +302,7 @@ export class BaseHalfCanvasCardRenderer {
 		const content = append(card, $('.basehalf-canvas-card-content'));
 		this.view.creation.renderInlineRenameEditor(card, item);
 		this.view.renderedCardElementsByPath.set(item.path, card);
-		this.view.cardMarks.attachCard(card, item.path, captionIdentity, content, listeners);
+		this.view.cardMarks.attachCard(card, item.path, markHost, content, listeners);
 		// The card of a file that was just saved says Saving until its picture can be drawn.
 		let carried = item.generation && !draft ? this.generationFaces.get(item.path)?.saving : undefined;
 

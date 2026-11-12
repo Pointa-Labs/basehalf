@@ -130,6 +130,17 @@
 	outline: none;
 }
 
+/* The card of a note shows no caption (note title): the buttons of the caption
+ * stand in its upper right corner, and the description ends before them, as
+ * the first line of the note does. */
+.monaco-workbench .basehalf-canvas-card.caption-free .basehalf-canvas-card-badge-prompt {
+	width: calc(100% - 26px);
+}
+
+.monaco-workbench .basehalf-canvas-card.caption-free.has-change-mark .basehalf-canvas-card-badge-prompt {
+	width: calc(100% - 44px);
+}
+
 .monaco-workbench .basehalf-canvas-card-badge-prompt::placeholder {
 	color: color-mix(in srgb, var(--bh-card-text-tertiary) 82%, transparent);
 }

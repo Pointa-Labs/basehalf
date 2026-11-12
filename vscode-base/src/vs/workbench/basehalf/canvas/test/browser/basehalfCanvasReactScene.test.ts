@@ -239,11 +239,8 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(centered.side, 'above');
 		assert.strictEqual(centered.width, 392);
 		assert.strictEqual(centered.height, 36);
-		assert.strictEqual(
-			(180 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT)
-				- (centered.top + centered.height),
-			10
-		);
+		// A note's card shows no name above it: the toolbar stands above the card itself.
+		assert.strictEqual(180 - (centered.top + centered.height), 10);
 
 		const highZoom = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 200,
@@ -257,11 +254,7 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(highZoom.side, 'above');
 		assert.strictEqual(highZoom.width, 392);
 		assert.strictEqual(highZoom.height, 36);
-		assert.strictEqual(
-			((60 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * 2)
-				- (highZoom.top * 2 + highZoom.height),
-			10
-		);
+		assert.strictEqual(60 * 2 - (highZoom.top * 2 + highZoom.height), 10);
 
 		const bottomEdge = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 740,

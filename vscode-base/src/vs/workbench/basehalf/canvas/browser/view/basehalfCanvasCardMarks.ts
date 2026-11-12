@@ -105,6 +105,8 @@ export class BaseHalfCanvasCardMarks {
 			this.applyRows(parts);
 			return;
 		}
+		// A note's card, which shows no name, leaves the mark room beside its buttons (note title).
+		card.classList.toggle('has-change-mark', !!mark);
 		if (parts.shown) {
 			parts.identity.classList.remove('basehalf-canvas-card-changed', parts.shown.mark.labelClassName);
 			parts.shown.letter.remove();

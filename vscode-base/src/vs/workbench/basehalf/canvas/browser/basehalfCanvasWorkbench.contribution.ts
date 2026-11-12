@@ -99,6 +99,7 @@ import { BaseHalfCanvasCardRenderer } from './view/basehalfCanvasCardRenderer.js
 import { BaseHalfCanvasCardMarks } from './view/basehalfCanvasCardMarks.js';
 import { BaseHalfCanvasBadgeEditor } from './view/basehalfCanvasBadgeEditor.js';
 import { BaseHalfCanvasNoteEditing } from './view/basehalfCanvasNoteEditing.js';
+import { BaseHalfCanvasNoteTitles } from './view/basehalfCanvasNoteTitles.js';
 import { BaseHalfCanvasConnections } from './view/basehalfCanvasConnections.js';
 import { BaseHalfCanvasGeometry } from './view/basehalfCanvasGeometry.js';
 import { BaseHalfCanvasSelectionActions } from './view/basehalfCanvasSelectionActions.js';
@@ -156,6 +157,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly cardMarks = new BaseHalfCanvasCardMarks(this);
 	readonly badgeEditor = new BaseHalfCanvasBadgeEditor(this);
 	readonly noteEditing = new BaseHalfCanvasNoteEditing(this);
+	readonly noteTitles = new BaseHalfCanvasNoteTitles(this);
 	readonly connections = new BaseHalfCanvasConnections(this);
 	readonly geometry = new BaseHalfCanvasGeometry(this);
 	readonly selectionActions = new BaseHalfCanvasSelectionActions(this);
@@ -533,6 +535,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			this.renderer.resetCardPreviewHydrationScene();
 			this.requestRender();
 			this.selectionActions.reportAgentSelection();
+			this.noteTitles.cardDetailChanged();
 		}));
 		// The controls of a card's video player show on a picture wide enough on screen.
 		this._register(this.onDidChangeZoomEmitter.event(() => layoutBaseHalfVideoPlayers()));

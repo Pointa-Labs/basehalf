@@ -1041,6 +1041,7 @@ export class BaseHalfCanvasNoteEditing {
 			this.publishCanvasNoteFormatState(active.path, active.state.resource, { ...formatState, editable: false });
 		}
 		this.view.activeCanvasNoteEditor = undefined;
+		this.view.noteTitles.noteLetGo();
 		this.agentSelectionCardTextReader.cancel();
 		this.view.agentSelectionCardText = undefined;
 		this.view.selectionActions.reportAgentSelection();
@@ -1279,6 +1280,8 @@ export class BaseHalfCanvasNoteEditing {
 			active.fallback.setAttribute('aria-hidden', 'true');
 			active.fallback.setAttribute('inert', '');
 			active.host.classList.add('ready');
+			// The edit begins with the title the note has now (note title).
+			this.view.noteTitles.noteTakenUp(active.state.resource, active.instance.getDocumentText() ?? '');
 			this.focusCanvasNoteEditorFromIntent(active, pendingFocus);
 			void this.runPendingCanvasNoteFormatCommands(active);
 		}, error => {

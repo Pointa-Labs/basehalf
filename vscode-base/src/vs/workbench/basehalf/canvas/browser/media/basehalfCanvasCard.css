@@ -212,6 +212,32 @@
 	min-width: 0;
 }
 
+/*
+ * A note's card shows no name above it: the note's title names it (note title).
+ * The buttons of its caption stand in the card's upper right corner, and the
+ * caption is back above the card while its name is edited.
+ */
+.monaco-workbench .basehalf-canvas-card.caption-free:not(.inline-editing) > .basehalf-canvas-card-caption {
+	left: auto;
+	right: 9px;
+	bottom: auto;
+	top: 10px;
+	padding: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card.caption-free:not(.inline-editing) > .basehalf-canvas-card-caption > .basehalf-canvas-card-caption-identity {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-corner-mark {
+	display: flex;
+	align-items: center;
+}
+
+.monaco-workbench .basehalf-canvas-card-corner-mark .basehalf-canvas-card-change {
+	margin-left: 0;
+}
+
 /* Each button of the caption is drawn again in a box of its own, which takes no room. */
 .monaco-workbench .basehalf-canvas-card-cover-toggle-slot,
 .monaco-workbench .basehalf-canvas-card-badge-toggle-slot {

@@ -11,6 +11,7 @@ import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposab
 import { FileAccess } from '../../../../base/common/network.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { localize } from '../../../../nls.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { Range } from '../../../../editor/common/core/range.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
@@ -79,6 +80,7 @@ interface IBaseHalfCanvasMarkdownInlineVendor {
 		readonly selection?: IBaseHalfCanvasMarkdownInlineSelection;
 		readonly selectionDocument?: unknown;
 		readonly inactive?: boolean;
+		readonly titleLine?: string;
 		readonly onMarkdownChange?: (markdown: string, ownStep?: boolean) => void;
 		readonly onCompositionChange?: (composing: boolean) => void;
 		readonly onUndoRequest?: () => void;
@@ -779,6 +781,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				// Without focus, the selection is drawn as not active, as the
 				// editor it replaces drew it while the user was elsewhere.
 				inactive: !options.focus,
+				// A note without text starts at its title (note title).
+				titleLine: localize('basehalf.canvas.note.titleLine', "Title"),
 				onMarkdownChange: (markdown, ownStep) => this.applyDocumentMarkdown(markdown, ownStep),
 				onPasteBlocksRequest: (markdown, offset) => this.pasteBlocks(markdown, offset),
 				onCompositionChange: composing => this.handleCompositionChange(composing),

@@ -19,3 +19,12 @@
 .basehalf-canvas-markdown-inline .ProseMirror:focus-visible {
 	outline: none;
 }
+
+/* The title line of a note without text shows a pale word until it holds a character (note title). */
+.basehalf-canvas-markdown-inline .ProseMirror .basehalf-canvas-markdown-inline-title-line::before {
+	content: attr(data-placeholder);
+	float: left;
+	height: 0;
+	color: var(--vscode-input-placeholderForeground);
+	pointer-events: none;
+}

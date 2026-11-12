@@ -178,6 +178,19 @@
 	font-size: 13px;
 }
 
+/* The first line of a note leaves the card's upper right corner to the buttons that stand there (note title). */
+.monaco-workbench .basehalf-canvas-card.caption-free .bh-md-preview::before {
+	content: '';
+	float: right;
+	width: 26px;
+	height: 18px;
+}
+
+/* The letter of a changed file stands left of them. */
+.monaco-workbench .basehalf-canvas-card.caption-free.has-change-mark .bh-md-preview::before {
+	width: 44px;
+}
+
 .monaco-workbench .bh-md-preview h1,
 .monaco-workbench .bh-md-preview h2,
 .monaco-workbench .bh-md-preview h3,

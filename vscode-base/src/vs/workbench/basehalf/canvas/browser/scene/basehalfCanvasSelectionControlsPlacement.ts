@@ -90,13 +90,16 @@ interface IBaseHalfCanvasAnchoredToolbarPlacementOptions {
 function resolveBaseHalfCanvasAnchoredToolbarPlacement(
 	options: IBaseHalfCanvasAnchoredToolbarPlacementOptions,
 	requestedWidth: number,
-	toolbarHeight: number
+	toolbarHeight: number,
+	/** Whether the card shows its caption above it, which the toolbar stands clear of. */
+	captionAbove = true
 ): IBaseHalfCanvasNoteSelectionPlacement {
 	const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, options.viewport.zoom);
 	const viewportWidth = Math.max(0, options.viewportWidth);
 	const viewportHeight = Math.max(0, options.viewportHeight);
 	const leftScreen = options.left * zoom + options.viewport.x;
-	const topScreen = (options.top - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * zoom + options.viewport.y;
+	const caption = captionAbove ? BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP + BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT : 0;
+	const topScreen = (options.top - caption) * zoom + options.viewport.y;
 	const rightScreen = options.right * zoom + options.viewport.x;
 	const bottomScreen = options.bottom * zoom + options.viewport.y;
 	const visible = rightScreen >= 0
@@ -132,8 +135,9 @@ function resolveBaseHalfCanvasAnchoredToolbarPlacement(
 	};
 }
 
+/** The toolbar of a note stands above the card itself: a note's card shows no name above it (note title). */
 export function resolveBaseHalfCanvasNoteSelectionPlacement(options: IBaseHalfCanvasAnchoredToolbarPlacementOptions): IBaseHalfCanvasNoteSelectionPlacement {
-	return resolveBaseHalfCanvasAnchoredToolbarPlacement(options, NOTE_TOOLBAR_SCREEN_WIDTH, NOTE_TOOLBAR_SCREEN_HEIGHT);
+	return resolveBaseHalfCanvasAnchoredToolbarPlacement(options, NOTE_TOOLBAR_SCREEN_WIDTH, NOTE_TOOLBAR_SCREEN_HEIGHT, false);
 }
 
 export function resolveBaseHalfCanvasVideoSelectionPlacement(

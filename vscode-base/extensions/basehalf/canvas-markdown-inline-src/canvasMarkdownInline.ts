@@ -88,6 +88,12 @@ export interface CanvasMarkdownInlineEditorOptions {
 	readonly selectionDocument?: unknown;
 	/** Draw the selection as not active from the start: focus is elsewhere in the window. */
 	readonly inactive?: boolean;
+	/**
+	 * The pale text of the title line. With it, a note without text is shown
+	 * as one empty heading of level 1, which writes nothing until it holds a
+	 * character (note title, "A note without text starts at its title").
+	 */
+	readonly titleLine?: string;
 	/** The note's Markdown changed; `ownStep` when the change added or removed a fixed block, which is one step of undo (note formats, rule 82). */
 	readonly onMarkdownChange?: (markdown: string, ownStep?: boolean) => void;
 	readonly onCompositionChange?: (composing: boolean) => void;
@@ -394,8 +400,11 @@ const canvasSerializer = new MarkdownSerializer({
 		state.closeBlock(node);
 	},
 	heading(state, node) {
-		state.write(`${state.repeat('#', Number(node.attrs.level))} `);
-		state.text(writeNoteInline(node, 'heading'), false);
+		// A heading without a character writes nothing, as an empty paragraph does (note title).
+		if (node.content.size > 0) {
+			state.write(`${state.repeat('#', Number(node.attrs.level))} `);
+			state.text(writeNoteInline(node, 'heading'), false);
+		}
 		state.closeBlock(node);
 	},
 	soft_break(state) {
@@ -637,7 +646,7 @@ function canvasMarkdownProjectionIsEquivalent(renderedDocument: ProseMirrorNode,
 	return sameNode(renderedDocument, sourceDocument);
 }
 
-function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
+function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[], titleLine: boolean): {
 	readonly document: ProseMirrorNode;
 	readonly records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>;
 	readonly editableUnitIds: ReadonlySet<string>;
@@ -645,6 +654,8 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
 	const records = new Map<string, CanvasMarkdownRuntimeUnit>();
 	const nodes: ProseMirrorNode[] = [];
 	const editableUnitIds = new Set<string>();
+	// A note without text is shown as one title line (note title).
+	const startsAtTitle = titleLine && units.length === 1 && units[0].editable && units[0].markdown.trim() === '';
 	for (const unit of units) {
 		if (records.has(unit.id)) {
 			throw new RangeError(`Duplicate Canvas Markdown unit id: ${unit.id}`);
@@ -663,7 +674,9 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
 				// allowing presentation-only state into the editable source model.
 				node = canvasSchema.nodes.unsupported_markdown.create({ unitId: unit.id });
 			} else {
-				const content = sourceDocument.childCount > 0 ? sourceDocument.content : canvasSchema.nodes.paragraph.create();
+				const content = startsAtTitle
+					? canvasSchema.nodes.heading.create({ level: 1 })
+					: sourceDocument.childCount > 0 ? sourceDocument.content : canvasSchema.nodes.paragraph.create();
 				node = canvasSchema.nodes.markdown_unit.create({ unitId: unit.id }, content);
 				editableUnitIds.add(unit.id);
 			}
@@ -1694,6 +1707,47 @@ function runCanvasFormatCommand(
  * both passes in one user command so Backspace/Delete behaves exactly like a
  * normal editor while all selection and join semantics remain upstream-owned.
  */
+/**
+ * The title line of a document: its first block when that is a heading
+ * without a character and the document shows nothing else. Its position is
+ * the heading's.
+ */
+function emptyTitleLine(document: ProseMirrorNode): { readonly pos: number; readonly node: ProseMirrorNode } | undefined {
+	if (document.childCount !== 1 || document.textContent.length > 0 || fixedUnitCount(document) > 0) {
+		return undefined;
+	}
+	const unit = document.child(0);
+	const first = unit.type === canvasSchema.nodes.markdown_unit ? unit.firstChild : unit;
+	if (!first || first.type !== canvasSchema.nodes.heading || first.content.size > 0 || unit.childCount > 1) {
+		return undefined;
+	}
+	return { pos: unit.type === canvasSchema.nodes.markdown_unit ? 1 : 0, node: first };
+}
+
+/** Shows `text` in the pale color in the title line while it holds no character (note title). */
+function titleLinePlugin(text: string): Plugin {
+	return new Plugin({
+		props: {
+			decorations(state) {
+				const line = emptyTitleLine(state.doc);
+				return line
+					? DecorationSet.create(state.doc, [Decoration.node(line.pos, line.pos + line.node.nodeSize, { class: 'basehalf-canvas-markdown-inline-title-line', 'data-placeholder': text })])
+					: null;
+			},
+		},
+	});
+}
+
+/** Backspace or Enter in the empty title line makes it a paragraph, for a note that is to begin without a title (note title). */
+function titleLineToParagraph(state: EditorState, dispatch?: (transaction: Transaction) => void): boolean {
+	const cursor = (state.selection as TextSelection).$cursor;
+	const line = emptyTitleLine(state.doc);
+	if (!cursor || !line || cursor.parent !== line.node) {
+		return false;
+	}
+	return setBlockType(canvasSchema.nodes.paragraph)(state, dispatch);
+}
+
 function joinAcrossMarkdownUnit(direction: -1 | 1): Command {
 	const join = direction < 0 ? joinBackward : joinForward;
 	return (state, dispatch, view) => {
@@ -1841,17 +1895,18 @@ export function createCanvasMarkdownInlineEditor(
 			'Mod-i': whenEditable(toggleTextMark(canvasSchema.marks.em)),
 		}),
 		keymap({
-			Backspace: whenEditable(joinAcrossMarkdownUnit(-1)),
+			Backspace: whenEditable(chainCommands(titleLineToParagraph, joinAcrossMarkdownUnit(-1))),
 			Delete: whenEditable(joinAcrossMarkdownUnit(1)),
 		}),
 		keymap({
-			Enter: whenEditable(chainCommands(startParagraphAfterFixedUnit(), splitListItem(listItem))),
+			Enter: whenEditable(chainCommands(startParagraphAfterFixedUnit(), titleLineToParagraph, splitListItem(listItem))),
 			Tab: whenEditable(sinkListItem(listItem)),
 			'Shift-Tab': whenEditable(liftListItem(listItem)),
 			'Shift-Enter': whenEditable(insertSoftBreak),
 		}),
 		keymap(guardedBaseKeymap),
 		inactiveSelectionPlugin(options.inactive ?? false),
+		...(options.titleLine !== undefined ? [titleLinePlugin(options.titleLine)] : []),
 	];
 
 	if (options.units.map(unit => `${unit.prefix}${unit.markdown}${unit.separator}`).join('') !== options.markdown) {
@@ -1860,7 +1915,7 @@ export function createCanvasMarkdownInlineEditor(
 	if (!options.units.some(unit => unit.editable)) {
 		throw new RangeError('This Markdown document needs the full editor.');
 	}
-	const { document: initialDocument, records, editableUnitIds } = createDocumentUnits(options.units);
+	const { document: initialDocument, records, editableUnitIds } = createDocumentUnits(options.units, options.titleLine !== undefined);
 	if (editableUnitIds.size === 0
 		|| (options.requiredEditableUnitId !== undefined && !editableUnitIds.has(options.requiredEditableUnitId))) {
 		throw new RangeError('This Markdown document needs the full editor.');
