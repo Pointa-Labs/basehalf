@@ -571,6 +571,71 @@ export async function sampleCardPhases(page, cardPath) {
 
 // --- the panel --------------------------------------------------------------------------------------
 
+/**
+ * Samples, every frame inside the window, what the panel under the card at
+ * `cardPath` shows: `none`; `file`, the panel of a card with its file; or a
+ * draft's panel, `generating` while its Generate is the stop square and
+ * `draft` otherwise, with its model, its prompt's placeholder, and whether
+ * its buttons that add an input show. `stop` returns each look in the order
+ * it showed, with its frames and milliseconds.
+ */
+export async function samplePanelLooks(page, cardPath) {
+	await page.evaluate(path => {
+		const sampled = { looks: [], running: true, frames: 0 };
+		globalThis.__bhPanelLooks = sampled;
+		const tick = now => {
+			const surface = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+			const panel = surface?.getAttribute('data-visible') === 'true' ? surface.querySelector('.bh-video-panel') : null;
+			let look = 'none';
+			if (panel?.classList.contains('bh-record-panel')) {
+				look = 'file';
+			} else if (panel) {
+				const adding = panel.querySelector('.bh-add-inputs');
+				look = [
+					panel.querySelector('button.bh-video-panel-generate')?.classList.contains('stop') ? 'generating' : 'draft',
+					panel.querySelector('.bh-video-panel-model-label')?.textContent ?? '',
+					panel.querySelector('.bh-prompt-editor')?.getAttribute('data-placeholder') ?? '',
+					adding instanceof HTMLElement && !adding.hidden ? 'buttons that add an input' : 'no buttons that add an input'
+				].join(' · ');
+			}
+			const last = sampled.looks.at(-1);
+			if (last?.look === look) {
+				last.frames++;
+				last.to = now;
+			} else {
+				sampled.looks.push({ look, frames: 1, from: now, to: now });
+			}
+			sampled.frames++;
+			if (sampled.running && sampled.frames < 20_000) {
+				requestAnimationFrame(tick);
+			}
+		};
+		requestAnimationFrame(tick);
+	}, cardPath);
+	return {
+		stop: () => page.evaluate(() => {
+			const sampled = globalThis.__bhPanelLooks;
+			sampled.running = false;
+			return sampled.looks.map(entry => ({ look: entry.look, frames: entry.frames, ms: Math.round(entry.to - entry.from) }));
+		})
+	};
+}
+
+/**
+ * Generation cards, "The panel" (criterion 104): the panel of a draft goes
+ * from its generation straight to the panel of the card with its file. Of
+ * the looks that `samplePanelLooks` saw, every one from the first frame of
+ * the generation to the first frame of the panel of the card with its file
+ * is that of the generation.
+ */
+export function assertPanelGoesStraightToItsFile(looks, what) {
+	const generating = looks.findIndex(entry => entry.look.startsWith('generating'));
+	const file = looks.findIndex(entry => entry.look === 'file');
+	if (generating < 0 || file < generating || looks.slice(generating, file).some(entry => entry.look !== looks[generating].look)) {
+		throw new Error(`${what}: the panel must go from the generation straight to the panel of the card with its file: ${JSON.stringify(looks)}`);
+	}
+}
+
 export function readGenerationPanel(panel) {
 	return panel.evaluate(element => {
 		const text = selector => element.querySelector(selector)?.textContent?.trim() ?? null;

@@ -63,8 +63,10 @@ import {
 	readUpstreamSidecar,
 	replacePrompt,
 	runGenerateInTerminal,
+	assertPanelGoesStraightToItsFile,
 	sampleCardLooks,
 	sampleCardPhases,
+	samplePanelLooks,
 	sampleTileAndLine,
 	sampleTileAndLook,
 	savePrompt,
@@ -1537,6 +1539,7 @@ async function generateAndLandVideo(page, provider) {
 	const requestsBefore = provider.mock.requests.length;
 	const watch = watchGenerations();
 	const phases = await sampleCardPhases(page, VIDEO);
+	const looks = await samplePanelLooks(page, VIDEO);
 	await clickGenerate(panel);
 	const generating = await waitForGenerationStart(page, () => readGenerationCard(page, VIDEO), seen => seen?.face?.state === 'generating', 'the card to show the generation');
 	if (!['Preparing', 'Waiting', 'Generating', 'Saving'].includes(generating.face.phase) || !/^\d+:\d\d$/.test(generating.face.elapsed ?? '') || !generating.face.progress || generating.generation !== 'draft') {
@@ -1603,9 +1606,10 @@ async function generateAndLandVideo(page, provider) {
 	if (JSON.stringify(cardInformationFiles(VIDEO)) !== JSON.stringify(FILE_INFORMATION) || readGenerationInfo(VIDEO) !== undefined) {
 		throw new Error(`The card gets its record, and its generation.yaml goes: ${JSON.stringify(cardInformationFiles(VIDEO))}`);
 	}
-	// The open panel of the draft becomes the panel of a card with its file.
+	// The open panel of the draft becomes the panel of a card with its file, straight from the generation (criterion 104).
 	await waitForReading(() => readRecordPanel(panel), seen => seen.record && seen.state === 'ready' && seen.prompt === made.prompt && JSON.stringify(seen.buttons) === JSON.stringify(['New Version']),
 		'the panel of the card to become the panel of a card with its file');
+	assertPanelGoesStraightToItsFile(await looks.stop(), `The panel of ${VIDEO}`);
 	// The card that showed the generation shows the video, in BaseHalf's player.
 	const shown = await waitForReading(() => readGenerationCard(page, VIDEO), seen => seen?.generation === 'file' && seen.face === null && seen.video !== null && seen.video.readyState >= 1, 'the card to show the video');
 	const sampled = await phases.stop();
@@ -2287,9 +2291,13 @@ async function assertImageGenerations(page) {
 	await savePrompt(page, panel, IMAGE, 'A lighthouse at dawn');
 	let requestsBefore = provider.mock.requests.length;
 	let watch = watchGenerations();
+	const looks = await samplePanelLooks(page, IMAGE);
 	await clickGenerate(panel);
 	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(IMAGE)) && readMade(IMAGE) !== undefined, `the image to land on ${IMAGE}`);
 	watch.stop();
+	// Its panel goes from the generation straight to the panel of the card with its file (criterion 104).
+	await waitForReading(() => readRecordPanel(panel), shown => shown.record && shown.state === 'ready', `the panel of ${IMAGE} to show what made its image`);
+	assertPanelGoesStraightToItsFile(await looks.stop(), `The panel of ${IMAGE}`);
 	let seen = watch.first();
 	assertStates(seen, ['preparing', 'submitting', 'landing?'], 'An image answered at once');
 	let made = readMade(IMAGE);

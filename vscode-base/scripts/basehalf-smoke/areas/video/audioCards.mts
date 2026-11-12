@@ -14,6 +14,7 @@ import path from 'path';
 import process from 'process';
 import { videoSmokeProvider } from './generationCards.mts';
 import {
+	assertPanelGoesStraightToItsFile,
 	canonicalJson,
 	canvasCard,
 	cardInformationFiles,
@@ -42,6 +43,7 @@ import {
 	readSettingsPopover,
 	readUpstreamSidecar,
 	readVoiceMenu,
+	samplePanelLooks,
 	savePrompt,
 	selectGenerationCard,
 	showCardOnCanvas,
@@ -532,6 +534,7 @@ async function assertNoteIsSpoken(page) {
 
 	const requestsBefore = provider.mock.requests.length;
 	const watch = watchGenerations([AUDIO_FOLDER]);
+	const looks = await samplePanelLooks(page, SPEECH);
 	await clickGenerate(panel);
 	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(SPEECH)) && readMade(SPEECH) !== undefined, `the speech to land on ${SPEECH}`);
 	watch.stop();
@@ -555,12 +558,14 @@ async function assertNoteIsSpoken(page) {
 		|| JSON.stringify(cardInformationFiles(SPEECH)) !== JSON.stringify(['made.yaml', 'upstream.yaml'])) {
 		throw new Error(`The sound must land as ${SPEECH}, with its record: ${JSON.stringify(cardInformationFiles(SPEECH))}`);
 	}
-	// The open panel becomes the panel of the card with its file: the model, the voice, and the settings (criterion 89).
+	// The open panel becomes the panel of the card with its file: the model, the voice, and the settings (criterion 89),
+	// straight from the generation (criterion 104).
 	const record = await waitForReading(() => readRecordPanel(panel), seen => seen.record && seen.state === 'ready' && seen.model === ELEVEN_V4.label, 'the panel of the card to show what made its sound');
 	if (record.voice !== ACCOUNT_VOICE.label || !record.settings?.startsWith('Speech') || record.settings.includes(ACCOUNT_VOICE.label) || record.prompt !== made.prompt
 		|| JSON.stringify(record.inputs) !== JSON.stringify(['intro']) || record.line !== null || JSON.stringify(record.buttons) !== JSON.stringify(['New Version'])) {
 		throw new Error(`The panel of the card must name the model, the voice, and the settings it was made with: ${JSON.stringify(record)}`);
 	}
+	assertPanelGoesStraightToItsFile(await looks.stop(), `The panel of ${SPEECH}`);
 
 	// The card plays the sound in the player, the glyph of a sound where a video shows its frame: Play plays it with its sound.
 	await clickBlankCanvas(page);
@@ -789,6 +794,7 @@ async function assertAlibabaSpeaksNote(page) {
 
 	const requestsBefore = provider.mock.requests.length;
 	const watch = watchGenerations([AUDIO_FOLDER]);
+	const looks = await samplePanelLooks(page, cardPath);
 	await clickGenerate(panel);
 	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(cardPath)) && readMade(cardPath) !== undefined, `the speech to land on ${cardPath}`);
 	watch.stop();
@@ -817,6 +823,8 @@ async function assertAlibabaSpeaksNote(page) {
 	if (record.voice !== QWEN_CHINA_VOICE.label || !record.settings?.startsWith('Speech')) {
 		throw new Error(`The panel of the card must name ${QWEN_FLASH.label} and ${QWEN_CHINA_VOICE.label}: ${JSON.stringify(record)}`);
 	}
+	// Straight from the generation, where a film of 2026-11-12 caught a draft without a model between them (criterion 104).
+	assertPanelGoesStraightToItsFile(await looks.stop(), `The panel of ${cardPath}`);
 	const holding = filesContaining(workspacePath, provider.key);
 	if (holding.length) {
 		throw new Error(`A provider's credentials are in workspace files: ${holding.join(', ')}`);
