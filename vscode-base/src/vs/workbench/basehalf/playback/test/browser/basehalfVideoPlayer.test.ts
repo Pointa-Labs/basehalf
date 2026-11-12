@@ -6,9 +6,12 @@
 import * as assert from 'assert';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { timeout } from '../../../../../base/common/async.js';
+import { toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
+import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
 import { BASEHALF_VIDEO_CONTROLS_FADE_MS, createBaseHalfVideoPlayer, formatBaseHalfVideoTime, IBaseHalfVideoPlayer, layoutBaseHalfVideoPlayers } from '../../browser/basehalfVideoPlayer.js';
 
 suite('BaseHalfCanvasCardVideoPlayer', () => {
@@ -37,8 +40,8 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		}
 	});
 
-	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail; with `sound`, of a sound; with `note`, of a note. */
-	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false, sound = false, note?: 'card' | 'page'): IPlayerFixture {
+	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail; with `sound`, of a sound; with `note`, of a note; with `hoverService`, whose hovers that service draws, as a card's. */
+	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false, sound = false, note?: 'card' | 'page', hoverService?: IHoverService): IPlayerFixture {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';
 		mainWindow.document.body.appendChild(frame);
@@ -59,6 +62,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			detail,
 			sound,
 			...(note ? { note } : {}),
+			...(hoverService ? { hoverService } : {}),
 			// No audio graph: the sound starts and stops at once (basehalfVideoSound.test.ts has the fades).
 			soundGraph: () => undefined
 		}));
@@ -457,6 +461,41 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			card: { controls: 'shown', open: true, picture: 'none', media: ['play'], reachedCard: ['click:basehalf-canvas-video-player'], hover: 'Pause' },
 			page: { controls: 'shown', open: true, picture: '', media: ['play', 'pause'], reachedCard: ['click:basehalf-canvas-video-player-video', 'click:basehalf-canvas-video-player-video'], hover: 'Play' },
 			sound: { controls: 'shown', classes: ['basehalf-canvas-video-player', 'sound', 'note'] },
+		});
+	});
+
+	test('the tooltip of a control names what it does when it shows, and goes when that changes under the pointer, as when the sound starts or ends (generation cards, "The player", criterion 105)', () => {
+		const tooltips = new Map<HTMLElement, () => string>();
+		const hidden: string[] = [];
+		const hoverService: IHoverService = {
+			...NullHoverService,
+			setupDelayedHover: (target, options) => {
+				tooltips.set(target, () => String((typeof options === 'function' ? options() : options).content));
+				return toDisposable(() => tooltips.delete(target));
+			},
+			hideHover: () => { hidden.push(play.getAttribute('aria-label') ?? ''); }
+		};
+		const { player, control } = createPlayer(320, '/workspace/voice.mp3', false, true, undefined, hoverService);
+		const play = control('play');
+		let pointerOnPlay = true;
+		// A test cannot put the pointer on an element: the button says whether it is.
+		Object.defineProperty(play, 'matches', { value: (selector: string) => selector === ':hover' ? pointerOnPlay : Element.prototype.matches.call(play, selector) });
+		player.setSelected(true);
+		const before = tooltips.get(play)?.();
+		// The pointer on Play clicks: the sound plays, and a tooltip of Play goes.
+		play.click();
+		const playing = tooltips.get(play)?.();
+		// The sound ends while the pointer rests on Pause: a tooltip of Pause goes.
+		player.pause();
+		// The sound plays and pauses with the pointer elsewhere: no tooltip of Play is up to take away.
+		pointerOnPlay = false;
+		player.togglePlay();
+		player.pause();
+		assert.deepStrictEqual({ before, playing, hidden, attribute: play.hasAttribute('data-basehalf-hover') }, {
+			before: 'Play',
+			playing: 'Pause',
+			hidden: ['Pause', 'Play'],
+			attribute: false
 		});
 	});
 

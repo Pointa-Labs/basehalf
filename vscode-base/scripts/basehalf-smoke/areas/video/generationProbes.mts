@@ -1394,6 +1394,69 @@ export async function cardVideoControlBox(page, cardPath, control) {
 	return box;
 }
 
+/**
+ * Samples, every frame inside the window, the hovers the window shows while
+ * the pointer is near a control of the card's player, `sound`, `play`, or
+ * `open`: what each hover says, the name the control has, and whether the
+ * pointer is on the control. `stop` returns each look in the order it showed,
+ * with its frames, when it first showed (`at`, in milliseconds from the
+ * start), and how long it showed (`ms`).
+ */
+export async function sampleControlHovers(page, cardPath, control) {
+	await page.evaluate(({ path, control }) => {
+		const sampled = { looks: [], running: true, frames: 0, start: performance.now() };
+		globalThis.__bhControlHovers = sampled;
+		const tick = now => {
+			const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+			const button = card?.querySelector(`.basehalf-canvas-video-player-button.${control}`);
+			const hovers = Array.from(document.querySelectorAll('.workbench-hover')).filter(element => element.getBoundingClientRect().width > 0).map(element => element.querySelector('.hover-contents')?.textContent ?? element.textContent ?? '');
+			const look = JSON.stringify({ hovers, name: button?.getAttribute('aria-label') ?? null, pointer: button?.matches(':hover') ? 'on the control' : 'elsewhere' });
+			const last = sampled.looks.at(-1);
+			if (last?.look === look) {
+				last.frames++;
+				last.to = now;
+			} else {
+				sampled.looks.push({ look, frames: 1, from: now, to: now });
+			}
+			sampled.frames++;
+			if (sampled.running && sampled.frames < 20_000) {
+				requestAnimationFrame(tick);
+			}
+		};
+		requestAnimationFrame(tick);
+	}, { path: cardPath, control });
+	return {
+		stop: () => page.evaluate(() => {
+			const sampled = globalThis.__bhControlHovers;
+			sampled.running = false;
+			return sampled.looks.map(entry => ({ ...JSON.parse(entry.look), frames: entry.frames, at: Math.round(entry.from - sampled.start), ms: Math.round(entry.to - entry.from) }));
+		})
+	};
+}
+
+/**
+ * Generation cards, "The player" (criterion 105): of the looks that
+ * `sampleControlHovers` saw, none has a tooltip that says another name than
+ * the control has, and a tooltip shows with the pointer off the control only
+ * in the 200 ms after the pointer left it, and the frame after them, which a
+ * busy machine may draw up to 100 ms late.
+ */
+export function assertTooltipsFollowTheirControl(looks, what) {
+	let leftAt;
+	for (const [index, look] of looks.entries()) {
+		if (look.pointer === 'elsewhere' && looks[index - 1]?.pointer === 'on the control') {
+			leftAt = look.at;
+		} else if (look.pointer === 'on the control') {
+			leftAt = undefined;
+		}
+		const stale = look.hovers.some(hover => hover !== look.name);
+		const lingers = look.hovers.length > 0 && look.pointer === 'elsewhere' && (leftAt === undefined || look.at + look.ms - leftAt > 300);
+		if (stale || lingers) {
+			throw new Error(`${what}: the tooltip of the control must say its name, and go once the pointer left it: ${JSON.stringify(looks)}`);
+		}
+	}
+}
+
 // The pointer's shape at a point of the window: the cursor of what the point hits.
 export function readCursorAt(page, point) {
 	return page.evaluate(({ x, y }) => {

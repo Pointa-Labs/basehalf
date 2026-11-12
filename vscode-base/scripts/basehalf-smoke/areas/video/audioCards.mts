@@ -15,6 +15,7 @@ import process from 'process';
 import { videoSmokeProvider } from './generationCards.mts';
 import {
 	assertPanelGoesStraightToItsFile,
+	assertTooltipsFollowTheirControl,
 	canonicalJson,
 	canvasCard,
 	cardInformationFiles,
@@ -43,6 +44,7 @@ import {
 	readSettingsPopover,
 	readUpstreamSidecar,
 	readVoiceMenu,
+	sampleControlHovers,
 	samplePanelLooks,
 	savePrompt,
 	selectGenerationCard,
@@ -586,6 +588,7 @@ async function assertNoteIsSpoken(page) {
 	}
 	await page.mouse.click(play.x, play.y);
 	await waitForReading(() => readCardVideoPlayer(page, SPEECH), seen => seen?.paused === true, 'Pause to pause the sound');
+	await assertPlayTooltipFollowsItsButton(page, SPEECH);
 
 	// Open shows it in Card Detail, as its waveform in place of a player (editing media, D85), which plays it with what made it under it.
 	const toolbar = await waitForReading(() => readCardToolbar(page), seen => seen?.path === SPEECH, 'the toolbar of the card with its sound');
@@ -639,6 +642,45 @@ async function assertNoteIsSpoken(page) {
 	await detail.waitFor({ state: 'hidden', timeout: 10_000 });
 	await assertCanvasFolder(page, AUDIO_FOLDER);
 	await clickBlankCanvas(page);
+}
+
+// Criterion 105: the tooltip of Play, on the selected card of a sound at rest.
+// As on 2026-11-12: the pointer rests on Play for a second, clicks, and moves
+// onto the card's picture 350 ms later, as the tooltip's delay of 1.5 s ends.
+// Then, with the pointer back on the button while the sound plays, the
+// tooltip says Pause, until the sound ends and the button becomes Play.
+async function assertPlayTooltipFollowsItsButton(page, cardPath) {
+	const picture = await cardVideoPicturePoint(page, cardPath);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	const play = await cardVideoControlBox(page, cardPath, 'play');
+	let hovers = await sampleControlHovers(page, cardPath, 'play');
+	await page.mouse.move(play.x, play.y, { steps: 4 });
+	await page.waitForTimeout(1_000);
+	await page.mouse.click(play.x, play.y);
+	await page.waitForTimeout(350);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	await page.waitForTimeout(1_500);
+	const clicked = await hovers.stop();
+	assertTooltipsFollowTheirControl(clicked, 'Play, clicked before its tooltip showed');
+	if (clicked.some(look => look.hovers.length > 0)) {
+		throw new Error(`A click on Play before its tooltip showed must leave no tooltip: ${JSON.stringify(clicked)}`);
+	}
+	await waitForReading(() => readCardVideoPlayer(page, cardPath), seen => seen?.paused === true, 'the sound to play to its end', 15_000);
+
+	hovers = await sampleControlHovers(page, cardPath, 'play');
+	await page.mouse.move(play.x, play.y, { steps: 4 });
+	await page.mouse.click(play.x, play.y);
+	await page.mouse.move(picture.x, picture.y, { steps: 2 });
+	await page.mouse.move(play.x, play.y, { steps: 2 });
+	await waitForReading(() => readCardVideoPlayer(page, cardPath), seen => seen?.paused === true, 'the sound to play to its end with the pointer on Pause', 15_000);
+	await page.waitForTimeout(300);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	await page.waitForTimeout(500);
+	const ended = await hovers.stop();
+	assertTooltipsFollowTheirControl(ended, 'Pause, when the sound ends under the pointer');
+	if (!ended.some(look => look.hovers.includes('Pause') && look.name === 'Pause')) {
+		throw new Error(`The tooltip of Pause must show while the pointer rests on it and the sound plays: ${JSON.stringify(ended)}`);
+	}
 }
 
 // --- several songs ---------------------------------------------------------------------------------

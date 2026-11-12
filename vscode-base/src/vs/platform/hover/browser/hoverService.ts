@@ -182,6 +182,18 @@ export class HoverService extends Disposable implements IHoverService {
 			: this._configurationService.getValue<number>('workbench.hover.delay');
 		timeout(delay).then(() => {
 			if (hover.hover && !hover.hover.isDisposed) {
+				// BaseHalf: a hover whose target the pointer left while it waited for its delay does not
+				// show. Shown in the moment the mouse-out of that leave is pending, its first layout would
+				// cancel the mouse-out, and it would stay up after the pointer left (the tooltip of Play in
+				// docs/specs/generation-cards.md, "The player"; VS Code 1.144.0 still does this).
+				if (!hover.hover.isMouseIn) {
+					if (hover.hover === this._currentDelayedHover) {
+						this._cancelPendingDelayedHover();
+					} else {
+						hover.hover.dispose();
+					}
+					return;
+				}
 				this._currentDelayedHoverWasShown = true;
 				this._showHover(hover, options);
 			}
@@ -443,6 +455,11 @@ export class HoverService extends Disposable implements IHoverService {
 	private _hideHoverAndDescendants(hover: HoverWidget): void {
 		const stackIndex = this._hoverStack.findIndex(entry => entry.hover === hover);
 		if (stackIndex < 0) {
+			// The hover is not on the stack, so it may still be waiting for its delay to
+			// elapse. Cancel it, otherwise it would show up after this dismiss request.
+			if (hover === this._currentDelayedHover) {
+				this._cancelPendingDelayedHover();
+			}
 			return;
 		}
 
@@ -451,6 +468,20 @@ export class HoverService extends Disposable implements IHoverService {
 			this._hoverStack[i].hover.dispose();
 		}
 		this._hoverStack.length = stackIndex;
+	}
+
+	/**
+	 * Cancels a delayed hover that was created but whose delay has not elapsed yet, so it
+	 * never gets shown.
+	 */
+	private _cancelPendingDelayedHover(): void {
+		if (!this._currentDelayedHover || this._currentDelayedHoverWasShown) {
+			return;
+		}
+
+		this._currentDelayedHover.dispose();
+		this._currentDelayedHover = undefined;
+		this._currentDelayedHoverGroupId = undefined;
 	}
 
 	/**
@@ -464,12 +495,17 @@ export class HoverService extends Disposable implements IHoverService {
 	}
 
 	hideHover(force?: boolean): void {
-		if (this._hoverStack.length === 0) {
+		// If not forcing and the topmost hover is locked, don't hide
+		if (!force && this._currentHover?.isLocked) {
 			return;
 		}
 
-		// If not forcing and the topmost hover is locked, don't hide
-		if (!force && this._currentHover?.isLocked) {
+		// A delayed hover that has not been shown yet is not part of the stack, so it has to
+		// be cancelled explicitly. Otherwise it pops up once its delay elapses, on top of
+		// whatever took over in the meantime such as a context menu.
+		this._cancelPendingDelayedHover();
+
+		if (this._hoverStack.length === 0) {
 			return;
 		}
 

@@ -233,6 +233,20 @@ over:
   element has the class `nokey`, without which the canvas library takes the Space
   key from it.
 
+## Hovers that wait for their delay (2026-11-12)
+
+See "Product shell" in `docs/harness/architecture-invariants.md` and "The player" in
+`docs/specs/generation-cards.md`. In `src/vs/platform/hover/browser/hoverService.ts`:
+
+- Ported in part from release 1.144.0: a hover that waits for its delay is cancelled when
+  its target is clicked and when `hideHover` is called (`_cancelPendingDelayedHover`),
+  with upstream's two tests in `src/vs/platform/hover/test/browser/hoverService.test.ts`.
+  An update of the whole tree takes upstream's file.
+- BaseHalf's own change, with a `BaseHalf:` mark: a hover whose target the pointer left
+  while it waited does not show. Shown while the mouse-out of that leave is pending, its
+  first layout cancelled the mouse-out, and it stayed up after the pointer left; 1.144.0
+  still does this. An update of the whole tree carries it over, with its test.
+
 ## The location in the title bar (2026-07-12, revised 2026-10-24)
 
 BaseHalf's own change. See public decision D73 and
