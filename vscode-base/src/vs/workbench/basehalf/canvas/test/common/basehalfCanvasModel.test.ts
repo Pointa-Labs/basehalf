@@ -34,6 +34,8 @@ import {
 	baseHalfCanvasOpenPosition,
 	baseHalfCanvasPictureCardSize,
 	baseHalfCanvasPictureKind,
+	baseHalfCanvasPlaceAppearing,
+	baseHalfCanvasPlaceBeside,
 	baseHalfCanvasPosition,
 	baseHalfCanvasRowSpan,
 	baseHalfCanvasShowsDocument,
@@ -517,6 +519,126 @@ suite('BaseHalfCanvasModel', () => {
 			tight: '310,110 300,210',
 			downwards: '150,360 400,360',
 			behind: '520,110 -120,400'
+		});
+	});
+
+	test('a card that appears beside the card it follows: one wide gap to its right, level with it, below the cards that follow it already, and further down past what is in the way', () => {
+		const card = (x: number, y: number, width = 300, height = 220): IBaseHalfCanvasBounds => ({ x, y, width, height });
+		const size = { width: 300, height: 220 };
+		const leader = card(100, 50);
+		const first = card(520, 50);
+		const second = card(520, 330);
+		assert.deepStrictEqual({
+			first: baseHalfCanvasPlaceBeside(leader, size, [], [leader]),
+			second: baseHalfCanvasPlaceBeside(leader, size, [first], [leader, first]),
+			third: baseHalfCanvasPlaceBeside(leader, size, [first, second], [leader, first, second]),
+			// A card that follows it but stands elsewhere does not count: only the ones in that column.
+			followerElsewhere: baseHalfCanvasPlaceBeside(leader, size, [card(-400, 900)], [leader, card(-400, 900)]),
+			// Something else in that column, level with the card: the first open place going down.
+			inTheWay: baseHalfCanvasPlaceBeside(leader, size, [], [leader, card(560, 0, 200, 150)]),
+			// Room between two cards that is too low for the card is passed, and room that holds it is taken.
+			passesNarrowRoom: baseHalfCanvasPlaceBeside(leader, size, [], [leader, card(520, 50), card(520, 430)]),
+			takesRoom: baseHalfCanvasPlaceBeside(leader, size, [], [leader, card(520, 50), card(520, 700)]),
+			// The size of the card it follows decides the column, and a wider card is as far from it.
+			wideLeader: baseHalfCanvasPlaceBeside(card(0, 0, 533, 300), { width: 248, height: 188 }, [], [card(0, 0, 533, 300)])
+		}, {
+			first: { x: 520, y: 50 },
+			second: { x: 520, y: 330 },
+			third: { x: 520, y: 610 },
+			followerElsewhere: { x: 520, y: 50 },
+			inTheWay: { x: 520, y: 210 },
+			passesNarrowRoom: { x: 520, y: 710 },
+			takesRoom: { x: 520, y: 330 },
+			wideLeader: { x: 653, y: 0 }
+		});
+	});
+
+	test('a map grows as a tree, whether its notes come one by one, all at once, or in any order of names', () => {
+		// The mind map of the launch film: a root, four notes after it, two after each of those.
+		const follows = new Map<string, string[]>([
+			['anatomy.md', ['black-holes.md']], ['how-they-end.md', ['black-holes.md']], ['how-they-form.md', ['black-holes.md']], ['how-we-detect-them.md', ['black-holes.md']],
+			['event-horizon.md', ['anatomy.md']], ['singularity.md', ['anatomy.md']],
+			['evaporation.md', ['how-they-end.md']], ['hawking-radiation.md', ['how-they-end.md']],
+			['stellar-collapse.md', ['how-they-form.md']], ['supermassive-growth.md', ['how-they-form.md']],
+			['first-image.md', ['how-we-detect-them.md']], ['gravitational-waves.md', ['how-we-detect-them.md']]
+		]);
+		const size = { kind: 'file' as const, width: 300, height: 220 };
+		const text = (rows: Iterable<IBaseHalfCanvasCard>) => [...rows].map(row => `${row.path.replace('.md', '')}@${row.x},${row.y}`).sort().join(' ');
+		// One by one, as an agent writes them: each drawing places one card against the layout so far.
+		const oneByOne = (order: readonly string[]): string => {
+			const layout: IBaseHalfCanvasCard[] = [];
+			for (const path of order) {
+				layout.push(...baseHalfCanvasPlaceAppearing([{ path, ...size }], layout, { placed: new Map(layout.map(row => [row.path, row])), follows: other => follows.get(other) ?? [] }));
+			}
+			return text(layout);
+		};
+		const written = ['black-holes.md', 'anatomy.md', 'how-they-form.md', 'how-they-end.md', 'how-we-detect-them.md',
+			'event-horizon.md', 'singularity.md', 'stellar-collapse.md', 'supermassive-growth.md', 'hawking-radiation.md', 'evaporation.md', 'first-image.md', 'gravitational-waves.md'];
+		// All at once, in list order: the root is not the first name.
+		const atOnce = text(baseHalfCanvasPlaceAppearing([...follows.keys(), 'black-holes.md'].sort().map(path => ({ path, ...size })), [], { placed: new Map(), follows: other => follows.get(other) ?? [] }));
+		assert.deepStrictEqual({ oneByOne: oneByOne(written), atOnce }, {
+			// Three columns one wide gap apart, from the middle of the canvas, where a first card goes. The
+			// second column follows the order of writing, and the third the order of the cards its cards follow.
+			oneByOne: [
+				'anatomy@1470,690', 'black-holes@1050,690',
+				'evaporation@1890,2090', 'event-horizon@1890,690', 'first-image@1890,2370', 'gravitational-waves@1890,2650',
+				'hawking-radiation@1890,1810', 'how-they-end@1470,1250', 'how-they-form@1470,970', 'how-we-detect-them@1470,1530',
+				'singularity@1890,970', 'stellar-collapse@1890,1250', 'supermassive-growth@1890,1530'
+			].join(' '),
+			// The same three columns, each in list order and in the order of the cards its cards follow: no line crosses another.
+			atOnce: [
+				'anatomy@790,410', 'black-holes@370,410',
+				'evaporation@1210,970', 'event-horizon@1210,410', 'first-image@1210,2090', 'gravitational-waves@1210,2370',
+				'hawking-radiation@1210,1250', 'how-they-end@790,690', 'how-they-form@790,970', 'how-we-detect-them@790,1250',
+				'singularity@1210,690', 'stellar-collapse@1210,1530', 'supermassive-growth@1210,1810'
+			].join(' ')
+		});
+	});
+
+	test('places the cards that appear together: beside the rightmost card each follows, a tree at a time, and a circle from its first card', () => {
+		const size = { kind: 'file' as const, width: 300, height: 220 };
+		const place = (paths: readonly string[], taken: readonly IBaseHalfCanvasCard[], follows: Record<string, string[]>) =>
+			baseHalfCanvasPlaceAppearing(paths.map(path => ({ path, ...size })), taken, { placed: new Map(taken.map(row => [row.path, row])), follows: path => follows[path] ?? [] })
+				.map(row => `${row.path}@${row.x},${row.y}${row.auto ? '' : ' user'}`);
+		const row = (path: string, x: number, y: number): IBaseHalfCanvasCard => ({ path, kind: 'file', x, y, width: 300, height: 220 });
+		assert.deepStrictEqual({
+			// A card that follows two cards stands beside the one further right, and beside the upper of two as far right.
+			rightmost: place(['new'], [row('left', 0, 0), row('right', 420, 300)], { new: ['left', 'right'] }),
+			uppermost: place(['new'], [row('low', 420, 600), row('high', 420, 0)], { new: ['low', 'high'] }),
+			// A card that follows nothing of the canvas goes to the end of the canvas, as before, and so does one whose only upstream is elsewhere.
+			noUpstream: place(['new', 'other'], [row('a', 0, 0), row('b', 340, 0)], { other: ['docs/far.md'] }),
+			// Two trees and a single that appear together: each tree is placed whole before the next card.
+			twoTrees: place(['a', 'a1', 'b', 'b1', 'single'], [], { a1: ['a'], b1: ['b'] }),
+			// A card that follows a card which appears after it in list order waits for it.
+			childFirst: place(['a-child', 'z-parent'], [row('there', 0, 0)], { 'a-child': ['z-parent'] }),
+			// Two cards that follow each other: the first in list order is placed first, the other beside it.
+			circle: place(['one', 'two'], [], { one: ['two'], two: ['one'] }),
+			// A card names itself: that entry is passed over.
+			itself: place(['self'], [row('a', 0, 0)], { self: ['self'] })
+		}, {
+			rightmost: ['new@840,300'],
+			uppermost: ['new@840,0'],
+			noUpstream: ['new@680,0', 'other@1020,0'],
+			twoTrees: ['a@370,690', 'a1@790,690', 'b@1130,690', 'b1@1550,690', 'single@370,970'],
+			childFirst: ['a-child@760,0', 'z-parent@340,0'],
+			circle: ['one@880,690', 'two@1300,690'],
+			itself: ['self@340,0']
+		});
+	});
+
+	test('a card that appears is placed by the list its file holds, and by the reference index\'s when none was read for it', () => {
+		const root = folder('/workspace', [file('/workspace/a.md'), file('/workspace/b.md'), file('/workspace/c.md')]);
+		const canvas = { path: '', cards: [{ path: 'a.md', kind: 'file' as const, x: 0, y: 0, width: 300, height: 220 }], edges: [] };
+		const places = (model: ReturnType<typeof baseHalfCanvasModelFromStat>) => model.items.map(item => `${item.path}@${item.card?.x},${item.card?.y}${item.card?.auto ? ' chosen' : ''}`);
+		assert.deepStrictEqual({
+			// The index is still building: no relationships, and no lines, but the list read for the drawing places the card.
+			read: places(baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas, appearingUpstream: new Map([['b.md', ['a.md']], ['c.md', ['b.md']]]) })),
+			indexed: places(baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas, relationships: new Map([['b.md', relationships({ upstream: ['a.md'] })]]) })),
+			neither: places(baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas }))
+		}, {
+			read: ['a.md@0,0', 'b.md@420,0 chosen', 'c.md@840,0 chosen'],
+			indexed: ['a.md@0,0', 'b.md@420,0 chosen', 'c.md@760,0 chosen'],
+			neither: ['a.md@0,0', 'b.md@340,0 chosen', 'c.md@680,0 chosen']
 		});
 	});
 

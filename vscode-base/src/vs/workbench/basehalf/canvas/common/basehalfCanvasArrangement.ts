@@ -7,6 +7,7 @@ import {
 	BASEHALF_CANVAS_DEFAULT_WIDTH,
 	BASEHALF_CANVAS_GRID_COLUMN_GAP,
 	BASEHALF_CANVAS_GRID_ROW_GAP,
+	BASEHALF_CANVAS_WIDE_GAP,
 	BaseHalfCanvasAnchor,
 	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasEdgeCurve,
@@ -59,8 +60,12 @@ export type BaseHalfCanvasArrangement = 'grid' | 'row' | 'column';
 
 export type BaseHalfCanvasSelectionState = 'nothing' | 'card' | 'set' | 'connections';
 
-/** The distance between the columns of a group and between the blocks of a tidied canvas. */
-export const BASEHALF_CANVAS_TIDY_WIDE_GAP = 120;
+/**
+ * The distance between the columns of a group and between the blocks of a
+ * tidied canvas: the gap a card keeps from the card it appears beside, so a
+ * map that grew by itself has the columns of a tidied one.
+ */
+export const BASEHALF_CANVAS_TIDY_WIDE_GAP = BASEHALF_CANVAS_WIDE_GAP;
 
 /** A row of blocks is not made wider than this once it holds a block. */
 const BASEHALF_CANVAS_TIDY_ROW_WIDTH = BASEHALF_CANVAS_DEFAULT_WIDTH;

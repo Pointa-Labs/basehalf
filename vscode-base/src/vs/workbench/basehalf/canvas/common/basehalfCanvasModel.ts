@@ -36,6 +36,13 @@ export const BASEHALF_CANVAS_DEFAULT_WIDTH = 2400;
 export const BASEHALF_CANVAS_DEFAULT_HEIGHT = 1600;
 export const BASEHALF_CANVAS_GRID_COLUMN_GAP = 40;
 export const BASEHALF_CANVAS_GRID_ROW_GAP = 60;
+/**
+ * The wide gap: between the columns of a tidied group, where a connection and
+ * its arrowhead are drawn, and between a card and the card that appears
+ * beside it because it follows it (canvas card placement, "Beside the card it
+ * follows").
+ */
+export const BASEHALF_CANVAS_WIDE_GAP = 120;
 const BASEHALF_CANVAS_DEFAULT_PADDING = 96;
 export type BaseHalfCanvasItemKind = 'file' | 'folder';
 export type BaseHalfCanvasAnchor = 'north' | 'east' | 'south' | 'west';
@@ -251,6 +258,14 @@ export interface IBaseHalfCanvasModelOptions {
 	 * ({@link baseHalfCanvasPictureCardSizeAt}).
 	 */
 	readonly pictureRatios?: ReadonlyMap<string, number>;
+	/**
+	 * The upstream lists of cards that appear, as the paths of cards of this
+	 * folder, read from their files for this drawing: a card that appears goes
+	 * beside a card it follows also before the reference index has read its
+	 * file (canvas card placement, "Beside the card it follows"). The list of
+	 * `relationships` is used for a card that this leaves out.
+	 */
+	readonly appearingUpstream?: ReadonlyMap<string, readonly string[]>;
 	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
 	readonly pathKey?: (path: string) => string;
 	/**
@@ -359,7 +374,8 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 	}
 
 	// Every card has a place (canvas card placement). A card without a row
-	// appears: it gets its place now, at the end of the canvas, and keeps it.
+	// appears: it gets its place now, beside a card it follows or at the end
+	// of the canvas, and keeps it.
 	// What is taken is every row of the layout, also of an item that is gone,
 	// and the places that still wait for a write. A row that is about to be
 	// removed takes nothing.
@@ -368,12 +384,17 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		.map(card => reshaped.get(pathKey(card.path)) ?? card);
 	const inLayout = new Set(rows.map(card => pathKey(card.path)));
 	const isWaiting = (item: IBaseHalfCanvasItem) => item.card !== undefined && !inLayout.has(pathKey(item.path));
+	// A card that follows a card of the canvas goes beside it. What a card
+	// follows is its upstream list: the one read for this drawing when it
+	// appears, and else the reference index's.
+	const follows = (path: string): readonly string[] => options.appearingUpstream?.get(path) ?? options.relationships?.get(path)?.upstream ?? [];
 	const chosen = new Map(baseHalfCanvasPlaceAppearing(
 		items.filter(item => !item.card).map(item => {
 			const ratio = ratios?.get(item.path);
 			return { path: item.path, kind: item.kind, ...(ratio !== undefined ? baseHalfCanvasPictureCardSize(ratio) : baseHalfCanvasNewCardSize(item)) };
 		}),
-		[...rows, ...items.flatMap(item => isWaiting(item) ? [item.card!] : [])]
+		[...rows, ...items.flatMap(item => isWaiting(item) ? [item.card!] : [])],
+		{ placed: new Map(items.flatMap(item => item.card ? [[item.path, item.card] as const] : [])), follows }
 	).map(card => [card.path, card]));
 	items = items.map(item => item.card ? item : { ...item, card: chosen.get(item.path) });
 	return {
@@ -628,23 +649,138 @@ export function baseHalfCanvasEndPlace(taken: readonly IBaseHalfCanvasBounds[], 
 	};
 }
 
+/** A card that appears in a drawing: where it goes depends on its size. */
+export interface IBaseHalfCanvasAppearingCard extends IBaseHalfCanvasSize {
+	readonly path: string;
+	readonly kind: BaseHalfCanvasItemKind;
+}
+
+/** What a drawing knows of the connections of its cards when it places the ones that appear. */
+export interface IBaseHalfCanvasAppearingConnections {
+	/** The cards of the canvas that have a place, by path. */
+	readonly placed: ReadonlyMap<string, IBaseHalfCanvasBounds>;
+	/** The cards of the canvas that a card follows: its upstream list, as the paths of cards. */
+	readonly follows: (path: string) => readonly string[];
+}
+
 /**
- * The rows of the cards that appear in one drawing, in the order given. Each
- * goes to the end of the canvas and counts as taken for the next. They are
- * chosen rows: BaseHalf picked the place, not the user.
+ * Where a card goes that appears and follows a card of the canvas: beside that
+ * card, in the column one wide gap to its right (canvas card placement,
+ * "Beside the card it follows").
+ *
+ * - Level with the top of the card it follows, or below the lowest of
+ *   `siblings`, the cards that follow the same card, that stands in that
+ *   column.
+ * - Further down, past whatever is in the way, until the place is open. It
+ *   never leaves the column: room is always left below.
+ */
+export function baseHalfCanvasPlaceBeside(
+	leader: IBaseHalfCanvasBounds,
+	size: IBaseHalfCanvasSize,
+	siblings: readonly IBaseHalfCanvasBounds[],
+	taken: readonly IBaseHalfCanvasBounds[]
+): IBaseHalfCanvasPosition {
+	const x = roundCanvasNumber(leader.x + leader.width + BASEHALF_CANVAS_WIDE_GAP);
+	let y = leader.y;
+	for (const sibling of siblings) {
+		if (sibling.x < x + size.width && sibling.x + sibling.width > x) {
+			y = Math.max(y, sibling.y + sibling.height + BASEHALF_CANVAS_GRID_ROW_GAP);
+		}
+	}
+	for (; ;) {
+		const bounds = { x, y, ...size };
+		// Whatever is in the way reaches below the top of the card, so each step goes down.
+		const below = taken.filter(other => canvasBoundsOverlap(bounds, other)).map(other => other.y + other.height + BASEHALF_CANVAS_GRID_ROW_GAP);
+		if (below.length === 0) {
+			return { x, y: roundCanvasNumber(y) };
+		}
+		y = Math.min(...below);
+	}
+}
+
+/**
+ * The rows of the cards that appear in one drawing, in the order given, which
+ * is list order. They are chosen rows: BaseHalf picked the place, not the
+ * user. Each place counts as taken for the next.
+ *
+ * A card that follows a card with a place goes beside it
+ * ({@link baseHalfCanvasPlaceBeside}): beside the rightmost such card, and
+ * among those the uppermost. Every other card goes to the end of the canvas.
+ * The cards are placed one after the other:
+ *
+ * 1. First a card that follows a card with a place and follows none that
+ *    still waits for one: the one whose card to follow stands highest, then
+ *    furthest left, then the first in list order. So the cards after one card
+ *    stand in list order, a column is filled before the next, and the cards
+ *    of a column stand in the order of the cards they follow.
+ * 2. Else the first card in list order that follows none that still waits:
+ *    it goes to the end of the canvas, and the cards that follow it come
+ *    next, by 1.
+ * 3. Else every card left follows one that waits, in a circle: the first in
+ *    list order goes beside a card it follows that has a place, or to the
+ *    end of the canvas.
+ *
+ * Without `connections` every card goes to the end of the canvas in order.
  */
 export function baseHalfCanvasPlaceAppearing(
-	appearing: readonly (IBaseHalfCanvasSize & { readonly path: string; readonly kind: BaseHalfCanvasItemKind })[],
-	taken: readonly IBaseHalfCanvasBounds[]
+	appearing: readonly IBaseHalfCanvasAppearingCard[],
+	taken: readonly IBaseHalfCanvasBounds[],
+	connections?: IBaseHalfCanvasAppearingConnections
 ): IBaseHalfCanvasCard[] {
 	const span = baseHalfCanvasRowSpan(taken, appearing.length);
 	const all = [...taken];
-	return appearing.map(item => {
+	const placed = new Map(connections?.placed ?? []);
+	const waiting = new Map(appearing.map((item, index) => [item.path, { item, index }]));
+	const rows = new Map<string, IBaseHalfCanvasCard>();
+	const follows = (path: string): readonly string[] => (connections?.follows(path) ?? []).filter(other => other !== path);
+	const waits = (path: string): boolean => follows(path).some(other => waiting.has(other));
+	// The card to stand beside: the rightmost card it follows that has a place, among those the uppermost.
+	const leader = (path: string): { readonly path: string; readonly bounds: IBaseHalfCanvasBounds } | undefined => {
+		let found: { readonly path: string; readonly bounds: IBaseHalfCanvasBounds } | undefined;
+		for (const other of follows(path)) {
+			const bounds = placed.get(other);
+			if (bounds && (!found
+				|| bounds.x + bounds.width > found.bounds.x + found.bounds.width
+				|| (bounds.x + bounds.width === found.bounds.x + found.bounds.width && bounds.y < found.bounds.y))) {
+				found = { path: other, bounds };
+			}
+		}
+		return found;
+	};
+	while (waiting.size > 0) {
+		let next: { readonly item: IBaseHalfCanvasAppearingCard; readonly index: number; readonly beside?: { readonly path: string; readonly bounds: IBaseHalfCanvasBounds } } | undefined;
+		for (const entry of waiting.values()) {
+			const beside = waits(entry.item.path) ? undefined : leader(entry.item.path);
+			if (beside && (!next?.beside
+				|| beside.bounds.y < next.beside.bounds.y
+				|| (beside.bounds.y === next.beside.bounds.y && beside.bounds.x < next.beside.bounds.x))) {
+				next = { ...entry, beside };
+			}
+		}
+		if (!next) {
+			for (const entry of waiting.values()) {
+				if (!waits(entry.item.path)) {
+					next = entry;
+					break;
+				}
+			}
+		}
+		if (!next) {
+			const [entry] = waiting.values();
+			next = { ...entry, beside: leader(entry.item.path) };
+		}
+		const { item, beside } = next;
 		const size = { width: item.width, height: item.height };
-		const card: IBaseHalfCanvasCard = { path: item.path, kind: item.kind, ...baseHalfCanvasEndPlace(all, size, span), ...size, auto: true };
+		const place = beside
+			? baseHalfCanvasPlaceBeside(beside.bounds, size, [...placed].flatMap(([path, bounds]) => follows(path).includes(beside.path) ? [bounds] : []), all)
+			: baseHalfCanvasEndPlace(all, size, span);
+		const card: IBaseHalfCanvasCard = { path: item.path, kind: item.kind, ...place, ...size, auto: true };
 		all.push(card);
-		return card;
-	});
+		placed.set(item.path, card);
+		rows.set(item.path, card);
+		waiting.delete(item.path);
+	}
+	return appearing.map(item => rows.get(item.path)!);
 }
 
 /** Places a group imported at one pointer location as a readable compact grid. */
