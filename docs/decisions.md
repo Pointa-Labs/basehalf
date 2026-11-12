@@ -6312,3 +6312,32 @@ would have had to hand over the canvas.
 - Revises the last consequence of D126. No part of the canvas core is left that is planned to become a feature.
 - The list of canvas features in the code organization named the badge editor, note editing, connections, and selection, which
   D126 had kept in the core. It names the eight features that exist.
+
+## D130 — A line takes the sides that face each other, and stays between its two cards (NEW, 2026-11-12)
+
+**Decision.** The line of a connection leaves and enters its two cards at the sides that face each other, decided by where one
+card lies from the other: sideways whenever one card lies beside the other with the gap of the plain grid or more, however far
+up or down the other card is, and up or down only when one lies above the other. The sides are decided from where the cards
+are now, also while a card is dragged. Sides that the layout remembers because the user drew them are drawn while they face
+each other; Tidy Canvas forgets them. The curve reaches half of the way to the other end, so that it stays between the two
+sides. See [the line of a connection](specs/canvas-connection-lines.md).
+
+**Why.** On 2026-11-12 the owner looked at the mind map of the launch film and said that its lines were part of what made it
+look tangled. The sides had been chosen by the distance between the cards' centres. In a tidied map a card stands in the column
+after the card it follows and often far above or below it: two of twelve lines left the top or the bottom of a card and ran
+behind its neighbours. The curve swung out by up to 220 whatever the room between the cards, and a line between two columns
+120 apart went into the next column and back. A line that the user had drawn kept its sides when its cards were moved to the
+other side, and looped around them.
+
+**Consequences.**
+- Every line of a tidied map, and of a map that grew by itself (D131), runs from the right side of one card to the left side
+  of the next, and no line swings past the column it goes to. Two lines between two columns do not cross when their ends are
+  in the same order.
+- A line changes sides under the pointer while a card is moved. The scene decides the sides from its cards in every frame;
+  the model decides them for the first drawing, by the same function.
+- The rows of `canvas.yaml` that remember sides are kept when the sides do not face each other, so cards that are moved back
+  have them again. A tidy removes the rows between the cards it lays out in the write that moves the cards; undo of the tidy
+  and Revert write them back. This is the one place where a row of remembered sides takes part in undo.
+- Measured in a development window on the film's thirteen notes: before, the tidied map had two lines from the top or the
+  bottom of a card; after, all twelve run east to west, grown and tidied alike.
+- Not done: a line still passes behind a card that stands between its two cards.
