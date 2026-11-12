@@ -126,6 +126,23 @@ suite('BaseHalfCanvasTidy', () => {
 		]);
 	});
 
+	test('a tidy forgets the sides the layout remembers for the lines, and Revert remembers them again', async () => {
+		const scene = untidyScene();
+		const { canvas, button } = createTidy(scene);
+		const [first, second] = scene.cards;
+		canvas.rememberedLineSides = [{ from: first.path, from_anchor: 'south', to: second.path, to_anchor: 'north' }];
+		const sides = `${first.path}>${second.path} south-north`;
+		const question = await tidyByClick(canvas, button);
+		const tidied = [...canvas.calls];
+		canvas.calls.length = 0;
+		question.querySelector<HTMLButtonElement>('[data-testid="canvas-tidy-revert"]')!.click();
+		await timeout(0);
+		assert.deepStrictEqual({ tidied, reverted: canvas.calls }, {
+			tidied: ['closeNoteEditor', `moveCards folder@3 Tidy canvas: ${tidyPlaces(scene)}; forgetting ${sides}`, 'fitToScreen'],
+			reverted: [`restoreCardPlaces folder Revert tidy: ${placesBeforeTidy(scene)}; remembering ${sides}`, 'setViewport folder 10,20,0.5']
+		});
+	});
+
 	test('undo of the tidy closes the question', async () => {
 		const { canvas, button } = createTidy();
 		await tidyByClick(canvas, button);

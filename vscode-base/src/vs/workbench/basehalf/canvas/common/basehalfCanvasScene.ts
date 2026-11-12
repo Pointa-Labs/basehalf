@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind } from './basehalfCanvasModel.js';
+import type { IBaseHalfCanvasBounds, IBaseHalfCanvasDrawnEdge, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind } from './basehalfCanvasModel.js';
 import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
 import type { BaseHalfCanvasDropFolder } from './basehalfCanvasFolderDrop.js';
 import type { BaseHalfMarkdownFormatCommand, IBaseHalfMarkdownFormatState } from '../../markdown/common/basehalfMarkdownFormatting.js';
@@ -153,7 +153,7 @@ export function baseHalfCanvasSceneConnectionRefusal(
 	return target.path === previousTargetPath ? undefined : target.upstreamRefusal;
 }
 
-export interface IBaseHalfCanvasSceneEdge extends IBaseHalfCanvasEdge {
+export interface IBaseHalfCanvasSceneEdge extends IBaseHalfCanvasDrawnEdge {
 	readonly id: string;
 	/** Endpoint kinds belong to the rendered scene snapshot, not to canvas.yaml.
 	 *  They let the controller reject a gesture if a path was replaced by a

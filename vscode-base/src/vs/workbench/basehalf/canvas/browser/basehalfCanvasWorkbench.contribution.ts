@@ -828,8 +828,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			isCurrentScene: sceneKey => this.isCurrentSceneKey(sceneKey),
 			// The scene draws what changed in its next frames.
 			whenDrawn: () => new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => mainWindow.requestAnimationFrame(() => resolve()))),
-			moveCards: (scene, places, undoLabel, onUndoOrRedo) => this.geometry.moveCanvasCards(scene, places, undoLabel, onUndoOrRedo),
-			restoreCardPlaces: (sceneKey, rows, undoLabel) => this.geometry.restoreCanvasCardPlaces(sceneKey, rows, undoLabel),
+			moveCards: (scene, places, undoLabel, onUndoOrRedo, lineSides) => this.geometry.moveCanvasCards(scene, places, undoLabel, onUndoOrRedo, lineSides),
+			restoreCardPlaces: (sceneKey, rows, undoLabel, lineSides) => this.geometry.restoreCanvasCardPlaces(sceneKey, rows, undoLabel, lineSides),
 			takeFolderDrops: drops => this.folderDrops.take(drops),
 			setCardMarks: marks => this.cardMarks.set(marks),
 			takeCodeCards: codeCards => {

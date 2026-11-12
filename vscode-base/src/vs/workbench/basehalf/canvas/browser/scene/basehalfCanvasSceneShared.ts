@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { isHTMLElement, isSVGElement } from '../../../../../base/browser/dom.js';
-import { BaseHalfCanvasAnchor } from '../../common/basehalfCanvasModel.js';
+import { BaseHalfCanvasAnchor, baseHalfCanvasDrawnLineSides } from '../../common/basehalfCanvasModel.js';
 import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
 import { IBaseHalfCanvasArrangeCard } from '../../common/basehalfCanvasArrangement.js';
 import {
@@ -232,6 +232,42 @@ export function flowNodeRect(node: BaseHalfCanvasFlowNode): IBaseHalfCanvasArran
 		width: node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width,
 		height: node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height
 	};
+}
+
+/**
+ * The flow edges with the sides their lines take for where the nodes are now:
+ * the remembered sides of a pair while they face each other, and else the
+ * sides the line takes by itself (the line of a connection, "The sides follow
+ * the cards"). An edge whose sides stay is the same object, and when no edge
+ * changes the result is `edges` itself, so nothing is drawn again for it.
+ */
+export function baseHalfCanvasFlowEdgesAtLiveSides(edges: BaseHalfCanvasFlowEdge[], nodes: readonly BaseHalfCanvasFlowNode[]): BaseHalfCanvasFlowEdge[] {
+	if (edges.length === 0) {
+		return edges;
+	}
+	const rectOf = new Map(nodes.map(node => [node.id, flowNodeRect(node)]));
+	let changed = false;
+	const next = edges.map(flowEdge => {
+		const edge = flowEdge.data?.edge;
+		const from = rectOf.get(flowEdge.source);
+		const to = rectOf.get(flowEdge.target);
+		if (!edge || !flowEdge.data || !from || !to) {
+			return flowEdge;
+		}
+		const sides = baseHalfCanvasDrawnLineSides(from, to, edge.remembered);
+		if (sides.from_anchor === edge.from_anchor && sides.to_anchor === edge.to_anchor
+			&& flowEdge.sourceHandle === sides.from_anchor && flowEdge.targetHandle === sides.to_anchor) {
+			return flowEdge;
+		}
+		changed = true;
+		return {
+			...flowEdge,
+			sourceHandle: sides.from_anchor,
+			targetHandle: sides.to_anchor,
+			data: { ...flowEdge.data, edge: { ...edge, from_anchor: sides.from_anchor, to_anchor: sides.to_anchor } }
+		};
+	});
+	return changed ? next : edges;
 }
 
 /**

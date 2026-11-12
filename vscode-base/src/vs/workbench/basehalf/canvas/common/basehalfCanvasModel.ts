@@ -94,6 +94,18 @@ export interface IBaseHalfCanvasEdge {
 	readonly to_anchor: BaseHalfCanvasAnchor;
 }
 
+/** The two sides of a line: where it leaves the upstream card and where it enters the downstream card. */
+export type IBaseHalfCanvasLineSides = Pick<IBaseHalfCanvasEdge, 'from_anchor' | 'to_anchor'>;
+
+/**
+ * A connection as a canvas draws it: with the sides its line takes where the
+ * cards are, and the sides the layout remembers for the pair when it has a row
+ * (the line of a connection).
+ */
+export interface IBaseHalfCanvasDrawnEdge extends IBaseHalfCanvasEdge {
+	readonly remembered?: IBaseHalfCanvasLineSides;
+}
+
 export interface IBaseHalfCanvasFile {
 	readonly path: string;
 	readonly size?: IBaseHalfCanvasSize;
@@ -194,7 +206,7 @@ export interface IBaseHalfCanvasEdgeLayoutResult {
 
 export interface IBaseHalfCanvasFolderModel {
 	readonly items: readonly IBaseHalfCanvasItem[];
-	readonly edges: readonly IBaseHalfCanvasEdge[];
+	readonly edges: readonly IBaseHalfCanvasDrawnEdge[];
 	readonly truncated: number;
 	readonly size?: IBaseHalfCanvasSize;
 	/**
@@ -414,11 +426,11 @@ function isAnnotatedItem(item: IBaseHalfCanvasItem): boolean {
 function deriveCanvasEdges(
 	items: readonly IBaseHalfCanvasItem[],
 	styled: readonly IBaseHalfCanvasEdge[]
-): IBaseHalfCanvasEdge[] {
+): IBaseHalfCanvasDrawnEdge[] {
 	const itemPaths = new Set(items.map(item => item.path));
 	const boundsByPath = new Map(items.map((item, index) => [item.path, baseHalfCanvasItemBounds(item, index, items.length)]));
 	const styleByPair = new Map(styled.map(edge => [edgePairKey(edge.from, edge.to), edge]));
-	const edges: IBaseHalfCanvasEdge[] = [];
+	const edges: IBaseHalfCanvasDrawnEdge[] = [];
 	const drawn = new Set<string>();
 	for (const target of items) {
 		for (const from of target.relationships?.upstream ?? []) {
@@ -427,8 +439,10 @@ function deriveCanvasEdges(
 				continue;
 			}
 			drawn.add(key);
-			const styledEdge = styleByPair.get(key);
-			edges.push(styledEdge ?? baseHalfCanvasDefaultEdge(from, target.path, boundsByPath.get(from)!, boundsByPath.get(target.path)!));
+			const row = styleByPair.get(key);
+			const remembered = row ? { from_anchor: row.from_anchor, to_anchor: row.to_anchor } : undefined;
+			const sides = baseHalfCanvasDrawnLineSides(boundsByPath.get(from)!, boundsByPath.get(target.path)!, remembered);
+			edges.push({ from, from_anchor: sides.from_anchor, to: target.path, to_anchor: sides.to_anchor, ...(remembered ? { remembered } : {}) });
 		}
 	}
 
@@ -448,24 +462,79 @@ export function baseHalfCanvasEdgesWithUpstream(
 	styled: readonly IBaseHalfCanvasEdge[],
 	path: string,
 	upstream: readonly string[]
-): IBaseHalfCanvasEdge[] {
+): IBaseHalfCanvasDrawnEdge[] {
 	return deriveCanvasEdges(items.map(item => item.path !== path ? item : {
 		...item,
 		relationships: { downstream: [], issueCount: 0, ...item.relationships, upstream }
 	}), styled);
 }
 
-function baseHalfCanvasDefaultEdge(from: string, to: string, fromBounds: IBaseHalfCanvasBounds, toBounds: IBaseHalfCanvasBounds): IBaseHalfCanvasEdge {
-	const deltaX = toBounds.x + toBounds.width / 2 - (fromBounds.x + fromBounds.width / 2);
-	const deltaY = toBounds.y + toBounds.height / 2 - (fromBounds.y + fromBounds.height / 2);
-	if (Math.abs(deltaX) >= Math.abs(deltaY)) {
-		return deltaX >= 0
-			? { from, from_anchor: 'east', to, to_anchor: 'west' }
-			: { from, from_anchor: 'west', to, to_anchor: 'east' };
+/** A line runs sideways between two cards that stand at least this far apart side by side: the gap of the plain grid. */
+const BASEHALF_CANVAS_LINE_SIDEWAYS_GAP = BASEHALF_CANVAS_GRID_COLUMN_GAP;
+
+/**
+ * The sides a line takes by itself, from where its two cards are (the line of
+ * a connection, "The sides a line takes by itself"):
+ *
+ * - One card lies wholly beside the other, at least the gap of the plain grid
+ *   away, or nearer while neither lies wholly above the other: the line runs
+ *   sideways, however far up or down the other card is.
+ * - Otherwise one card lies wholly above the other: the line runs up or down.
+ * - Otherwise the cards lie over each other: the centres decide, sideways
+ *   when they are at least as far apart sideways as up and down.
+ */
+export function baseHalfCanvasLineSides(from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds): IBaseHalfCanvasLineSides {
+	const gapBeside = Math.max(to.x - (from.x + from.width), from.x - (to.x + to.width));
+	const gapAbove = Math.max(to.y - (from.y + from.height), from.y - (to.y + to.height));
+	const deltaX = to.x + to.width / 2 - (from.x + from.width / 2);
+	const deltaY = to.y + to.height / 2 - (from.y + from.height / 2);
+	const sideways = gapBeside > 0
+		? gapBeside >= BASEHALF_CANVAS_LINE_SIDEWAYS_GAP || gapAbove <= 0
+		: gapAbove <= 0 && Math.abs(deltaX) >= Math.abs(deltaY);
+	if (sideways) {
+		return (gapBeside > 0 ? to.x >= from.x + from.width : deltaX >= 0)
+			? { from_anchor: 'east', to_anchor: 'west' }
+			: { from_anchor: 'west', to_anchor: 'east' };
 	}
-	return deltaY >= 0
-		? { from, from_anchor: 'south', to, to_anchor: 'north' }
-		: { from, from_anchor: 'north', to, to_anchor: 'south' };
+	return (gapAbove > 0 ? to.y >= from.y + from.height : deltaY >= 0)
+		? { from_anchor: 'south', to_anchor: 'north' }
+		: { from_anchor: 'north', to_anchor: 'south' };
+}
+
+/**
+ * Whether the two sides of a line face each other where the cards are: the
+ * end of the line on the other card lies ahead of each side, beyond the line
+ * that the side lies on.
+ */
+export function baseHalfCanvasLineSidesFace(from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds, sides: IBaseHalfCanvasLineSides): boolean {
+	const start = baseHalfCanvasAnchorPoint(from, sides.from_anchor);
+	const end = baseHalfCanvasAnchorPoint(to, sides.to_anchor);
+	return aheadOfSide(start, sides.from_anchor, end) > 0 && aheadOfSide(end, sides.to_anchor, start) > 0;
+}
+
+/**
+ * The sides a line is drawn with: the remembered sides of its pair while they
+ * face each other, and else the sides it takes by itself. The row stays, so
+ * cards that are moved back have their remembered sides again.
+ */
+export function baseHalfCanvasDrawnLineSides(from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds, remembered?: IBaseHalfCanvasLineSides): IBaseHalfCanvasLineSides {
+	return remembered && baseHalfCanvasLineSidesFace(from, to, remembered)
+		? { from_anchor: remembered.from_anchor, to_anchor: remembered.to_anchor }
+		: baseHalfCanvasLineSides(from, to);
+}
+
+/** How far `other` lies ahead of the side `anchor` that `point` is on: beyond the line of the side, outward. */
+function aheadOfSide(point: IBaseHalfCanvasPosition, anchor: BaseHalfCanvasAnchor, other: IBaseHalfCanvasPosition): number {
+	switch (anchor) {
+		case 'north':
+			return point.y - other.y;
+		case 'east':
+			return other.x - point.x;
+		case 'south':
+			return other.y - point.y;
+		case 'west':
+			return point.x - other.x;
+	}
 }
 
 function edgePairKey(from: string, to: string): string {
@@ -922,9 +991,19 @@ export function baseHalfCanvasAnchorPoint(bounds: IBaseHalfCanvasBounds, anchor:
 	}
 }
 
+/** A line leaves its side at least this far before it turns, where the other end is at least that far ahead. */
+const BASEHALF_CANVAS_LINE_MIN_REACH = 24;
+
 /**
  * The cubic curve of an edge: its two ends and, between them, the control
- * points that leave each end at a right angle to its card's side.
+ * points that leave each end at a right angle to its card's side (the line of
+ * a connection, "The curve").
+ *
+ * An end whose other end lies ahead of its side reaches half of that distance,
+ * at least {@link BASEHALF_CANVAS_LINE_MIN_REACH} and never past the other
+ * end: between two sides that face each other the curve stays between them.
+ * An end whose other end lies behind its side reaches out far enough to turn
+ * back, as before.
  */
 export function baseHalfCanvasEdgeCurve(
 	from: IBaseHalfCanvasPosition,
@@ -932,8 +1011,12 @@ export function baseHalfCanvasEdgeCurve(
 	to: IBaseHalfCanvasPosition,
 	toAnchor: IBaseHalfCanvasEdge['to_anchor']
 ): readonly [IBaseHalfCanvasPosition, IBaseHalfCanvasPosition, IBaseHalfCanvasPosition, IBaseHalfCanvasPosition] {
-	const distance = Math.min(220, Math.max(48, (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) / 2));
-	return [from, controlPoint(from, fromAnchor, distance), controlPoint(to, toAnchor, distance), to];
+	const around = Math.min(220, Math.max(48, (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) / 2));
+	const reach = (point: IBaseHalfCanvasPosition, anchor: BaseHalfCanvasAnchor, other: IBaseHalfCanvasPosition): number => {
+		const ahead = aheadOfSide(point, anchor, other);
+		return ahead > 0 ? Math.min(ahead, Math.max(ahead / 2, BASEHALF_CANVAS_LINE_MIN_REACH)) : around;
+	};
+	return [from, controlPoint(from, fromAnchor, reach(from, fromAnchor, to)), controlPoint(to, toAnchor, reach(to, toAnchor, from)), to];
 }
 
 export function baseHalfCanvasEdgePath(

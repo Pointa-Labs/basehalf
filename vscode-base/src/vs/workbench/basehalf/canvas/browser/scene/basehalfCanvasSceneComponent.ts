@@ -39,6 +39,7 @@ import { useBaseHalfCanvasSceneRuntime } from './basehalfCanvasSceneRuntime.js';
 import { BaseHalfCanvasSelectionIntentCoordinator, IBaseHalfCanvasPendingSelectionChanges, IBaseHalfCanvasPendingSelectionRequest, useBaseHalfCanvasSceneSelection } from './basehalfCanvasSceneSelection.js';
 import {
 	BaseHalfCanvasFlowEdge,
+	baseHalfCanvasFlowEdgesAtLiveSides,
 	BaseHalfCanvasFlowNode,
 	baseHalfCanvasSceneVideoInputPickGesturePolicy,
 	IBaseHalfCanvasConnectionStoreController,
@@ -293,6 +294,11 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			edgesRef.current = next;
 			setEdges(next);
 		}, []);
+		// A line takes its sides from where its two cards are now, also while one
+		// of them is dragged or resized (the line of a connection, "The sides
+		// follow the cards"). What reads the edges reads them with these sides.
+		const drawnEdges = vendor.useMemo(() => baseHalfCanvasFlowEdgesAtLiveSides(edges, nodes), [edges, nodes]);
+		edgesRef.current = drawnEdges;
 
 		const { requestSelection, queueSelectionChanges } = useBaseHalfCanvasSceneSelection(environment, {
 			sceneKeyRef, structuralEpochRef, pendingSelectionChanges, selectionIntents,
@@ -435,7 +441,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const videoInputPickGesturePolicy = baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive);
 		const flowProps: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge> = {
 			nodes,
-			edges,
+			edges: drawnEdges,
 			nodeTypes,
 			edgeTypes,
 			onNodesChange,

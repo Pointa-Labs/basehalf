@@ -14,6 +14,8 @@ import {
 	BASEHALF_CANVAS_DOCUMENT_CARD_RATIO,
 	baseHalfCanvasCardResizes,
 	baseHalfCanvasCardToggleConnections,
+	baseHalfCanvasDrawnLineSides,
+	baseHalfCanvasEdgeCurve,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasEdgesWithUpstream,
 	baseHalfCanvasCenteredPlace,
@@ -25,6 +27,8 @@ import {
 	baseHalfCanvasItemsFromStat,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
+	baseHalfCanvasLineSides,
+	baseHalfCanvasLineSidesFace,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasNewCardSize,
 	baseHalfCanvasOpenPosition,
@@ -35,6 +39,7 @@ import {
 	baseHalfCanvasShowsDocument,
 	baseHalfCanvasTransferPlaces,
 	baseHalfCanvasTransferPosition,
+	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasCard,
 	IBaseHalfCanvasItemRelationships
 } from '../../common/basehalfCanvasModel.js';
@@ -300,8 +305,10 @@ suite('BaseHalfCanvasModel', () => {
 			}
 		});
 
+		// b and c appear beside a, the card they follow. b's row is drawn and
+		// named as what the layout remembers.
 		assert.deepStrictEqual(model.edges, [
-			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
+			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', remembered: { from_anchor: 'east', to_anchor: 'west' } },
 			{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
 		]);
 	});
@@ -317,13 +324,19 @@ suite('BaseHalfCanvasModel', () => {
 			// Anchor memory of a pair that is not connected: it anchors the pair once it is.
 			{ from: 'b.md', from_anchor: 'south' as const, to: 'c.md', to_anchor: 'north' as const }
 		];
+		// b stands beside a, and c below b.
+		const cards: IBaseHalfCanvasCard[] = [
+			{ path: 'a.md', kind: 'file', x: 0, y: 0, width: 300, height: 220 },
+			{ path: 'b.md', kind: 'file', x: 420, y: 0, width: 300, height: 220 },
+			{ path: 'c.md', kind: 'file', x: 420, y: 280, width: 300, height: 220 }
+		];
 		const model = baseHalfCanvasModelFromStat(root, {
 			rootLevel: true,
 			relationships: new Map([
 				['b.md', relationships({ upstream: ['a.md'] })],
 				['c.md', relationships({ upstream: ['a.md'] })]
 			]),
-			canvas: { path: '', cards: [], edges: styled }
+			canvas: { path: '', cards, edges: styled }
 		});
 		// c takes b too, and names itself and a card of another folder, which draw nothing.
 		const connected = baseHalfCanvasEdgesWithUpstream(model.items, styled, 'c.md', ['a.md', 'b.md', 'c.md', 'docs/far.md']);
@@ -336,22 +349,23 @@ suite('BaseHalfCanvasModel', () => {
 				['b.md', relationships({ upstream: ['a.md'] })],
 				['c.md', relationships({ upstream: ['a.md', 'b.md', 'c.md', 'docs/far.md'] })]
 			]),
-			canvas: { path: '', cards: [], edges: styled }
+			canvas: { path: '', cards, edges: styled }
 		}).edges;
+		const eastWest = { from_anchor: 'east', to_anchor: 'west' };
 		assert.deepStrictEqual({ connected, sameAsModel: JSON.stringify(connected) === JSON.stringify(viaModel), removed, added }, {
 			connected: [
-				{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
-				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' },
-				{ from: 'b.md', from_anchor: 'south', to: 'c.md', to_anchor: 'north' }
+				{ from: 'a.md', ...eastWest, to: 'b.md', remembered: eastWest },
+				{ from: 'a.md', ...eastWest, to: 'c.md' },
+				{ from: 'b.md', from_anchor: 'south', to: 'c.md', to_anchor: 'north', remembered: { from_anchor: 'south', to_anchor: 'north' } }
 			],
 			sameAsModel: true,
 			removed: [
-				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
+				{ from: 'a.md', ...eastWest, to: 'c.md' }
 			],
 			added: [
 				{ from: 'c.md', from_anchor: 'west', to: 'a.md', to_anchor: 'east' },
-				{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
-				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
+				{ from: 'a.md', ...eastWest, to: 'b.md', remembered: eastWest },
+				{ from: 'a.md', ...eastWest, to: 'c.md' }
 			]
 		});
 	});
@@ -410,6 +424,100 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(model.edges, [
 			{ from: 'a.md', from_anchor: 'north', to: 'b.md', to_anchor: 'south' }
 		]);
+	});
+
+	test('a line takes the sides that face each other by where one card lies from the other, not by how far apart their centres are', () => {
+		const card = (x: number, y: number, width = 300, height = 220): IBaseHalfCanvasBounds => ({ x, y, width, height });
+		const sides = (from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds) => { const line = baseHalfCanvasLineSides(from, to); return `${line.from_anchor}>${line.to_anchor}`; };
+		const from = card(0, 0);
+		assert.deepStrictEqual({
+			// One column to the right, level, far above, and far below: always sideways.
+			besideLevel: sides(from, card(420, 0)),
+			besideFarAbove: sides(from, card(420, -1400)),
+			besideFarBelow: sides(from, card(420, 1960)),
+			// The other card on the left.
+			leftFarBelow: sides(from, card(-420, 900)),
+			// One above the other.
+			below: sides(from, card(0, 280)),
+			belowAndAside: sides(from, card(250, 280)),
+			above: sides(from, card(100, -400)),
+			// Beside, but nearer than two cards of the plain grid stand side by side.
+			nearBesideBelow: sides(from, card(320, 280)),
+			nearBesideLevel: sides(from, card(310, 100)),
+			gridNeighbour: sides(from, card(340, 0)),
+			gridDiagonal: sides(from, card(340, 280)),
+			// Lying over each other: the centres decide, as before.
+			overSideways: sides(from, card(200, 50)),
+			overDownwards: sides(from, card(50, 150)),
+			overUpwards: sides(from, card(50, -150))
+		}, {
+			besideLevel: 'east>west',
+			besideFarAbove: 'east>west',
+			besideFarBelow: 'east>west',
+			leftFarBelow: 'west>east',
+			below: 'south>north',
+			belowAndAside: 'south>north',
+			above: 'north>south',
+			nearBesideBelow: 'south>north',
+			nearBesideLevel: 'east>west',
+			gridNeighbour: 'east>west',
+			gridDiagonal: 'east>west',
+			overSideways: 'east>west',
+			overDownwards: 'south>north',
+			overUpwards: 'north>south'
+		});
+	});
+
+	test('remembered sides are drawn while they face each other, the line\'s own sides when they do not, and again when the cards are back', () => {
+		const card = (x: number, y: number): IBaseHalfCanvasBounds => ({ x, y, width: 300, height: 220 });
+		const remembered = { from_anchor: 'south', to_anchor: 'north' } as const;
+		const from = card(0, 0);
+		const drawn = (to: IBaseHalfCanvasBounds) => { const line = baseHalfCanvasDrawnLineSides(from, to, remembered); return `${line.from_anchor}>${line.to_anchor}`; };
+		assert.deepStrictEqual({
+			below: [baseHalfCanvasLineSidesFace(from, card(0, 280), remembered), drawn(card(0, 280))],
+			// Below and one column aside: the sides still face, and stay as the user drew them.
+			belowAside: [baseHalfCanvasLineSidesFace(from, card(420, 280), remembered), drawn(card(420, 280))],
+			// Moved up beside the card: the bottom side faces away.
+			beside: [baseHalfCanvasLineSidesFace(from, card(420, 0), remembered), drawn(card(420, 0))],
+			above: [baseHalfCanvasLineSidesFace(from, card(0, -400), remembered), drawn(card(0, -400))],
+			backBelow: drawn(card(0, 280)),
+			// Without a row the line takes its own sides.
+			noRow: baseHalfCanvasDrawnLineSides(from, card(420, 280))
+		}, {
+			below: [true, 'south>north'],
+			belowAside: [true, 'south>north'],
+			beside: [false, 'east>west'],
+			above: [false, 'north>south'],
+			backBelow: 'south>north',
+			noRow: { from_anchor: 'east', to_anchor: 'west' }
+		});
+	});
+
+	test('the curve of a line stays between two sides that face each other, and reaches around for an end that lies behind', () => {
+		const curve = (from: { x: number; y: number }, fromAnchor: 'north' | 'east' | 'south' | 'west', to: { x: number; y: number }, toAnchor: 'north' | 'east' | 'south' | 'west') =>
+			baseHalfCanvasEdgeCurve(from, fromAnchor, to, toAnchor).slice(1, 3).map(point => `${point.x},${point.y}`).join(' ');
+		assert.deepStrictEqual({
+			// Two columns one wide gap apart: both ends reach to the middle of the gap, however far down the other card is.
+			column: curve({ x: 300, y: 110 }, 'east', { x: 420, y: 110 }, 'west'),
+			columnFarBelow: curve({ x: 300, y: 110 }, 'east', { x: 420, y: 2070 }, 'west'),
+			// A long way: half of it each.
+			far: curve({ x: 300, y: 110 }, 'east', { x: 1300, y: 600 }, 'west'),
+			// The gap of the plain grid: at least 24, and both ends stay inside the gap.
+			gridGap: curve({ x: 300, y: 110 }, 'east', { x: 340, y: 390 }, 'west'),
+			// Nearer than that: never past the other end.
+			tight: curve({ x: 300, y: 110 }, 'east', { x: 310, y: 210 }, 'west'),
+			downwards: curve({ x: 150, y: 220 }, 'south', { x: 400, y: 500 }, 'north'),
+			// An end drawn to a point that lies behind its side reaches around, as before.
+			behind: curve({ x: 300, y: 110 }, 'east', { x: 100, y: 400 }, 'west')
+		}, {
+			column: '360,110 360,110',
+			columnFarBelow: '360,110 360,2070',
+			far: '800,110 800,600',
+			gridGap: '324,110 316,390',
+			tight: '310,110 300,210',
+			downwards: '150,360 400,360',
+			behind: '520,110 -120,400'
+		});
 	});
 
 	test('computes card bounds from saved geometry or the stable grid fallback', () => {
@@ -816,7 +924,7 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(baseHalfCanvasEdgeLayouts(model.edges, model.items), {
 			dropped: 0,
 			edges: [{
-				edge: { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
+				edge: { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', remembered: { from_anchor: 'east', to_anchor: 'west' } },
 				from: { x: 210, y: 70 },
 				to: { x: 320, y: 70 },
 				path: 'M 210 70 C 265 70 265 70 320 70'

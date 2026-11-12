@@ -11,7 +11,7 @@ import { isMacintosh } from '../../../../../base/common/platform.js';
 import { localize } from '../../../../../nls.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { baseHalfCanvasTidy } from '../../../canvas/common/basehalfCanvasArrangement.js';
-import { IBaseHalfCanvasCard } from '../../../canvas/common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
@@ -22,6 +22,8 @@ interface IBaseHalfCanvasTidyQuestion {
 	readonly sceneKey: string;
 	/** The rows of the cards that the tidy moved, as they were before it. */
 	readonly previous: ReadonlyMap<string, IBaseHalfCanvasCard>;
+	/** The sides that the layout remembered for connections and that the tidy forgot. */
+	readonly lineSides: readonly IBaseHalfCanvasEdge[];
 	/** What the view showed before the tidy. */
 	readonly viewport: IBaseHalfCanvasSceneViewport;
 	readonly element: HTMLElement;
@@ -124,12 +126,16 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 			this.closeQuestion();
 			// The layout says which cards move. What the canvas draws can be a
 			// moment behind it, for example right after an undo.
+			// The layout runs from left to right, and so does every line of it: the
+			// sides that were drawn for other places are forgotten with the move
+			// (the line of a connection, "Tidy Canvas").
+			let lineSides: readonly IBaseHalfCanvasEdge[] = [];
 			const moved = await this.canvas.moveCards(scene, places, localize('basehalf.canvas.tidy.undo', "Tidy canvas"), undone => {
 				// Undo of the tidy leaves nothing to keep or revert.
 				if (undone && this.question?.token === token) {
 					this.closeQuestion();
 				}
-			});
+			}, { forget: true, forgot: rows => { lineSides = rows; } });
 			if (!this.canvas.isCurrentScene(scene.key)) {
 				return;
 			}
@@ -141,7 +147,7 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 			}
 			this.canvas.fitToScreen();
 			if (moved.length > 0) {
-				this.ask({ token, sceneKey: scene.key, previous: new Map(moved.map(card => [card.path, card.before])), viewport });
+				this.ask({ token, sceneKey: scene.key, previous: new Map(moved.map(card => [card.path, card.before])), lineSides, viewport });
 			}
 		} catch (error) {
 			this.canvas.reportError(error);
@@ -204,7 +210,8 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 	 * Puts every card that the tidy moved back at the place it had before, also
 	 * a card that was moved again since, and the view back to what it showed.
 	 * Only places go back: a size that changed since stays, and a card that is
-	 * gone is passed over.
+	 * gone is passed over. The sides that the tidy forgot for the lines are
+	 * remembered again.
 	 */
 	private async revert(question: IBaseHalfCanvasTidyQuestion): Promise<void> {
 		if (this.question !== question) {
@@ -216,7 +223,7 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 			return;
 		}
 		try {
-			await this.canvas.restoreCardPlaces(sceneKey, question.previous, localize('basehalf.canvas.tidy.revertUndo', "Revert tidy"));
+			await this.canvas.restoreCardPlaces(sceneKey, question.previous, localize('basehalf.canvas.tidy.revertUndo', "Revert tidy"), question.lineSides);
 			if (!this.canvas.isCurrentScene(sceneKey)) {
 				return;
 			}

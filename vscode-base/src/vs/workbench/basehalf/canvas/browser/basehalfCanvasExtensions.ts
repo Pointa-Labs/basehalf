@@ -12,7 +12,7 @@ import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgen
 import { BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfCodePreviewPiece } from '../common/basehalfCanvasCodePreview.js';
 import { IBaseHalfCanvasCardPick } from '../common/basehalfCanvasCardPick.js';
-import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../common/basehalfCanvasScene.js';
 
 /** The cards and connections of the canvas as they were drawn last. */
@@ -45,6 +45,13 @@ export interface IBaseHalfCanvasMovedCard {
 	readonly path: string;
 	readonly before: IBaseHalfCanvasCard;
 	readonly after: IBaseHalfCanvasCard;
+}
+
+/** What a move of cards does with the sides the layout remembers for their connections (IBaseHalfCanvasView.moveCards). */
+export interface IBaseHalfCanvasMoveLineSides {
+	readonly forget: true;
+	/** Hears the rows of remembered sides that the move forgot. */
+	readonly forgot?: (rows: readonly IBaseHalfCanvasEdge[]) => void;
 }
 
 /** What a feature does with what the user lets go on a folder (IBaseHalfCanvasView.takeFolderDrops). */
@@ -201,15 +208,23 @@ export interface IBaseHalfCanvasView {
 	 * layout holds them. Returns the cards whose place changed. `onUndoOrRedo`
 	 * hears when that step is undone or done again. Throws with a reason in
 	 * plain words when the change cannot be saved.
+	 *
+	 * With `lineSides.forget` the same change forgets the sides that the
+	 * layout remembers for the connections between these cards, so that their
+	 * lines take their sides from the new places (the line of a connection,
+	 * "Tidy Canvas"); `lineSides.forgot` hears the rows that were forgotten.
+	 * Undo of the step brings them back with the places.
 	 */
-	moveCards(scene: IBaseHalfCanvasViewScene, places: readonly IBaseHalfCanvasSceneGeometry[], undoLabel: string, onUndoOrRedo?: (undone: boolean) => void): Promise<readonly IBaseHalfCanvasMovedCard[]>;
+	moveCards(scene: IBaseHalfCanvasViewScene, places: readonly IBaseHalfCanvasSceneGeometry[], undoLabel: string, onUndoOrRedo?: (undone: boolean) => void, lineSides?: IBaseHalfCanvasMoveLineSides): Promise<readonly IBaseHalfCanvasMovedCard[]>;
 	/**
 	 * Puts cards back at the places of their rows, as one change of the layout
 	 * and one step of undo. Only places go back: a size that changed since
 	 * stays, a card that is gone is passed over, and a place that BaseHalf had
 	 * chosen is again one it chose. Nothing happens when another canvas is shown.
+	 * `lineSides` are remembered sides that the same change puts back, for the
+	 * connections whose two cards are still shown.
 	 */
-	restoreCardPlaces(sceneKey: string, rows: ReadonlyMap<string, IBaseHalfCanvasCard>, undoLabel: string): Promise<void>;
+	restoreCardPlaces(sceneKey: string, rows: ReadonlyMap<string, IBaseHalfCanvasCard>, undoLabel: string, lineSides?: readonly IBaseHalfCanvasEdge[]): Promise<void>;
 
 	/**
 	 * Hands what the user lets go on a folder to `drops` (dropping into a
