@@ -3,7 +3,9 @@
 Status: Active (2026-10-11; rewritten the same day for D46, reviewed once,
 and revised so that the layout stays out of git; revised on 2026-10-12 for
 D50, so that a place the user points at is taken as it is; revised on
-2026-10-27 for D88, so that a card let go on a folder goes into it).
+2026-10-27 for D88, so that a card let go on a folder goes into it; revised
+on 2026-11-12 for D131, so that a card that follows a card of the canvas
+appears beside it).
 Implementation in
 progress: until it lands, the code does what the
 first version of this document required, which is summarized under
@@ -12,7 +14,8 @@ first version of this document required, which is summarized under
 the commit that implements the part they describe.
 Decision: [D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11),
 refined by [D50](../decisions.md#d50--a-place-the-user-points-at-is-taken-as-it-is-new-2026-10-12)
-and [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
+and [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27),
+and [D131](../decisions.md#d131--a-card-that-follows-a-card-of-the-canvas-appears-beside-it-new-2026-11-12)
 Related: [following moved items](following-moved-items.md),
 [mirror file resilience](mirror-file-resilience.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -142,6 +145,8 @@ fourth: it goes where the user pointed
 - No card moves unless the user moves it.
 - A card that the user points at is where they pointed.
 - BaseHalf never puts a card on another card by its own choice.
+- A card that follows a card of the canvas appears beside it, so that a map
+  grows in order without anyone arranging it.
 - The card of an image or a video has its picture's shape.
 - One rule covers every way a card can come to be on a canvas.
 - Opening a folder or moving a card changes nothing that git shows.
@@ -195,6 +200,11 @@ fourth: it goes where the user pointed
   user creates without pointing: the card centered on the middle of the
   visible part of the canvas, or beside the card that the new one is made
   from.
+- **Follows**: a card follows another card of the same canvas when its
+  upstream list names it: the canvas draws a connection from that card to
+  it ([reference graph](reference-graph.md#edges)).
+- **Wide gap**: 120, the distance between the columns of a tidied group
+  ([canvas selection and arrangement](canvas-selection-and-arrangement.md#terms)).
 - **Taken**: the rectangles of all rows of the layout, and of the places
   that [wait for a write](#when-a-place-cannot-be-saved).
 - **Open**: a rectangle is open when it is at least 40 away to the side, or
@@ -236,18 +246,26 @@ fourth: it goes where the user pointed
    - BaseHalf computed a place for it, or it is one of a group that was
      dropped at a point: the [nearest open place](#the-nearest-open-place)
      to that place.
+   - Nobody pointed and nothing was computed, and it follows a card of the
+     canvas that has a place:
+     [beside that card](#beside-the-card-it-follows).
    - Otherwise: [the end of the canvas](#the-end-of-a-canvas).
 3. **Saved.** The row is written to the layout in the same drawing
    ([how a place is saved](#how-a-place-is-saved)). It is a chosen row,
    except when the user pointed.
 
-Cards that appear in the same drawing are placed one after the other in list
-order, and each place counts as taken for the next.
+Cards that appear in the same drawing are placed one after the other, and
+each place counts as taken for the next. They are placed in list order,
+except that a card that follows another one comes after it
+([the order of one drawing](#the-order-of-one-drawing)).
 
-So the first drawing of a folder that has no layout puts every card in the
-plain grid in list order, as before, and writes one row for each. The one
-difference is a card that is larger than a cell: the cards after it stand
-clear of it.
+So the first drawing of a folder that has no layout puts its cards in the
+plain grid in list order when none of them follows another, as before, and
+writes one row for each. Two things differ. A card that is larger than a
+cell keeps the cards after it clear of it. And the cards that follow a card
+stand beside it, in columns to its right, and not in the grid. The next card
+of the list that follows nothing then goes to the end of the canvas as it is
+by then: after the last card of the lowest row.
 
 ### The card of an image or a video has its picture's shape
 
@@ -344,11 +362,89 @@ Where a card goes when nobody pointed.
 
 Nothing is put between cards that are there, also where there is room. An
 empty stretch between the user's cards is theirs. A card that BaseHalf put
-there would look as if it belonged to the cards around it.
+there would look as if it belonged to the cards around it. A card that
+follows a card of the canvas does belong to one: it does not go to the end,
+but [beside the card it follows](#beside-the-card-it-follows).
 
 In a folder whose cards are still in the plain grid, a new card therefore
 continues the last row, and starts the next row when the last one is full.
 This still holds after the user has moved some of the cards.
+
+### Beside the card it follows
+
+Where a card goes that nobody pointed at and that follows a card of the
+canvas.
+
+Until 2026-11-12 such a card went to the end of the canvas like any other.
+A map that an agent grew by writing notes with upstream lists came out as
+the rows of a grid, in the order in which the notes were written, with its
+lines crossing the rows and running behind cards. It became a tree only
+when the user ran Tidy Canvas. The user asked why a map does not grow in
+order by itself.
+
+- **Which card.** The card it follows that has a place. Among several, the
+  one whose right edge is furthest right, and among those the uppermost.
+  This is the rule of Tidy Canvas, which puts a card one column to the
+  right of the rightmost card that leads to it
+  ([canvas selection and arrangement](canvas-selection-and-arrangement.md#tidying-a-canvas)).
+- **The column.** The card's left edge is one wide gap to the right of that
+  card's right edge. Its lines then run from left to right
+  ([the line of a connection](canvas-connection-lines.md#the-sides-a-line-takes-by-itself)).
+- **How high.** Its top edge is level with the top edge of the card it
+  follows. When cards that follow the same card already stand in that
+  column, it is one vertical gap, 60, below the lowest of them. A card
+  stands in that column when its left and right edges reach over the new
+  card's.
+- **Further down while the place is taken.** While the place is not open,
+  the card goes down to one vertical gap below the upper of the cards in
+  its way. It never leaves the column: below everything there is room. So
+  it also takes room between two cards of the column that holds it, and
+  passes room that is too low for it.
+- No card that is there moves, and the view does not move.
+- The row is a chosen row, like every place BaseHalf chooses.
+
+A card that follows only cards without a place, cards of another folder, or
+itself goes to the end of the canvas.
+
+**What the card follows is the list its file holds when it appears.** The
+drawing in which a card appears reads the card's own upstream list, also
+when the reference index has not read the file yet and while the index is
+still building. A file whose list is written only later was placed without
+it, at the end of the canvas, and stays there: a place is chosen once.
+A drawing in which more than 300 cards appear, more than a canvas shows,
+reads no file for this. Its cards are placed by the lists that the reference
+index holds, and go to the end of the canvas while the index is building.
+
+A draft is placed the same way: it follows the cards of its inputs
+([generation cards](generation-cards.md#inputs)).
+
+**Tidy Canvas afterwards.** A map that grew this way has the columns of a
+tidied one, and in each column the order of the cards that its cards
+follow. Tidy Canvas then centers the columns on one line, which moves whole
+columns up or down, and puts a column in list order where the cards came in
+another order.
+
+### The order of one drawing
+
+Cards that appear in the same drawing are placed one after the other. Which
+one is next:
+
+1. A card that follows a card with a place, and follows no card that still
+   waits for its place in this drawing. Among several, the one whose card
+   to follow stands highest, then furthest left, then the first in list
+   order. It goes [beside the card it follows](#beside-the-card-it-follows).
+2. Else the first card in list order that follows no card that still
+   waits. It goes to [the end of the canvas](#the-end-of-a-canvas).
+3. Else every card that is left follows a card that waits, in a circle. The
+   first in list order goes beside a card it follows that has a place, or
+   to the end of the canvas.
+
+So a card with the cards that follow it, directly or through other cards,
+is placed whole before the next card of the list. The cards after one card
+stand in list order. A column is filled before the next one, and its cards
+stand in the order of the cards they follow, so that no two lines between
+two columns cross. Cards that follow nothing are placed in list order at
+the end of the canvas, as before.
 
 ### A pointed place is taken as it is
 
@@ -425,7 +521,7 @@ group whose slot is taken.
 | Generate several images at once | computed: the drafts of the further images in a row to the right of the card the generation runs on, each 40 to the right of the one before ([generation cards](generation-cards.md#several-images-from-one-generation)) |
 | Drop, paste, or move files and folders onto the canvas at a point | for the item at position *i* of *n*: slot *i* of a block of cells that starts at the point and has as many columns as the square root of *n*, rounded up, and at most 4 |
 | Paste with Command-V or the Edit menu, without a point: files, folders, a picture, or text ([copy, paste, and drop](copy-paste-and-drop.md#the-canvas)) | computed: the block of the cards, as for a drop, centered on the middle of the visible part of the canvas; a card whose slot is taken goes to the nearest open place, and the view goes to a card out of sight |
-| Anything else: a file that a program or an agent adds, a card or an item that is dropped on a folder's card or on a folder of the path ([dropping into a folder](canvas-drop-into-folder.md)), a move in the file tree, a move outside BaseHalf | none |
+| Anything else: a file that a program or an agent adds, a card or an item that is dropped on a folder's card or on a folder of the path ([dropping into a folder](canvas-drop-into-folder.md)), a move in the file tree, a move outside BaseHalf | none: [beside the card it follows](#beside-the-card-it-follows), or the end of the canvas |
 
 A group that is dropped at a point keeps its block where the block is open.
 The cards whose slots are open take them first. Then the others, in order,
@@ -729,9 +825,10 @@ A canvas shows at most 300 cards.
 
 | Situation | Result |
 | --- | --- |
-| A folder is shown for the first time | Its cards are in the plain grid, in name order with folders first. |
+| A folder is shown for the first time | Its cards are in the plain grid, in name order with folders first. A card that follows another one stands beside it, in a column to its right. |
 | A file is added by anyone | Its card is after the last card. No other card moves. |
-| Several files are added at once | Their cards follow each other after the last card, in name order. |
+| A file is added that lists a card of the canvas upstream, as when an agent grows a map | Its card is in the column to the right of that card, level with it or under the cards that follow it already. No other card moves. |
+| Several files are added at once | Their cards follow each other after the last card, in name order. A card that follows another one stands beside it. |
 | A file is deleted | Its card goes. No other card moves, and the gap stays. |
 | A file is renamed, in BaseHalf or outside | Its card stays where it is. |
 | A card is dragged | It is where it was dropped, also on another card. No other card moves. |
@@ -1012,6 +1109,44 @@ written with this document.
     writes, or another program, whether it writes the file in place or
     moves a new version over it: the card changes in one frame there too.
 
+41. **Beside the card it follows.** A note that is added to a shown folder
+    and lists a card of the canvas upstream gets a chosen row whose left
+    edge is 120 to the right of that card's right edge and whose top edge
+    is level with that card's. Every row that was there is unchanged, and
+    the view does not move.
+42. **Under the cards that follow it already.** The second and the third
+    note that list the same card stand 60 below the one before, in the same
+    column.
+43. **Past what is in the way.** With another card in that column, level
+    with the card that is followed, the new card stands 60 below it. Room
+    between two cards of the column that holds the new card is taken, and
+    room that is too low for it is passed.
+44. **Several cards to follow.** A card that lists two cards of the canvas
+    stands beside the one whose right edge is further right, and beside the
+    upper of two that reach as far.
+45. **A map grows as a tree.** The thirteen notes of a map of three levels
+    (a root, four notes after it, two after each of those), written one
+    after the other, stand in three columns 120 apart: the root, the four
+    in the order in which they were written, and the eight in the order of
+    the cards they follow. The same notes in a folder that is shown for the
+    first time stand in the same three columns, each in list order and in
+    the order of the cards its cards follow.
+46. **Nothing to follow.** A file that lists nothing, only items of another
+    folder, or itself goes to the end of the canvas, as criteria 3, 4, and
+    6 say.
+47. **The list of the file.** A card is placed beside the card it follows
+    in the drawing in which it appears, also while the reference index is
+    building, and has its line in that drawing once the index is ready.
+48. **The order of one drawing.** Two groups and a single that appear
+    together: each group is placed whole, a card and then the cards that
+    follow it, before the next card of the list. A card whose card to
+    follow comes later in list order is placed after it. Two cards that
+    follow each other are placed from the first in list order.
+49. **Tidy Canvas afterwards.** On the map of criterion 45 that appeared
+    together, Tidy Canvas changes no card's column and no column's order:
+    it moves no card of the third column, and moves the root and the second
+    column down as a whole.
+
 ## Verification
 
 - Unit tests of the canvas model for the plain grid, the end of a canvas,
@@ -1056,6 +1191,25 @@ written with this document.
   `card-detail-edit-shows-on-its-card`, which crops an image and closes
   Card Detail before the write lands: criterion 40.
 - Criteria 37 to 39 in the real window on 2026-10-23, as recorded below.
+- Unit tests of the canvas model for the place beside a card, for the order
+  of one drawing, for a map written one by one and all at once, and for the
+  list that places a card: criteria 41 to 46 and 48.
+- A unit test of the canvas's connections for criterion 47 as a rule: the
+  list of a card that appears is read from its file while the index is
+  building and before the index has read the file, and the list of no card
+  that has its place.
+- Criteria 41, 42, 45, and 49 in the real window on 2026-11-12, as recorded
+  below, and criterion 47 there for notes that are written into a shown
+  folder whose index is ready.
+- The smoke step `canvas-connected-files-appear-beside` in the real window,
+  for criteria 41, 42, and 45 in small: five notes written into a shown
+  folder, three one by one and two at once, and a folder of five notes that
+  is shown for the first time. No row that was there changes, the view
+  stays, and every line runs from a right side to a left side. On the code
+  before D131 the step fails: the notes stand in one row, 340 apart.
+- The smoke step `canvas-selection-and-arrangement` writes the lists of its
+  two notes after the first drawing, and holds that no card moves for
+  them.
 
 ### Tried in the real window, 2026-10-11
 
@@ -1127,6 +1281,30 @@ shown, with a square, a 9:16, a 3:4, and a 4:1 image, a video, and a note.
 | The folder that was never shown opened | 300 × 300, 300 × 533, 300 × 400, 900 × 300 with the 4:1 image fitted inside, and 534 × 300, placed at the end with nothing crossing. |
 | The square image replaced by one of 600 × 300 | 300 × 150 where it was: the card 40 to its right allowed no more. |
 | A draft written as an agent writes one, with its ratio set to 9:16, 16:9, 21:9, and 1:1 in turn | It appeared at 300 × 533, then was 533 × 300, 700 × 300, and 300 × 300 where it was. |
+
+### Tried in the real window, 2026-11-12
+
+A development window of 1440 × 900 on a fixture folder outside the
+repository. The thirteen notes of the launch film's mind map were written
+into the folder one a second, as an agent writes them: the root, the four
+notes that list it upstream, then the eight that list those. The same was
+done on the code before this change.
+
+| What was done | Before | After |
+| --- | --- | --- |
+| The notes written one a second | rows of five cards in the order of writing, 340 apart; twelve lines across the rows | the root at 1050, 690; the four after it at x 1470, y 690, 970, 1250, 1530 in the order of writing; the eight after those at x 1890, y 690 to 2650 in steps of 280, two for each card of the second column in that column's order. No row that was there changed when a card was added |
+| Tidy Canvas on that canvas | every card moved | the root and the second column moved down, and two cards of the second column changed places with the cards after them: the order of writing was not list order |
+| The same thirteen notes as a folder that is shown for the first time | the plain grid in list order, three rows of five | the root at 370, 410; the second column at x 790, y 410 to 1250 in list order; the third at x 1210, y 410 to 2370 |
+| Tidy Canvas on that canvas | every card moved | the root moved from y 410 to 1390 and the second column down by 560; no card of the third column moved |
+
+A folder of five notes, of which the second and the third list the first,
+shown for the first time in the smoke the same day: the first at 370, 690,
+the two beside it at 790, 690 and 790, 970, and the two notes that list
+nothing at 1130, 970 and 1470, 970, after the last card of the lowest row.
+
+Not driven in a window: a draft that an agent makes with inputs. It is
+placed by the same reading of its inputs' list; the unit tests cover the
+rule, and nothing covers that path.
 
 ## Measurements
 

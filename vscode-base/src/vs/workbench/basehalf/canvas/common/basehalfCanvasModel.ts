@@ -36,6 +36,13 @@ export const BASEHALF_CANVAS_DEFAULT_WIDTH = 2400;
 export const BASEHALF_CANVAS_DEFAULT_HEIGHT = 1600;
 export const BASEHALF_CANVAS_GRID_COLUMN_GAP = 40;
 export const BASEHALF_CANVAS_GRID_ROW_GAP = 60;
+/**
+ * The wide gap: between the columns of a tidied group, where a connection and
+ * its arrowhead are drawn, and between a card and the card that appears
+ * beside it because it follows it (canvas card placement, "Beside the card it
+ * follows").
+ */
+export const BASEHALF_CANVAS_WIDE_GAP = 120;
 const BASEHALF_CANVAS_DEFAULT_PADDING = 96;
 export type BaseHalfCanvasItemKind = 'file' | 'folder';
 export type BaseHalfCanvasAnchor = 'north' | 'east' | 'south' | 'west';
@@ -92,6 +99,18 @@ export interface IBaseHalfCanvasEdge {
 	readonly from_anchor: BaseHalfCanvasAnchor;
 	readonly to: string;
 	readonly to_anchor: BaseHalfCanvasAnchor;
+}
+
+/** The two sides of a line: where it leaves the upstream card and where it enters the downstream card. */
+export type IBaseHalfCanvasLineSides = Pick<IBaseHalfCanvasEdge, 'from_anchor' | 'to_anchor'>;
+
+/**
+ * A connection as a canvas draws it: with the sides its line takes where the
+ * cards are, and the sides the layout remembers for the pair when it has a row
+ * (the line of a connection).
+ */
+export interface IBaseHalfCanvasDrawnEdge extends IBaseHalfCanvasEdge {
+	readonly remembered?: IBaseHalfCanvasLineSides;
 }
 
 export interface IBaseHalfCanvasFile {
@@ -194,7 +213,7 @@ export interface IBaseHalfCanvasEdgeLayoutResult {
 
 export interface IBaseHalfCanvasFolderModel {
 	readonly items: readonly IBaseHalfCanvasItem[];
-	readonly edges: readonly IBaseHalfCanvasEdge[];
+	readonly edges: readonly IBaseHalfCanvasDrawnEdge[];
 	readonly truncated: number;
 	readonly size?: IBaseHalfCanvasSize;
 	/**
@@ -239,6 +258,14 @@ export interface IBaseHalfCanvasModelOptions {
 	 * ({@link baseHalfCanvasPictureCardSizeAt}).
 	 */
 	readonly pictureRatios?: ReadonlyMap<string, number>;
+	/**
+	 * The upstream lists of cards that appear, as the paths of cards of this
+	 * folder, read from their files for this drawing: a card that appears goes
+	 * beside a card it follows also before the reference index has read its
+	 * file (canvas card placement, "Beside the card it follows"). The list of
+	 * `relationships` is used for a card that this leaves out.
+	 */
+	readonly appearingUpstream?: ReadonlyMap<string, readonly string[]>;
 	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
 	readonly pathKey?: (path: string) => string;
 	/**
@@ -347,7 +374,8 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 	}
 
 	// Every card has a place (canvas card placement). A card without a row
-	// appears: it gets its place now, at the end of the canvas, and keeps it.
+	// appears: it gets its place now, beside a card it follows or at the end
+	// of the canvas, and keeps it.
 	// What is taken is every row of the layout, also of an item that is gone,
 	// and the places that still wait for a write. A row that is about to be
 	// removed takes nothing.
@@ -356,12 +384,17 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		.map(card => reshaped.get(pathKey(card.path)) ?? card);
 	const inLayout = new Set(rows.map(card => pathKey(card.path)));
 	const isWaiting = (item: IBaseHalfCanvasItem) => item.card !== undefined && !inLayout.has(pathKey(item.path));
+	// A card that follows a card of the canvas goes beside it. What a card
+	// follows is its upstream list: the one read for this drawing when it
+	// appears, and else the reference index's.
+	const follows = (path: string): readonly string[] => options.appearingUpstream?.get(path) ?? options.relationships?.get(path)?.upstream ?? [];
 	const chosen = new Map(baseHalfCanvasPlaceAppearing(
 		items.filter(item => !item.card).map(item => {
 			const ratio = ratios?.get(item.path);
 			return { path: item.path, kind: item.kind, ...(ratio !== undefined ? baseHalfCanvasPictureCardSize(ratio) : baseHalfCanvasNewCardSize(item)) };
 		}),
-		[...rows, ...items.flatMap(item => isWaiting(item) ? [item.card!] : [])]
+		[...rows, ...items.flatMap(item => isWaiting(item) ? [item.card!] : [])],
+		{ placed: new Map(items.flatMap(item => item.card ? [[item.path, item.card] as const] : [])), follows }
 	).map(card => [card.path, card]));
 	items = items.map(item => item.card ? item : { ...item, card: chosen.get(item.path) });
 	return {
@@ -414,11 +447,11 @@ function isAnnotatedItem(item: IBaseHalfCanvasItem): boolean {
 function deriveCanvasEdges(
 	items: readonly IBaseHalfCanvasItem[],
 	styled: readonly IBaseHalfCanvasEdge[]
-): IBaseHalfCanvasEdge[] {
+): IBaseHalfCanvasDrawnEdge[] {
 	const itemPaths = new Set(items.map(item => item.path));
 	const boundsByPath = new Map(items.map((item, index) => [item.path, baseHalfCanvasItemBounds(item, index, items.length)]));
 	const styleByPair = new Map(styled.map(edge => [edgePairKey(edge.from, edge.to), edge]));
-	const edges: IBaseHalfCanvasEdge[] = [];
+	const edges: IBaseHalfCanvasDrawnEdge[] = [];
 	const drawn = new Set<string>();
 	for (const target of items) {
 		for (const from of target.relationships?.upstream ?? []) {
@@ -427,8 +460,10 @@ function deriveCanvasEdges(
 				continue;
 			}
 			drawn.add(key);
-			const styledEdge = styleByPair.get(key);
-			edges.push(styledEdge ?? baseHalfCanvasDefaultEdge(from, target.path, boundsByPath.get(from)!, boundsByPath.get(target.path)!));
+			const row = styleByPair.get(key);
+			const remembered = row ? { from_anchor: row.from_anchor, to_anchor: row.to_anchor } : undefined;
+			const sides = baseHalfCanvasDrawnLineSides(boundsByPath.get(from)!, boundsByPath.get(target.path)!, remembered);
+			edges.push({ from, from_anchor: sides.from_anchor, to: target.path, to_anchor: sides.to_anchor, ...(remembered ? { remembered } : {}) });
 		}
 	}
 
@@ -448,24 +483,79 @@ export function baseHalfCanvasEdgesWithUpstream(
 	styled: readonly IBaseHalfCanvasEdge[],
 	path: string,
 	upstream: readonly string[]
-): IBaseHalfCanvasEdge[] {
+): IBaseHalfCanvasDrawnEdge[] {
 	return deriveCanvasEdges(items.map(item => item.path !== path ? item : {
 		...item,
 		relationships: { downstream: [], issueCount: 0, ...item.relationships, upstream }
 	}), styled);
 }
 
-function baseHalfCanvasDefaultEdge(from: string, to: string, fromBounds: IBaseHalfCanvasBounds, toBounds: IBaseHalfCanvasBounds): IBaseHalfCanvasEdge {
-	const deltaX = toBounds.x + toBounds.width / 2 - (fromBounds.x + fromBounds.width / 2);
-	const deltaY = toBounds.y + toBounds.height / 2 - (fromBounds.y + fromBounds.height / 2);
-	if (Math.abs(deltaX) >= Math.abs(deltaY)) {
-		return deltaX >= 0
-			? { from, from_anchor: 'east', to, to_anchor: 'west' }
-			: { from, from_anchor: 'west', to, to_anchor: 'east' };
+/** A line runs sideways between two cards that stand at least this far apart side by side: the gap of the plain grid. */
+const BASEHALF_CANVAS_LINE_SIDEWAYS_GAP = BASEHALF_CANVAS_GRID_COLUMN_GAP;
+
+/**
+ * The sides a line takes by itself, from where its two cards are (the line of
+ * a connection, "The sides a line takes by itself"):
+ *
+ * - One card lies wholly beside the other, at least the gap of the plain grid
+ *   away, or nearer while neither lies wholly above the other: the line runs
+ *   sideways, however far up or down the other card is.
+ * - Otherwise one card lies wholly above the other: the line runs up or down.
+ * - Otherwise the cards lie over each other: the centres decide, sideways
+ *   when they are at least as far apart sideways as up and down.
+ */
+export function baseHalfCanvasLineSides(from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds): IBaseHalfCanvasLineSides {
+	const gapBeside = Math.max(to.x - (from.x + from.width), from.x - (to.x + to.width));
+	const gapAbove = Math.max(to.y - (from.y + from.height), from.y - (to.y + to.height));
+	const deltaX = to.x + to.width / 2 - (from.x + from.width / 2);
+	const deltaY = to.y + to.height / 2 - (from.y + from.height / 2);
+	const sideways = gapBeside > 0
+		? gapBeside >= BASEHALF_CANVAS_LINE_SIDEWAYS_GAP || gapAbove <= 0
+		: gapAbove <= 0 && Math.abs(deltaX) >= Math.abs(deltaY);
+	if (sideways) {
+		return (gapBeside > 0 ? to.x >= from.x + from.width : deltaX >= 0)
+			? { from_anchor: 'east', to_anchor: 'west' }
+			: { from_anchor: 'west', to_anchor: 'east' };
 	}
-	return deltaY >= 0
-		? { from, from_anchor: 'south', to, to_anchor: 'north' }
-		: { from, from_anchor: 'north', to, to_anchor: 'south' };
+	return (gapAbove > 0 ? to.y >= from.y + from.height : deltaY >= 0)
+		? { from_anchor: 'south', to_anchor: 'north' }
+		: { from_anchor: 'north', to_anchor: 'south' };
+}
+
+/**
+ * Whether the two sides of a line face each other where the cards are: the
+ * end of the line on the other card lies ahead of each side, beyond the line
+ * that the side lies on.
+ */
+export function baseHalfCanvasLineSidesFace(from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds, sides: IBaseHalfCanvasLineSides): boolean {
+	const start = baseHalfCanvasAnchorPoint(from, sides.from_anchor);
+	const end = baseHalfCanvasAnchorPoint(to, sides.to_anchor);
+	return aheadOfSide(start, sides.from_anchor, end) > 0 && aheadOfSide(end, sides.to_anchor, start) > 0;
+}
+
+/**
+ * The sides a line is drawn with: the remembered sides of its pair while they
+ * face each other, and else the sides it takes by itself. The row stays, so
+ * cards that are moved back have their remembered sides again.
+ */
+export function baseHalfCanvasDrawnLineSides(from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds, remembered?: IBaseHalfCanvasLineSides): IBaseHalfCanvasLineSides {
+	return remembered && baseHalfCanvasLineSidesFace(from, to, remembered)
+		? { from_anchor: remembered.from_anchor, to_anchor: remembered.to_anchor }
+		: baseHalfCanvasLineSides(from, to);
+}
+
+/** How far `other` lies ahead of the side `anchor` that `point` is on: beyond the line of the side, outward. */
+function aheadOfSide(point: IBaseHalfCanvasPosition, anchor: BaseHalfCanvasAnchor, other: IBaseHalfCanvasPosition): number {
+	switch (anchor) {
+		case 'north':
+			return point.y - other.y;
+		case 'east':
+			return other.x - point.x;
+		case 'south':
+			return other.y - point.y;
+		case 'west':
+			return point.x - other.x;
+	}
 }
 
 function edgePairKey(from: string, to: string): string {
@@ -559,23 +649,138 @@ export function baseHalfCanvasEndPlace(taken: readonly IBaseHalfCanvasBounds[], 
 	};
 }
 
+/** A card that appears in a drawing: where it goes depends on its size. */
+export interface IBaseHalfCanvasAppearingCard extends IBaseHalfCanvasSize {
+	readonly path: string;
+	readonly kind: BaseHalfCanvasItemKind;
+}
+
+/** What a drawing knows of the connections of its cards when it places the ones that appear. */
+export interface IBaseHalfCanvasAppearingConnections {
+	/** The cards of the canvas that have a place, by path. */
+	readonly placed: ReadonlyMap<string, IBaseHalfCanvasBounds>;
+	/** The cards of the canvas that a card follows: its upstream list, as the paths of cards. */
+	readonly follows: (path: string) => readonly string[];
+}
+
 /**
- * The rows of the cards that appear in one drawing, in the order given. Each
- * goes to the end of the canvas and counts as taken for the next. They are
- * chosen rows: BaseHalf picked the place, not the user.
+ * Where a card goes that appears and follows a card of the canvas: beside that
+ * card, in the column one wide gap to its right (canvas card placement,
+ * "Beside the card it follows").
+ *
+ * - Level with the top of the card it follows, or below the lowest of
+ *   `siblings`, the cards that follow the same card, that stands in that
+ *   column.
+ * - Further down, past whatever is in the way, until the place is open. It
+ *   never leaves the column: room is always left below.
+ */
+export function baseHalfCanvasPlaceBeside(
+	leader: IBaseHalfCanvasBounds,
+	size: IBaseHalfCanvasSize,
+	siblings: readonly IBaseHalfCanvasBounds[],
+	taken: readonly IBaseHalfCanvasBounds[]
+): IBaseHalfCanvasPosition {
+	const x = roundCanvasNumber(leader.x + leader.width + BASEHALF_CANVAS_WIDE_GAP);
+	let y = leader.y;
+	for (const sibling of siblings) {
+		if (sibling.x < x + size.width && sibling.x + sibling.width > x) {
+			y = Math.max(y, sibling.y + sibling.height + BASEHALF_CANVAS_GRID_ROW_GAP);
+		}
+	}
+	for (; ;) {
+		const bounds = { x, y, ...size };
+		// Whatever is in the way reaches below the top of the card, so each step goes down.
+		const below = taken.filter(other => canvasBoundsOverlap(bounds, other)).map(other => other.y + other.height + BASEHALF_CANVAS_GRID_ROW_GAP);
+		if (below.length === 0) {
+			return { x, y: roundCanvasNumber(y) };
+		}
+		y = Math.min(...below);
+	}
+}
+
+/**
+ * The rows of the cards that appear in one drawing, in the order given, which
+ * is list order. They are chosen rows: BaseHalf picked the place, not the
+ * user. Each place counts as taken for the next.
+ *
+ * A card that follows a card with a place goes beside it
+ * ({@link baseHalfCanvasPlaceBeside}): beside the rightmost such card, and
+ * among those the uppermost. Every other card goes to the end of the canvas.
+ * The cards are placed one after the other:
+ *
+ * 1. First a card that follows a card with a place and follows none that
+ *    still waits for one: the one whose card to follow stands highest, then
+ *    furthest left, then the first in list order. So the cards after one card
+ *    stand in list order, a column is filled before the next, and the cards
+ *    of a column stand in the order of the cards they follow.
+ * 2. Else the first card in list order that follows none that still waits:
+ *    it goes to the end of the canvas, and the cards that follow it come
+ *    next, by 1.
+ * 3. Else every card left follows one that waits, in a circle: the first in
+ *    list order goes beside a card it follows that has a place, or to the
+ *    end of the canvas.
+ *
+ * Without `connections` every card goes to the end of the canvas in order.
  */
 export function baseHalfCanvasPlaceAppearing(
-	appearing: readonly (IBaseHalfCanvasSize & { readonly path: string; readonly kind: BaseHalfCanvasItemKind })[],
-	taken: readonly IBaseHalfCanvasBounds[]
+	appearing: readonly IBaseHalfCanvasAppearingCard[],
+	taken: readonly IBaseHalfCanvasBounds[],
+	connections?: IBaseHalfCanvasAppearingConnections
 ): IBaseHalfCanvasCard[] {
 	const span = baseHalfCanvasRowSpan(taken, appearing.length);
 	const all = [...taken];
-	return appearing.map(item => {
+	const placed = new Map(connections?.placed ?? []);
+	const waiting = new Map(appearing.map((item, index) => [item.path, { item, index }]));
+	const rows = new Map<string, IBaseHalfCanvasCard>();
+	const follows = (path: string): readonly string[] => (connections?.follows(path) ?? []).filter(other => other !== path);
+	const waits = (path: string): boolean => follows(path).some(other => waiting.has(other));
+	// The card to stand beside: the rightmost card it follows that has a place, among those the uppermost.
+	const leader = (path: string): { readonly path: string; readonly bounds: IBaseHalfCanvasBounds } | undefined => {
+		let found: { readonly path: string; readonly bounds: IBaseHalfCanvasBounds } | undefined;
+		for (const other of follows(path)) {
+			const bounds = placed.get(other);
+			if (bounds && (!found
+				|| bounds.x + bounds.width > found.bounds.x + found.bounds.width
+				|| (bounds.x + bounds.width === found.bounds.x + found.bounds.width && bounds.y < found.bounds.y))) {
+				found = { path: other, bounds };
+			}
+		}
+		return found;
+	};
+	while (waiting.size > 0) {
+		let next: { readonly item: IBaseHalfCanvasAppearingCard; readonly index: number; readonly beside?: { readonly path: string; readonly bounds: IBaseHalfCanvasBounds } } | undefined;
+		for (const entry of waiting.values()) {
+			const beside = waits(entry.item.path) ? undefined : leader(entry.item.path);
+			if (beside && (!next?.beside
+				|| beside.bounds.y < next.beside.bounds.y
+				|| (beside.bounds.y === next.beside.bounds.y && beside.bounds.x < next.beside.bounds.x))) {
+				next = { ...entry, beside };
+			}
+		}
+		if (!next) {
+			for (const entry of waiting.values()) {
+				if (!waits(entry.item.path)) {
+					next = entry;
+					break;
+				}
+			}
+		}
+		if (!next) {
+			const [entry] = waiting.values();
+			next = { ...entry, beside: leader(entry.item.path) };
+		}
+		const { item, beside } = next;
 		const size = { width: item.width, height: item.height };
-		const card: IBaseHalfCanvasCard = { path: item.path, kind: item.kind, ...baseHalfCanvasEndPlace(all, size, span), ...size, auto: true };
+		const place = beside
+			? baseHalfCanvasPlaceBeside(beside.bounds, size, [...placed].flatMap(([path, bounds]) => follows(path).includes(beside.path) ? [bounds] : []), all)
+			: baseHalfCanvasEndPlace(all, size, span);
+		const card: IBaseHalfCanvasCard = { path: item.path, kind: item.kind, ...place, ...size, auto: true };
 		all.push(card);
-		return card;
-	});
+		placed.set(item.path, card);
+		rows.set(item.path, card);
+		waiting.delete(item.path);
+	}
+	return appearing.map(item => rows.get(item.path)!);
 }
 
 /** Places a group imported at one pointer location as a readable compact grid. */
@@ -922,9 +1127,19 @@ export function baseHalfCanvasAnchorPoint(bounds: IBaseHalfCanvasBounds, anchor:
 	}
 }
 
+/** A line leaves its side at least this far before it turns, where the other end is at least that far ahead. */
+const BASEHALF_CANVAS_LINE_MIN_REACH = 24;
+
 /**
  * The cubic curve of an edge: its two ends and, between them, the control
- * points that leave each end at a right angle to its card's side.
+ * points that leave each end at a right angle to its card's side (the line of
+ * a connection, "The curve").
+ *
+ * An end whose other end lies ahead of its side reaches half of that distance,
+ * at least {@link BASEHALF_CANVAS_LINE_MIN_REACH} and never past the other
+ * end: between two sides that face each other the curve stays between them.
+ * An end whose other end lies behind its side reaches out far enough to turn
+ * back, as before.
  */
 export function baseHalfCanvasEdgeCurve(
 	from: IBaseHalfCanvasPosition,
@@ -932,8 +1147,12 @@ export function baseHalfCanvasEdgeCurve(
 	to: IBaseHalfCanvasPosition,
 	toAnchor: IBaseHalfCanvasEdge['to_anchor']
 ): readonly [IBaseHalfCanvasPosition, IBaseHalfCanvasPosition, IBaseHalfCanvasPosition, IBaseHalfCanvasPosition] {
-	const distance = Math.min(220, Math.max(48, (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) / 2));
-	return [from, controlPoint(from, fromAnchor, distance), controlPoint(to, toAnchor, distance), to];
+	const around = Math.min(220, Math.max(48, (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) / 2));
+	const reach = (point: IBaseHalfCanvasPosition, anchor: BaseHalfCanvasAnchor, other: IBaseHalfCanvasPosition): number => {
+		const ahead = aheadOfSide(point, anchor, other);
+		return ahead > 0 ? Math.min(ahead, Math.max(ahead / 2, BASEHALF_CANVAS_LINE_MIN_REACH)) : around;
+	};
+	return [from, controlPoint(from, fromAnchor, reach(from, fromAnchor, to)), controlPoint(to, toAnchor, reach(to, toAnchor, from)), to];
 }
 
 export function baseHalfCanvasEdgePath(

@@ -14,6 +14,8 @@ import {
 	BASEHALF_CANVAS_DOCUMENT_CARD_RATIO,
 	baseHalfCanvasCardResizes,
 	baseHalfCanvasCardToggleConnections,
+	baseHalfCanvasDrawnLineSides,
+	baseHalfCanvasEdgeCurve,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasEdgesWithUpstream,
 	baseHalfCanvasCenteredPlace,
@@ -25,16 +27,21 @@ import {
 	baseHalfCanvasItemsFromStat,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
+	baseHalfCanvasLineSides,
+	baseHalfCanvasLineSidesFace,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasNewCardSize,
 	baseHalfCanvasOpenPosition,
 	baseHalfCanvasPictureCardSize,
 	baseHalfCanvasPictureKind,
+	baseHalfCanvasPlaceAppearing,
+	baseHalfCanvasPlaceBeside,
 	baseHalfCanvasPosition,
 	baseHalfCanvasRowSpan,
 	baseHalfCanvasShowsDocument,
 	baseHalfCanvasTransferPlaces,
 	baseHalfCanvasTransferPosition,
+	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasCard,
 	IBaseHalfCanvasItemRelationships
 } from '../../common/basehalfCanvasModel.js';
@@ -300,8 +307,10 @@ suite('BaseHalfCanvasModel', () => {
 			}
 		});
 
+		// b and c appear beside a, the card they follow. b's row is drawn and
+		// named as what the layout remembers.
 		assert.deepStrictEqual(model.edges, [
-			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
+			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', remembered: { from_anchor: 'east', to_anchor: 'west' } },
 			{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
 		]);
 	});
@@ -317,13 +326,19 @@ suite('BaseHalfCanvasModel', () => {
 			// Anchor memory of a pair that is not connected: it anchors the pair once it is.
 			{ from: 'b.md', from_anchor: 'south' as const, to: 'c.md', to_anchor: 'north' as const }
 		];
+		// b stands beside a, and c below b.
+		const cards: IBaseHalfCanvasCard[] = [
+			{ path: 'a.md', kind: 'file', x: 0, y: 0, width: 300, height: 220 },
+			{ path: 'b.md', kind: 'file', x: 420, y: 0, width: 300, height: 220 },
+			{ path: 'c.md', kind: 'file', x: 420, y: 280, width: 300, height: 220 }
+		];
 		const model = baseHalfCanvasModelFromStat(root, {
 			rootLevel: true,
 			relationships: new Map([
 				['b.md', relationships({ upstream: ['a.md'] })],
 				['c.md', relationships({ upstream: ['a.md'] })]
 			]),
-			canvas: { path: '', cards: [], edges: styled }
+			canvas: { path: '', cards, edges: styled }
 		});
 		// c takes b too, and names itself and a card of another folder, which draw nothing.
 		const connected = baseHalfCanvasEdgesWithUpstream(model.items, styled, 'c.md', ['a.md', 'b.md', 'c.md', 'docs/far.md']);
@@ -336,22 +351,23 @@ suite('BaseHalfCanvasModel', () => {
 				['b.md', relationships({ upstream: ['a.md'] })],
 				['c.md', relationships({ upstream: ['a.md', 'b.md', 'c.md', 'docs/far.md'] })]
 			]),
-			canvas: { path: '', cards: [], edges: styled }
+			canvas: { path: '', cards, edges: styled }
 		}).edges;
+		const eastWest = { from_anchor: 'east', to_anchor: 'west' };
 		assert.deepStrictEqual({ connected, sameAsModel: JSON.stringify(connected) === JSON.stringify(viaModel), removed, added }, {
 			connected: [
-				{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
-				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' },
-				{ from: 'b.md', from_anchor: 'south', to: 'c.md', to_anchor: 'north' }
+				{ from: 'a.md', ...eastWest, to: 'b.md', remembered: eastWest },
+				{ from: 'a.md', ...eastWest, to: 'c.md' },
+				{ from: 'b.md', from_anchor: 'south', to: 'c.md', to_anchor: 'north', remembered: { from_anchor: 'south', to_anchor: 'north' } }
 			],
 			sameAsModel: true,
 			removed: [
-				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
+				{ from: 'a.md', ...eastWest, to: 'c.md' }
 			],
 			added: [
 				{ from: 'c.md', from_anchor: 'west', to: 'a.md', to_anchor: 'east' },
-				{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
-				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
+				{ from: 'a.md', ...eastWest, to: 'b.md', remembered: eastWest },
+				{ from: 'a.md', ...eastWest, to: 'c.md' }
 			]
 		});
 	});
@@ -410,6 +426,220 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(model.edges, [
 			{ from: 'a.md', from_anchor: 'north', to: 'b.md', to_anchor: 'south' }
 		]);
+	});
+
+	test('a line takes the sides that face each other by where one card lies from the other, not by how far apart their centres are', () => {
+		const card = (x: number, y: number, width = 300, height = 220): IBaseHalfCanvasBounds => ({ x, y, width, height });
+		const sides = (from: IBaseHalfCanvasBounds, to: IBaseHalfCanvasBounds) => { const line = baseHalfCanvasLineSides(from, to); return `${line.from_anchor}>${line.to_anchor}`; };
+		const from = card(0, 0);
+		assert.deepStrictEqual({
+			// One column to the right, level, far above, and far below: always sideways.
+			besideLevel: sides(from, card(420, 0)),
+			besideFarAbove: sides(from, card(420, -1400)),
+			besideFarBelow: sides(from, card(420, 1960)),
+			// The other card on the left.
+			leftFarBelow: sides(from, card(-420, 900)),
+			// One above the other.
+			below: sides(from, card(0, 280)),
+			belowAndAside: sides(from, card(250, 280)),
+			above: sides(from, card(100, -400)),
+			// Beside, but nearer than two cards of the plain grid stand side by side.
+			nearBesideBelow: sides(from, card(320, 280)),
+			nearBesideLevel: sides(from, card(310, 100)),
+			gridNeighbour: sides(from, card(340, 0)),
+			gridDiagonal: sides(from, card(340, 280)),
+			// Lying over each other: the centres decide, as before.
+			overSideways: sides(from, card(200, 50)),
+			overDownwards: sides(from, card(50, 150)),
+			overUpwards: sides(from, card(50, -150))
+		}, {
+			besideLevel: 'east>west',
+			besideFarAbove: 'east>west',
+			besideFarBelow: 'east>west',
+			leftFarBelow: 'west>east',
+			below: 'south>north',
+			belowAndAside: 'south>north',
+			above: 'north>south',
+			nearBesideBelow: 'south>north',
+			nearBesideLevel: 'east>west',
+			gridNeighbour: 'east>west',
+			gridDiagonal: 'east>west',
+			overSideways: 'east>west',
+			overDownwards: 'south>north',
+			overUpwards: 'north>south'
+		});
+	});
+
+	test('remembered sides are drawn while they face each other, the line\'s own sides when they do not, and again when the cards are back', () => {
+		const card = (x: number, y: number): IBaseHalfCanvasBounds => ({ x, y, width: 300, height: 220 });
+		const remembered = { from_anchor: 'south', to_anchor: 'north' } as const;
+		const from = card(0, 0);
+		const drawn = (to: IBaseHalfCanvasBounds) => { const line = baseHalfCanvasDrawnLineSides(from, to, remembered); return `${line.from_anchor}>${line.to_anchor}`; };
+		assert.deepStrictEqual({
+			below: [baseHalfCanvasLineSidesFace(from, card(0, 280), remembered), drawn(card(0, 280))],
+			// Below and one column aside: the sides still face, and stay as the user drew them.
+			belowAside: [baseHalfCanvasLineSidesFace(from, card(420, 280), remembered), drawn(card(420, 280))],
+			// Moved up beside the card: the bottom side faces away.
+			beside: [baseHalfCanvasLineSidesFace(from, card(420, 0), remembered), drawn(card(420, 0))],
+			above: [baseHalfCanvasLineSidesFace(from, card(0, -400), remembered), drawn(card(0, -400))],
+			backBelow: drawn(card(0, 280)),
+			// Without a row the line takes its own sides.
+			noRow: baseHalfCanvasDrawnLineSides(from, card(420, 280))
+		}, {
+			below: [true, 'south>north'],
+			belowAside: [true, 'south>north'],
+			beside: [false, 'east>west'],
+			above: [false, 'north>south'],
+			backBelow: 'south>north',
+			noRow: { from_anchor: 'east', to_anchor: 'west' }
+		});
+	});
+
+	test('the curve of a line stays between two sides that face each other, and reaches around for an end that lies behind', () => {
+		const curve = (from: { x: number; y: number }, fromAnchor: 'north' | 'east' | 'south' | 'west', to: { x: number; y: number }, toAnchor: 'north' | 'east' | 'south' | 'west') =>
+			baseHalfCanvasEdgeCurve(from, fromAnchor, to, toAnchor).slice(1, 3).map(point => `${point.x},${point.y}`).join(' ');
+		assert.deepStrictEqual({
+			// Two columns one wide gap apart: both ends reach to the middle of the gap, however far down the other card is.
+			column: curve({ x: 300, y: 110 }, 'east', { x: 420, y: 110 }, 'west'),
+			columnFarBelow: curve({ x: 300, y: 110 }, 'east', { x: 420, y: 2070 }, 'west'),
+			// A long way: half of it each.
+			far: curve({ x: 300, y: 110 }, 'east', { x: 1300, y: 600 }, 'west'),
+			// The gap of the plain grid: at least 24, and both ends stay inside the gap.
+			gridGap: curve({ x: 300, y: 110 }, 'east', { x: 340, y: 390 }, 'west'),
+			// Nearer than that: never past the other end.
+			tight: curve({ x: 300, y: 110 }, 'east', { x: 310, y: 210 }, 'west'),
+			downwards: curve({ x: 150, y: 220 }, 'south', { x: 400, y: 500 }, 'north'),
+			// An end drawn to a point that lies behind its side reaches around, as before.
+			behind: curve({ x: 300, y: 110 }, 'east', { x: 100, y: 400 }, 'west')
+		}, {
+			column: '360,110 360,110',
+			columnFarBelow: '360,110 360,2070',
+			far: '800,110 800,600',
+			gridGap: '324,110 316,390',
+			tight: '310,110 300,210',
+			downwards: '150,360 400,360',
+			behind: '520,110 -120,400'
+		});
+	});
+
+	test('a card that appears beside the card it follows: one wide gap to its right, level with it, below the cards that follow it already, and further down past what is in the way', () => {
+		const card = (x: number, y: number, width = 300, height = 220): IBaseHalfCanvasBounds => ({ x, y, width, height });
+		const size = { width: 300, height: 220 };
+		const leader = card(100, 50);
+		const first = card(520, 50);
+		const second = card(520, 330);
+		assert.deepStrictEqual({
+			first: baseHalfCanvasPlaceBeside(leader, size, [], [leader]),
+			second: baseHalfCanvasPlaceBeside(leader, size, [first], [leader, first]),
+			third: baseHalfCanvasPlaceBeside(leader, size, [first, second], [leader, first, second]),
+			// A card that follows it but stands elsewhere does not count: only the ones in that column.
+			followerElsewhere: baseHalfCanvasPlaceBeside(leader, size, [card(-400, 900)], [leader, card(-400, 900)]),
+			// Something else in that column, level with the card: the first open place going down.
+			inTheWay: baseHalfCanvasPlaceBeside(leader, size, [], [leader, card(560, 0, 200, 150)]),
+			// Room between two cards that is too low for the card is passed, and room that holds it is taken.
+			passesNarrowRoom: baseHalfCanvasPlaceBeside(leader, size, [], [leader, card(520, 50), card(520, 430)]),
+			takesRoom: baseHalfCanvasPlaceBeside(leader, size, [], [leader, card(520, 50), card(520, 700)]),
+			// The size of the card it follows decides the column, and a wider card is as far from it.
+			wideLeader: baseHalfCanvasPlaceBeside(card(0, 0, 533, 300), { width: 248, height: 188 }, [], [card(0, 0, 533, 300)])
+		}, {
+			first: { x: 520, y: 50 },
+			second: { x: 520, y: 330 },
+			third: { x: 520, y: 610 },
+			followerElsewhere: { x: 520, y: 50 },
+			inTheWay: { x: 520, y: 210 },
+			passesNarrowRoom: { x: 520, y: 710 },
+			takesRoom: { x: 520, y: 330 },
+			wideLeader: { x: 653, y: 0 }
+		});
+	});
+
+	test('a map grows as a tree, whether its notes come one by one, all at once, or in any order of names', () => {
+		// The mind map of the launch film: a root, four notes after it, two after each of those.
+		const follows = new Map<string, string[]>([
+			['anatomy.md', ['black-holes.md']], ['how-they-end.md', ['black-holes.md']], ['how-they-form.md', ['black-holes.md']], ['how-we-detect-them.md', ['black-holes.md']],
+			['event-horizon.md', ['anatomy.md']], ['singularity.md', ['anatomy.md']],
+			['evaporation.md', ['how-they-end.md']], ['hawking-radiation.md', ['how-they-end.md']],
+			['stellar-collapse.md', ['how-they-form.md']], ['supermassive-growth.md', ['how-they-form.md']],
+			['first-image.md', ['how-we-detect-them.md']], ['gravitational-waves.md', ['how-we-detect-them.md']]
+		]);
+		const size = { kind: 'file' as const, width: 300, height: 220 };
+		const text = (rows: Iterable<IBaseHalfCanvasCard>) => [...rows].map(row => `${row.path.replace('.md', '')}@${row.x},${row.y}`).sort().join(' ');
+		// One by one, as an agent writes them: each drawing places one card against the layout so far.
+		const oneByOne = (order: readonly string[]): string => {
+			const layout: IBaseHalfCanvasCard[] = [];
+			for (const path of order) {
+				layout.push(...baseHalfCanvasPlaceAppearing([{ path, ...size }], layout, { placed: new Map(layout.map(row => [row.path, row])), follows: other => follows.get(other) ?? [] }));
+			}
+			return text(layout);
+		};
+		const written = ['black-holes.md', 'anatomy.md', 'how-they-form.md', 'how-they-end.md', 'how-we-detect-them.md',
+			'event-horizon.md', 'singularity.md', 'stellar-collapse.md', 'supermassive-growth.md', 'hawking-radiation.md', 'evaporation.md', 'first-image.md', 'gravitational-waves.md'];
+		// All at once, in list order: the root is not the first name.
+		const atOnce = text(baseHalfCanvasPlaceAppearing([...follows.keys(), 'black-holes.md'].sort().map(path => ({ path, ...size })), [], { placed: new Map(), follows: other => follows.get(other) ?? [] }));
+		assert.deepStrictEqual({ oneByOne: oneByOne(written), atOnce }, {
+			// Three columns one wide gap apart, from the middle of the canvas, where a first card goes. The
+			// second column follows the order of writing, and the third the order of the cards its cards follow.
+			oneByOne: [
+				'anatomy@1470,690', 'black-holes@1050,690',
+				'evaporation@1890,2090', 'event-horizon@1890,690', 'first-image@1890,2370', 'gravitational-waves@1890,2650',
+				'hawking-radiation@1890,1810', 'how-they-end@1470,1250', 'how-they-form@1470,970', 'how-we-detect-them@1470,1530',
+				'singularity@1890,970', 'stellar-collapse@1890,1250', 'supermassive-growth@1890,1530'
+			].join(' '),
+			// The same three columns, each in list order and in the order of the cards its cards follow: no line crosses another.
+			atOnce: [
+				'anatomy@790,410', 'black-holes@370,410',
+				'evaporation@1210,970', 'event-horizon@1210,410', 'first-image@1210,2090', 'gravitational-waves@1210,2370',
+				'hawking-radiation@1210,1250', 'how-they-end@790,690', 'how-they-form@790,970', 'how-we-detect-them@790,1250',
+				'singularity@1210,690', 'stellar-collapse@1210,1530', 'supermassive-growth@1210,1810'
+			].join(' ')
+		});
+	});
+
+	test('places the cards that appear together: beside the rightmost card each follows, a tree at a time, and a circle from its first card', () => {
+		const size = { kind: 'file' as const, width: 300, height: 220 };
+		const place = (paths: readonly string[], taken: readonly IBaseHalfCanvasCard[], follows: Record<string, string[]>) =>
+			baseHalfCanvasPlaceAppearing(paths.map(path => ({ path, ...size })), taken, { placed: new Map(taken.map(row => [row.path, row])), follows: path => follows[path] ?? [] })
+				.map(row => `${row.path}@${row.x},${row.y}${row.auto ? '' : ' user'}`);
+		const row = (path: string, x: number, y: number): IBaseHalfCanvasCard => ({ path, kind: 'file', x, y, width: 300, height: 220 });
+		assert.deepStrictEqual({
+			// A card that follows two cards stands beside the one further right, and beside the upper of two as far right.
+			rightmost: place(['new'], [row('left', 0, 0), row('right', 420, 300)], { new: ['left', 'right'] }),
+			uppermost: place(['new'], [row('low', 420, 600), row('high', 420, 0)], { new: ['low', 'high'] }),
+			// A card that follows nothing of the canvas goes to the end of the canvas, as before, and so does one whose only upstream is elsewhere.
+			noUpstream: place(['new', 'other'], [row('a', 0, 0), row('b', 340, 0)], { other: ['docs/far.md'] }),
+			// Two trees and a single that appear together: each tree is placed whole before the next card.
+			twoTrees: place(['a', 'a1', 'b', 'b1', 'single'], [], { a1: ['a'], b1: ['b'] }),
+			// A card that follows a card which appears after it in list order waits for it.
+			childFirst: place(['a-child', 'z-parent'], [row('there', 0, 0)], { 'a-child': ['z-parent'] }),
+			// Two cards that follow each other: the first in list order is placed first, the other beside it.
+			circle: place(['one', 'two'], [], { one: ['two'], two: ['one'] }),
+			// A card names itself: that entry is passed over.
+			itself: place(['self'], [row('a', 0, 0)], { self: ['self'] })
+		}, {
+			rightmost: ['new@840,300'],
+			uppermost: ['new@840,0'],
+			noUpstream: ['new@680,0', 'other@1020,0'],
+			twoTrees: ['a@370,690', 'a1@790,690', 'b@1130,690', 'b1@1550,690', 'single@370,970'],
+			childFirst: ['a-child@760,0', 'z-parent@340,0'],
+			circle: ['one@880,690', 'two@1300,690'],
+			itself: ['self@340,0']
+		});
+	});
+
+	test('a card that appears is placed by the list its file holds, and by the reference index\'s when none was read for it', () => {
+		const root = folder('/workspace', [file('/workspace/a.md'), file('/workspace/b.md'), file('/workspace/c.md')]);
+		const canvas = { path: '', cards: [{ path: 'a.md', kind: 'file' as const, x: 0, y: 0, width: 300, height: 220 }], edges: [] };
+		const places = (model: ReturnType<typeof baseHalfCanvasModelFromStat>) => model.items.map(item => `${item.path}@${item.card?.x},${item.card?.y}${item.card?.auto ? ' chosen' : ''}`);
+		assert.deepStrictEqual({
+			// The index is still building: no relationships, and no lines, but the list read for the drawing places the card.
+			read: places(baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas, appearingUpstream: new Map([['b.md', ['a.md']], ['c.md', ['b.md']]]) })),
+			indexed: places(baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas, relationships: new Map([['b.md', relationships({ upstream: ['a.md'] })]]) })),
+			neither: places(baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas }))
+		}, {
+			read: ['a.md@0,0', 'b.md@420,0 chosen', 'c.md@840,0 chosen'],
+			indexed: ['a.md@0,0', 'b.md@420,0 chosen', 'c.md@760,0 chosen'],
+			neither: ['a.md@0,0', 'b.md@340,0 chosen', 'c.md@680,0 chosen']
+		});
 	});
 
 	test('computes card bounds from saved geometry or the stable grid fallback', () => {
@@ -816,7 +1046,7 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(baseHalfCanvasEdgeLayouts(model.edges, model.items), {
 			dropped: 0,
 			edges: [{
-				edge: { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
+				edge: { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', remembered: { from_anchor: 'east', to_anchor: 'west' } },
 				from: { x: 210, y: 70 },
 				to: { x: 320, y: 70 },
 				path: 'M 210 70 C 265 70 265 70 320 70'

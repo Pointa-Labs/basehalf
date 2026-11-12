@@ -8,10 +8,10 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
+import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasCardPick } from '../../common/basehalfCanvasCardPick.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
-import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 
 /** A canvas view for the tests of canvas features: it records what a feature asks of it. */
@@ -40,6 +40,8 @@ export interface IBaseHalfTestCanvasView extends IBaseHalfCanvasView {
 	noteEditorCloses: boolean;
 	/** Makes the next `moveCards` fail with this error. */
 	failNextMove(error: Error): void;
+	/** The sides the layout remembers for connections: what a `moveCards` that forgets line sides forgets. */
+	rememberedLineSides: readonly IBaseHalfCanvasEdge[];
 	/** The pick that `startCardPick` started, while it is on. */
 	readonly cardPick: IBaseHalfCanvasCardPick | undefined;
 	/** Whether a gesture of the pointer is going on. */
@@ -78,6 +80,11 @@ export const BASEHALF_TEST_CANVAS_FOLDER: IBaseHalfCanvasFolderState = {
 };
 
 /** An item of the test folder, a file unless it is a folder. */
+/** The remembered sides a call of the fake view names, after the places it names. */
+function lineSidesText(rows: readonly IBaseHalfCanvasEdge[], verb: string): string {
+	return rows.length === 0 ? '' : `; ${verb} ${rows.map(row => `${row.from}>${row.to} ${row.from_anchor}-${row.to_anchor}`).join(', ')}`;
+}
+
 export function baseHalfTestCanvasItem(path: string, isDirectory = false): IBaseHalfCanvasItem {
 	const resource = URI.joinPath(BASEHALF_TEST_CANVAS_FOLDER.workspaceFolder, path);
 	const name = path.slice(path.lastIndexOf('/') + 1);
@@ -183,14 +190,18 @@ export function createBaseHalfTestCanvasView(
 			return true;
 		},
 		whenDrawn: async () => { },
-		moveCards: async (moving: IBaseHalfCanvasViewScene, places: readonly IBaseHalfCanvasSceneGeometry[], undoLabel: string, onUndoOrRedo?: (undone: boolean) => void): Promise<readonly IBaseHalfCanvasMovedCard[]> => {
-			calls.push(`moveCards ${moving.key}@${moving.structuralEpoch} ${undoLabel}: ${places.map(place => `${place.path} ${place.x},${place.y}`).join('; ')}`);
+		rememberedLineSides: [],
+		moveCards: async (moving: IBaseHalfCanvasViewScene, places: readonly IBaseHalfCanvasSceneGeometry[], undoLabel: string, onUndoOrRedo?: (undone: boolean) => void, lineSides?: IBaseHalfCanvasMoveLineSides): Promise<readonly IBaseHalfCanvasMovedCard[]> => {
+			const forgotten = lineSides?.forget ? canvas.rememberedLineSides : [];
+			calls.push(`moveCards ${moving.key}@${moving.structuralEpoch} ${undoLabel}: ${places.map(place => `${place.path} ${place.x},${place.y}`).join('; ')}${lineSidesText(forgotten, 'forgetting')}`);
 			const error = nextMoveError;
 			nextMoveError = undefined;
 			if (error) {
 				throw error;
 			}
 			lastMoveUndoOrRedo = onUndoOrRedo;
+			lineSides?.forgot?.(forgotten);
+			canvas.rememberedLineSides = lineSides?.forget ? [] : canvas.rememberedLineSides;
 			const moved: IBaseHalfCanvasMovedCard[] = [];
 			for (const place of places) {
 				const card = moving.cards.find(candidate => candidate.path === place.path);
@@ -201,8 +212,8 @@ export function createBaseHalfTestCanvasView(
 			}
 			return moved;
 		},
-		restoreCardPlaces: async (sceneKey, rows, undoLabel) => {
-			calls.push(`restoreCardPlaces ${sceneKey} ${undoLabel}: ${[...rows.values()].map(row => `${row.path} ${row.x},${row.y}`).join('; ')}`);
+		restoreCardPlaces: async (sceneKey, rows, undoLabel, lineSides = []) => {
+			calls.push(`restoreCardPlaces ${sceneKey} ${undoLabel}: ${[...rows.values()].map(row => `${row.path} ${row.x},${row.y}`).join('; ')}${lineSidesText(lineSides, 'remembering')}`);
 		},
 		noteEditorCloses: true,
 		closeNoteEditor: async () => {

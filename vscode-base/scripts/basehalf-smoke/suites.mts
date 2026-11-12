@@ -9,6 +9,7 @@ import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndCon
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
 import { assertCanvasCopyPasteKeys } from './areas/canvas/clipboard.mts';
 import {
+	assertCanvasConnectedFilesAppearBeside,
 	assertCanvasCreateMenuMakesDrafts,
 	assertCanvasCreateNote,
 	assertCanvasDoubleClickCreateMenu,
@@ -221,6 +222,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
 	await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
 	await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
+	await step('canvas-connected-files-appear-beside', () => assertCanvasConnectedFilesAppearBeside(page));
 	await step('canvas-note-wheel-scroll', () => assertCanvasNoteWheelScroll(page));
 	await step('canvas-note-renders-markdown', () => assertCanvasNoteRendersMarkdown(page));
 	await step('canvas-note-links-open-their-targets', () => assertCanvasNoteLinksOpenTheirTargets(page));

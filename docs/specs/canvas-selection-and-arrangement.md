@@ -2,7 +2,8 @@
 
 Status: Active (2026-10-12). Implemented. Revised 2026-10-25: a marquee that
 touches no card selects the connections it crosses. Revised 2026-10-27: a set
-let go on a folder goes into it.
+let go on a folder goes into it. Revised 2026-11-12 for D130: a tidy forgets
+the sides the layout remembers for the lines.
 Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12),
 revised by [D80](../decisions.md#d80--a-connection-pulled-off-a-card-and-let-go-on-empty-canvas-is-removed-and-a-marquee-over-connections-alone-selects-them-new-2026-10-25)
 and [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
@@ -101,7 +102,8 @@ Not in scope, and unchanged:
 - **Line of a connection**: the curve the canvas draws for it, from the
   anchor point on the side of one card to the anchor point on the side of
   the other, without its arrowhead and without the wider band around it that
-  takes the pointer.
+  takes the pointer. [The line of a connection](canvas-connection-lines.md)
+  says which sides it takes and how it curves.
 - **Group**: cards of one canvas that connections join, directly or through
   other cards, in either direction. A group has at least two cards.
 - **Single**: a card that no connection joins to another card of the canvas.
@@ -474,6 +476,11 @@ tidied canvas moves no card.
 - When at least one card moved, the [question](#keep-or-revert) is asked.
   When no card moved, nothing else happens.
 - The tidy is saved as one change and is one step of undo.
+- That change also forgets the sides that the layout remembers for the
+  connections between the cards of the canvas, so that every line takes its
+  sides from the new places: east to west along the layout. Undo and Revert
+  bring them back
+  ([the line of a connection](canvas-connection-lines.md#tidy-canvas)).
 - A card whose place did not change keeps its row as it is, and takes no
   part in the change: moving such a card afterwards does not keep undo from
   taking the tidy back.
@@ -501,6 +508,8 @@ Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
   - Only places go back. A size that changed in the meantime stays.
   - Each row is again what it was: a place that BaseHalf had chosen is
     again a chosen row.
+  - The sides that the tidy forgot for the lines are remembered again, for
+    the connections whose two cards are still on the canvas.
   - The view goes back to what it showed before the tidy.
   - The revert is one step of undo of its own.
 - The question closes, and the result is kept, when the user tidies again,

@@ -6,17 +6,17 @@
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoElementType } from '../../../../../platform/undoRedo/common/undoRedo.js';
-import { IBaseHalfCanvasBounds, IBaseHalfCanvasCard } from '../../common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasBounds, IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasCardStateTransition, IBaseHalfCanvasEdgeStateTransition, IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport } from '../../common/basehalfCanvasViewportState.js';
 import { baseHalfUserFacingErrorMessage } from '../../../workspace/common/basehalfPlainFailureReason.js';
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
 import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
-import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
+import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { IBaseHalfCanvasUndoNode, reverseCanvasStateTransition, roundCanvasPosition } from './basehalfCanvasViewShared.js';
+import { baseHalfCanvasSceneEdgeId, IBaseHalfCanvasUndoNode, reverseCanvasStateTransition, roundCanvasPosition } from './basehalfCanvasViewShared.js';
 
 /** How long a place the user gave a card waits for the move of that card's item before it is saved. */
 const BASEHALF_CANVAS_MOVED_ITEMS_EDIT_HOLD_MS = 2000;
@@ -89,9 +89,11 @@ export class BaseHalfCanvasGeometry {
 		scene: IBaseHalfCanvasViewScene,
 		places: readonly IBaseHalfCanvasSceneGeometry[],
 		undoLabel: string,
-		onUndoOrRedo?: (undone: boolean) => void
+		onUndoOrRedo?: (undone: boolean) => void,
+		lineSides?: IBaseHalfCanvasMoveLineSides
 	): Promise<readonly IBaseHalfCanvasMovedCard[]> {
-		const transition = await this.commitCanvasGeometry(scene.key, scene.structuralEpoch, places, undoLabel, onUndoOrRedo, true);
+		const transition = await this.commitCanvasGeometry(scene.key, scene.structuralEpoch, places, undoLabel, onUndoOrRedo, true, lineSides?.forget === true);
+		lineSides?.forgot?.((transition?.edges ?? []).flatMap(edge => edge.expected ? [edge.expected] : []));
 		const moved: IBaseHalfCanvasMovedCard[] = [];
 		for (const card of transition?.cards ?? []) {
 			if (card.expected && card.next && (card.expected.x !== card.next.x || card.expected.y !== card.next.y)) {
@@ -99,6 +101,29 @@ export class BaseHalfCanvasGeometry {
 			}
 		}
 		return moved;
+	}
+
+	/**
+	 * The scene's lines after the layout forgot or took back remembered sides,
+	 * drawn at once: the drawing that reads the layout derives the same.
+	 */
+	private showRememberedLineSides(changed: readonly IBaseHalfCanvasEdgeStateTransition[]): void {
+		if (changed.length === 0) {
+			return;
+		}
+		const nextOf = new Map(changed.map(edge => [baseHalfCanvasSceneEdgeId(edge.from, edge.to), edge.next]));
+		this.view.renderedLayoutEdges = [
+			...this.view.renderedLayoutEdges.filter(row => !nextOf.has(baseHalfCanvasSceneEdgeId(row.from, row.to))),
+			...changed.flatMap(edge => edge.next ? [edge.next] : [])
+		];
+		this.view.renderedSceneEdges = Object.freeze(this.view.renderedSceneEdges.map(edge => {
+			if (!nextOf.has(edge.id)) {
+				return edge;
+			}
+			const next = nextOf.get(edge.id);
+			const { remembered: _remembered, ...rest } = edge;
+			return next ? { ...rest, remembered: { from_anchor: next.from_anchor, to_anchor: next.to_anchor } } : rest;
+		}));
 	}
 
 	isCanvasUndoRedoActive(): boolean {
@@ -172,7 +197,8 @@ export class BaseHalfCanvasGeometry {
 		requested: readonly IBaseHalfCanvasSceneGeometry[],
 		undoLabel: string,
 		didApplyUndoOrRedo?: (reverse: boolean) => void,
-		placesOnly = false
+		placesOnly = false,
+		forgetLineSides = false
 	): Promise<IBaseHalfCanvasStateTransition | undefined> {
 		if (requested.length === 0) {
 			return undefined;
@@ -226,7 +252,14 @@ export class BaseHalfCanvasGeometry {
 					});
 					// A card whose row stays as it is takes no part in the change: undo
 					// would otherwise refuse once such a card is moved afterwards.
-					committedTransition = { cards: placesOnly ? cards.filter(card => card.next !== card.expected) : cards };
+					// A tidy lets every line take its sides from the new places: the
+					// rows of remembered sides between these cards go with the same
+					// change, and come back with its undo (the line of a connection).
+					const moving = new Set(geometries.map(geometry => geometry.path));
+					const edges: IBaseHalfCanvasEdgeStateTransition[] = forgetLineSides
+						? (current?.edges ?? []).filter(row => moving.has(row.from) && moving.has(row.to)).map(row => ({ from: row.from, to: row.to, expected: row, next: null }))
+						: [];
+					committedTransition = { cards: placesOnly ? cards.filter(card => card.next !== card.expected) : cards, ...(edges.length > 0 ? { edges } : {}) };
 					await this.view.canvasMirrorService.transitionCanvasState(folder, committedTransition, lease);
 					// Over a layout that could not be read in full they could not be saved
 					// before. This write made it readable.
@@ -265,6 +298,7 @@ export class BaseHalfCanvasGeometry {
 			// keep the sizes of the layout.
 			const committedRows = placesOnly ? (committedTransition as IBaseHalfCanvasStateTransition | undefined)?.cards?.flatMap(card => card.next ? [card.next] : []) : undefined;
 			const geometryByPath = new Map<string, Pick<IBaseHalfCanvasSceneGeometry, 'x' | 'y' | 'width' | 'height'>>((committedRows ?? geometries).map(geometry => [geometry.path, geometry]));
+			this.showRememberedLineSides((committedTransition as IBaseHalfCanvasStateTransition | undefined)?.edges ?? []);
 			this.view.renderedSceneCards = Object.freeze(this.view.renderedSceneCards.map(card => {
 				const geometry = geometryByPath.get(card.path);
 				return geometry ? { ...card, x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height } : card;
@@ -331,7 +365,7 @@ export class BaseHalfCanvasGeometry {
 	 * passed over, and a place that BaseHalf had chosen is again a chosen row
 	 * (IBaseHalfCanvasView.restoreCardPlaces).
 	 */
-	async restoreCanvasCardPlaces(sceneKey: string, previous: ReadonlyMap<string, IBaseHalfCanvasCard>, undoLabel: string): Promise<void> {
+	async restoreCanvasCardPlaces(sceneKey: string, previous: ReadonlyMap<string, IBaseHalfCanvasCard>, undoLabel: string, lineSides: readonly IBaseHalfCanvasEdge[] = []): Promise<void> {
 		const folder = this.view.getCurrentFolder();
 		if (!folder || this.view.sceneKey(folder) !== sceneKey) {
 			return;
@@ -359,8 +393,17 @@ export class BaseHalfCanvasGeometry {
 						next: { path, kind: now.kind, x: before.x, y: before.y, width: now.width, height: now.height, ...(before.auto ? { auto: true as const } : {}) }
 					});
 				}
-				if (cards.length > 0) {
-					reverted = { cards };
+				// The sides the layout remembered go back too, for the pairs whose
+				// cards are both still shown, also over sides drawn since.
+				const edges: IBaseHalfCanvasEdgeStateTransition[] = [];
+				for (const row of lineSides) {
+					const now = current?.edges.find(edge => edge.from === row.from && edge.to === row.to) ?? null;
+					if (shown.has(row.from) && shown.has(row.to) && !(now && now.from_anchor === row.from_anchor && now.to_anchor === row.to_anchor)) {
+						edges.push({ from: row.from, to: row.to, expected: now, next: row });
+					}
+				}
+				if (cards.length > 0 || edges.length > 0) {
+					reverted = { cards, ...(edges.length > 0 ? { edges } : {}) };
 					await this.view.canvasMirrorService.transitionCanvasState(folder, reverted, lease);
 				}
 			},
@@ -382,6 +425,7 @@ export class BaseHalfCanvasGeometry {
 					const row = rows.get(card.path);
 					return row ? { ...card, x: row.x, y: row.y } : card;
 				}));
+				this.showRememberedLineSides(transition.edges ?? []);
 				this.view.canvasScene.update({
 					key: sceneKey,
 					structuralEpoch,

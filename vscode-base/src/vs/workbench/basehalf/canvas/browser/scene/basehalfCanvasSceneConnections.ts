@@ -249,7 +249,9 @@ export function useBaseHalfCanvasSceneConnections(environment: IBaseHalfCanvasSc
 			from_anchor: intent.fromAnchor,
 			to: intent.to,
 			toKind: intent.toKind,
-			to_anchor: intent.toAnchor
+			to_anchor: intent.toAnchor,
+			// The sides the user drew are the ones the layout remembers for the pair.
+			remembered: { from_anchor: intent.fromAnchor, to_anchor: intent.toAnchor }
 		};
 		if (edgesRef.current.some(candidate => candidate.id === edge.id)) {
 			delegate.reportError(new Error('This context connection already exists.'));
@@ -403,7 +405,8 @@ export function useBaseHalfCanvasSceneConnections(environment: IBaseHalfCanvasSc
 			from_anchor: next.fromAnchor,
 			to: next.to,
 			toKind: next.toKind,
-			to_anchor: next.toAnchor
+			to_anchor: next.toAnchor,
+			remembered: { from_anchor: next.fromAnchor, to_anchor: next.toAnchor }
 		};
 		if (nextEdge.id !== previous.id && edgesRef.current.some(candidate => candidate.id === nextEdge.id)) {
 			delegate.reportError(new Error('This context connection already exists.'));

@@ -4,7 +4,8 @@ Status: Active (2026-09-27; Open File removed 2026-10-10 for D41; a note that
 cannot hold its list keeps it in its sidecar, 2026-10-10 for D42; node
 documents removed and drafts added, 2026-10-22 for D63; the mentions in a
 draft's prompt follow its entries, 2026-10-24 for D74; Audio from
-Connection, 2026-10-25 for D78)
+Connection, 2026-10-25 for D78; a line's default anchors and the rows that
+a tidy forgets, 2026-11-12 for D130)
 Decisions: [D37](../decisions.md#d37--references-are-stored-once-by-the-downstream-node-new-2026-09-27),
 [D41](../decisions.md#d41--users-are-not-expected-to-read-code-or-open-hidden-files-new-2026-10-10),
 [D42](../decisions.md#d42--a-note-that-cannot-hold-its-upstream-list-keeps-it-with-basehalf-new-2026-10-10),
@@ -675,7 +676,9 @@ resume. Entries that were not yet updated stay visible as issues.
   completes without writing.
 - **Not undo steps.** Migration and template instantiation are not canvas
   undoable. The rename refactor and Relink Everywhere are canvas undo elements.
-- **Anchor rows** do not take part in undo.
+- **Anchor rows** do not take part in the undo of a reference edit. The rows
+  that Tidy Canvas forgets come back with the undo of that tidy
+  ([the line of a connection](canvas-connection-lines.md#tidy-canvas)).
 - **Participants.** A feature may take part in a reference edit of a node it
   owns. Once every store of the operation is written, or the stores it wrote
   before it failed, it writes what depends on the lists that changed, and
@@ -723,10 +726,13 @@ writes frontmatter bytes from its own cache.
 ### Edges
 
 For each card `T` in a folder canvas, and each valid, non-dangling upstream
-entry `F` of `T` that is a sibling card, BaseHalf draws `F → T`. It uses
-anchors from the `canvas.yaml` edge row for `(F, T)` when one exists, and
-default anchors otherwise. References with nodes outside the folder draw no
-edge. They appear in the badge editor and in the toggle counts.
+entry `F` of `T` that is a sibling card, BaseHalf draws `F → T`. Its line
+uses the anchors of the `canvas.yaml` edge row for `(F, T)` while the row
+has one and its two sides face each other, and else the anchors the line
+takes by itself, from where the two cards are: the default anchors
+([the line of a connection](canvas-connection-lines.md)). References with
+nodes outside the folder draw no edge. They appear in the badge editor and
+in the toggle counts.
 
 `canvas.yaml` edge rows are anchor memory only. They never create, block, or
 imply a reference.
@@ -735,7 +741,9 @@ imply a reference.
 - A row with no live reference is ignored when drawing and is kept. BaseHalf
   never removes a row because a reference is missing.
 - Rows are removed only when a workbench structural operation deletes an
-  endpoint card or moves it out of the folder.
+  endpoint card or moves it out of the folder, and when Tidy Canvas forgets
+  the anchors of the cards it lays out
+  ([the line of a connection](canvas-connection-lines.md#tidy-canvas)).
 
 ### Connecting
 

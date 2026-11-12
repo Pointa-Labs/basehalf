@@ -126,26 +126,31 @@ export async function assertCanvasEdgeFollowsCardDragLive(page) {
 			&& edge.getAttribute('d') !== edgePath;
 	}, { edgeId: connectedEdgeId, edgePath: before.edgePath, nodeTransform: before.nodeTransform }, { timeout: 10_000 });
 
-	const endpointDistance = await page.evaluate(edgeId => {
+	// The line leaves the side of the dragged card that faces the note where the two cards are now (the line
+	// of a connection): its end is on the handle of one of the four sides, and moves with the card.
+	const endpointDistances = await page.evaluate(edgeId => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 		const node = card?.closest('.react-flow__node');
-		const handle = node?.querySelector(':scope > .basehalf-canvas-card-connect-handle.east');
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
-		if (!(handle instanceof HTMLElement) || !(edge instanceof SVGPathElement)) {
-			return Number.POSITIVE_INFINITY;
+		const ctm = edge instanceof SVGPathElement ? edge.getScreenCTM() : null;
+		if (!(node instanceof HTMLElement) || !(edge instanceof SVGPathElement) || !ctm) {
+			return {};
 		}
 		const point = edge.getPointAtLength(0);
-		const ctm = edge.getScreenCTM();
-		if (!ctm) {
-			return Number.POSITIVE_INFINITY;
-		}
 		const screen = new DOMPoint(point.x, point.y).matrixTransform(ctm);
-		const handleRect = handle.getBoundingClientRect();
-		return Math.hypot(screen.x - (handleRect.left + handleRect.width / 2), screen.y - (handleRect.top + handleRect.height / 2));
+		return Object.fromEntries(['north', 'east', 'south', 'west'].flatMap(side => {
+			const handle = node.querySelector(`:scope > .basehalf-canvas-card-connect-handle.${side}`);
+			if (!(handle instanceof HTMLElement)) {
+				return [];
+			}
+			const handleRect = handle.getBoundingClientRect();
+			return [[side, Math.hypot(screen.x - (handleRect.left + handleRect.width / 2), screen.y - (handleRect.top + handleRect.height / 2))]];
+		}));
 	}, connectedEdgeId);
-	if (endpointDistance > 3) {
-		throw new Error(`Live edge endpoint drifted ${endpointDistance}px from the dragged card handle`);
+	const endpointDistance = Math.min(Number.POSITIVE_INFINITY, ...Object.values(endpointDistances));
+	if (Object.keys(endpointDistances).length !== 4 || endpointDistance > 3) {
+		throw new Error(`Live edge endpoint drifted ${endpointDistance}px from the dragged card's handles: ${JSON.stringify(endpointDistances)}`);
 	}
 	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBefore) {
 		throw new Error('Canvas geometry persisted before the drag gesture completed');

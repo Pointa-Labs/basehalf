@@ -12,6 +12,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import {
 	baseHalfCanvasChildPath,
 	baseHalfCanvasEdgesWithUpstream,
+	BASEHALF_CANVAS_CHILD_LIMIT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 	baseHalfCanvasGenerationCardSize,
@@ -57,17 +58,28 @@ export class BaseHalfCanvasConnections {
 	 * While the index is building, the canvas shows cards without edges. Cards
 	 * whose badge face is open read their own store directly, so their Upstream
 	 * list never depends on enumeration.
+	 *
+	 * `appearing` are the paths of the cards that have no place yet. The list
+	 * of each is read from its own store when the index does not hold it, also
+	 * while the index is building: a card that appears goes beside a card it
+	 * follows in the drawing in which it appears (canvas card placement,
+	 * "Beside the card it follows"). A folder that shows more new cards than a
+	 * canvas shows cards is not read card by card.
 	 */
-	async readCanvasConnections(folder: IBaseHalfCanvasFolderState, stat: IFileStat): Promise<{
+	async readCanvasConnections(folder: IBaseHalfCanvasFolderState, stat: IFileStat, appearing?: ReadonlySet<string>): Promise<{
 		readonly state: BaseHalfReferenceIndexState | undefined;
 		readonly relationships: ReadonlyMap<string, IBaseHalfCanvasItemRelationships>;
 		readonly views: ReadonlyMap<string, IBaseHalfUpstreamView>;
 		readonly refusals: ReadonlyMap<string, string>;
+		/** The upstream lists of the cards of `appearing`, as the paths of cards of this folder. */
+		readonly appearingUpstream: ReadonlyMap<string, readonly string[]>;
 	}> {
 		const state = this.view.referenceIndexService.getState(folder.workspaceFolder);
 		const relationships = new Map<string, IBaseHalfCanvasItemRelationships>();
 		const views = new Map<string, IBaseHalfUpstreamView>();
 		const refusals = new Map<string, string>();
+		const appearingUpstream = new Map<string, readonly string[]>();
+		const readAppearing = appearing !== undefined && appearing.size <= BASEHALF_CANVAS_CHILD_LIMIT;
 		const rootLevel = folder.relativePath.length === 0;
 		const children = (stat.children ?? []).filter(child => isBaseHalfCanvasEntry(child, rootLevel));
 		const siblingPaths = children.map(child => baseHalfCanvasChildPath(folder.relativePath, basename(child.resource)));
@@ -86,7 +98,8 @@ export class BaseHalfCanvasConnections {
 				refusals.set(path, refusal);
 			}
 			const building = state === undefined || state === 'building';
-			if (building && !this.view.openBadgeFaces.has(path)) {
+			const appears = readAppearing && appearing.has(path);
+			if (building && !this.view.openBadgeFaces.has(path) && !appears) {
 				return;
 			}
 			let view: IBaseHalfUpstreamView | undefined;
@@ -94,20 +107,19 @@ export class BaseHalfCanvasConnections {
 				if (this.view.openBadgeFaces.has(path)) {
 					view = await this.view.referenceIndexService.readUpstream(node);
 				} else {
-					const store = this.view.referenceIndexService.getStore(node);
-					if ((store && (store.read.items.length > 0 || store.read.issue || !store.read.readable)) || misplaced.has(identity.key(path))) {
+					const store = building ? undefined : this.view.referenceIndexService.getStore(node);
+					if ((store && (store.read.items.length > 0 || store.read.issue || !store.read.readable)) || (!building && misplaced.has(identity.key(path)))) {
+						view = await this.view.referenceIndexService.resolveUpstream(node);
+					} else if (appears && !store) {
+						// The index has not read this file yet: its list is read now.
 						view = await this.view.referenceIndexService.resolveUpstream(node);
 					}
 				}
 			} catch (error) {
 				this.view.logService.warn(`[BaseHalf] upstream list of ${path} could not be read`, error);
 			}
-			if (view) {
+			if (view && (!building || this.view.openBadgeFaces.has(path))) {
 				views.set(path, view);
-			}
-			if (building) {
-				// No edges or counts until the index is ready.
-				return;
 			}
 			const upstream = view
 				? baseHalfCanvasResolveSiblingUpstream(
@@ -116,10 +128,17 @@ export class BaseHalfCanvasConnections {
 					identity
 				)
 				: [];
+			if (appears && upstream.length > 0) {
+				appearingUpstream.set(path, upstream);
+			}
+			if (building) {
+				// No edges or counts until the index is ready.
+				return;
+			}
 			const downstream = this.view.referenceIndexService.getDownstream(node).map(entry => entry.node.relativePath);
 			relationships.set(path, { upstream, downstream, issueCount: view?.issueCount ?? 0 });
 		}));
-		return { state, relationships, views, refusals };
+		return { state, relationships, views, refusals, appearingUpstream };
 	}
 
 	/**

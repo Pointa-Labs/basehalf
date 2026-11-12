@@ -470,7 +470,15 @@ export class BaseHalfCanvasRenderer {
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
-		const connections = await this.view.connections.readCanvasConnections(folder, stat);
+		// A card that has no place yet appears in this drawing. The list of what
+		// it follows is read with the connections, so that it goes beside a card
+		// it follows (canvas card placement, "Beside the card it follows").
+		const samePath = this.view.creation.canvasPathKey(folder) ?? ((path: string) => path);
+		const placedPaths = new Set([...(canvas?.cards ?? []).map(card => samePath(card.path)), ...[...waitingPlaces?.keys() ?? []].map(samePath)]);
+		const appearingPaths = new Set((stat.children ?? [])
+			.map(child => baseHalfCanvasChildPath(folder.relativePath, basename(child.resource)))
+			.filter(path => !placedPaths.has(samePath(path))));
+		const connections = await this.view.connections.readCanvasConnections(folder, stat, appearingPaths);
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
@@ -543,6 +551,7 @@ export class BaseHalfCanvasRenderer {
 			canvas,
 			badges: badgeRead.badges,
 			relationships: connections.relationships,
+			appearingUpstream: connections.appearingUpstream,
 			waiting: waitingPlaces,
 			generationCards: withCards.generationCards,
 			pictureRatios,

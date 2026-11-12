@@ -6358,3 +6358,64 @@ shown at all, and the badge button belongs in the card's upper right corner.
 - Open, and named in the specification: the Rich editor of Card Detail starts a note without text at an empty paragraph, a
   rename by name does not rewrite the title, and the skill for agents does not say that a note's first heading is what its
   card shows first.
+
+## D130 — A line takes the sides that face each other, and stays between its two cards (NEW, 2026-11-12)
+
+**Decision.** The line of a connection leaves and enters its two cards at the sides that face each other, decided by where one
+card lies from the other: sideways whenever one card lies beside the other with the gap of the plain grid or more, however far
+up or down the other card is, and up or down only when one lies above the other. The sides are decided from where the cards
+are now, also while a card is dragged. Sides that the layout remembers because the user drew them are drawn while they face
+each other; Tidy Canvas forgets them. The curve reaches half of the way to the other end, so that it stays between the two
+sides. See [the line of a connection](specs/canvas-connection-lines.md).
+
+**Why.** On 2026-11-12 the owner looked at the mind map of the launch film and said that its lines were part of what made it
+look tangled. The sides had been chosen by the distance between the cards' centres. In a tidied map a card stands in the column
+after the card it follows and often far above or below it: two of twelve lines left the top or the bottom of a card and ran
+behind its neighbours. The curve swung out by up to 220 whatever the room between the cards, and a line between two columns
+120 apart went into the next column and back. A line that the user had drawn kept its sides when its cards were moved to the
+other side, and looped around them.
+
+**Consequences.**
+- Every line of a tidied map, and of a map that grew by itself (D131), runs from the right side of one card to the left side
+  of the next, and no line swings past the column it goes to. Two lines between two columns do not cross when their ends are
+  in the same order.
+- A line changes sides under the pointer while a card is moved. The scene decides the sides from its cards in every frame;
+  the model decides them for the first drawing, by the same function.
+- The rows of `canvas.yaml` that remember sides are kept when the sides do not face each other, so cards that are moved back
+  have them again. A tidy removes the rows between the cards it lays out in the write that moves the cards; undo of the tidy
+  and Revert write them back. This is the one place where a row of remembered sides takes part in undo.
+- Measured in a development window on the film's thirteen notes: before, the tidied map had two lines from the top or the
+  bottom of a card; after, all twelve run east to west, grown and tidied alike.
+- Sides that the user chose and that do not face each other are not drawn, also at the moment of drawing: a line pulled from
+  the right side of a card to a card below it and further left runs from the bottom of the one to the top of the other, and
+  the row keeps the sides that were chosen.
+- Not done: a line still passes behind a card that stands between its two cards.
+
+## D131 — A card that follows a card of the canvas appears beside it (NEW, 2026-11-12)
+
+**Decision.** A card that appears without the user pointing, and that lists a card of the same canvas upstream, gets its place
+beside that card: in the column one wide gap to its right, level with it, under the cards that follow it already, and further
+down while that place is taken. Among several cards to follow it stands beside the rightmost. Cards that appear in one drawing
+are placed a card and then the cards that follow it. Every other card goes to the end of the canvas as before. See
+[canvas card placement](specs/canvas-card-placement.md#beside-the-card-it-follows).
+
+**Why.** On 2026-11-12 the owner watched an agent grow a mind map in the launch film and asked why it came out untidy at first:
+"难道不应该整整齐齐地长出来思维导图吗？" Every card that nobody pointed at went to the end of the canvas (D46), whatever it was
+connected to, so thirteen notes written by an agent stood in rows of five with their lines across the rows, and became a tree
+only after Tidy Canvas. D46 puts nothing between the user's cards because a card there would look as if it belonged to them. A
+card that follows a card of the canvas does belong to one.
+
+**Consequences.**
+- A map that an agent grows by writing notes with upstream lists is a tree while it grows: three columns for the film's
+  thirteen notes, with no card moved to make room and no line crossing another.
+- The drawing in which a card appears reads that card's upstream list itself, also before the reference index has read the
+  file and while the index is building. A drawing in which more than 300 cards appear reads none.
+- The columns are the wide gap of Tidy Canvas apart and a card stands beside the rightmost card it follows, as a tidy puts it.
+  A tidy afterwards centers the columns on one line and puts each column in list order. On the film's thirteen notes shown
+  together it moved the root and the second column down and no card of the third. On the same notes written one by one it
+  also changed the places of two cards of the second column, which were written in another order than their names.
+- The first drawing of a folder without a layout is the plain grid only when none of its cards follows another. A card that
+  follows nothing and comes after such cards in the list goes to the end of the canvas as it is by then, after the last card
+  of the lowest row.
+- A place is still chosen once (D46): a file whose list is written after its card appeared stays at the end of the canvas.
+- Not verified in a window: a draft that an agent makes with inputs, which is placed by the same reading of its list.

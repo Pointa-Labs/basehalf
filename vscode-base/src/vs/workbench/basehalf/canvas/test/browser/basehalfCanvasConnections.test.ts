@@ -6,11 +6,12 @@
 import * as assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { FileType, IFileStat } from '../../../../../platform/files/common/files.js';
+import { FileOperationError, FileOperationResult, FileType, IFileStat } from '../../../../../platform/files/common/files.js';
+import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { BASEHALF_EXACT_UPSTREAM_IDENTITY } from '../../../references/common/basehalfReferenceEntries.js';
-import { IBaseHalfIndexedStore } from '../../../references/common/basehalfReferenceIndex.js';
+import { IBaseHalfIndexedStore, IBaseHalfUpstreamView } from '../../../references/common/basehalfReferenceIndex.js';
 import { readBaseHalfSidecarUpstream } from '../../../references/common/basehalfReferenceStore.js';
-import { IBaseHalfWorkspaceResource } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasFolderState, IBaseHalfWorkspaceResource } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasItemBounds, baseHalfCanvasModelFromStat, IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneEdge } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfCanvasConnections } from '../../browser/view/basehalfCanvasConnections.js';
@@ -108,6 +109,94 @@ suite('BaseHalfCanvasConnections', () => {
 		}, {
 			drawn: ['a.png -> shot.mp4 east west', 'c.png -> shot.mp4 west east'],
 			next: ['a.png -> shot.mp4 east west', 'c.png -> shot.mp4 west east']
+		});
+	});
+
+	test('reads the list of a card that appears from its own file, also while the reference index is building or has not read the file yet, and of no card that has its place', async () => {
+		// a.md and d.md have their places; b.md, c.md, and e.md appear. e.md lists nothing.
+		const lists = new Map<string, readonly string[]>([
+			['b.md', ['a.md']],
+			['c.md', ['a.md', 'b.md', 'docs/far.md']],
+			['d.md', ['a.md']]
+		]);
+		const root = folder('/workspace', ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'].map(name => file(`/workspace/${name}`)));
+		const read = async (state: 'building' | 'ready', indexed: readonly string[], appearing?: readonly string[]) => {
+			const direct: string[] = [];
+			const view = {
+				referenceIndexService: {
+					getState: () => state,
+					getStores: () => [],
+					getStore: (node: IBaseHalfWorkspaceResource): IBaseHalfIndexedStore | undefined => !indexed.includes(node.relativePath) ? undefined : {
+						node,
+						storeKind: 'sidecar',
+						storeResource: URI.joinPath(WORKSPACE, '.bh', 'mirror', node.relativePath, 'upstream.yaml'),
+						read: readBaseHalfSidecarUpstream(`upstream: [${(lists.get(node.relativePath) ?? []).join(', ')}]\n`, { nodePath: node.relativePath }),
+						sidecarState: 'active'
+					},
+					resolveUpstream: async (node: IBaseHalfWorkspaceResource) => {
+						direct.push(node.relativePath);
+						return { entries: (lists.get(node.relativePath) ?? []).map(path => ({ status: 'valid', path })), issueCount: 0 } as unknown as IBaseHalfUpstreamView;
+					},
+					getDownstream: () => []
+				},
+				fileService: { stat: async () => { throw new FileOperationError('no marker', FileOperationResult.FILE_NOT_FOUND); } },
+				upstreamIdentity: () => BASEHALF_EXACT_UPSTREAM_IDENTITY,
+				workspaceNode: (workspaceFolder: URI, relativePath: string, kind: IBaseHalfCanvasItem['kind']) => ({ resource: URI.joinPath(workspaceFolder, relativePath), workspaceFolder, relativePath, kind }),
+				openBadgeFaces: new Set<string>(),
+				logService: new NullLogService()
+			};
+			const connections = new BaseHalfCanvasConnections(view as unknown as BaseHalfCanvasWorkbenchContribution);
+			const result = await connections.readCanvasConnections(
+				{ workspaceFolder: WORKSPACE, resource: WORKSPACE, relativePath: '' } as IBaseHalfCanvasFolderState,
+				root,
+				appearing ? new Set(appearing) : undefined
+			);
+			const follows = (entries: Iterable<readonly [string, readonly string[]]>) =>
+				[...entries].filter(([, upstream]) => upstream.length > 0).map(([path, upstream]) => `${path} follows ${upstream.join(', ')}`).sort();
+			return {
+				read: direct.sort().join(', '),
+				appearing: follows(result.appearingUpstream),
+				lines: follows([...result.relationships].map(([path, { upstream }]) => [path, upstream] as const))
+			};
+		};
+		const appearing = ['b.md', 'c.md', 'e.md'];
+		assert.deepStrictEqual({
+			// No card has a line while the index is building, and the cards that appear are read.
+			building: await read('building', [], appearing),
+			// The index is ready and has not read the new files: their lists are read, and drawn at once.
+			notRead: await read('ready', ['a.md', 'd.md'], appearing),
+			// The index has read them: no file is read twice, and an empty list is not read at all.
+			indexed: await read('ready', ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'], appearing),
+			// A drawing in which no card appears reads as before.
+			noneAppears: await read('ready', ['a.md', 'd.md']),
+			// More cards than a canvas shows are not read one by one.
+			tooMany: await read('building', [], [...appearing, ...Array.from({ length: 300 }, (_, index) => `more-${index}.md`)])
+		}, {
+			building: {
+				read: 'b.md, c.md, e.md',
+				appearing: ['b.md follows a.md', 'c.md follows a.md, b.md, docs/far.md'],
+				lines: []
+			},
+			notRead: {
+				read: 'b.md, c.md, d.md, e.md',
+				appearing: ['b.md follows a.md', 'c.md follows a.md, b.md, docs/far.md'],
+				lines: ['b.md follows a.md', 'c.md follows a.md, b.md, docs/far.md', 'd.md follows a.md']
+			},
+			indexed: {
+				read: 'b.md, c.md, d.md',
+				appearing: ['b.md follows a.md', 'c.md follows a.md, b.md, docs/far.md'],
+				lines: ['b.md follows a.md', 'c.md follows a.md, b.md, docs/far.md', 'd.md follows a.md']
+			},
+			noneAppears: {
+				read: 'd.md',
+				appearing: [],
+				lines: ['d.md follows a.md']
+			},
+			tooMany: {
+				read: '',
+				appearing: [],
+				lines: []
+			}
 		});
 	});
 
