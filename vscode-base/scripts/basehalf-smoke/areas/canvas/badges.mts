@@ -35,25 +35,40 @@ export async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
 	await centerCanvasCards(page, [readme]);
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-preview-level') === 'preview', null, { timeout: 10_000 });
+	// The caption of a card stands outside its frame, 24 pixels high and 8
+	// above it: read on a card that shows one. The card of a note shows none
+	// (note title): no glyph and no name, and its badge button inside the
+	// card, 24 pixels, 10 from the right edge and 11 from the top edge.
 	const captionMetrics = await page.waitForFunction(() => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
-		const caption = card?.querySelector('.basehalf-canvas-card-caption');
+		const captioned = [...document.querySelectorAll('.basehalf-canvas-card:not(.caption-free)')]
+			.find(element => (element.querySelector('.basehalf-canvas-card-caption')?.getBoundingClientRect().height ?? 0) > 0);
+		const caption = captioned?.querySelector('.basehalf-canvas-card-caption');
 		const content = card?.querySelector('.basehalf-canvas-card-content');
-		const badge = caption?.querySelector('.basehalf-canvas-card-caption-actions .basehalf-canvas-card-badge-toggle');
-		if (!(card instanceof HTMLElement) || !(caption instanceof HTMLElement) || !(content instanceof HTMLElement)
-			|| !(badge instanceof HTMLElement) || !caption.isConnected || caption.getBoundingClientRect().height <= 0) {
+		const badge = card?.querySelector('.basehalf-canvas-card-caption .basehalf-canvas-card-caption-actions .basehalf-canvas-card-badge-toggle');
+		if (!(card instanceof HTMLElement) || !(captioned instanceof HTMLElement) || !(caption instanceof HTMLElement) || !(content instanceof HTMLElement)
+			|| !(badge instanceof HTMLElement) || badge.getClientRects().length === 0) {
 			return false;
 		}
+		const shown = part => (card.querySelector(part)?.getClientRects().length ?? 0) > 0;
 		const cardRect = card.getBoundingClientRect();
+		const captionedRect = captioned.getBoundingClientRect();
 		const captionRect = caption.getBoundingClientRect();
+		const badgeRect = badge.getBoundingClientRect();
 		return {
+			captioned: captioned.getAttribute('data-basehalf-card-path'),
 			height: captionRect.height,
-			gap: cardRect.top - captionRect.bottom,
-			leftDelta: captionRect.left - cardRect.left,
-			rightDelta: captionRect.right - cardRect.right,
+			gap: captionedRect.top - captionRect.bottom,
+			leftDelta: captionRect.left - captionedRect.left,
+			rightDelta: captionRect.right - captionedRect.right,
 			cardRadius: Number.parseFloat(getComputedStyle(card).borderTopLeftRadius),
 			contentRadius: Number.parseFloat(getComputedStyle(content).borderTopLeftRadius),
-			hasInternalHeader: card.querySelector('.basehalf-canvas-card-header, .basehalf-canvas-card-path') !== null
+			hasInternalHeader: card.querySelector('.basehalf-canvas-card-header, .basehalf-canvas-card-path') !== null,
+			noteGlyph: shown('.basehalf-canvas-card-caption-icon'),
+			noteName: shown('.basehalf-canvas-card-label'),
+			badgeSize: badgeRect.width,
+			badgeRight: cardRect.right - badgeRect.right,
+			badgeTop: badgeRect.top - cardRect.top
 		};
 	}, null, { timeout: 10_000 }).then(handle => handle.jsonValue());
 	if (Math.abs(captionMetrics.height - 24) > 1
@@ -64,6 +79,12 @@ export async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		|| Math.abs(captionMetrics.contentRadius - 21) > 0.5
 		|| captionMetrics.hasInternalHeader) {
 		throw new Error(`Expected one external 24px caption and unified 22px card frame, got ${JSON.stringify(captionMetrics)}`);
+	}
+	if (captionMetrics.noteGlyph || captionMetrics.noteName
+		|| Math.abs(captionMetrics.badgeSize - 24) > 0.5
+		|| Math.abs(captionMetrics.badgeRight - 10) > 0.5
+		|| Math.abs(captionMetrics.badgeTop - 11) > 0.5) {
+		throw new Error(`The card of a note must show no caption, with its badge button in its upper right corner: ${JSON.stringify(captionMetrics)}`);
 	}
 	await readme.locator('.basehalf-canvas-card-badge-toggle.lit:visible').waitFor({ state: 'visible', timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });

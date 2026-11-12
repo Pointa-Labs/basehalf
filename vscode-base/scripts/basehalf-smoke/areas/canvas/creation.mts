@@ -431,8 +431,13 @@ export async function assertCanvasCreateNote(page) {
 	if (initialEmptyNoteMarkdown.trim() !== '') {
 		throw new Error(`A newly created empty Note had unexpected content before its first Canvas edit: ${JSON.stringify(initialEmptyNoteMarkdown)}`);
 	}
+	// The editor of an empty note starts at its title line (note title), so
+	// the first token is typed into a heading of level 1 and is the note's
+	// title. It is the name the note has, so that the file keeps its name
+	// through the edits below; `canvas-note-title-names-file` checks the
+	// title that gives another name.
 	const projectionTokens = {
-		heading1: 'Projection heading one',
+		heading1: 'smoke-note',
 		heading2: 'Projection heading two',
 		heading3: 'Projection heading three',
 		paragraph: 'Projection paragraph',

@@ -33,6 +33,31 @@ export function readCanvasCardGeometry(raw, cardPath) {
 		: undefined;
 }
 
+/**
+ * Where a card is taken to be dragged, in window pixels: the middle of its
+ * caption. A card that shows no caption, as a note's (note title), is taken
+ * by its face: the middle of its upper edge, 14 pixels inside the card.
+ */
+export async function canvasCardGrip(page, cardPath) {
+	const point = await page.evaluate(wanted => {
+		const card = [...document.querySelectorAll('.basehalf-canvas-card')].find(element => element.getAttribute('data-basehalf-card-path') === wanted);
+		if (!(card instanceof HTMLElement)) {
+			return undefined;
+		}
+		const identity = card.querySelector('.basehalf-canvas-card-caption-identity');
+		if (identity instanceof HTMLElement && identity.getClientRects().length > 0) {
+			const box = identity.getBoundingClientRect();
+			return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+		}
+		const box = card.getBoundingClientRect();
+		return { x: box.left + box.width / 2, y: box.top + Math.min(14, box.height / 2) };
+	}, cardPath);
+	if (!point) {
+		throw new Error(`The card of ${cardPath} is not drawn, so it cannot be dragged.`);
+	}
+	return point;
+}
+
 export async function openRootCanvas(page) {
 	if (await page.locator('.basehalf-command-center-breadcrumb-segment.current.root').isVisible().catch(() => false)) {
 		return;

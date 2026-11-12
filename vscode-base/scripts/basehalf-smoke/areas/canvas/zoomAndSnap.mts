@@ -10,7 +10,7 @@ import path from 'path';
 import process from 'process';
 import { readCanvasCardNumber } from './creation.mts';
 import { logsPath, opts, root, workspacePath } from '../../context.mts';
-import { emptyCanvasPoint, openCanvasZoomMenu, zoomCanvas } from '../../lib/canvas.mts';
+import { canvasCardGrip, emptyCanvasPoint, openCanvasZoomMenu, zoomCanvas } from '../../lib/canvas.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
 // Moves the pointer that holds a card down from a point until no folder
@@ -290,17 +290,14 @@ export async function assertCanvasSnapGuides(page) {
 		};
 		const readmeMatrix = matrixFor(readmeNode);
 		const docsMatrix = matrixFor(docsNode);
-		// Card identity now lives in the stable caption outside the painted frame.
-		// Start the drag there so the smoke exercises the same shared drag surface
-		// that users see, instead of the Note body (which owns text interaction).
-		const dragSurface = readmeCard.querySelector('.basehalf-canvas-card-caption-identity');
+		// The card of a note shows no caption (note title): README is taken by
+		// its face, at the middle of its upper edge (`canvasCardGrip`).
 		const readmeRect = readmeCard.getBoundingClientRect();
-		const dragRect = dragSurface instanceof HTMLElement ? dragSurface.getBoundingClientRect() : readmeRect;
 		const rootRect = root.getBoundingClientRect();
 		const zoom = Number(root.getAttribute('data-zoom')) || 1;
 		const targetDraftX = docsMatrix.m41 + 3;
-		const startX = dragRect.left + dragRect.width / 2;
-		const startY = dragRect.top + dragRect.height / 2;
+		const startX = readmeRect.left + readmeRect.width / 2;
+		const startY = readmeRect.top + Math.min(14, readmeRect.height / 2);
 		const endX = startX + (targetDraftX - readmeMatrix.m41) * zoom;
 		const endY = startY;
 		if (startX < rootRect.left || startX > rootRect.right || startY < rootRect.top || startY > rootRect.bottom) {
@@ -326,9 +323,18 @@ export async function assertCanvasSnapGuides(page) {
 	await page.mouse.move(geometry.startX, geometry.startY);
 	await page.mouse.down();
 	await page.mouse.move(geometry.endX, geometry.endY, { steps: 14 });
+	// A card taken by its face starts to move once the press has gone a few
+	// pixels, so it stands that far behind the pointer: the pointer goes on
+	// until the card's left edge is where the drag was aimed.
+	const behind = await page.evaluate(draftX => {
+		const node = document.querySelector('.react-flow__node[data-id="README.md"]');
+		return node ? draftX - new DOMMatrixReadOnly(getComputedStyle(node).transform).m41 : 0;
+	}, geometry.draftX);
+	const heldX = geometry.endX + behind * geometry.zoom;
+	await page.mouse.move(heldX, geometry.endY, { steps: 2 });
 	// docs is a folder, and README let go on its card would go into it
 	// (dropping into a folder): README goes down along docs' axis, off it.
-	await movePointerOffFolders(page, geometry.endX, geometry.endY);
+	await movePointerOffFolders(page, heldX, geometry.endY);
 	await page.waitForFunction(targetAxesX => Array.from(document.querySelectorAll('[data-testid="canvas-snap-guide"]')).some(line => {
 		const x1 = Number(line.getAttribute('x1'));
 		const x2 = Number(line.getAttribute('x2'));
@@ -366,19 +372,18 @@ export async function assertCanvasSnapGuides(page) {
 	const snapToggle = page.locator('.basehalf-canvas-snap-toggle:visible');
 	const pane = page.locator('.basehalf-canvas-cards .react-flow__pane');
 	await pane.click({ position: { x: 20, y: 20 } });
-	// By its caption, as above: README lies over docs, which would take it if
-	// the pointer were on its middle, and nothing snaps a card that a folder
-	// takes (dropping into a folder, D92).
-	const toggleDrag = await readme.locator('.basehalf-canvas-card-caption-identity').boundingBox();
-	if (!toggleDrag) {
-		throw new Error('README.md card disappeared before exercising the snap toggle');
-	}
-	const toggleDragStartX = toggleDrag.x + toggleDrag.width / 2;
-	const toggleDragStartY = toggleDrag.y + toggleDrag.height / 2;
+	// By its face, as above. Nothing snaps a card that a folder takes
+	// (dropping into a folder, D92), and README was let go off the folders:
+	// should a folder lie under the pointer all the same, README goes down
+	// along the axis, off it.
+	const toggleDrag = await canvasCardGrip(page, 'README.md');
+	const toggleDragStartX = toggleDrag.x;
+	const toggleDragStartY = toggleDrag.y;
 	await page.mouse.move(toggleDragStartX, toggleDragStartY);
 	await page.mouse.down();
 	await page.mouse.move(toggleDragStartX + 30, toggleDragStartY, { steps: 8 });
 	await page.mouse.move(toggleDragStartX + 3 * geometry.zoom, toggleDragStartY, { steps: 8 });
+	await movePointerOffFolders(page, toggleDragStartX + 3 * geometry.zoom, toggleDragStartY);
 	await page.waitForFunction(() => document.querySelectorAll('[data-testid="canvas-snap-guide"]').length > 0, null, { timeout: 10_000 });
 	// A programmatic click lets the fixed viewport control change state while
 	// React Flow still owns the pointer gesture.

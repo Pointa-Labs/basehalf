@@ -18,6 +18,7 @@ import {
 	assertCanvasEdgeGone,
 	assertCanvasEdgeVisible,
 	assertCanvasFolder,
+	emptyCanvasPoint,
 	openCanvasZoomMenu,
 	readCanvasCardGeometry,
 	readCanvasCardPlaces,
@@ -470,13 +471,59 @@ export async function assertCanvasCreateFromConnection(page) {
 	}
 	const editor = await waitForCanvasNoteInlineEditor(page, 'untitled.md');
 	await assertCanvasEdgeVisible(page, source, 'untitled.md');
-	await page.keyboard.press('Escape');
+	// The note starts at its title line, and the title typed there names its
+	// file once the note is let go (note title, criterion 3): the file keeps
+	// the list it was made with, its line is drawn before and after, and the
+	// anchor row of the line names the new file.
+	const titleLine = await editor.editable.evaluate(editable => [...editable.querySelectorAll('h1, h2, h3, p')].map(block => `${block.tagName}:${block.textContent}`).join('|'));
+	if (titleLine !== 'H1:') {
+		throw new Error(`A note made from a connection must start at its title line, got ${JSON.stringify(titleLine)}`);
+	}
+	const titled = 'Grown from a line.md';
+	const titledPath = path.join(workspacePath, titled);
+	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8').includes('to: "untitled.md"'), 'canvas.yaml to remember the anchors of the line to the new note');
+	const anchorsBefore = anchorRowOf(fs.readFileSync(canvasPath, 'utf8'), 'untitled.md');
+	await page.keyboard.type('Grown from a line');
+	const blank = await emptyCanvasPoint(page);
+	await page.mouse.click(blank.x, blank.y);
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
-	fs.rmSync(notePath, { force: true });
-	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="untitled.md"]').waitFor({ state: 'detached', timeout: 10_000 });
+	await waitUntil(() => fs.existsSync(titledPath) && !fs.existsSync(notePath), 'the note made from a connection to take the name of its title');
+	const titledText = readWorkspaceFile(titled);
+	if (titledText.replace(/\n$/, '') !== `---\nupstream:\n  - ${source}\n---\n# Grown from a line`) {
+		throw new Error(`A note made from a connection and named by its title must keep its upstream list, got ${JSON.stringify(titledText)}`);
+	}
+	await assertCanvasEdgeVisible(page, source, titled);
+	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8').includes(`to: "${titled}"`) && !fs.readFileSync(canvasPath, 'utf8').includes('to: "untitled.md"'), 'the anchor row of the line to name the renamed note');
+	const anchorsAfter = anchorRowOf(fs.readFileSync(canvasPath, 'utf8'), titled);
+	if (!anchorsBefore || JSON.stringify(anchorsAfter) !== JSON.stringify(anchorsBefore)) {
+		throw new Error(`The line to a note named by its title must keep its sides: ${JSON.stringify({ anchorsBefore, anchorsAfter })}`);
+	}
+	fs.rmSync(titledPath, { force: true });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${titled}"]`).waitFor({ state: 'detached', timeout: 10_000 });
 	if (readWorkspaceFile(source) !== sourceBefore) {
 		throw new Error('Create from Connection changed the source card instead of only the new node');
 	}
+}
+
+/** The sides of the line that ends at `to`, as its anchor row in canvas.yaml names them. */
+function anchorRowOf(raw, to) {
+	const lines = raw.split(/\r?\n/);
+	const end = lines.findIndex(line => line.trim() === `to: ${JSON.stringify(to)}`);
+	if (end < 0) {
+		return undefined;
+	}
+	let first = end;
+	while (first > 0 && !lines[first].trimStart().startsWith('- ')) {
+		first--;
+	}
+	const row = {};
+	for (let index = first; index < lines.length && (index === first || !lines[index].trimStart().startsWith('- ')); index++) {
+		const match = /^(?:- )?(from|from_anchor|to_anchor):\s*(.+)$/.exec(lines[index].trim());
+		if (match) {
+			row[match[1]] = match[2];
+		}
+	}
+	return row;
 }
 
 // Canvas undo of a connection after the note was opened and closed again:

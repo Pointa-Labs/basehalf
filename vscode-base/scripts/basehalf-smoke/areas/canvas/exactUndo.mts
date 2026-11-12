@@ -181,27 +181,48 @@ export async function assertCanvasExactUndo(page) {
 	await page.keyboard.press(UNDO);
 	await assertBack('one undo after the toolbar\'s Delete');
 
-	// New Note with text typed into it: undo takes it away, and redo brings it back with the text.
+	// New Note with words typed into it. They are typed into its title line,
+	// so they are the note's title, and the file takes their name once the
+	// note is let go (note title): a step of its own. The first undo gives
+	// the file the name it was made with, the second takes the note away, and
+	// the redos bring it back with the text and name it again.
+	const TITLE = 'Words typed into a new note';
+	const TITLED = `${TITLE}.md`;
 	await clickCanvasCreateAction(page, 'New Note');
 	await waitUntil(() => fs.existsSync(at('untitled.md')), 'New Note to make untitled.md');
 	await waitForCanvasNoteInlineEditor(page, 'untitled.md');
-	await page.keyboard.type('Words typed into a new note');
+	await page.keyboard.type(TITLE);
 	// Escape closes the note's editor, which saves what was typed.
 	await page.keyboard.press('Escape');
-	await waitUntil(() => fs.readFileSync(at('untitled.md'), 'utf8').includes('Words typed into a new note'), 'the typed words to be saved');
-	await waitUntil(() => readCanvasCardGeometry(layout(), 'untitled.md') !== undefined, 'the new note to have its place');
-	const madeRow = readCanvasCardGeometry(layout(), 'untitled.md');
-	const madeText = fs.readFileSync(at('untitled.md'), 'utf8');
+	await waitUntil(() => fs.existsSync(at(TITLED)) && !fs.existsSync(at('untitled.md')), 'the new note to take the name of its title');
+	await waitUntil(() => fs.readFileSync(at(TITLED), 'utf8').includes(TITLE), 'the typed words to be saved');
+	await waitUntil(() => readCanvasCardGeometry(layout(), TITLED) !== undefined, 'the new note to have its place');
+	await card(TITLED).waitFor({ state: 'visible', timeout: 10_000 });
+	const madeRow = readCanvasCardGeometry(layout(), TITLED);
+	const madeText = fs.readFileSync(at(TITLED), 'utf8');
 	await keyboardOnCanvas(page);
 	await page.keyboard.press(UNDO);
-	await waitUntil(() => !fs.existsSync(at('untitled.md')), 'undo to take the new note away with its text');
+	await waitUntil(() => fs.existsSync(at('untitled.md')) && !fs.existsSync(at(TITLED)) && fs.readFileSync(at('untitled.md'), 'utf8') === madeText, 'one undo to give the new note the name it was made with, its title still in it');
+	await card('untitled.md').waitFor({ state: 'visible', timeout: 10_000 });
+	await keyboardOnCanvas(page);
+	await page.keyboard.press(UNDO);
+	await waitUntil(() => !fs.existsSync(at('untitled.md')) && !fs.existsSync(at(TITLED)), 'a second undo to take the new note away with its text');
 	await card('untitled.md').waitFor({ state: 'detached', timeout: 10_000 });
+	await keyboardOnCanvas(page);
 	await page.keyboard.press(REDO);
 	await waitUntil(() => fs.existsSync(at('untitled.md')) && fs.readFileSync(at('untitled.md'), 'utf8') === madeText, 'redo to bring the new note back with its text');
 	await card('untitled.md').waitFor({ state: 'visible', timeout: 10_000 });
 	const backRow = readCanvasCardGeometry(layout(), 'untitled.md');
 	if (backRow?.x !== madeRow?.x || backRow?.y !== madeRow?.y) {
 		throw new Error(`Redo must bring the new note back at its place: ${JSON.stringify({ madeRow, backRow })}`);
+	}
+	await keyboardOnCanvas(page);
+	await page.keyboard.press(REDO);
+	await waitUntil(() => fs.existsSync(at(TITLED)) && !fs.existsSync(at('untitled.md')) && fs.readFileSync(at(TITLED), 'utf8') === madeText, 'a second redo to name the note by its title again');
+	await card(TITLED).waitFor({ state: 'visible', timeout: 10_000 });
+	const namedRow = readCanvasCardGeometry(layout(), TITLED);
+	if (namedRow?.x !== madeRow?.x || namedRow?.y !== madeRow?.y) {
+		throw new Error(`A note named by its title again must keep its place: ${JSON.stringify({ madeRow, namedRow })}`);
 	}
 
 	const watch = await page.evaluate(() => {
@@ -213,7 +234,7 @@ export async function assertCanvasExactUndo(page) {
 		throw new Error(`No delete and no undo may open a dialog: ${JSON.stringify(watch)}`);
 	}
 
-	for (const name of ['untitled.md', ...CARDS]) {
+	for (const name of [TITLED, ...CARDS]) {
 		await centerCanvasCards(page, [card(name)]);
 		await deleteCanvasCardFromItsMenu(page, name);
 	}

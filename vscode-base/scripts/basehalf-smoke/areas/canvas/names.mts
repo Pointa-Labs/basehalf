@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
-import { centerCanvasCards } from './creation.mts';
+import { centerCanvasCards, deleteCanvasCardFromItsMenu } from './creation.mts';
 import { workspacePath } from '../../context.mts';
 import { assertCanvasFolder, panCanvasCardTo } from '../../lib/canvas.mts';
 import { waitUntil } from '../../lib/steps.mts';
@@ -90,13 +90,22 @@ async function waitForCanvasNameEditor(page, cardPath, expected) {
 	throw new Error(`The rename editor of ${cardPath} is not ready for typing: ${JSON.stringify({ expected, seen })}`);
 }
 
+/** A file that is no note: its card shows its name above it, and the name is changed there. */
+const NAMED_FILE = 'name-check.json';
+
 /**
  * The name of a card (canvas card name): the text cursor over the text alone,
- * and the double click that renames in place.
+ * and the double click that renames in place. The card of a note shows no
+ * name above it (note title), so the name that is pressed is the name of a
+ * file that is no note, and a note's rename editor is opened with F2.
  */
 async function assertCanvasCardNameRenamesInPlace(page) {
 	const cardSelector = cardPath => `.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`;
 	const readme = page.locator(cardSelector('README.md'));
+	const at = name => path.join(workspacePath, name);
+	fs.writeFileSync(at(NAMED_FILE), '{ "named": true }\n', 'utf8');
+	const file = page.locator(cardSelector(NAMED_FILE));
+	await file.waitFor({ state: 'visible', timeout: 10_000 });
 	const docs = page.locator(cardSelector('docs'));
 	const docsBefore = await docs.boundingBox();
 	if (!docsBefore) {
@@ -192,16 +201,32 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		};
 	});
 
-	await centerCanvasCards(page, [readme]);
-	const atRest = await caption('README.md');
-	// A note is named without its extension, on its card and in a folder card.
+	// What a note's card shows of its caption: nothing has a box but the
+	// buttons, which stand inside the card.
+	const noteCaption = () => page.evaluate(selector => {
+		const card = document.querySelector(selector);
+		const shown = part => (card?.querySelector(part)?.getClientRects().length ?? 0) > 0;
+		return {
+			glyph: shown('.basehalf-canvas-card-caption-icon'),
+			name: shown('.basehalf-canvas-card-label'),
+			editor: shown('.basehalf-canvas-inline-name-input input'),
+			badge: shown('.basehalf-canvas-card-badge-toggle')
+		};
+	}, cardSelector('README.md'));
+
+	await centerCanvasCards(page, [file]);
+	const atRest = await caption(NAMED_FILE);
+	// A file that is no note is named by its file name. A note is named
+	// without its extension in a folder card, and its own card shows no name.
 	const folderAtRest = await caption('docs');
+	const noteAtRest = await noteCaption();
 	if (!atRest || !folderAtRest
-		|| atRest.text !== 'README'
+		|| atRest.text !== NAMED_FILE
 		|| folderAtRest.text !== 'docs'
 		|| !folderAtRest.rows.some(row => row === 'guide' || row === 'far')
-		|| folderAtRest.rows.some(row => /\.md$/i.test(row ?? ''))) {
-		throw new Error(`A note is not named without its extension: ${JSON.stringify({ note: atRest?.text, folder: folderAtRest?.text, rows: folderAtRest?.rows })}`);
+		|| folderAtRest.rows.some(row => /\.md$/i.test(row ?? ''))
+		|| noteAtRest.glyph || noteAtRest.name || noteAtRest.editor || !noteAtRest.badge) {
+		throw new Error(`The cards are not named as their kinds are: ${JSON.stringify({ file: atRest?.text, folder: folderAtRest?.text, rows: folderAtRest?.rows, note: noteAtRest })}`);
 	}
 	if (!atRest
 		|| atRest.cursors.name !== 'text'
@@ -216,7 +241,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	}
 
 	// A double click on the name: the editor, the keyboard, and nothing opened.
-	const placeBefore = await readme.boundingBox();
+	const placeBefore = await file.boundingBox();
 	// Changing a name selects no card: between the first press and the open
 	// editor no frame shows a selected card or the toolbar of one. The two
 	// clicks come as a person's do, so a toolbar that the first one brought up
@@ -240,10 +265,11 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	});
 	await page.mouse.click(atRest.name.x, atRest.name.y);
 	await page.waitForTimeout(200);
-	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after one click on the name of a note');
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after one click on the name of a file');
 	await page.mouse.click(atRest.name.x, atRest.name.y, { clickCount: 2 });
-	await waitForCanvasNameEditor(page, 'README.md', { value: 'README', selection: [0, 6] });
-	await expectState({ editor: 'README.md', selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after a double click on the name of a note');
+	// The file name, with the part before its extension selected.
+	await waitForCanvasNameEditor(page, NAMED_FILE, { value: NAMED_FILE, selection: [0, 'name-check'.length] });
+	await expectState({ editor: NAMED_FILE, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after a double click on the name of a file');
 	const selectionFrames = await page.evaluate(() => {
 		const watch = (window as typeof window & { __basehalfSmokeNameSelection?: { selected: number; toolbar: number; stop: boolean } }).__basehalfSmokeNameSelection;
 		if (!watch) {
@@ -256,19 +282,17 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		throw new Error(`A double click on the name of a card showed the card selected on the way to its editor: ${JSON.stringify(selectionFrames)}`);
 	}
 
-	// The editor is not disturbed by what happens in the folder meanwhile: a
-	// file of another card, and the very note that is being renamed. The caret
-	// stands inside the typed text, so a caret that went to the end shows.
-	await page.keyboard.type('README-by');
-	await page.keyboard.press('ArrowLeft');
-	await page.keyboard.press('ArrowLeft');
-	await page.evaluate(() => {
+	// The editor is not disturbed by what happens in the folder meanwhile. The
+	// caret stands inside the typed text, so a caret that went to the end
+	// shows. `watchNameEditor` notes each frame in which the editor is not as
+	// it was left.
+	const watchNameEditor = (value, caret) => page.evaluate(({ value, caret }) => {
 		const input = document.querySelector('.basehalf-canvas-inline-name-input input');
 		const watch = { input, card: input?.closest('.basehalf-canvas-card'), lost: [] as string[], stop: false };
 		(window as typeof window & { __basehalfSmokeNameEditor?: typeof watch }).__basehalfSmokeNameEditor = watch;
 		const tick = () => {
 			if (!(input instanceof HTMLInputElement) || !input.isConnected || document.activeElement !== input
-				|| input.value !== 'README-by' || input.selectionStart !== 7 || input.selectionEnd !== 7) {
+				|| input.value !== value || input.selectionStart !== caret || input.selectionEnd !== caret) {
 				watch.lost.push(JSON.stringify(input instanceof HTMLInputElement
 					? { connected: input.isConnected, focused: document.activeElement === input, value: input.value, caret: [input.selectionStart, input.selectionEnd] }
 					: null));
@@ -278,40 +302,18 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 			}
 		};
 		requestAnimationFrame(tick);
-	});
-	const nameEditorWatch = () => page.evaluate(() => {
+	}, { value, caret });
+	const nameEditorWatch = cardPath => page.evaluate(selector => {
 		const watch = (window as typeof window & { __basehalfSmokeNameEditor?: { card: Element | null | undefined; lost: string[]; stop: boolean } }).__basehalfSmokeNameEditor;
 		if (!watch) {
 			return { lost: ['the watch of the rename editor is gone'], sameCard: true };
 		}
 		return {
 			lost: watch.lost,
-			sameCard: document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]') === watch.card
+			sameCard: document.querySelector(selector) === watch.card
 		};
-	});
-	// Another card's file: the card of the editor is kept as it is.
-	const probePath = path.join(workspacePath, 'docs', 'name-editor-probe.md');
-	const readmePath = path.join(workspacePath, 'README.md');
-	const readmeBytes = fs.readFileSync(readmePath);
-	fs.writeFileSync(probePath, '# Written while a name is edited\n', 'utf8');
-	await page.waitForTimeout(1_200);
-	fs.rmSync(probePath);
-	await page.waitForTimeout(1_200);
-	const afterOtherFile = await nameEditorWatch();
-	if (afterOtherFile.lost.length > 0 || !afterOtherFile.sameCard) {
-		throw new Error(`The rename editor did not stay as it was while another file of the folder changed: ${JSON.stringify(afterOtherFile)}`);
-	}
-	// The note that is being renamed: its card is drawn again with other
-	// content, and the editor moves into the new drawing.
-	fs.writeFileSync(readmePath, Buffer.concat([readmeBytes, Buffer.from('\nname-editor-probe\n', 'utf8')]));
-	await readme.locator('.bh-md-preview p', { hasText: 'name-editor-probe' }).first().waitFor({ state: 'visible', timeout: 15_000 });
-	const afterOwnFile = await nameEditorWatch();
-	if (afterOwnFile.lost.length > 0 || afterOwnFile.sameCard) {
-		throw new Error(`The rename editor did not move into the new drawing of its card: ${JSON.stringify(afterOwnFile)}`);
-	}
-	fs.writeFileSync(readmePath, readmeBytes);
-	await readme.locator('.bh-md-preview p', { hasText: 'name-editor-probe' }).first().waitFor({ state: 'detached', timeout: 15_000 });
-	const lost = await page.evaluate(() => {
+	}, cardSelector(cardPath));
+	const endNameEditorWatch = () => page.evaluate(() => {
 		const watch = (window as typeof window & { __basehalfSmokeNameEditor?: { lost: string[]; stop: boolean } }).__basehalfSmokeNameEditor;
 		if (!watch) {
 			return ['the watch of the rename editor is gone'];
@@ -319,16 +321,31 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		watch.stop = true;
 		return watch.lost;
 	});
-	if (lost.length > 0) {
-		throw new Error(`The rename editor did not stay as it was while the renamed note was written: ${lost.join(' ')}`);
+	await page.keyboard.type('name-check-by');
+	await page.keyboard.press('ArrowLeft');
+	await page.keyboard.press('ArrowLeft');
+	await watchNameEditor('name-check-by.json', 'name-check-by'.length - 2);
+	// Another card's file: the card of the editor is kept as it is.
+	const probePath = path.join(workspacePath, 'docs', 'name-editor-probe.md');
+	fs.writeFileSync(probePath, '# Written while a name is edited\n', 'utf8');
+	await page.waitForTimeout(1_200);
+	fs.rmSync(probePath);
+	await page.waitForTimeout(1_200);
+	const afterOtherFile = await nameEditorWatch(NAMED_FILE);
+	if (afterOtherFile.lost.length > 0 || !afterOtherFile.sameCard) {
+		throw new Error(`The rename editor did not stay as it was while another file of the folder changed: ${JSON.stringify(afterOtherFile)}`);
+	}
+	const lostByFile = await endNameEditorWatch();
+	if (lostByFile.length > 0) {
+		throw new Error(`The rename editor did not stay as it was: ${lostByFile.join(' ')}`);
 	}
 	// The caret is where it was: two characters before the end of the typed part.
 	await page.keyboard.press('ArrowRight');
 	await page.keyboard.press('ArrowRight');
 	await page.keyboard.type('-name');
 	await page.keyboard.press('Enter');
-	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-by-name.md')), 'the double-clicked name to rename the note');
-	const byName = page.locator(cardSelector('README-by-name.md'));
+	await waitUntil(() => !fs.existsSync(at(NAMED_FILE)) && fs.existsSync(at('name-check-by-name.json')), 'the double-clicked name to rename the file');
+	const byName = page.locator(cardSelector('name-check-by-name.json'));
 	await byName.waitFor({ state: 'visible', timeout: 10_000 });
 	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after Enter in the rename editor');
 	const placeAfter = await byName.boundingBox();
@@ -339,9 +356,9 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	}
 
 	// Escape renames nothing. Then the fixture gets its name back.
-	const renamed = await caption('README-by-name.md');
+	const renamed = await caption('name-check-by-name.json');
 	await doubleClick(renamed.name);
-	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name', selection: [0, 14] });
+	await waitForCanvasNameEditor(page, 'name-check-by-name.json', { value: 'name-check-by-name.json', selection: [0, 'name-check-by-name'.length] });
 
 	// The editor is the name made editable: its text stands where the name
 	// stood, in the same type, and nothing frames it.
@@ -373,7 +390,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	if (!caret || !caret.focused || caret.start !== caret.end || caret.start <= 0 || caret.start >= caret.length) {
 		throw new Error(`A click in the middle of the rename editor did not put the caret there: ${JSON.stringify(caret)}`);
 	}
-	await expectState({ editor: 'README-by-name.md', selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after a click inside the rename editor');
+	await expectState({ editor: 'name-check-by-name.json', selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after a click inside the rename editor');
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
 	// It is as wide as its text.
 	await page.keyboard.type('ab');
@@ -406,22 +423,55 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	}
 	await page.keyboard.press('Escape');
 	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor');
-	if (!fs.existsSync(path.join(workspacePath, 'README-by-name.md')) || fs.existsSync(path.join(workspacePath, 'abcdefgh.md'))) {
-		throw new Error('Escape in the rename editor renamed the note');
+	if (!fs.existsSync(at('name-check-by-name.json')) || fs.existsSync(at('abcdefgh')) || fs.existsSync(at('abcdefgh.json'))) {
+		throw new Error('Escape in the rename editor renamed the file');
 	}
 	await doubleClick(renamed.name);
-	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name', selection: [0, 14] });
-	await page.keyboard.type('README');
+	await waitForCanvasNameEditor(page, 'name-check-by-name.json', { value: 'name-check-by-name.json', selection: [0, 'name-check-by-name'.length] });
+	await page.keyboard.type('name-check');
 	await page.keyboard.press('Enter');
-	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-by-name.md')), 'the double-clicked name to restore the fixture');
-	await readme.waitFor({ state: 'visible', timeout: 10_000 });
-	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after the fixture got its name back');
+	await waitUntil(() => fs.existsSync(at(NAMED_FILE)) && !fs.existsSync(at('name-check-by-name.json')), 'the double-clicked name to give the file its first name back');
+	await file.waitFor({ state: 'visible', timeout: 10_000 });
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after the file got its first name back');
 
-	// The glyph of a note is not the name: nothing opens.
-	await doubleClick((await caption('README.md')).glyph);
-	await page.waitForTimeout(600);
-	// The glyph is the card: it selects it, and the card's toolbar comes up.
-	await expectState({ editor: null, selected: ['README.md'], toolbar: true, noteEditing: 0, cardDetail: false }, 'after a double click on the glyph of a note');
+	// The name of a note is changed with F2: the caption stands above the card
+	// while the editor is open, with the name in it and all of it selected.
+	await centerCanvasCards(page, [readme]);
+	await readme.focus();
+	await page.keyboard.press('F2');
+	await waitForCanvasNameEditor(page, 'README.md', { value: 'README', selection: [0, 6] });
+	const noteNamed = await noteCaption();
+	if (!noteNamed.glyph || !noteNamed.editor || !noteNamed.badge) {
+		throw new Error(`The rename editor of a note does not stand in a caption above its card: ${JSON.stringify(noteNamed)}`);
+	}
+	// The note that is being renamed is written meanwhile: its card is drawn
+	// again with other content, and the editor moves into the new drawing,
+	// with what was typed and the caret where it stood.
+	await page.keyboard.type('README-by');
+	await page.keyboard.press('ArrowLeft');
+	await page.keyboard.press('ArrowLeft');
+	await watchNameEditor('README-by', 7);
+	const readmePath = at('README.md');
+	const readmeBytes = fs.readFileSync(readmePath);
+	fs.writeFileSync(readmePath, Buffer.concat([readmeBytes, Buffer.from('\nname-editor-probe\n', 'utf8')]));
+	await readme.locator('.bh-md-preview p', { hasText: 'name-editor-probe' }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	const afterOwnFile = await nameEditorWatch('README.md');
+	if (afterOwnFile.lost.length > 0 || afterOwnFile.sameCard) {
+		throw new Error(`The rename editor did not move into the new drawing of its card: ${JSON.stringify(afterOwnFile)}`);
+	}
+	fs.writeFileSync(readmePath, readmeBytes);
+	await readme.locator('.bh-md-preview p', { hasText: 'name-editor-probe' }).first().waitFor({ state: 'detached', timeout: 15_000 });
+	const lostByNote = await endNameEditorWatch();
+	if (lostByNote.length > 0) {
+		throw new Error(`The rename editor did not stay as it was while the renamed note was written: ${lostByNote.join(' ')}`);
+	}
+	// Escape renames nothing, and the caption is gone again.
+	await page.keyboard.press('Escape');
+	await page.waitForFunction(() => !document.querySelector('.basehalf-canvas-card .basehalf-canvas-inline-name-input input'), null, { timeout: 10_000 });
+	const noteLeft = await noteCaption();
+	if (!fs.existsSync(readmePath) || fs.existsSync(at('README-by.md')) || noteLeft.glyph || noteLeft.name || noteLeft.editor || !noteLeft.badge) {
+		throw new Error(`Escape in the rename editor of a note did not leave the note as it was: ${JSON.stringify(noteLeft)}`);
+	}
 
 	// The name of a folder is renamed in place, and the folder is not entered.
 	// Earlier steps leave cards where their drags ended, and one can lie over
@@ -473,5 +523,11 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	}
 	await page.mouse.click(emptyCanvas.x, emptyCanvas.y);
 	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after the card name checks');
+	// The file of these checks goes with its row.
+	await centerCanvasCards(page, [file]);
+	await deleteCanvasCardFromItsMenu(page, NAMED_FILE);
+	await file.waitFor({ state: 'detached', timeout: 10_000 });
+	await page.keyboard.press('Escape');
+	await centerCanvasCards(page, [docs]);
 	await panCanvasCardTo(page, docs, { x: docsBefore.x, y: docsBefore.y });
 }

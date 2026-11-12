@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { workspacePath } from '../../context.mts';
-import { assertCanvasFolder, emptyCanvasPoint, openRootCanvas, readCanvasCardGeometry, readCanvasView, zoomCanvas } from '../../lib/canvas.mts';
+import { assertCanvasFolder, canvasCardGrip, emptyCanvasPoint, openRootCanvas, readCanvasCardGeometry, readCanvasView, zoomCanvas } from '../../lib/canvas.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 // Dropping into a folder (docs/specs/canvas-drop-into-folder.md), criteria 1,
@@ -47,19 +47,9 @@ export async function assertCanvasDropIntoFolder(page) {
 		return box;
 	};
 	const centreOf = box => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
-	// Where a card is taken to be dragged: its caption, as for every kind of card.
-	const grip = async name => {
-		const point = await page.evaluate(p => {
-			const element = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(p)}"]`);
-			const identity = element?.querySelector('.basehalf-canvas-card-caption-identity');
-			const box = (identity instanceof HTMLElement ? identity : element)?.getBoundingClientRect();
-			return box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : undefined;
-		}, cardPath(name));
-		if (!point) {
-			throw new Error(`The card of ${cardPath(name)} has no caption to drag it by.`);
-		}
-		return point;
-	};
+	// Where a card is taken to be dragged: its caption, and the face of a
+	// note, which shows no caption.
+	const grip = name => canvasCardGrip(page, cardPath(name));
 	const lookOf = names => page.evaluate(paths => Object.fromEntries(paths.map(p => {
 		const element = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(p)}"]`);
 		if (!element) {

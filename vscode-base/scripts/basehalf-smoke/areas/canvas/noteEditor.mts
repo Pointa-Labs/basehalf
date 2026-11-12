@@ -739,12 +739,11 @@ export async function assertCanvasNoteInlineWysiwygEditor(page) {
 	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 
-	// The glyph, not the name: a double click on the name renames in place.
-	await note.locator('.basehalf-canvas-card-caption-icon').dblclick();
-	await page.waitForTimeout(250);
-	if (await inlineEditor.host.count() !== 0
-		|| await staticPreview.getAttribute('data-smoke-preview-identity') !== staticPreviewIdentity) {
-		throw new Error('Double-clicking the Note header entered content editing or replaced its static preview');
+	// The card of a note shows no glyph and no name above it (note title), so
+	// it has no header to double-click: a double click on the card is one on
+	// the note, as below.
+	if (await note.locator('.basehalf-canvas-card-caption-icon').isVisible() || await note.locator('.basehalf-canvas-card-label').isVisible()) {
+		throw new Error('The card of a note shows a glyph or a name above it');
 	}
 
 	// Use a block that is physically inside the clipped card viewport. A locator

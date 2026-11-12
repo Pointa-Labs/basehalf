@@ -24,6 +24,7 @@ import { assertCanvasCardFollowsOutsideRename, assertCanvasCardsFollowManyOutsid
 import { assertCanvasInlineRename } from './areas/canvas/names.mts';
 import { assertCanvasNoteInlineWysiwygEditor } from './areas/canvas/noteEditor.mts';
 import { assertCanvasNoteResizeWhileEditing } from './areas/canvas/noteResize.mts';
+import { assertCanvasNoteTitleNamesFile } from './areas/canvas/noteTitle.mts';
 import { assertCanvasNoteUndoAsksNothing } from './areas/canvas/noteUndo.mts';
 import { assertCanvasNoteLinksOpenTheirTargets, assertCanvasNoteMediaPlaysOnWhenDrawnAgain, assertCanvasNoteMediaReactAtRest, assertCanvasNotePaletteInBothAppearances, assertCanvasNotePictureEditsOnTheCard, assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
 import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
@@ -208,6 +209,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-exact-undo', () => assertCanvasExactUndo(page));
 	await step('canvas-files-follow-deletes', () => assertFilesFollowCanvasDeletes(page));
 	await step('canvas-create-note', () => assertCanvasCreateNote(page));
+	await step('canvas-note-title-names-file', () => assertCanvasNoteTitleNamesFile(page));
 	await step('canvas-note-selection-controls', () => assertCanvasNoteInlineWysiwygEditor(page));
 	await step('canvas-note-resize-while-editing', () => assertCanvasNoteResizeWhileEditing(page));
 	await step('canvas-note-undo-asks-nothing', () => assertCanvasNoteUndoAsksNothing(page));
