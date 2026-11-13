@@ -20,7 +20,8 @@ import {
 	resolveBaseHalfCanvasResizeCornerGeometry
 } from '../../browser/scene/basehalfCanvasCardNode.js';
 import { BaseHalfCanvasPendingConnectionState } from '../../browser/scene/basehalfCanvasSceneConnections.js';
-import { baseHalfCanvasSceneGeometryForCommit, baseHalfCanvasSceneHandleBoxes, baseHalfCanvasSceneNodeSize } from '../../browser/scene/basehalfCanvasSceneGeometry.js';
+import { baseHalfCanvasPulledLinePath, baseHalfCanvasSceneGeometryForCommit, baseHalfCanvasSceneHandleBoxes, baseHalfCanvasSceneNodeSize } from '../../browser/scene/basehalfCanvasSceneGeometry.js';
+import { baseHalfCanvasEdgePath } from '../../common/basehalfCanvasModel.js';
 import { baseHalfCanvasTargetBlocksGraphShortcuts, baseHalfCanvasTargetOwnsSelectionShortcuts, baseHalfCanvasTargetOwnsSelectedEdgeShortcuts } from '../../browser/scene/basehalfCanvasSceneKeyboard.js';
 import { baseHalfCanvasCardDoubleClickAction, baseHalfCanvasShouldOpenCreateMenu } from '../../browser/scene/basehalfCanvasSceneMouse.js';
 import { captureBaseHalfCanvasNodeDragOrigins, filterBaseHalfCanvasCancelledNodeDragChanges, restoreBaseHalfCanvasNodeDragOrigins } from '../../browser/scene/basehalfCanvasSceneNodeDrag.js';
@@ -566,6 +567,19 @@ suite('BaseHalfCanvasReactScene', () => {
 			measured: { width: 640, height: 360 },
 			style: { width: 640, height: 360 }
 		});
+	});
+
+	test('a line being pulled is the connection between the outer sides of its handles, entering from the side that faces back', () => {
+		// From the right side of a card whose handle's middle is at (280, 85), let go at (540, 64.5): the note made
+		// there is entered from its left side, whose handle's middle is the release point.
+		assert.strictEqual(
+			baseHalfCanvasPulledLinePath({ x: 280, y: 85 }, 'east', { x: 540, y: 64.5 }),
+			baseHalfCanvasEdgePath({ x: 282.5, y: 85 }, 'east', { x: 537.5, y: 64.5 }, 'west'));
+		assert.strictEqual(baseHalfCanvasPulledLinePath({ x: 280, y: 85 }, 'east', { x: 540, y: 64.5 }), 'M 282.5 85 C 410 85 410 64.5 537.5 64.5');
+		// Snapped to a handle on the top of a card below.
+		assert.strictEqual(
+			baseHalfCanvasPulledLinePath({ x: 100, y: 200 }, 'south', { x: 120, y: 400 }, 'north'),
+			baseHalfCanvasEdgePath({ x: 100, y: 202.5 }, 'south', { x: 120, y: 397.5 }, 'north'));
 	});
 
 	test('gives a card that appears the handles React Flow measures: a box of 5 at the middle of each side', () => {

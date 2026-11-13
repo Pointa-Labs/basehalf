@@ -69,7 +69,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 	const { SelectionToolbar, SetBox } = createBaseHalfCanvasSelectionToolbar(environment);
 	const { VideoSelectionControls, VideoPanelAdjacentSurface } = createBaseHalfCanvasVideoSelectionControls(environment);
 	const NoteSelectionControls = createBaseHalfCanvasNoteSelectionControls(environment);
-	const { ConnectionStoreBridge, ConnectCaptureLayer, ConnectionDropLine, SnapGuides } = createBaseHalfCanvasSceneOverlays(environment);
+	const { ConnectionStoreBridge, ConnectCaptureLayer, ConnectionDropLine, ConnectionLine, LineArrowDefinition, SnapGuides, lineArrowId } = createBaseHalfCanvasSceneOverlays(environment);
 
 	function SceneComponent({ initialSnapshot, onReady: ready }: {
 		readonly initialSnapshot: IBaseHalfCanvasSceneSnapshot;
@@ -265,7 +265,8 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			data: { edge, sceneKey, structuralEpoch },
 			ariaLabel: localize('basehalf.canvas.reference.contextFlow', "Context flows from {0} to {1}", edge.from, edge.to),
 			ariaRole: 'group',
-			markerEnd: { type: vendor.MarkerType.ArrowClosed, width: 14, height: 14 },
+			// The arrowhead that every line of the canvas ends in, also the line being pulled.
+			markerEnd: lineArrowId,
 			deletable: true,
 			// The product reconnect gesture starts from either half of the line.
 			// React Flow's endpoint-only reconnect controls would compete with it.
@@ -524,6 +525,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 				}
 			},
 			connectionMode: vendor.ConnectionMode.Loose,
+			connectionLineComponent: ConnectionLine,
 			nodesDraggable: videoInputPickGesturePolicy.nodesDraggable,
 			connectOnClick: true,
 			connectionRadius: 48,
@@ -563,6 +565,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		return h(EdgeInteractionContext.Provider, { value: edgeInteraction },
 			h(SelectionSizeContext.Provider, { value: selectedNodes.length },
 				h(ReactFlowComponent, flowProps,
+					h(LineArrowDefinition),
 					h(ConnectionStoreBridge, { register: registerConnectionStore }),
 					h(vendor.Background, {
 						variant: vendor.BackgroundVariant.Lines,

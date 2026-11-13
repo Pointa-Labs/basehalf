@@ -3,12 +3,21 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-/* The released connection line kept while Create from Connection is open:
- * the same stroke as React Flow's drag line. */
-.monaco-workbench .basehalf-canvas-connection-drop-line path {
-	fill: none;
-	stroke: var(--xy-connectionline-stroke, var(--xy-connectionline-stroke-default));
-	stroke-width: var(--xy-connectionline-stroke-width, var(--xy-connectionline-stroke-width-default));
+/* The arrowhead of every line: a definition only, it takes no room. */
+.monaco-workbench .basehalf-canvas-line-arrow {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+/* A line being pulled out of a card, and the one kept while Create from
+ * Connection is open, are drawn as the line of a connection
+ * (basehalfCanvasReferenceEdge.css); no transition while they follow the
+ * pointer. */
+.monaco-workbench .basehalf-canvas-pulled-line {
+	transition: none;
 }
 
 .monaco-workbench .basehalf-canvas-snap-guides {

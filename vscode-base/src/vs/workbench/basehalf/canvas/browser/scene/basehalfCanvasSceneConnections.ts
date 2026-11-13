@@ -6,7 +6,6 @@
 import { BaseHalfCanvasAnchor } from '../../common/basehalfCanvasModel.js';
 import {
 	IBaseHalfCanvasSceneConnection,
-	baseHalfCanvasOppositeAnchor,
 	baseHalfCanvasSceneConnectionRefusal,
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneSelection,
@@ -15,10 +14,10 @@ import {
 } from '../../common/basehalfCanvasScene.js';
 import type { Connection, FinalConnectionState, ReactFlowInstance } from '@xyflow/react';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
+import { baseHalfCanvasPulledLinePath } from './basehalfCanvasSceneGeometry.js';
 import {
 	BaseHalfCanvasFlowEdge,
 	BaseHalfCanvasFlowNode,
-	flowPosition,
 	IBaseHalfCanvasConnectionStoreController,
 	IBaseHalfCanvasEdgeInteraction,
 	IBaseHalfCanvasSceneEnvironment
@@ -317,17 +316,10 @@ export function useBaseHalfCanvasSceneConnections(environment: IBaseHalfCanvasSc
 			return;
 		}
 		const token = ++dropLineToken.current;
-		// `state.from` is in flow coordinates but `state.to` is relative to the
-		// container in screen pixels; the drop position is the release point
-		// in flow coordinates.
-		const [path] = vendor.getBezierPath({
-			sourceX: state.from.x,
-			sourceY: state.from.y,
-			sourcePosition: state.fromPosition,
-			targetX: drop.position.x,
-			targetY: drop.position.y,
-			targetPosition: state.toPosition ?? flowPosition(vendor, baseHalfCanvasOppositeAnchor(drop.fromAnchor))
-		});
+		// `state.from` is in flow coordinates and so is the drop position, the
+		// release point. The line stays as it was drawn when it was let go: the
+		// line of the card that is made at its end.
+		const path = baseHalfCanvasPulledLinePath(state.from, drop.fromAnchor, drop.position);
 		setDropLine({
 			token,
 			sceneKey: operationKey,

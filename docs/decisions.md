@@ -6460,3 +6460,24 @@ card, not as the document.
 - The cover stays on the card in every frame in which the file does not change: when the card is selected, deselected, opened
   in Card Detail, or drawn again. Before this, selecting the card drew its cover again, and the card showed its bare surface
   for one to four frames before Card Detail opened.
+
+## D134 — The line being pulled is the line it becomes, and a card the user makes is drawn at once (NEW, 2026-11-13)
+
+**Decision.** A line pulled out of a card's handle is drawn as the line of a connection: its curve, its color and width,
+and the same arrowhead as every connection of the canvas, from the handle to the pointer, entering at the side a card made
+there is entered at. Let go on empty canvas, it stays as it was while the menu asks what to make, and the connection of the
+card made at its end is the same line. The card of an item the user makes on the canvas is drawn as soon as the item is
+there, at its place and with its line: BaseHalf holds the place and the line's sides until the user's write puts them in the
+layout, and does not wait for that write to draw them. It revises the drop line of the canvas connection handles ("keeps
+the drag line's path and look"), which was React Flow's line.
+
+**Why.** On 2026-11-13 the owner watched the launch film: the line pulled out of a card was a bare stroke without an arrow,
+and only after New Note did it have one; and the card of the new note came 0.13 to 0.2 seconds after the menu closed. A line
+that changes its look at the moment the card appears is a second state of the same connection, and the card waited for
+two writes of the layout that nothing on screen needs.
+
+**Consequences.**
+- Nothing of the line changes when the card appears at its end.
+- In a fixture of two cards the card comes 17 to 35 ms after the menu closes, the time of creating the file and of one
+  drawing, where it came 60 ms after.
+- The canvas has one arrowhead of its own for all its lines, in place of the one React Flow made for each kind of marker.

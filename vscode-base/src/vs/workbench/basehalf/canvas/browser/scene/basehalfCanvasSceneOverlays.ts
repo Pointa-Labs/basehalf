@@ -7,20 +7,85 @@ import './media/basehalfCanvasSceneOverlays.css';
 import { BaseHalfCanvasAnchor, baseHalfCanvasAnchorPoint } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import { baseHalfCanvasConnectHandleReachLimit } from '../../common/basehalfCanvasScene.js';
+import type { ConnectionLineComponentProps } from '@xyflow/react';
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactElement, ReactNode, RefObject } from 'react';
+import { baseHalfCanvasPulledLinePath } from './basehalfCanvasSceneGeometry.js';
 import { BaseHalfCanvasFlowEdge, BaseHalfCanvasFlowNode, baseHalfCanvasSceneCardIsNoteEditing, EDGE_RECONNECT_ANCHORS, IBaseHalfCanvasConnectionStoreController, IBaseHalfCanvasSceneEnvironment } from './basehalfCanvasSceneShared.js';
 
 interface IBaseHalfCanvasConnectCaptureStyle extends CSSProperties {
 	readonly '--bh-connect-reach-limit': string;
 }
 
+/** The color of a line's arrowhead: the one React Flow gives a marker by default, which the canvas has always drawn. */
+const LINE_ARROW_COLOR = '#b1b1b7';
+
+/** Each canvas has an arrowhead of its own: hiding one canvas does not take the arrows of another. */
+let lineArrows = 0;
+
+function anchorOfHandle(value: string | null | undefined): BaseHalfCanvasAnchor | undefined {
+	return value === 'north' || value === 'east' || value === 'south' || value === 'west' ? value : undefined;
+}
+
+function anchorOfPosition(position: string): BaseHalfCanvasAnchor {
+	switch (position) {
+		case 'top': return 'north';
+		case 'bottom': return 'south';
+		case 'left': return 'west';
+		default: return 'east';
+	}
+}
+
 /**
  * Makes what the scene draws over the cards: the circles that begin a
- * connection, the line kept after a connection is let go on the canvas, and
- * the snap guides; and the bridge that gives the scene React Flow's store.
+ * connection, the line being pulled out of a card and the line kept after it is
+ * let go on the canvas, the arrowhead of every line, and the snap guides; and
+ * the bridge that gives the scene React Flow's store.
  */
 export function createBaseHalfCanvasSceneOverlays(environment: IBaseHalfCanvasSceneEnvironment) {
 	const { vendor, h, host } = environment;
+	const lineArrowId = `basehalf-canvas-line-arrow-${++lineArrows}`;
+	const lineArrowEnd = `url('#${lineArrowId}')`;
+
+	/**
+	 * The arrowhead at the end of every line of the canvas: the connections, the
+	 * line being pulled out of a card, and the line kept while the menu asks what
+	 * to make. React Flow's closed arrow, 14 by 14 at the line's width.
+	 */
+	function LineArrowDefinition(): ReactElement {
+		return h('svg', { className: 'basehalf-canvas-line-arrow', 'aria-hidden': true, width: 0, height: 0 },
+			h('defs', null,
+				h('marker', {
+					className: 'react-flow__arrowhead',
+					id: lineArrowId,
+					markerWidth: '14',
+					markerHeight: '14',
+					viewBox: '-10 -10 20 20',
+					markerUnits: 'strokeWidth',
+					orient: 'auto-start-reverse',
+					refX: '0',
+					refY: '0'
+				}, h('polyline', {
+					className: 'arrowclosed',
+					style: { strokeWidth: 1, stroke: LINE_ARROW_COLOR, fill: LINE_ARROW_COLOR },
+					strokeLinecap: 'round',
+					strokeLinejoin: 'round',
+					points: '-5,-4 0,0 -5,4 -5,-4'
+				}))));
+	}
+
+	/**
+	 * The line being pulled out of a card: the line it becomes, with its curve,
+	 * its look and its arrowhead, from the handle to the pointer or to the handle
+	 * it is snapped to (canvas connection handles, "Drawing a line").
+	 */
+	function ConnectionLine({ fromX, fromY, fromPosition, fromHandle, toX, toY, toHandle }: ConnectionLineComponentProps<BaseHalfCanvasFlowNode>): ReactElement {
+		const fromAnchor = anchorOfHandle(fromHandle?.id) ?? anchorOfPosition(fromPosition);
+		return h('path', {
+			className: 'basehalf-canvas-edge-path basehalf-canvas-pulled-line',
+			d: baseHalfCanvasPulledLinePath({ x: fromX, y: fromY }, fromAnchor, { x: toX, y: toY }, anchorOfHandle(toHandle?.id)),
+			markerEnd: lineArrowEnd
+		});
+	}
 
 	function ConnectionStoreBridge({ register }: {
 		readonly register: (controller: IBaseHalfCanvasConnectionStoreController | undefined) => void;
@@ -150,6 +215,7 @@ export function createBaseHalfCanvasSceneOverlays(environment: IBaseHalfCanvasSc
 		);
 	}
 
+	/** The line kept after it was let go on empty canvas, as it was drawn when it was let go. */
 	function ConnectionDropLine({ path, elementRef }: { readonly path: string; readonly elementRef: RefObject<SVGSVGElement | null> }): ReactElement {
 		return h(vendor.ViewportPortal, null,
 			h('svg', {
@@ -158,7 +224,7 @@ export function createBaseHalfCanvasSceneOverlays(environment: IBaseHalfCanvasSc
 				width: 1,
 				height: 1,
 				style: { position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: 'none' }
-			}, h('path', { 'data-testid': 'canvas-connection-drop-line', d: path }))
+			}, h('path', { 'data-testid': 'canvas-connection-drop-line', className: 'basehalf-canvas-edge-path basehalf-canvas-pulled-line', d: path, markerEnd: lineArrowEnd }))
 		);
 	}
 
@@ -197,5 +263,5 @@ export function createBaseHalfCanvasSceneOverlays(environment: IBaseHalfCanvasSc
 		);
 	}
 
-	return { ConnectionStoreBridge, ConnectCaptureLayer, ConnectionDropLine, SnapGuides };
+	return { ConnectionStoreBridge, ConnectCaptureLayer, ConnectionDropLine, ConnectionLine, LineArrowDefinition, SnapGuides, lineArrowId };
 }

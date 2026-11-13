@@ -1,9 +1,12 @@
 # Canvas connection handles, drop line, and the ends of a connection
 
 Status: Active (2026-10-10). Revised 2026-10-25: a connection whose end is
-let go on empty canvas is removed.
+let go on empty canvas is removed. Revised 2026-11-13: the line being pulled
+is drawn as the line it becomes, with its arrowhead.
 Decision: [D80](../decisions.md#d80--a-connection-pulled-off-a-card-and-let-go-on-empty-canvas-is-removed-and-a-marquee-over-connections-alone-selects-them-new-2026-10-25)
 for [dragging an end of a connection](#dragging-an-end-of-a-connection)
+and [D134](../decisions.md#d134--the-line-being-pulled-is-the-line-it-becomes-and-a-card-the-user-makes-is-drawn-at-once-new-2026-11-13)
+for [the line being pulled](#the-line-being-pulled)
 Related: [reference graph](reference-graph.md#creating-connected-nodes)
 (Create from Connection), [canvas card resize](canvas-card-resize.md),
 [canvas selection and arrangement](canvas-selection-and-arrangement.md)
@@ -26,11 +29,18 @@ canvas came back to its card (reported on 2026-10-25). The pull showed the
 line leaving the card, and the release undid it, so the only way to remove a
 connection was to select it and press Delete.
 
+The line being pulled out of a card was a plain stroke without an arrowhead,
+in another color and width than a connection, and with another curve
+(reported on 2026-11-13, in the launch film). It stayed so while the menu was
+open, and only when the new note appeared did the line become a connection:
+it changed its color and width, and the arrowhead appeared.
+
 ## Scope
 
 In scope: the hit geometry and appearance of the four connection handles,
-the line shown while the Create from Connection menu is open, and what the
-release of a dragged end of a connection does.
+the line being pulled out of a card, the line shown while the Create from
+Connection menu is open, and what the release of a dragged end of a
+connection does.
 
 Not in scope, and unchanged:
 
@@ -100,12 +110,28 @@ Not in scope, and unchanged:
 - Size and color change over at most 80 ms. With
   `prefers-reduced-motion: reduce`, they change without a transition.
 
+### The line being pulled
+
+- The line pulled out of a handle is drawn as the line of a connection: its
+  curve ([the line of a connection](canvas-connection-lines.md#the-curve)),
+  its color and width, and its arrowhead at the end. One arrowhead is drawn
+  for every line of the canvas, the connections and this line alike.
+- It leaves the handle where a connection from that side leaves it, and ends
+  at the pointer, entering it from the side that faces back toward the card:
+  the side that a card made there is entered at. While the pointer is snapped
+  to a handle, the line ends at that handle and enters from its side.
+- It takes no pointer events.
+
 ### Line while the menu is open
 
 - After a release on empty canvas, the line from the source handle to the
-  release point stays drawn while the Create from Connection menu is open. It
-  keeps the drag line's path and look, follows pan and zoom, and takes no
-  pointer events.
+  release point stays drawn while the Create from Connection menu is open,
+  as it was drawn at the release: the same path, look, and arrowhead. It
+  follows pan and zoom, and takes no pointer events.
+- The card that is made from it is entered at the release point
+  ([canvas card placement](canvas-card-placement.md)), so the connection of
+  that card is the same line. When the connection is drawn, nothing of the
+  line changes.
 - Closing the menu without choosing (Escape, a click outside the menu, or the
   window losing focus) removes the line in the same frame as the menu. This
   holds for the in-window menu, BaseHalf's default
@@ -182,5 +208,12 @@ pointer is a grabbing hand until the button is released.
    letting go, changes no file, and the line is drawn where it was.
 8. Letting go on empty canvas with an input of a generation card with its
    file shows the refusal, draws the line again, and changes no file.
-9. The smoke covers criteria 1, 3 to 7: the step `canvas-edge-half-reconnect`
-   criterion 7, and `canvas-edge-let-go-on-empty-canvas` criteria 5 and 6.
+9. While a line is pulled from the right side of a card, its path, color,
+   width, and arrowhead are those of a connection: the same arrowhead element
+   as the connections. Let go on empty canvas, the line is the same while the
+   menu is open, and after Note the new note's connection has the same path
+   as the line had.
+10. The smoke covers criteria 1, 3 to 7, and 9: the step
+   `canvas-edge-half-reconnect` criterion 7,
+   `canvas-edge-let-go-on-empty-canvas` criteria 5 and 6, and
+   `canvas-pulled-line-is-the-connection` criterion 9.

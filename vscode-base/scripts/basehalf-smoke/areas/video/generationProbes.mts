@@ -965,7 +965,7 @@ export async function drawCanvasConnectionInto(page, sourcePath, targetPath) {
 		throw new Error(`The card ${targetPath} has no west connection handle`);
 	}
 	await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 });
-	await page.waitForFunction(() => document.querySelector('.react-flow__connection-path') !== null, null, { timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.react-flow__connectionline path') !== null, null, { timeout: 10_000 });
 	await page.mouse.up();
 }
 

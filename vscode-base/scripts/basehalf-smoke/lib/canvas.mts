@@ -260,7 +260,7 @@ export async function startCanvasConnectionDrag(page, sourcePath) {
 		// The connection gesture intentionally waits until the pointer crosses its
 		// drag threshold; pointer-down alone does not create a draft path.
 		await page.mouse.move(sourcePoint.x + 8 + attempt * 4, sourcePoint.y, { steps: 3 });
-		if (await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 2_500 }).then(() => true, () => false)) {
+		if (await page.locator('.react-flow__connectionline path').waitFor({ state: 'attached', timeout: 2_500 }).then(() => true, () => false)) {
 			return sourcePoint;
 		}
 		connectionStartState = await page.evaluate(({ x, y, selector }) => {

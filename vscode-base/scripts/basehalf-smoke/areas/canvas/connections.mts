@@ -101,7 +101,7 @@ export async function assertCanvasConnectIntoNote(page) {
 	if (fs.readFileSync(canvasPath, 'utf8') !== beforeCancelCanvas || readWorkspaceFile(note) !== AGENT_CREATED_CARD_CONTENT) {
 		throw new Error('Expected closing the Create from Connection menu to write nothing to canvas.yaml or the note');
 	}
-	const draftCountAfterCancel = await page.locator('.react-flow__connection-path').count();
+	const draftCountAfterCancel = await page.locator('.react-flow__connectionline path').count();
 	if (draftCountAfterCancel !== 0) {
 		throw new Error(`Expected connection draft to be removed after cancel, got ${draftCountAfterCancel}`);
 	}
@@ -118,7 +118,7 @@ export async function assertCanvasConnectIntoNote(page) {
 	await page.mouse.move(freshSourceBox.x + freshSourceBox.width / 2 + 3, freshSourceBox.y + freshSourceBox.height / 2);
 	await page.mouse.down();
 	await page.mouse.move(freshTargetBox.x + freshTargetBox.width / 2, freshTargetBox.y + freshTargetBox.height / 2, { steps: 8 });
-	await page.waitForFunction(() => document.querySelector('.react-flow__connection-path') !== null, null, { timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.react-flow__connectionline path') !== null, null, { timeout: 10_000 });
 	await page.mouse.up();
 
 	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs']), `the connection to be saved as the upstream frontmatter of ${note}`);
@@ -199,7 +199,7 @@ export async function assertCanvasConnectionHandleCapture(page) {
 		}
 		await page.mouse.down();
 		await page.mouse.move(target.point.x + (target.anchor === 'east' ? 12 : target.anchor === 'west' ? -12 : 0), target.point.y + (target.anchor === 'south' ? 12 : target.anchor === 'north' ? -12 : 0), { steps: 3 });
-		await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 5_000 });
+		await page.locator('.react-flow__connectionline path').waitFor({ state: 'attached', timeout: 5_000 });
 		const blank = await canvasReconnectBlankPoint(page, target.point);
 		await page.mouse.move(blank.x, blank.y, { steps: 8 });
 		await page.mouse.up();
@@ -220,7 +220,9 @@ export async function assertCanvasConnectionHandleCapture(page) {
 			const rect = document.querySelector(`.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.${anchor}`)?.getBoundingClientRect();
 			return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : undefined;
 		}, target.anchor);
-		if (!lineEnds || !handleCenter || pointDistance(lineEnds.end, blank) > 2 || pointDistance(lineEnds.start, handleCenter) > 2) {
+		// A line meets a handle at the outer side of its box, 2.5 flow pixels from its middle (D134).
+		const reach = 2.5 * zoom + 2;
+		if (!lineEnds || !handleCenter || pointDistance(lineEnds.end, blank) > reach || pointDistance(lineEnds.start, handleCenter) > reach) {
 			throw new Error(`The kept connection line must run from the ${target.anchor} handle to the release point at ${percent}%: ${JSON.stringify({ lineEnds, handleCenter, release: blank })}`);
 		}
 		// Escape at one zoom, a click on empty canvas at the other.
@@ -513,6 +515,85 @@ export async function assertCanvasCreateFromConnection(page) {
 	if (readWorkspaceFile(source) !== sourceBefore) {
 		throw new Error('Create from Connection changed the source card instead of only the new node');
 	}
+}
+
+// Connection handles, criterion 9 (D134): the line pulled out of a card is drawn
+// as the connection it becomes. Held, let go, and made into a note, it keeps one
+// path, the look of a line, and the arrowhead of every line of the canvas.
+export async function assertCanvasPulledLineIsTheConnection(page) {
+	const source = 'README.md';
+	const notePath = path.join(workspacePath, 'untitled.md');
+	if (fs.existsSync(notePath)) {
+		throw new Error('The pulled line check needs a canvas without untitled.md');
+	}
+	const readme = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${source}"]`);
+	await frameCanvasCardsForConnection(page, [readme]);
+	await page.locator('.basehalf-canvas-cards').focus();
+	await page.keyboard.press('Escape');
+	await startCanvasConnectionDrag(page, source);
+	// Let go ahead of the right side, level with it, where nothing is drawn: the
+	// note made there faces the side the line leaves.
+	const release = await page.evaluate(sourcePath => {
+		const node = document.querySelector(`.react-flow__node[data-id="${sourcePath}"]`)?.getBoundingClientRect();
+		const pane = document.querySelector('.react-flow__pane');
+		if (!node || !pane) {
+			return undefined;
+		}
+		for (const dx of [160, 220, 280, 120, 340]) {
+			for (const dy of [0, -24, 24, -48, 48]) {
+				const point = { x: Math.round(node.right + dx), y: Math.round(node.top + node.height / 2 + dy) };
+				if (document.elementFromPoint(point.x, point.y) === pane) {
+					return point;
+				}
+			}
+		}
+		return undefined;
+	}, source);
+	if (!release) {
+		throw new Error(`No empty canvas to the right of ${source} to let a line go`);
+	}
+	await page.mouse.move(release.x, release.y, { steps: 8 });
+	// A connection's path is found by its edge id, which holds a NUL that a CSS selector cannot.
+	const lineOf = (selector, edgeId) => page.evaluate(({ selector, edgeId }) => {
+		const line = edgeId === undefined
+			? document.querySelector(selector)
+			: [...document.querySelectorAll(selector)].find(path => path instanceof SVGPathElement && path.dataset.edgeId === edgeId);
+		if (!(line instanceof SVGPathElement)) {
+			return undefined;
+		}
+		const marker = /#([^'")]+)/.exec(line.getAttribute('marker-end') ?? '')?.[1];
+		const arrow = marker ? document.getElementById(marker) : null;
+		const style = getComputedStyle(line);
+		return { d: line.getAttribute('d'), marker, arrow: arrow?.tagName.toLowerCase(), stroke: style.stroke, width: style.strokeWidth };
+	}, { selector, edgeId });
+	const held = await lineOf('.react-flow__connectionline path');
+	const connection = await page.evaluate(() => {
+		const edge = document.querySelector('.basehalf-canvas-edge-path[data-edge-id]');
+		if (!(edge instanceof SVGPathElement)) {
+			return undefined;
+		}
+		const style = getComputedStyle(edge);
+		return { marker: /#([^'")]+)/.exec(edge.getAttribute('marker-end') ?? '')?.[1], stroke: style.stroke, width: style.strokeWidth };
+	});
+	if (!held || held.arrow !== 'marker' || (connection && (held.marker !== connection.marker || held.stroke !== connection.stroke || held.width !== connection.width))) {
+		throw new Error(`The line being pulled must be drawn as a connection, with its arrowhead: ${JSON.stringify({ held, connection })}`);
+	}
+	await page.mouse.up();
+	const note = await connectionCreateMenuAction(page, release, 'Note');
+	const kept = await lineOf('[data-testid="canvas-connection-drop-line"]');
+	if (!kept || kept.d !== held.d || kept.marker !== held.marker || kept.stroke !== held.stroke || kept.width !== held.width) {
+		throw new Error(`The line kept while the menu is open must be the line that was let go: ${JSON.stringify({ held, kept })}`);
+	}
+	await note.click();
+	await waitUntil(() => fs.existsSync(notePath), 'Note to create untitled.md from the line');
+	await assertCanvasEdgeVisible(page, source, 'untitled.md');
+	const made = await lineOf('.basehalf-canvas-edge-path[data-edge-id]', `${source}\u0000untitled.md`);
+	if (!made || made.d !== kept.d || made.marker !== kept.marker || made.stroke !== kept.stroke || made.width !== kept.width) {
+		throw new Error(`The connection of the note made at the line's end must be the same line: ${JSON.stringify({ kept, made })}`);
+	}
+	await page.keyboard.press('Escape');
+	fs.rmSync(notePath, { force: true });
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="untitled.md"]').waitFor({ state: 'detached', timeout: 10_000 });
 }
 
 /** The sides of the line that ends at `to`, as its anchor row in canvas.yaml names them. */

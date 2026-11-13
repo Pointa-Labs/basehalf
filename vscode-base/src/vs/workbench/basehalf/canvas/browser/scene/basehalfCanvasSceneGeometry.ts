@@ -3,10 +3,11 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BaseHalfCanvasAnchor, BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT, BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH } from '../../common/basehalfCanvasModel.js';
+import { BaseHalfCanvasAnchor, BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT, BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH, baseHalfCanvasEdgePath, IBaseHalfCanvasPosition } from '../../common/basehalfCanvasModel.js';
 import { BASEHALF_CANVAS_HELD_SNAP_NONE, BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD, sameBaseHalfCanvasSnapGuides, snapBaseHalfCanvasFlowNodeChanges, snapBaseHalfCanvasHeldCards } from '../../common/basehalfCanvasFlowSnap.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import {
+	baseHalfCanvasOppositeAnchor,
 	IBaseHalfCanvasSceneCard,
 	BaseHalfCanvasSceneGeometryReason,
 	IBaseHalfCanvasSceneGeometry,
@@ -76,6 +77,39 @@ export function baseHalfCanvasSceneNodeHandles(vendor: BaseHalfCanvasReactVendor
 		width: box.width,
 		height: box.height
 	}));
+}
+
+/**
+ * Where a line meets a handle whose middle is `point`: the outer side of the
+ * handle's box, on the side `anchor`. React Flow draws a connection from there
+ * (`getEdgePosition`), and a line being pulled starts there too.
+ */
+function handleOuterPoint(point: IBaseHalfCanvasPosition, anchor: BaseHalfCanvasAnchor): IBaseHalfCanvasPosition {
+	const half = FLOW_HANDLE_BOX / 2;
+	switch (anchor) {
+		case 'north': return { x: point.x, y: point.y - half };
+		case 'east': return { x: point.x + half, y: point.y };
+		case 'south': return { x: point.x, y: point.y + half };
+		case 'west': return { x: point.x - half, y: point.y };
+	}
+}
+
+/**
+ * The path of a line that is being pulled out of a card, from the handle on the
+ * side `fromAnchor` whose middle is `from`, to `to`: the line a connection is
+ * drawn with ("The curve" in the line of a connection). It enters `to` at the
+ * side `toAnchor`, a handle's side where it is snapped to one, and else the side
+ * that faces back toward the card, as the card that is made there is entered.
+ * Both ends are where the connection between those handles is drawn, so the
+ * line that is let go on empty canvas is the line of the card made at its end.
+ */
+export function baseHalfCanvasPulledLinePath(
+	from: IBaseHalfCanvasPosition,
+	fromAnchor: BaseHalfCanvasAnchor,
+	to: IBaseHalfCanvasPosition,
+	toAnchor: BaseHalfCanvasAnchor = baseHalfCanvasOppositeAnchor(fromAnchor)
+): string {
+	return baseHalfCanvasEdgePath(handleOuterPoint(from, fromAnchor), fromAnchor, handleOuterPoint(to, toAnchor), toAnchor);
 }
 
 export function baseHalfCanvasSceneGeometryForCommit(

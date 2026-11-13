@@ -6,7 +6,7 @@
 import { assertConflictHasItsActions, assertPicturesInTheEditor, assertChangedCardsAreMarked, assertChangedFileOpensAsUsual, assertCodeCardAsTheEditor, assertCommitBoxTakesSpaces, assertLastChangeGoes, assertMultiFileDiff, assertStagedBinaryOpens, assertViewsOfASoundTakeTurns, assertRowOpensTheChangesView, assertRowsOfOtherKinds, assertWhatOpenedLastIsInFront, finishChangedFiles, prepareChangedFiles } from './areas/workbench/changes.mts';
 import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentSeesSelection, assertAgentUpstreamEditDrawsEdge } from './areas/canvas/agents.mts';
 import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndConnectors, assertCanvasUnreadableBadgeRecovers } from './areas/canvas/badges.mts';
-import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
+import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasPulledLineIsTheConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
 import { assertCanvasCopyPasteKeys } from './areas/canvas/clipboard.mts';
 import {
 	assertCanvasConnectedFilesAppearBeside,
@@ -243,6 +243,7 @@ async function runCanvasSuite(page) {
 	await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
 	await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
 	await step('canvas-create-from-connection', () => assertCanvasCreateFromConnection(page));
+	await step('canvas-pulled-line-is-the-connection', () => assertCanvasPulledLineIsTheConnection(page));
 	await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
 	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-selection-and-arrangement', () => assertCanvasSelectionAndArrangement(page));
