@@ -576,6 +576,13 @@ and the row of its line are in the layout.
   the moment the item is there until the user's write of the layout has put
   them there. The drawings in between draw the card at that place and the
   line with those sides.
+- The drawing that brings the card already has what the card is drawn with:
+  its selection, and for a note its title line
+  ([a note's title](note-title.md)). It is asked for first, and the card is
+  drawn once. A drawing that came between would draw a new note with the
+  hint of an empty note for a frame or two, as the smoke found on
+  2026-11-13 when the card was drawn before the note was asked to start at
+  its title line.
 - A held place is the user's: no drawing takes it for a place BaseHalf
   chose, and BaseHalf does not write it by itself.
 - A place that could not be written stays held as long as the window is

@@ -462,10 +462,11 @@ export class BaseHalfCanvasConnections {
 		const size = baseHalfCanvasGenerationCardSize(kind, this.view.generationCardActions.newDraftRatio(kind));
 		// The user pointed: the side the line enters is centered on the release point.
 		const canvasPosition = baseHalfCanvasConnectionTargetOrigin(drop.position, toAnchor, size);
-		await this.view.creation.placeCreatedCard(folder, path, canvasPosition, size, {
+		const placed = await this.view.creation.placeCreatedCard(folder, path, canvasPosition, size, {
 			edge: { from: drop.from, from_anchor: drop.fromAnchor, to: path, to_anchor: toAnchor }
 		});
 		this.view.creation.selectCreatedDraft(folder, path, createOwner);
+		await placed.written;
 	}
 
 	/**

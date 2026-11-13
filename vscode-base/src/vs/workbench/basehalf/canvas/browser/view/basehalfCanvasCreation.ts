@@ -64,6 +64,12 @@ import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtensio
  * A part of the canvas view (README.md in this folder): it keeps its own state,
  * and reaches the state the view shares and the other parts through `view`.
  */
+/** A card the user just created whose place the canvas holds while its rows are written. */
+export interface IBaseHalfCanvasPlacedCard {
+	/** Settles when the rows of the card and of its line are written, or could not be. */
+	readonly written: Promise<void>;
+}
+
 export class BaseHalfCanvasCreation {
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
@@ -548,12 +554,34 @@ export class BaseHalfCanvasCreation {
 				edge: { from: connection.from, from_anchor: connection.fromAnchor, to: path, to_anchor: connection.toAnchor }
 			};
 		}
-		const target = await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
+		const { target, written } = await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
 			select: false,
 			postCreateOwner: createOwner,
 			contents: connected?.contents,
 			edge: connected?.edge
 		});
+		try {
+			await this.showCreatedNote(folder, path, target, createOwner, createFocusOrigin, createFocusReturnPath, sourceDetail, reveal);
+		} finally {
+			await written;
+		}
+	}
+
+	/**
+	 * Selects a note the user just made and starts it at its title line, and
+	 * then draws it: so its first frame is the note being edited, selected
+	 * (a note's title, "From the card's first frame").
+	 */
+	private async showCreatedNote(
+		folder: IBaseHalfCanvasFolderState,
+		path: string,
+		target: URI,
+		createOwner: IBaseHalfCanvasPostCreateOwner,
+		createFocusOrigin: Element | null,
+		createFocusReturnPath: string | undefined,
+		sourceDetail: IBaseHalfCardDetailState | undefined,
+		reveal: boolean
+	): Promise<void> {
 		if (!this.view.isCanvasPostCreateOwnerCurrent(createOwner)) {
 			return;
 		}
@@ -626,7 +654,8 @@ export class BaseHalfCanvasCreation {
 		if (!name) {
 			throw new Error(localize('basehalf.canvas.newFolder.exhausted', "Too many untitled folders. Rename one before creating another."));
 		}
-		await this.createCanvasEntry(folder, context, name, 'folder', canvasPosition, { postCreateOwner, reveal });
+		const { written } = await this.createCanvasEntry(folder, context, name, 'folder', canvasPosition, { postCreateOwner, reveal });
+		await written;
 	}
 
 	/**
@@ -651,8 +680,9 @@ export class BaseHalfCanvasCreation {
 		const size = this.createSize(kind);
 		const draft = await this.view.generationCardActions.createDraft(folder.resource, kind);
 		const path = baseHalfCanvasChildPath(folder.relativePath, basename(draft));
-		await this.placeCreatedCard(folder, path, canvasPosition, size);
+		const placed = await this.placeCreatedCard(folder, path, canvasPosition, size);
 		this.selectCreatedDraft(folder, path, postCreateOwner, reveal);
+		await placed.written;
 	}
 
 	/**
@@ -728,7 +758,7 @@ export class BaseHalfCanvasCreation {
 			sourcePath: cardDetail.relativePath,
 			notePath: targetPath
 		}));
-		const target = await this.createCanvasEntry(folder, context, name, 'file', placement.canvasPosition, {
+		const { target, written } = await this.createCanvasEntry(folder, context, name, 'file', placement.canvasPosition, {
 			contents,
 			select: false
 		});
@@ -748,15 +778,19 @@ export class BaseHalfCanvasCreation {
 			// into an apparent action failure.
 			this.view.logService.warn('[BaseHalf] failed to read the document downstream set for canvas framing', error);
 		}
-		await this.view.noteEditing.activateCreatedCanvasNoteAfterDetail(
-			cardDetail,
-			folder,
-			targetPath,
-			target,
-			createFocusOrigin,
-			createOwner,
-			fittedPaths
-		);
+		try {
+			await this.view.noteEditing.activateCreatedCanvasNoteAfterDetail(
+				cardDetail,
+				folder,
+				targetPath,
+				target,
+				createFocusOrigin,
+				createOwner,
+				fittedPaths
+			);
+		} finally {
+			await written;
+		}
 	}
 
 	renderInlineRenameEditor(card: HTMLElement, item: IBaseHalfCanvasItem): void {
@@ -1093,7 +1127,7 @@ export class BaseHalfCanvasCreation {
 			/** The place was computed: the view goes to the card when it is out of sight. */
 			readonly reveal?: boolean;
 		} = {}
-	): Promise<URI> {
+	): Promise<{ readonly target: URI; readonly written: Promise<void> }> {
 		const postCreateOwner = options.postCreateOwner ?? this.view.captureCanvasPostCreateOwner();
 		await this.view.canvasActionContextService.assertCurrent(context);
 		const target = joinPath(folder.resource, name);
@@ -1126,19 +1160,21 @@ export class BaseHalfCanvasCreation {
 		const size = options.size ?? (kind === 'folder'
 			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
-		await this.placeCreatedCard(folder, path, canvasPosition, size, { kind, edge: options.edge });
+		const placed = await this.placeCreatedCard(folder, path, canvasPosition, size, { kind, edge: options.edge });
 
 		// A canvas Create action produces and selects a card; it never implies an
 		// Open action. Card-local editors/configuration remain available in place,
 		// while Card Detail is reserved for an explicit Open/Expand interaction.
+		// The card is drawn at once, selected; without `select` the caller asks
+		// for what the card shows first and draws it.
 		if (options.select !== false) {
 			this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), [path], postCreateOwner);
 			if (options.reveal) {
 				this.revealCreatedCards(folder, [path], postCreateOwner);
 			}
+			this.view.requestRender();
 		}
-		this.view.requestRender();
-		return target;
+		return { target, written: placed.written };
 	}
 
 	/**
@@ -1148,9 +1184,12 @@ export class BaseHalfCanvasCreation {
 	 * saved says so, and the card stays where it was put while the window is
 	 * open.
 	 *
-	 * The item is there already, so its card is drawn now, at that place and
-	 * with that line, and does not wait for these writes (canvas card
-	 * placement, "A card the user makes is drawn at once").
+	 * The place and the line's sides are held from now on, so the next drawing
+	 * draws the card there, and with that line, while the rows are written:
+	 * `written` settles when they are (canvas card placement, "A card the user
+	 * makes is drawn at once"). This draws nothing itself: the caller first asks
+	 * for what the card is drawn with, its selection and a note's title line,
+	 * and then draws it once.
 	 */
 	async placeCreatedCard(
 		folder: IBaseHalfCanvasFolderState,
@@ -1158,37 +1197,38 @@ export class BaseHalfCanvasCreation {
 		canvasPosition: { readonly x: number; readonly y: number },
 		size: { readonly width: number; readonly height: number },
 		options: { readonly kind?: 'file' | 'folder'; readonly edge?: IBaseHalfCanvasEdge } = {}
-	): Promise<void> {
+	): Promise<IBaseHalfCanvasPlacedCard> {
 		const row = { path, kind: options.kind ?? 'file', x: canvasPosition.x, y: canvasPosition.y, width: size.width, height: size.height } as const;
 		// Anchor memory only: in a marked folder the edge uses default anchors.
 		const edge = options.edge && !await baseHalfIsWorkspaceFolderMarked(this.view.fileService, folder.workspaceFolder) ? options.edge : undefined;
 		const release = this.view.chosenCanvasPlaces.give(folder, row, edge);
-		this.view.requestRender();
+		return { written: this.writeCreatedCardRows(folder, row, edge).then(release) };
+	}
+
+	/** Writes the rows of a card the user just created; whether both are in the layout. */
+	private async writeCreatedCardRows(folder: IBaseHalfCanvasFolderState, row: IBaseHalfCanvasCard, edge: IBaseHalfCanvasEdge | undefined): Promise<boolean> {
 		let written = false;
+		// A change by the user writes the layout, and the places that wait are
+		// saved with it: before, as they were drawn, and after, for a layout that
+		// only this write made readable.
+		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder).catch(error => this.view.logService.warn(error));
 		try {
-			// A change by the user writes the layout, and the places that wait are
-			// saved with it: before, as they were drawn, and after, for a layout that
-			// only this write made readable.
-			await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
-			try {
-				await this.view.canvasMirrorService.updateCardGeometry(folder, row);
-				written = true;
-			} catch (error) {
-				this.view.logService.warn(error);
-				this.view.queueCanvasWarning(localize('basehalf.canvas.createGeometryFailed', "The item was created, but its canvas position could not be saved."));
-			}
-			await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
-			if (edge) {
-				try {
-					await this.view.canvasMirrorService.upsertCanvasEdge(folder, edge);
-				} catch (error) {
-					written = false;
-					this.view.logService.warn(`[BaseHalf] could not remember the anchors of ${edge.from} -> ${edge.to}`, error);
-				}
-			}
-		} finally {
-			release(written);
+			await this.view.canvasMirrorService.updateCardGeometry(folder, row);
+			written = true;
+		} catch (error) {
+			this.view.logService.warn(error);
+			this.view.queueCanvasWarning(localize('basehalf.canvas.createGeometryFailed', "The item was created, but its canvas position could not be saved."));
 		}
+		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder).catch(error => this.view.logService.warn(error));
+		if (edge) {
+			try {
+				await this.view.canvasMirrorService.upsertCanvasEdge(folder, edge);
+			} catch (error) {
+				written = false;
+				this.view.logService.warn(`[BaseHalf] could not remember the anchors of ${edge.from} -> ${edge.to}`, error);
+			}
+		}
+		return written;
 	}
 
 	/**
