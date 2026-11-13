@@ -797,6 +797,13 @@ reaches the index at once, as BaseHalf's own saves do:
   - Framing after the branch uses the PDF's downstream set from the index,
     including the new note once it is indexed. It falls back to the PDF and the
     new note.
+  - **Nothing changes before the canvas shows.** The passage stays selected,
+    with its Grow branch button, and the page stays as it was while Card
+    Detail closes, for a PDF and for a book: Card Detail fades out as the
+    user last saw it. The note's card appears with its text and its line in
+    the frame it appears in ([a note's title names its file](note-title.md)).
+    Measured before (2026-11-13): the selection went 100 ms before the fade
+    began, and the line came one to two frames after the note.
 - **Create from Connection** creates a node that references the source.
   Releasing a connection drag from a card on empty canvas opens a context menu
   at the release point. It is the same kind of menu as the double-click create

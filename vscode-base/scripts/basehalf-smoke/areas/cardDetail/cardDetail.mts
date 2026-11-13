@@ -16,6 +16,7 @@ import {
 	waitForCanvasCardSelection,
 	waitForCanvasNoteInlineEditor
 } from '../../lib/canvas.mts';
+import { cardFramesFailing, stopCardFrames, watchCardFrames } from '../../lib/cardFrames.mts';
 import { assertCardDetail, clickCommandCenterNavigationButton } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
 import { quickOpen, visibleQuickInput } from '../../lib/quickInput.mts';
@@ -126,6 +127,9 @@ export async function assertPdfGrowsThreeBranches(page) {
 		}
 
 		const action = await selectPdfFixtureText(page);
+		// The note's card comes with its text and its line in the frame it
+		// appears in (reference graph, "Creating connected nodes").
+		await watchCardFrames(page);
 		await action.click();
 		const name = branchNames[index];
 		const branchPath = path.join(workspacePath, 'docs', name);
@@ -133,6 +137,12 @@ export async function assertPdfGrowsThreeBranches(page) {
 		await assertCanvasFolder(page, 'docs');
 		const branchCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="docs/${name}"]`);
 		await branchCard.waitFor({ state: 'visible', timeout: 15_000 });
+		await page.waitForTimeout(300);
+		const appearing = cardFramesFailing(await stopCardFrames(page), [`docs/${name}`], (shown, frame) => !shown.loading && shown.text.length > 0
+			&& frame.lines.includes(`docs/textbook.pdf\u0000docs/${name}`));
+		if (appearing.wrong.length) {
+			throw new Error(`${name} must appear with its text and its line in its first frame: of ${appearing.shown} frames, ${appearing.wrong.length} did not, first ${JSON.stringify(appearing.wrong[0])}`);
+		}
 		await waitForCanvasCardSelection(page, `docs/${name}`, 15_000);
 		if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
 			throw new Error(`${name} opened Card Detail instead of returning to the PDF canvas`);

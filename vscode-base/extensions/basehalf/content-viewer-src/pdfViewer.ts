@@ -31,6 +31,8 @@ const DOCUMENT_ID = 'basehalf-document';
 const CREATE_BRANCH_COMMAND_ID = 'basehalf:create-branch';
 const CREATE_BRANCH_ITEM_ID = 'basehalf-create-branch';
 const INITIALIZATION_TIMEOUT_MS = 20_000;
+/** The longest the reader waits for the picture of the page it opens at before it shows itself anyway. */
+const FIRST_PAGE_WAIT_MS = 3_000;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
 	const element = document.getElementById(id);
@@ -411,7 +413,8 @@ function installBaseHalfSelectionCommand(registry: PluginRegistry): void {
 				} catch (error) {
 					console.error('[BaseHalf] failed to read the PDF selection', error);
 				} finally {
-					scope.clear();
+					// The passage stays selected: Card Detail closes on the page as the
+					// user last saw it (reference graph, "Creating connected nodes").
 					createBranchPending = false;
 				}
 			})();
@@ -447,7 +450,43 @@ function markReady(): void {
 	locked = false;
 	window.clearTimeout(initialization.timeout);
 	root.dataset.status = 'ready';
-	status.hidden = true;
+	showWhenPageDrawn();
+}
+
+/**
+ * The reader shows itself once the page it opens at has its picture: until
+ * then the status covers it, so that no frame shows a white page, or a page
+ * at the zoom it starts at (PDFs and books, "The PDF reader", rule 15a).
+ */
+function showWhenPageDrawn(): void {
+	const started = performance.now();
+	const check = (): void => {
+		if (root.dataset.status !== 'ready') {
+			return;
+		}
+		if (shownPageIsDrawn() || performance.now() - started > FIRST_PAGE_WAIT_MS) {
+			status.hidden = true;
+			return;
+		}
+		window.requestAnimationFrame(check);
+	};
+	check();
+}
+
+/** Whether a page in sight has its picture: a page is drawn as pictures, white until the first of them has come. */
+function shownPageIsDrawn(): boolean {
+	const scope: ParentNode = root.querySelector('embedpdf-container')?.shadowRoot ?? root;
+	const shown = root.getBoundingClientRect();
+	for (const image of scope.querySelectorAll('img')) {
+		if (!image.complete || image.naturalWidth === 0) {
+			continue;
+		}
+		const box = image.getBoundingClientRect();
+		if (box.width > 0 && box.height > 0 && box.bottom > shown.top && box.top < shown.bottom && box.right > shown.left && box.left < shown.right) {
+			return true;
+		}
+	}
+	return false;
 }
 
 function showError(message: string): void {

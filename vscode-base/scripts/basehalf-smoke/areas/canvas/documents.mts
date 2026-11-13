@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { workspacePath } from '../../context.mts';
 import { readBhTree } from '../../fixture.mts';
+import { cardFramesFailing, stopCardFrames, watchCardFrames } from '../../lib/cardFrames.mts';
 import { assertCanvasFolder, emptyCanvasPoint, openRootCanvas, readCanvasCardGeometry, waitForCanvasCardSelection, zoomCanvas } from '../../lib/canvas.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitForReading } from '../../lib/steps.mts';
@@ -46,9 +47,11 @@ function waitForFace(page, cardPath, state) {
 
 /**
  * Criteria 1, 5, and 6: a PDF and a book are 300 × 400 cards that show their
- * cover, the landscape first page whole in the middle of its card; a selected
- * one has no corner that resizes it; and showing them writes nothing under
- * `.bh/` but the places of the cards.
+ * cover: the book's 3:4 cover is the card, filling it to its edges (D133), and
+ * the landscape first page is whole in the middle of its card; a selected one
+ * has no corner that resizes it, and keeps its cover in every frame (canvas
+ * card interaction continuity, criterion 10); and showing them writes nothing
+ * under `.bh/` but the places of the cards.
  */
 export async function assertDocumentCardsShowCovers(page) {
 	const before = readBhTree();
@@ -85,10 +88,27 @@ export async function assertDocumentCardsShowCovers(page) {
 	if (Math.abs(page1.ratio - 1.5) > 0.05 || Math.abs(page1.above - page1.below) > 2) {
 		throw new Error(`The landscape first page is not whole in the middle of its card: ${JSON.stringify(page1)}`);
 	}
+	// The book's cover is 30 × 40 pixels: it is the card, to its edges.
+	const book = await documentCard(page, BOOK_CARD).evaluate(card => {
+		const content = card.querySelector('.basehalf-canvas-card-content').getBoundingClientRect();
+		const cover = card.querySelector('img.basehalf-canvas-card-document-cover').getBoundingClientRect();
+		return { fit: card.querySelector('.basehalf-canvas-card-document')?.getAttribute('data-cover-fit'), edges: [cover.left - content.left, cover.top - content.top, content.right - cover.right, content.bottom - cover.bottom].map(edge => Math.round(edge * 10) / 10) };
+	});
+	if (book.fit !== 'fill' || book.edges.some(edge => Math.abs(edge) > 0.5)) {
+		throw new Error(`A 3:4 cover must be the card, filling it to its edges: ${JSON.stringify(book)}`);
+	}
 
 	const card = documentCard(page, PDF_CARD);
+	await watchCardFrames(page);
 	await card.click();
 	await waitForCanvasCardSelection(page, PDF_CARD);
+	await page.waitForTimeout(300);
+	const frames = await stopCardFrames(page);
+	const selecting = cardFramesFailing(frames, [PDF_CARD], shown => shown.cover === 'cover');
+	const elements = new Set(frames.flatMap(frame => frame.cards.filter(shown => shown.path === PDF_CARD).map(shown => shown.element)));
+	if (selecting.wrong.length || elements.size !== 1) {
+		throw new Error(`A selected PDF card must keep its element and its cover in every frame: of ${selecting.shown} frames, ${selecting.wrong.length} did not, ${elements.size} elements, first ${JSON.stringify(selecting.wrong[0] ?? null)}`);
+	}
 	const corners = await card.evaluate(element => [...element.closest('.react-flow__node').querySelectorAll('.basehalf-canvas-node-resizer-handle')]
 		.filter(handle => handle.getClientRects().length > 0 && getComputedStyle(handle).visibility !== 'hidden').length);
 	if (corners > 0) {

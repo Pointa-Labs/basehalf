@@ -28,11 +28,26 @@ export interface IBaseHalfCanvasCardDocumentOptions {
 	readonly renderGlyph: (container: HTMLElement) => void;
 }
 
+/** The shape of the card of a PDF or a book. */
+const CARD_RATIO = 3 / 4;
+/** How much of a cover's width or height may be left out to give it the card's shape (D133). */
+const COVER_CUT_LIMIT = 0.12;
+
+/**
+ * Whether a cover of `width` by `height` fills the card, cut to its shape, or
+ * is shown whole in it (PDFs and books, "The card", rule 2).
+ */
+export function baseHalfCanvasCoverFillsCard(width: number, height: number): boolean {
+	const ratio = width / height;
+	return Number.isFinite(ratio) && ratio > 0 && Math.min(ratio / CARD_RATIO, CARD_RATIO / ratio) >= 1 - COVER_CUT_LIMIT;
+}
+
 /**
  * What the card of a PDF or a book shows (PDFs and books, "The card"): its
- * cover inside the card, or the grey face of a file card while the cover is
- * hidden and when there is no cover to draw. Until a cover is drawn the card
- * shows its surface and nothing else. A hidden cover is not even made.
+ * cover, which is the card (D133), or the grey face of a file card while the
+ * cover is hidden and when there is no cover to draw. Until a cover is drawn
+ * the card shows its surface and nothing else. A hidden cover is not even
+ * made.
  */
 export function renderBaseHalfCanvasCardDocument(container: HTMLElement, options: IBaseHalfCanvasCardDocumentOptions): IBaseHalfCanvasCardDocumentFace {
 	container.classList.add('basehalf-canvas-card-document');
@@ -74,6 +89,7 @@ export function renderBaseHalfCanvasCardDocument(container: HTMLElement, options
 			element.draggable = false;
 			element.decoding = 'async';
 			element.style.setProperty('--bh-document-cover-ratio', String(picture.width / picture.height));
+			container.dataset.coverFit = baseHalfCanvasCoverFillsCard(picture.width, picture.height) ? 'fill' : 'whole';
 			element.addEventListener('load', () => {
 				if (!disposed && shown) {
 					show('cover');

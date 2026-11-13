@@ -73,6 +73,8 @@ export class BaseHalfCanvasCardRenderer {
 	private readonly badgeToggles = new WeakMap<HTMLElement, { readonly container: HTMLElement; readonly listeners: DisposableStore; readonly issueCount: number }>();
 	/** The face of the PDF or the book drawn in each card element, and its cover toggle, which a click changes in place. */
 	private readonly documentFaces = new WeakMap<HTMLElement, IBaseHalfCanvasCardDocumentFace>();
+	/** Cards whose picture, video, or sound could not be shown: drawing the face again tries again. */
+	private readonly failedFaces = new WeakSet<HTMLElement>();
 	private readonly coverToggles = new WeakMap<HTMLElement, () => void>();
 	/** The picture of the card element that each card element replaces, until its own picture can be drawn. */
 	private readonly pictureCovers = new WeakMap<HTMLElement, HTMLCanvasElement>();
@@ -131,14 +133,14 @@ export class BaseHalfCanvasCardRenderer {
 
 	sceneCardControls(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): BaseHalfCanvasSceneCardControls | undefined {
 		if (isBaseHalfMarkdownResource(item.stat.resource)) {
-			return {
-				kind: 'note',
 			// A note without text that is about to be edited starts at its title
 			// line, and the toolbar says so before the editor is ready.
 			const startsAtTitleLine = this.view.canvasNoteSurfacePath === item.path
 				&& this.view.activeCanvasNoteEditor?.path !== item.path
 				&& preview?.kind === 'markdown'
 				&& !splitBaseHalfMarkdownFrontmatter(preview.text).body.trim();
+			return {
+				kind: 'note',
 				formatState: startsAtTitleLine
 					? BASEHALF_CANVAS_NOTE_TITLE_LINE_FORMAT_STATE
 					: this.view.canvasNoteFormatStates.get(this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource)) ?? BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
@@ -345,14 +347,22 @@ export class BaseHalfCanvasCardRenderer {
 				}
 				return;
 			}
-			// The card of a video file, and the face of a draft, that is selected or
-			// deselected keeps what it shows: only the player's controls come and go.
+			// A card that is selected or deselected keeps what its face shows: the
+			// face shows the item, not the selection. Only what belongs to the
+			// selection changes, the controls of a player. Drawing the face again
+			// would take a picture or a cover away until it is decoded again
+			// (canvas card interaction continuity, "Selecting keeps the face"). A
+			// face that could not be shown is drawn again, which tries again.
 			const mediaPlayer = this.mediaVideoPlayers.get(card);
 			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell' && !badgeOpen
-				&& ((isVideoMediaPreview(preview) && mediaPlayer) || preview?.kind === 'draft' || (preview?.kind === 'code' && this.codeFaces.has(card)))) {
+				&& !this.failedFaces.has(card)
+				&& (!isVideoMediaPreview(preview) || mediaPlayer)) {
 				renderedPresentation = presentationLevel;
 				card.dataset.previewLevel = presentationLevel;
 				mediaPlayer?.setSelected(presentationLevel === 'interactive');
+				if (this.view.canvasNoteSurfacePath === item.path) {
+					this.view.noteEditing.tryMountCanvasNoteEditor(item.path);
+				}
 				return;
 			}
 			renderedPresentation = presentationLevel;
@@ -363,6 +373,7 @@ export class BaseHalfCanvasCardRenderer {
 			}
 			const nextListeners = new DisposableStore();
 			presentationListeners.value = nextListeners;
+			this.failedFaces.delete(card);
 			clearNode(content);
 			// The picture of the card this one replaced stands, also in a shell, until this one draws its own.
 			const pending = this.pictureCovers.get(card);
@@ -735,6 +746,9 @@ export class BaseHalfCanvasCardRenderer {
 			this.coverUntilDrawn(card, image, preview.resource.query, listeners);
 			image.addEventListener('error', () => {
 				image.remove();
+				if (card) {
+					this.failedFaces.add(card);
+				}
 				if (unshowable) {
 					unshowable();
 					return;
@@ -756,6 +770,9 @@ export class BaseHalfCanvasCardRenderer {
 				open,
 				onError: () => {
 					player.dispose();
+					if (card) {
+						this.failedFaces.add(card);
+					}
 					// No player stays: selecting the card draws its preview again, which tries the video again.
 					if (card && this.mediaVideoPlayers.get(card) === player) {
 						this.mediaVideoPlayers.delete(card);
@@ -1000,6 +1017,12 @@ export class BaseHalfCanvasCardRenderer {
 		this.renderStaticMarkdownSource(container, item.stat.resource, text, listeners, empty);
 	}
 
+	/**
+	 * Draws the note `text` as its card shows it at rest. A note without text
+	 * shows `empty`: the hint at rest, the title line for a note that is about
+	 * to be edited, which is drawn as its editor shows it (note title, "From
+	 * the card's first frame"), and nothing while its text is not read.
+	 */
 	renderStaticMarkdownSource(
 		container: HTMLElement,
 		resource: URI,
@@ -1023,12 +1046,6 @@ export class BaseHalfCanvasCardRenderer {
 			resource,
 			text,
 			href => this.openStaticMarkdownPreviewLink(resource, href)
-	/**
-	 * Draws the note `text` as its card shows it at rest. A note without text
-	 * shows `empty`: the hint at rest, the title line for a note that is about
-	 * to be edited, which is drawn as its editor shows it (note title, "From
-	 * the card's first frame"), and nothing while its text is not read.
-	 */
 		);
 		if (rendering) {
 			listeners.add(rendering);

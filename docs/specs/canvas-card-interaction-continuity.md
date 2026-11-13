@@ -72,6 +72,21 @@ in place. The card is built anew as before when anything else it shows
 changes, its issue count included, and while its badge face is open, since
 the face lists the connections.
 
+### Selecting keeps the face
+
+Added 2026-11-13. A card that was selected or deselected was drawn anew,
+except the card of a video, a draft, and a code file. The cover of a PDF went
+away until its picture was decoded again: the card showed its bare surface for
+5 ms in an idle window and for four frames of the launch film, just before
+Card Detail opened.
+
+A card's face shows its item, not the selection. When a card is selected or
+deselected, it keeps its element and what its face shows; only what belongs
+to the selection changes in place: the controls of a video's or a sound's
+player. A face that could not be shown, one that offers Reload, is drawn
+again, which tries again, as before. A card goes on being drawn anew when it
+moves out of sight and back, and when what it shows changes.
+
 ### A change elsewhere in the workspace
 
 Added 2026-10-27 ([D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)).
@@ -121,6 +136,9 @@ refuses it, as before.
 8. A drag that is held while such a change happens stays where it is let go.
 9. A change that touches the card itself, or the shown folder, still refuses
    the gesture, and the card is drawn at its saved place.
+10. Selecting and deselecting the card of a PDF, a book, an image, a note, a
+    folder, and a file keeps its element and its face: the cover and the
+    picture are on every frame.
 
 ## Verification
 
@@ -128,6 +146,10 @@ refuses it, as before.
 - The BaseHalf smoke covers criterion 5.
 - A unit test of the canvas renderer's reuse rule and the smoke's Pick on
   Canvas step cover criterion 6.
+- The smoke's `canvas-document-cards-show-covers` step samples every frame
+  while the card of a PDF is selected (criterion 10), and the launch film's
+  folder was measured in a development window for the PDF, the image, and
+  the notes (2026-11-13).
 - A unit test of the workspace mutation coordinator covers criteria 7–9 for
   the check: a change elsewhere leaves a gesture's stamp current for its
   paths, and a change of one of them, of a folder above them, or one under

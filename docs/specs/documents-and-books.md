@@ -1,7 +1,7 @@
 # PDFs and books
 
-Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27)
-Decision: [D81](../decisions.md), [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27)
+Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27; the cover is the card, 2026-11-13)
+Decision: [D81](../decisions.md), [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27), [D133](../decisions.md#d133--the-cover-of-a-pdf-or-a-book-is-its-card-new-2026-11-13)
 Related: [canvas card placement](canvas-card-placement.md) (the size of a
 card), [canvas card resize](canvas-card-resize.md#which-cards-resize),
 [opening and closing Card Detail](card-detail-opening.md),
@@ -117,13 +117,23 @@ show the same files ([architecture invariants](../harness/architecture-invariant
    keeps the gaps of the grid, as for a card that was made before this
    rule. The user does not resize it: it has no resize corners or sides
    ([canvas card resize](canvas-card-resize.md#which-cards-resize)).
-2. With its cover shown, the card shows the whole cover inside its surface,
-   14 from each edge of the card, in the middle, with the small corners and
-   the shadow of a sheet of paper. A cover of another shape, such as a page
-   of slides, keeps its shape and leaves more of the surface around it. A
-   document that comes in shows its cover.
+2. **The cover is the card** (D133). With its cover shown, the card is its
+   cover: the cover fills the card to its edges and takes the card's rounded
+   corners, with no surface, frame, or shadow around it. A cover whose shape
+   is near 3:4 is cut to the card's shape, as long as no more than 12% of its
+   width or its height is left out: the pages of most PDFs (A4 loses 6% of
+   its height, Letter 3% of its width) and the covers of most books (2:3
+   loses 11% of its width). A cover of another shape, such as a page of
+   slides, is shown whole in the middle of the card, and the card's surface
+   fills the rest. A document that comes in shows its cover.
 3. Before its cover can be drawn, the card shows its surface and nothing
    else. A cover that was drawn once on this computer is drawn at once.
+   **The cover stays.** In every frame in which the file does not change,
+   the card keeps the cover it shows: when it is selected or deselected, when
+   Card Detail opens over it and closes, and when the canvas is drawn again.
+   Measured before (2026-11-13): selecting the card drew its cover again, and
+   the card showed its bare surface for 5 ms in an idle window and for four
+   frames of the launch film, just before Card Detail opened.
 4. With its cover hidden, the card shows the grey face: the glyph of its
    kind and "PDF document", "EPUB book", "Kindle book", "FictionBook", or
    "Comic book".
@@ -182,6 +192,15 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     the user has not zoomed this PDF. The width follows Card Detail when it
     changes. Once the user zooms, the PDF opens at the zoom and the page
     where the user was, as before.
+15a. **The PDF shows itself drawn.** The reader shows itself, its toolbar and
+    its pages at once, in the frame in which the page it opens at has its
+    picture: until then Card Detail shows its background. No frame shows a
+    page without its picture, which was a white page, or a page at another
+    zoom. When a PDF takes longer than a second to show itself, the place of
+    a page and "Opening PDF..." fade in until it does. Measured before
+    (2026-11-13): after the fade of Card Detail, a grey page with "Opening
+    PDF...", then the toolbar over an empty page, then a white page for
+    about 80 ms, then the cover.
 16. Everything else is as before: thumbnails, the outline, search, zoom,
     text selection, and Grow branch from a selection. A pinch of the
     trackpad zooms the PDF with its zoom, around the fingers, as the wheel
@@ -330,6 +349,14 @@ show the same files ([architecture invariants](../harness/architecture-invariant
 15. A PDF that a password locks asks for the password in Card Detail: a
     wrong one is said so, the right one opens the PDF, and Cancel closes
     Card Detail. A damaged PDF shows "BaseHalf could not open this PDF."
+16. A cover of 3:4 fills its card to the card's edges, and a landscape first
+    page is whole in the middle of the card (D133).
+17. Selecting the card of a PDF keeps its element and its cover in every
+    frame.
+18. Opening a PDF, no frame of Card Detail shows a white page, a page
+    without its picture, or "Opening PDF..." when the PDF shows itself
+    within a second: the reader shows its toolbar and the page it opens at
+    in the same frame.
 
 ## Verification
 
@@ -341,8 +368,18 @@ show the same files ([architecture invariants](../harness/architecture-invariant
   document card; the record of PDF and book text; the branch note of a
   book; the skill text.
 - `npm run basehalf:smoke`: the canvas suite checks the covers, the size,
-  and Hide Cover and Show Cover (criteria 1 and 3); the cardDetail suite
-  opens an EPUB, turns a page, and grows a branch (criteria 8 and 11).
+  and Hide Cover and Show Cover (criteria 1 and 3), the book's 3:4 cover
+  filling its card and the landscape page whole (criterion 16), and every
+  frame while the PDF's card is selected (criterion 17); the cardDetail suite
+  opens an EPUB, turns a page, and grows a branch (criteria 8 and 11). A unit
+  test holds the rule of which covers fill the card.
+- Criterion 18 was measured in a development window (2026-11-13), recording
+  the screen at about 120 frames a second while the course PDF of the launch
+  film opened four times: each time Card Detail showed its background until
+  the reader appeared with its toolbar and the cover page in one frame, 659
+  to 686 ms after the double click; before the change, the same opening
+  showed a grey page with "Opening PDF...", the toolbar over an empty page,
+  and a white page for about 80 ms.
 - In the real window, with real files: a Chinese report, an English
   textbook PDF, EPUBs in English and Chinese with pictures, a Kindle book,
   a FictionBook, and a comic book archive; per-frame sampling while a

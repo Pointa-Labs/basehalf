@@ -558,6 +558,9 @@ function onSectionLoad(doc: Document): void {
 	});
 }
 
+/** The passage that Grow branch was pressed for. */
+let branchAskedFor: typeof selection;
+
 function onSelection(doc: Document): void {
 	const selected = doc.getSelection();
 	const text = selected && !selected.isCollapsed ? selected.toString() : '';
@@ -589,13 +592,13 @@ function hideGrowButton(): void {
 
 growButton.addEventListener('pointerdown', event => event.preventDefault());
 growButton.addEventListener('click', () => {
-	if (selection) {
+	// The passage stays selected, with this button: Card Detail closes on the
+	// page as the user last saw it (reference graph, "Creating connected nodes").
+	// A second press on the same passage grows no second branch.
+	if (selection && branchAskedFor !== selection) {
+		branchAskedFor = selection;
 		vscode.postMessage({ type: 'basehalf.book.createBranch', selection });
 	}
-	view?.deselect();
-	selection = undefined;
-	vscode.postMessage({ type: 'basehalf.book.selectionChanged' });
-	hideGrowButton();
 });
 
 // The name of a button that shows only an icon, under the pointer.

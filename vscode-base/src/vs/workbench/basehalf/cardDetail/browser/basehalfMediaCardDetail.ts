@@ -1105,6 +1105,8 @@ function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: stri
 		html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); }
 		body { position: relative; }
 		#basehalf-pdf-viewer, embedpdf-container { display: block; width: 100%; height: 100%; }
+		/* What the reader draws stays under the status while it covers the reader, its floating page numbers too. */
+		#basehalf-pdf-viewer { isolation: isolate; }
 		.status { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; box-sizing: border-box; padding: 24px; color: var(--vscode-descriptionForeground); background: var(--vscode-editor-background); pointer-events: none; }
 		.status[hidden] { display: none; }
 		.status-content { display: grid; justify-items: center; gap: 14px; max-width: 520px; text-align: center; }
@@ -1112,8 +1114,11 @@ function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: stri
 		.loading .status-placeholder { width: min(390px, 54vw); height: min(520px, 66vh); border: 1px solid var(--vscode-widget-border, transparent); border-radius: 3px; background: linear-gradient(100deg, var(--vscode-editorWidget-background) 20%, var(--vscode-toolbar-hoverBackground) 45%, var(--vscode-editorWidget-background) 70%); background-size: 220% 100%; box-shadow: 0 8px 28px rgb(0 0 0 / 18%); animation: basehalf-pdf-loading 1.4s ease-in-out infinite; }
 		.error .status-placeholder { display: none; }
 		.error .status-message { color: var(--vscode-errorForeground, var(--vscode-descriptionForeground)); }
+		/* The status covers the reader until the page it opens at is drawn; what it says comes only for a PDF that takes longer than a second (PDFs and books, rule 15a). */
+		.loading .status-content { opacity: 0; animation: basehalf-pdf-status-show 160ms ease-out 1s forwards; }
 		@keyframes basehalf-pdf-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-		@media (prefers-reduced-motion: reduce) { .loading .status-placeholder { animation: none; } }
+		@keyframes basehalf-pdf-status-show { to { opacity: 1; } }
+		@media (prefers-reduced-motion: reduce) { .loading .status-placeholder { animation: none; } .loading .status-content { animation-duration: 0s; } }
 	</style>
 </head>
 <body>

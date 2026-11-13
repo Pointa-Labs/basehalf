@@ -6441,3 +6441,22 @@ pages. The face is open (SIL Open Font License 1.1), and the website already use
 - The pictures were drawn with a headless browser from the face's published files and laid into the old pictures, which have
   no other source: the name was cleared to the ground around it and the rest of each picture kept as it was.
 - The website and the profile banner, in other repositories, follow the same rule.
+
+## D133 — The cover of a PDF or a book is its card (NEW, 2026-11-13)
+
+**Decision.** With its cover shown, the card of a PDF or a book is its cover: the cover fills the card to its edges and takes
+the card's rounded corners, with no surface, frame, or shadow of a sheet around it. A cover whose shape is near the card's
+3:4 is cut to that shape, no more than 12% of its width or its height left out: the pages of most PDFs and the covers of
+most books. A cover of another shape, such as a page of slides, is shown whole in the middle of the card, and the card's
+surface fills the rest. The card keeps its size, its caption, its button that hides the cover, and its grey face while the
+cover is hidden. It supersedes rule 2 of D81's card ("the whole cover inside its surface, 14 from each edge").
+
+**Why.** On 2026-11-13 the owner watched the launch film and asked that the cover not be put inside a rounded card, but be
+given rounded corners itself, so that the cover is the card. A cover inside a second rounded box reads as a picture of a
+card, not as the document.
+
+**Consequences.**
+- The card of a document shows nothing but its cover, as the card of an image shows its image.
+- The cover stays on the card in every frame in which the file does not change: when the card is selected, deselected, opened
+  in Card Detail, or drawn again. Before this, selecting the card drew its cover again, and the card showed its bare surface
+  for one to four frames before Card Detail opened.

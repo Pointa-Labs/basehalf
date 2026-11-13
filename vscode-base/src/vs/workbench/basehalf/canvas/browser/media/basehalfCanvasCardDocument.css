@@ -3,14 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-/* The card of a PDF or a book (PDFs and books, "The card"): its cover inside
- * the card, 14 from each edge, as a sheet of paper on the card's surface; the
- * grey face of a file card while the cover is hidden or cannot be drawn; and
- * the surface alone until the cover is drawn. */
+/* The card of a PDF or a book (PDFs and books, "The card"): its cover, which
+ * is the card (D133); the grey face of a file card while the cover is hidden or
+ * cannot be drawn; and the surface alone until the cover is drawn. */
 
 .monaco-workbench .basehalf-canvas-card-document-frame {
 	position: absolute;
-	inset: 14px;
+	inset: 0;
 	container-type: size;
 	display: flex;
 	align-items: center;
@@ -18,17 +17,25 @@
 	pointer-events: none;
 }
 
+/* A cover of another shape than the card's is shown whole in the middle of the
+ * card, and the card's surface fills the rest. */
 .monaco-workbench .basehalf-canvas-card-document-cover {
 	display: block;
-	/* The whole cover, as large as the frame allows, in its own shape. */
 	width: min(100cqw, calc(100cqh * var(--bh-document-cover-ratio, 0.75)));
 	height: auto;
 	aspect-ratio: var(--bh-document-cover-ratio, 0.75);
-	border-radius: 3px;
 	background: #fff;
-	box-shadow: 0 1px 2px rgb(0 0 0 / 26%), 0 6px 18px rgb(0 0 0 / 22%);
 	user-select: none;
 	-webkit-user-drag: none;
+}
+
+/* A cover near the card's shape fills the card to its edges, and the card's
+ * corners round it, as the card of an image is its image. */
+.monaco-workbench .basehalf-canvas-card-document[data-cover-fit="fill"] .basehalf-canvas-card-document-cover {
+	width: 100%;
+	height: 100%;
+	aspect-ratio: auto;
+	object-fit: cover;
 }
 
 .monaco-workbench .basehalf-canvas-card-document:not([data-cover="cover"]) .basehalf-canvas-card-document-frame {
