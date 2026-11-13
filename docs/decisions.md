@@ -6441,6 +6441,10 @@ pages. The face is open (SIL Open Font License 1.1), and the website already use
 - The pictures were drawn with a headless browser from the face's published files and laid into the old pictures, which have
   no other source: the name was cleared to the ground around it and the rest of each picture kept as it was.
 - The website and the profile banner, in other repositories, follow the same rule.
+- Later the same day the social image was drawn anew, because the agents whose logos the old picture showed had dated
+  it. It is now the launch film's split screen, BaseHalf's window on one half and an AI app drawn in no product's look on
+  the other, under the lockup and the film's line "Your AI on one half. BaseHalf on the other." It names no agent, so it
+  stays true whichever AI sits on the other half. It is 1280 by 640, the size GitHub asks for.
 
 ## D133 — The cover of a PDF or a book is its card (NEW, 2026-11-13)
 
