@@ -86,6 +86,14 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   when a click opened it, until an arrow key chooses one, as the
   workbench's context menus do, and it starts at its first item when the
   keyboard opened it. Card Detail keeps the look of the editors it hosts.
+- What lights under the pointer goes out when the pointer leaves, also into
+  a webview such as the PDF reader of Card Detail. The workbench does not
+  hear the pointer go into a webview, so a webview reports the pointer's
+  moves to the workbench, as VS Code's own do (ported from VS Code, see
+  `vscode-base/BASEHALF_UPSTREAM.md`), and a sash then lets go of its line.
+  The line of the sash between Card Detail and the Agent Area stayed lit
+  for the rest of a question asked about a PDF (reported on 2026-11-13, in
+  the launch film).
 - BaseHalf never shows the system's tooltip, the box that an HTML `title`
   draws (D65). A hover is drawn by the workbench's hover service, as VS
   Code's own buttons draw theirs, and only where it tells what is not in

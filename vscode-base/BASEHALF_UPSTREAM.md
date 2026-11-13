@@ -257,6 +257,21 @@ proposals an extension declares, as in 1.141.0. The import commit returned
 import commit and kept this line at its 1.141.0 state. An update of the whole
 tree takes upstream's line.
 
+## A sash over a webview (2026-11-13)
+
+A webview reports the pointer's moves inside it to its window, ported from VS
+Code at `2c33b50b` (2026-10-27): `did-mouse-move` in
+`contrib/webview/browser/pre/index.html` (with its script's hash),
+`webviewMessages.d.ts`, `webviewElement.ts`, and `webviewMouseActivityEvent`
+in `contrib/webview/common/webview.ts`. A base update brings them as they are.
+
+BaseHalf's own, each marked `BaseHalf:`: `releaseSashHover` in
+`base/browser/ui/sash/sash.ts`, and its call on that event in
+`contrib/sash/browser/sash.ts`. A sash that the pointer left straight into a
+webview heard no leave and kept its hover line
+([architecture invariants](../docs/harness/architecture-invariants.md#product-shell)).
+A base update keeps them unless VS Code ends that hover itself.
+
 ## The text editor of Card Detail
 
 Card Detail is not an editor pane, so VS Code's editor service knows nothing of its text

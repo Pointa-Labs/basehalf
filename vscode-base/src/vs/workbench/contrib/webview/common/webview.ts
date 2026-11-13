@@ -7,6 +7,14 @@ import { CharCode } from '../../../../base/common/charCode.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 
+/** Reports webview activity without generating pointer input. */
+export const webviewMouseActivityEvent = 'vscode-webview-mouse-activity';
+
+export interface WebviewMouseActivity {
+	readonly screenX: number;
+	readonly screenY: number;
+}
+
 export interface WebviewRemoteInfo {
 	readonly isRemote: boolean;
 	readonly authority: string | undefined;

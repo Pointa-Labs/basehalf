@@ -235,6 +235,24 @@ class OrthogonalPointerEventFactory implements IPointerEventFactory {
 
 const PointerEventsDisabledCssClass = 'pointer-events-disabled';
 
+// BaseHalf: a sash that the pointer leaves straight into a webview hears no
+// leave and kept its hover line; `releaseSashHover` lets go of it.
+/** The sashes that the pointer entered and that have not been told it left. */
+const enteredSashes = new Set<Sash>();
+
+/**
+ * The pointer moves where the document of `targetWindow` does not see it, inside
+ * a frame of its own such as a webview: it is over none of the window's sashes.
+ * Moving straight from a sash into such a frame reports no leave, so every sash
+ * of the window lets go of its hover now, and one whose hover was about to show
+ * does not show it.
+ */
+export function releaseSashHover(targetWindow: Window): void {
+	for (const sash of [...enteredSashes]) {
+		Sash.releaseHoverIn(sash, targetWindow);
+	}
+}
+
 /**
  * The {@link Sash} is the UI component which allows the user to resize other
  * components. It's usually an invisible horizontal or vertical line which, when
@@ -603,6 +621,7 @@ export class Sash extends Disposable {
 	}
 
 	private static onMouseEnter(sash: Sash, fromLinkedSash: boolean = false): void {
+		enteredSashes.add(sash); // BaseHalf: see releaseSashHover
 		if (sash.el.classList.contains('active')) {
 			sash.hoverDelayer.cancel();
 			sash.el.classList.add('hover');
@@ -616,11 +635,19 @@ export class Sash extends Disposable {
 	}
 
 	private static onMouseLeave(sash: Sash, fromLinkedSash: boolean = false): void {
+		enteredSashes.delete(sash); // BaseHalf: see releaseSashHover
 		sash.hoverDelayer.cancel();
 		sash.el.classList.remove('hover');
 
 		if (!fromLinkedSash && sash.linkedSash) {
 			Sash.onMouseLeave(sash.linkedSash, true);
+		}
+	}
+
+	/** BaseHalf: see {@link releaseSashHover}. */
+	static releaseHoverIn(sash: Sash, targetWindow: Window): void {
+		if (getWindow(sash.el) === targetWindow) {
+			sash.clearSashHoverState();
 		}
 	}
 
@@ -678,6 +705,7 @@ export class Sash extends Disposable {
 	}
 
 	override dispose(): void {
+		enteredSashes.delete(this); // BaseHalf: see releaseSashHover
 		super.dispose();
 		this.el.remove();
 	}
