@@ -20,9 +20,7 @@
   <a href="https://basehalf.com/zh">简体中文</a>
 </p>
 
-<p align="center">
-  <img src="docs/assets/readme/hero.webp" width="100%" alt="BaseHalf with a project folder open: its files at the left, the folder as a canvas of connected notes, a design, code, a PDF and a book, with the release plan selected. At the right, Claude Code is asked “what did people ask for that this leaves out?” and answers that it took “this” to mean the selected card, and that the plan leaves out one request from the interviews.">
-</p>
+https://github.com/user-attachments/assets/7dffd9c3-ce69-46c7-8620-e0d23fa46eed
 
 BaseHalf is a desktop app for thinking with AI on a canvas. Open a folder you
 already have (a project, a course, a research topic, a film) and it becomes a
