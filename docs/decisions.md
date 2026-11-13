@@ -6419,3 +6419,25 @@ card that follows a card of the canvas does belong to one.
   of the lowest row.
 - A place is still chosen once (D46): a file whose list is written after its card appeared stays at the end of the canvas.
 - Not verified in a window: a draft that an agent makes with inputs, which is placed by the same reading of its list.
+
+## D132 — The name BaseHalf is set in Newsreader italic (NEW, 2026-11-13)
+
+**Decision.** Wherever the name BaseHalf stands as the mark, beside the logo or as the subject of a heading, it is set in
+Newsreader italic, weight 500, letter-spacing -0.015em. Beside the logo the two form one lockup: the logo's shape 1.6 em
+tall, half an em before the name, the name's capitals centred on the logo. The words around the name keep their own face.
+In this repository that is the README's wordmark (`docs/assets/readme/wordmark-{light,dark}.png`), the social image
+(`docs/assets/basehalf-social-preview.png`) and the installer's background
+(`vscode-base/build/basehalf/assets/dmg-background{,@2x}.png`, where "Install" stays as it was and the name stands on its
+baseline, its capitals 1.12 times as tall). The product's own window shows the logo and no name, and does not change.
+
+**Why.** On 2026-11-13 the owner saw the launch film, whose story lines are set in Newsreader italic, and asked that its face
+become the brand's face and that the name be set in it everywhere the brand appears: the README, the website and the GitHub
+pages. The face is open (SIL Open Font License 1.1), and the website already used its italic for the human half of the slogan.
+
+**Consequences.**
+- The README shows the new picture at the same width (861 by 246 where it was 854 by 245), so it stands as large as before.
+- GitHub shows the social image from the repository's settings, not from the file: the file is its source, and the picture
+  there changes only when it is uploaded again.
+- The pictures were drawn with a headless browser from the face's published files and laid into the old pictures, which have
+  no other source: the name was cleared to the ground around it and the rest of each picture kept as it was.
+- The website and the profile banner, in other repositories, follow the same rule.
