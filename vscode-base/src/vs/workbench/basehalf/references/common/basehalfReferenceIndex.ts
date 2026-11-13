@@ -6,7 +6,7 @@
 import { DeferredPromise, Limiter, timeout } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileChangesEvent, FileOperationResult, IFileService, IFileStat, toFileOperationResult } from '../../../../platform/files/common/files.js';
@@ -223,7 +223,27 @@ export interface IBaseHalfReferenceIndexService {
 	 * watcher event that follows for identical content does nothing.
 	 */
 	acceptSavedContent(node: IBaseHalfWorkspaceResource, storeKind: BaseHalfUpstreamStoreKind, content: string | undefined): void;
+
+	/**
+	 * BaseHalf moved these workspace-relative paths of the workspace folder
+	 * (reference graph, "A move that BaseHalf makes"). The index holds the
+	 * stores of the moved items at their new paths at once, as the file events
+	 * that follow will say, and fires `onDidChange` synchronously. Until the
+	 * returned disposable is disposed, which the rename refactor does once it
+	 * has rewritten the entries that name an old path or owes them, such an
+	 * entry names the item at its new path: the item keeps its downstream.
+	 */
+	acceptMoves(workspaceFolder: URI, moves: readonly IBaseHalfIndexMove[]): IDisposable;
 }
+
+/** A path that BaseHalf moved, workspace-relative, as the rename refactor plans it. */
+export interface IBaseHalfIndexMove {
+	readonly from: string;
+	readonly to: string;
+}
+
+/** How many moves in flight an entry is followed through: moves of one item compose, and a cycle ends. */
+const MOVES_FOLLOWED_LIMIT = 8;
 
 interface IStoreRecord extends IBaseHalfIndexedStore {
 	readonly storeKey: string;
@@ -248,6 +268,8 @@ interface IFolderIndex {
 	readonly problems: Map<string, IBaseHalfReferenceStoreProblem>;
 	/** node key → workspace-relative path of every draft that is shown */
 	readonly drafts: Map<string, string>;
+	/** The moves BaseHalf made whose entries the rename refactor is rewriting ({@link IBaseHalfReferenceIndexService.acceptMoves}). */
+	readonly moves: Set<readonly IBaseHalfIndexMove[]>;
 	generation: number;
 	scanned: DeferredPromise<void>;
 	pending: { readonly added: URI[]; readonly updated: URI[]; readonly deleted: URI[] } | undefined;
@@ -389,10 +411,16 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			return [];
 		}
 		const result: IBaseHalfIndexedDownstream[] = [];
-		for (const [storeKey, entryIndex] of index.downstream.get(this.resourceKey(node.resource)) ?? []) {
-			const record = index.records.get(storeKey);
-			if (record) {
-				result.push({ node: record.node, storeKind: record.storeKind, entryIndex });
+		const seen = new Set<string>();
+		// An entry that still names the path BaseHalf moved this node from names this node.
+		const keys = [this.resourceKey(node.resource), ...this.pathsMovedTo(index, node.relativePath).map(path => this.resourceKey(URI.joinPath(index.folder, ...path.split('/'))))];
+		for (const key of keys) {
+			for (const [storeKey, entryIndex] of index.downstream.get(key) ?? []) {
+				const record = index.records.get(storeKey);
+				if (record && !seen.has(storeKey)) {
+					seen.add(storeKey);
+					result.push({ node: record.node, storeKind: record.storeKind, entryIndex });
+				}
 			}
 		}
 		return result.sort((left, right) => left.node.relativePath.localeCompare(right.node.relativePath));
@@ -531,6 +559,90 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return this.folderIndex(node.workspaceFolder)?.drafts.has(this.resourceKey(node.resource)) ?? false;
 	}
 
+	acceptMoves(workspaceFolder: URI, moves: readonly IBaseHalfIndexMove[]): IDisposable {
+		const index = this.folderIndex(workspaceFolder);
+		const effective = moves.filter(move => move.from !== move.to);
+		if (!index || index.disposed || effective.length === 0) {
+			return toDisposable(() => { });
+		}
+		index.moves.add(effective);
+		// What exists where changed: the paths are looked up anew.
+		this.existence.clear();
+		this.fire(index, this.relocateRecords(index, effective));
+		const touched = effective.flatMap(move => [move.from, move.to].map(path => URI.joinPath(index.folder, ...path.split('/'))));
+		return toDisposable(() => {
+			if (index.moves.delete(effective) && !index.disposed) {
+				this.fire(index, touched);
+			}
+		});
+	}
+
+	/**
+	 * The stores of moved items at their new paths, with what they hold: an
+	 * entry is a workspace path, so a store says the same wherever it is. The
+	 * file events of the move find them there and change nothing.
+	 */
+	private relocateRecords(index: IFolderIndex, moves: readonly IBaseHalfIndexMove[]): URI[] {
+		const changed: URI[] = [];
+		for (const record of [...index.records.values()]) {
+			const to = this.movedPath(index, moves, record.node.relativePath);
+			if (to === undefined) {
+				continue;
+			}
+			const node: IBaseHalfWorkspaceResource = { resource: URI.joinPath(index.folder, ...to.split('/')), workspaceFolder: index.folder, relativePath: to };
+			const storeResource = record.storeKind === 'sidecar' ? baseHalfUpstreamSidecarResource(index.folder, to) : node.resource;
+			this.deleteRecord(index, record.storeKey);
+			index.problems.delete(record.storeKey);
+			this.insertRecord(index, { ...record, node, storeResource, storeKey: this.resourceKey(storeResource), nodeKey: this.resourceKey(node.resource) });
+			changed.push(record.node.resource, node.resource);
+		}
+		return changed;
+	}
+
+	/** Where `path` is after `moves`, when one of them moved it or a folder above it. */
+	private movedPath(index: IFolderIndex, moves: readonly IBaseHalfIndexMove[], path: string): string | undefined {
+		const key = index.identity.key(path);
+		for (const move of moves) {
+			const from = index.identity.key(move.from);
+			if (key === from) {
+				return move.to;
+			}
+			if (key.startsWith(`${from}/`)) {
+				return `${move.to}${path.slice(move.from.length)}`;
+			}
+		}
+		return undefined;
+	}
+
+	/**
+	 * The paths the moves in flight moved `path` from, when they moved it or a
+	 * folder above it, also through moves that compose.
+	 */
+	private pathsMovedTo(index: IFolderIndex, path: string): string[] {
+		const found: string[] = [];
+		const seen = new Set([index.identity.key(path)]);
+		let frontier = [path];
+		for (let round = 0; round < MOVES_FOLLOWED_LIMIT && frontier.length > 0; round++) {
+			const next: string[] = [];
+			for (const current of frontier) {
+				const key = index.identity.key(current);
+				for (const moves of index.moves) {
+					for (const move of moves) {
+						const to = index.identity.key(move.to);
+						const from = key === to ? move.from : key.startsWith(`${to}/`) ? `${move.from}${current.slice(move.to.length)}` : undefined;
+						if (from !== undefined && !seen.has(index.identity.key(from))) {
+							seen.add(index.identity.key(from));
+							found.push(from);
+							next.push(from);
+						}
+					}
+				}
+			}
+			frontier = next;
+		}
+		return found;
+	}
+
 	acceptSavedContent(node: IBaseHalfWorkspaceResource, storeKind: BaseHalfUpstreamStoreKind, content: string | undefined): void {
 		const index = this.folderIndex(node.workspaceFolder);
 		if (!index || index.disposed || !this.isIndexable(index, node.relativePath)) {
@@ -576,6 +688,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			downstream: new Map(),
 			problems: new Map(),
 			drafts: new Map(),
+			moves: new Set(),
 			generation: 0,
 			scanned: new DeferredPromise<void>(),
 			pending: undefined,
@@ -1501,7 +1614,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 	}
 
 	/** The node an entry path names, or `undefined` when it is dangling. A draft is a node (reference graph, "Drafts"). */
-	private async resolveTarget(workspaceFolder: URI, path: string): Promise<IBaseHalfUpstreamTarget | undefined> {
+	private async resolveTarget(workspaceFolder: URI, path: string, followed = 0): Promise<IBaseHalfUpstreamTarget | undefined> {
 		const index = this.folderIndex(workspaceFolder);
 		const normalized = path.normalize('NFC');
 		const resource = URI.joinPath(workspaceFolder, ...normalized.split('/'));
@@ -1510,6 +1623,13 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		}
 		const stat = await this.statNode(resource);
 		if (!stat) {
+			// A path that BaseHalf moved names the item at its new path while the
+			// entry is being rewritten (reference graph, "A move that BaseHalf makes").
+			// Moves compose: a later move of the same item is followed too.
+			const moved = index && followed < MOVES_FOLLOWED_LIMIT ? [...index.moves].reverse().map(moves => this.movedPath(index, moves, normalized)).find(to => to !== undefined) : undefined;
+			if (moved !== undefined) {
+				return this.resolveTarget(workspaceFolder, moved, followed + 1);
+			}
 			return await this.holdsDraft(workspaceFolder, normalized) ? { resource, workspaceFolder, relativePath: path, kind: 'file', draft: true } : undefined;
 		}
 		if (!stat.isFile && !stat.isDirectory) {

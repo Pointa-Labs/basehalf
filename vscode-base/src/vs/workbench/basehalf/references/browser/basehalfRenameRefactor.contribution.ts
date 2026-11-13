@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { RunOnceScheduler, timeout } from '../../../../base/common/async.js';
-import { Disposable, DisposableMap } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableMap, dispose, IDisposable } from '../../../../base/common/lifecycle.js';
 import { isEqual, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
@@ -217,9 +217,17 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		}
 		let completed: readonly SourceTargetPair[] = [];
 		let disposed = false;
+		// The index holds the moved items at their new paths from the moment
+		// they moved, and the entries that name them follow them until they are
+		// rewritten (reference graph, "A move that BaseHalf makes").
+		let accepted: IDisposable[] = [];
+		const accept = (files: readonly SourceTargetPair[]): void => {
+			completed = files;
+			accepted = prepared.map(group => this.referenceIndexService.acceptMoves(group.workspaceFolder, this.completedMoves(group, files)));
+		};
 		return {
-			didRun: async files => { completed = files; },
-			didFail: async files => { completed = files; },
+			didRun: async files => accept(files),
+			didFail: async files => accept(files),
 			// Guards are disposed after every guard of the operation finished, so
 			// the mirror cascade has released its fences by the time a plan runs.
 			dispose: () => {
@@ -229,7 +237,9 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				disposed = true;
 				try {
 					if (completed.length > 0 && !this.disposed) {
-						this.didMove(prepared, completed);
+						this.didMove(prepared, completed, accepted);
+					} else {
+						dispose(accepted);
 					}
 				} finally {
 					for (const group of prepared) {
@@ -286,16 +296,27 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		}
 	}
 
-	/** Registers the plans of a completed workbench move, synchronously, so later moves compose in order. */
-	private didMove(prepared: readonly IPreparedRename[], completed: readonly SourceTargetPair[]): void {
-		for (const group of prepared) {
-			const moves = group.pairs
-				.filter(pair => completed.some(file => file.source && isEqual(file.source, pair.source) && isEqual(file.target, pair.target)))
-				.map(pair => pair.move);
+	/** The moves of `group` that `completed` holds: the ones that reached the disk. */
+	private completedMoves(group: IPreparedRename, completed: readonly SourceTargetPair[]): IBaseHalfPathMove[] {
+		return group.pairs
+			.filter(pair => completed.some(file => file.source && isEqual(file.source, pair.source) && isEqual(file.target, pair.target)))
+			.map(pair => pair.move);
+	}
+
+	/**
+	 * Registers the plans of a completed workbench move, synchronously, so later
+	 * moves compose in order. `accepted[i]` is what the index was told of the
+	 * moves of `prepared[i]`: it is released once their plan is written or owed.
+	 */
+	private didMove(prepared: readonly IPreparedRename[], completed: readonly SourceTargetPair[], accepted: readonly IDisposable[]): void {
+		prepared.forEach((group, i) => {
+			const moves = this.completedMoves(group, completed);
 			if (moves.length > 0) {
-				void this.register(group.workspaceFolder, moves, group.snapshot, group.exclude);
+				void this.register(group.workspaceFolder, moves, group.snapshot, group.exclude).finally(() => accepted[i]?.dispose());
+			} else {
+				accepted[i]?.dispose();
 			}
-		}
+		});
 	}
 
 	/**

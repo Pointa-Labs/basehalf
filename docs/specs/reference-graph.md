@@ -764,6 +764,27 @@ while it generates, and reconnecting one, are refused the same way, on the
 canvas and in the badge editor. The rename refactor still rewrites their
 entries after a move, so that they keep naming the inputs that were moved.
 
+### A move that BaseHalf makes
+
+Added 2026-11-13. A move or a rename that BaseHalf makes, in the rename
+editor, as a note that takes its title's name, in Files, or by undo and redo,
+reaches the index at once, as BaseHalf's own saves do:
+
+- **The moved stores.** The index holds the stores of the moved items at their
+  new paths from the moment the files moved, with what they held: an entry is
+  a workspace path, so a store says the same wherever it is. The file events
+  that follow find them there and change nothing.
+- **The entries that name a moved path.** Until the rename refactor has
+  rewritten them, an entry that names the old path of a moved item names the
+  item at its new path: it is valid, its line is drawn to the item's card,
+  and the item keeps its downstream. Moves compose: an entry follows a later
+  move of the same item too. Once the refactor has written its plan, or owes
+  an entry it could not write, the entry is read as it is written, and an
+  owed entry is broken, as before ([following moved items](following-moved-items.md)).
+- Measured before (2026-11-13): after a rename of a note that a second note
+  listed upstream, the line between them was gone for 98 to 107 ms, and for
+  the line into the renamed note, until the file event, 158 to 166 ms.
+
 ### Creating connected nodes
 
 - **PDF branch** creates the note with an `upstream` list naming the PDF in its
@@ -1486,3 +1507,9 @@ slice 4, or slice 5 without slice 3.
       workbench move carries the sidecar with the note.
     - In a marked folder the connection is refused with the marked-folder
       reason and nothing is written.
+22. A move that BaseHalf makes (2026-11-13): right after `a.md` is moved to
+    `Anatomy.md`, the index holds the store at `Anatomy.md` and none at
+    `a.md`; an entry `a.md` of another note is valid and names `Anatomy.md`,
+    which has that note downstream. Once the refactor is done with the move,
+    an entry it did not rewrite is dangling. A unit test of the index
+    (`basehalfReferenceServices.test.ts`) holds this.

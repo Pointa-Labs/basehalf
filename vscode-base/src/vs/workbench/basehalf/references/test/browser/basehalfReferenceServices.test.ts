@@ -558,6 +558,46 @@ suite('BaseHalfReferenceIndexService', () => {
 		assert.deepStrictEqual([harness.index.getState(folder), harness.index.getPartialReasons(folder)], ['partial', ['storeLimit']]);
 	});
 
+	test('holds a moved note at its new path at once, and the entries that name its old path follow it until they are rewritten', async () => {
+		const harness = await createHarness(disposables, { 'a.md': '---\nupstream:\n  - root.md\n---\n# A\n', 'b.md': '---\nupstream:\n  - a.md\n---\n# B\n', 'root.md': '# Root\n' });
+		const events: string[] = [];
+		disposables.add(harness.index.onDidChange(event => events.push(event.resources.map(resource => getRelativePath(folder, resource)).join(','))));
+		await harness.fileService.move(harness.node('a.md').resource, harness.node('Anatomy.md').resource);
+		const accepted = harness.index.acceptMoves(folder, [{ from: 'a.md', to: 'Anatomy.md' }]);
+		const read = async () => ({
+			store: harness.index.getStore(harness.node('Anatomy.md'))?.node.relativePath,
+			oldStore: harness.index.getStore(harness.node('a.md'))?.node.relativePath,
+			upstreamOfMoved: (await harness.index.resolveUpstream(harness.node('Anatomy.md'))).entries.map(entry => [entry.path, entry.status]),
+			entryOfB: (await harness.index.resolveUpstream(harness.node('b.md'))).entries.map(entry => [entry.path, entry.status, entry.target?.relativePath]),
+			downstreamOfMoved: harness.index.getDownstream(harness.node('Anatomy.md')).map(entry => entry.node.relativePath),
+			downstreamOfRoot: harness.index.getDownstream(harness.node('root.md')).map(entry => entry.node.relativePath)
+		});
+		const moving = await read();
+		const firedAtOnce = [...events];
+		accepted.dispose();
+		const owed = await read();
+		assert.deepStrictEqual({ moving, firedAtOnce, owed }, {
+			moving: {
+				store: 'Anatomy.md',
+				oldStore: undefined,
+				upstreamOfMoved: [['root.md', 'valid']],
+				entryOfB: [['a.md', 'valid', 'Anatomy.md']],
+				downstreamOfMoved: ['b.md'],
+				downstreamOfRoot: ['Anatomy.md']
+			},
+			firedAtOnce: ['a.md,Anatomy.md'],
+			// An entry that the refactor did not rewrite is read as it is written, and is broken.
+			owed: {
+				store: 'Anatomy.md',
+				oldStore: undefined,
+				upstreamOfMoved: [['root.md', 'valid']],
+				entryOfB: [['a.md', 'dangling', undefined]],
+				downstreamOfMoved: [],
+				downstreamOfRoot: ['Anatomy.md']
+			}
+		});
+	});
+
 	test('accepts saved content synchronously and ignores the identical watcher event', async () => {
 		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'b.md': '# B\n' });
 		const events: string[] = [];
