@@ -86,6 +86,8 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   when a click opened it, until an arrow key chooses one, as the
   workbench's context menus do, and it starts at its first item when the
   keyboard opened it. Card Detail keeps the look of the editors it hosts.
+  The canvas itself, which holds the keyboard between its cards and when
+  Card Detail closes, draws no ring.
 - What lights under the pointer goes out when the pointer leaves, also into
   a webview such as the PDF reader of Card Detail. The workbench does not
   hear the pointer go into a webview, so a webview reports the pointer's

@@ -267,10 +267,14 @@
 }
 
 /*
- * The scene host is a keyboard-event sink, not a selectable canvas object.
- * Keep it programmatically focusable without inheriting the workbench-wide
- * full-surface outline; cards, edges, and controls own localized focus states.
+ * The canvas and its scene host are keyboard-event sinks, not selectable
+ * canvas objects. Keep them programmatically focusable without inheriting the
+ * workbench-wide full-surface outline; cards, edges, and controls own
+ * localized focus states. The canvas's outline ran along Card Detail's edges
+ * while Card Detail closed after Grow Branch (Opening and closing Card Detail,
+ * "The keyboard").
  */
+.monaco-workbench .basehalf-canvas-workbench[tabindex="-1"]:focus,
 .monaco-workbench .basehalf-canvas-cards[tabindex="-1"]:focus {
 	outline: none;
 }

@@ -1,6 +1,7 @@
 # Opening and closing Card Detail
 
-Status: Active (2026-10-23)
+Status: Active (2026-10-23). Revised 2026-11-13: the canvas takes the
+keyboard back without a ring.
 Related: [architecture invariants](../harness/architecture-invariants.md#product-shell)
 (the files a card and Card Detail show),
 [generation cards](generation-cards.md) ("The player" and "The toolbar"),
@@ -114,6 +115,11 @@ rule 26).
   Detail the keyboard is ([editing media](media-editing.md#the-keyboard)).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the canvas, where the keys of the selected card work again.
+- The canvas that holds the keyboard draws no ring: it is not a control, and
+  its edges are Card Detail's. Grow Branch in a PDF gave the canvas the
+  keyboard as Card Detail began to close, and the workbench's ring of a
+  focused element showed along Card Detail's edges for two frames of the
+  fade (2026-11-13, the launch film).
 - Command-W closes Card Detail, as it closes a tab in VS Code, and not the
   window, which it closes when nothing at all is open.
 
@@ -162,6 +168,9 @@ navigation, which has already changed when it starts.
 6. A file opened from Files: Card Detail fades in the same way.
 7. With `workbench.reduceMotion` on: the frames go from the canvas straight
    to Card Detail drawn, and back.
+8. Grow Branch in a PDF: on no frame from the press until the new note's
+   title line has the keyboard does the element with the keyboard draw a
+   ring (smoke step `pdf-grow-three-branches`).
 
 ## Verification
 

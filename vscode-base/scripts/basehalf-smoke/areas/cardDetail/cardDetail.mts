@@ -138,10 +138,16 @@ export async function assertPdfGrowsThreeBranches(page) {
 		const branchCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="docs/${name}"]`);
 		await branchCard.waitFor({ state: 'visible', timeout: 15_000 });
 		await page.waitForTimeout(300);
-		const appearing = cardFramesFailing(await stopCardFrames(page), [`docs/${name}`], (shown, frame) => !shown.loading && shown.text.length > 0
+		const frames = await stopCardFrames(page);
+		const appearing = cardFramesFailing(frames, [`docs/${name}`], (shown, frame) => !shown.loading && shown.text.length > 0
 			&& frame.lines.includes(`docs/textbook.pdf\u0000docs/${name}`));
 		if (appearing.wrong.length) {
 			throw new Error(`${name} must appear with its text and its line in its first frame: of ${appearing.shown} frames, ${appearing.wrong.length} did not, first ${JSON.stringify(appearing.wrong[0])}`);
+		}
+		// Card Detail closes, and the canvas takes the keyboard back, without a ring (Opening and closing Card Detail, criterion 8).
+		const ringed = frames.filter(frame => frame.ring);
+		if (ringed.length) {
+			throw new Error(`Growing ${name}: ${ringed.length} of ${frames.length} frames drew a focus ring, first on ${ringed[0].ring}`);
 		}
 		await waitForCanvasCardSelection(page, `docs/${name}`, 15_000);
 		if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {

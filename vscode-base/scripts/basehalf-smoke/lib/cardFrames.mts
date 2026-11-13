@@ -46,7 +46,13 @@ export async function watchCardFrames(page) {
 				};
 			});
 			const lines = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path')).map(line => line.getAttribute('data-edge-id') ?? '');
-			frames.push({ cards, lines });
+			// The element that has the keyboard, when it draws a ring (on the canvas a ring is for the keyboard).
+			const active = document.activeElement;
+			const activeStyle = active instanceof HTMLElement && active !== document.body ? getComputedStyle(active) : undefined;
+			const ring = activeStyle && activeStyle.outlineStyle !== 'none' && parseFloat(activeStyle.outlineWidth) > 0
+				? `${active.tagName.toLowerCase()}.${Array.from(active.classList).join('.')}`
+				: null;
+			frames.push({ cards, lines, ring });
 			// At most about ten seconds of frames, so that a step that fails before its check leaves no loop behind.
 			if (!watch.stop && ++ticks < 1200) {
 				requestAnimationFrame(tick);
