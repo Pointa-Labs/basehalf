@@ -613,11 +613,13 @@ export async function samplePanelLooks(page, cardPath) {
 		requestAnimationFrame(tick);
 	}, cardPath);
 	return {
-		stop: () => page.evaluate(() => {
+		// The step stops once it has read the panel it waits for, which may be in a frame that the sampler has not
+		// read yet: the sampler reads two more frames first, so that its last look is the one the step read.
+		stop: () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
 			const sampled = globalThis.__bhPanelLooks;
 			sampled.running = false;
-			return sampled.looks.map(entry => ({ look: entry.look, frames: entry.frames, ms: Math.round(entry.to - entry.from) }));
-		})
+			resolve(sampled.looks.map(entry => ({ look: entry.look, frames: entry.frames, ms: Math.round(entry.to - entry.from) })));
+		}))))
 	};
 }
 
