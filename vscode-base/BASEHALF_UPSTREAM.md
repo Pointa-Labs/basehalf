@@ -270,6 +270,10 @@ BaseHalf's own, each marked `BaseHalf:`: `releaseSashHover` in
 `contrib/sash/browser/sash.ts`. A sash that the pointer left straight into a
 webview heard no leave and kept its hover line
 ([architecture invariants](../docs/harness/architecture-invariants.md#product-shell)).
+In the same file a sash's hover starts at the pointer's first move on it
+(`onMouseMove`), not at its enter: when what lies under the place the window
+last saw the pointer changes, such as Card Detail closing while the pointer
+is in its reader, the browser reports an enter there with no move.
 A base update keeps them unless VS Code ends that hover itself.
 
 ## The text editor of Card Detail

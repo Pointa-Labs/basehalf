@@ -364,6 +364,7 @@ export class Sash extends Disposable {
 					this._orthogonalStartDragHandle = append(this.el, $('.orthogonal-drag-handle.start'));
 					this.orthogonalStartDragHandleDisposables.add(toDisposable(() => this._orthogonalStartDragHandle!.remove()));
 					this.orthogonalStartDragHandleDisposables.add(addDisposableListener(this._orthogonalStartDragHandle, 'mouseenter', () => Sash.onMouseEnter(sash)));
+					this.orthogonalStartDragHandleDisposables.add(addDisposableListener(this._orthogonalStartDragHandle, 'mousemove', () => Sash.onMouseMove(sash))); // BaseHalf: see onMouseMove
 					this.orthogonalStartDragHandleDisposables.add(addDisposableListener(this._orthogonalStartDragHandle, 'mouseleave', () => Sash.onMouseLeave(sash)));
 				}
 			};
@@ -400,6 +401,7 @@ export class Sash extends Disposable {
 					this._orthogonalEndDragHandle = append(this.el, $('.orthogonal-drag-handle.end'));
 					this.orthogonalEndDragHandleDisposables.add(toDisposable(() => this._orthogonalEndDragHandle!.remove()));
 					this.orthogonalEndDragHandleDisposables.add(addDisposableListener(this._orthogonalEndDragHandle, 'mouseenter', () => Sash.onMouseEnter(sash)));
+					this.orthogonalEndDragHandleDisposables.add(addDisposableListener(this._orthogonalEndDragHandle, 'mousemove', () => Sash.onMouseMove(sash))); // BaseHalf: see onMouseMove
 					this.orthogonalEndDragHandleDisposables.add(addDisposableListener(this._orthogonalEndDragHandle, 'mouseleave', () => Sash.onMouseLeave(sash)));
 				}
 			};
@@ -444,6 +446,7 @@ export class Sash extends Disposable {
 		this._register(addDisposableListener(this.el, 'mousedown', e => this.onPointerStart(e, new MouseEventFactory(container))));
 		this._register(addDisposableListener(this.el, 'dblclick', e => this.onPointerDoublePress(e)));
 		this._register(addDisposableListener(this.el, 'mouseenter', () => Sash.onMouseEnter(this)));
+		this._register(addDisposableListener(this.el, 'mousemove', () => Sash.onMouseMove(this))); // BaseHalf: see onMouseMove
 		this._register(addDisposableListener(this.el, 'mouseleave', () => Sash.onMouseLeave(this)));
 
 		this._register(Gesture.addTarget(this.el));
@@ -625,12 +628,33 @@ export class Sash extends Disposable {
 		if (sash.el.classList.contains('active')) {
 			sash.hoverDelayer.cancel();
 			sash.el.classList.add('hover');
-		} else {
+		}
+		// BaseHalf: a sash that is not being dragged starts its hover when the pointer moves on it (onMouseMove).
+
+		if (!fromLinkedSash && sash.linkedSash) {
+			Sash.onMouseEnter(sash.linkedSash, true);
+		}
+	}
+
+	/**
+	 * BaseHalf: the pointer moved on the sash. Its hover shows after the hover
+	 * delay, counted from the first move. An enter alone does not start it: while
+	 * the pointer is inside a frame of its own such as a webview, the window still
+	 * places it where it last saw it, and when what lies under that place changes
+	 * (Card Detail closing under a pointer in its reader), the browser reports an
+	 * enter there although the pointer did not move.
+	 */
+	private static onMouseMove(sash: Sash, fromLinkedSash: boolean = false): void {
+		enteredSashes.add(sash);
+		if (sash.el.classList.contains('active')) {
+			sash.hoverDelayer.cancel();
+			sash.el.classList.add('hover');
+		} else if (!sash.el.classList.contains('hover') && !sash.hoverDelayer.isTriggered()) {
 			sash.hoverDelayer.trigger(() => sash.el.classList.add('hover'), sash.hoverDelay).then(undefined, () => { });
 		}
 
 		if (!fromLinkedSash && sash.linkedSash) {
-			Sash.onMouseEnter(sash.linkedSash, true);
+			Sash.onMouseMove(sash.linkedSash, true);
 		}
 	}
 

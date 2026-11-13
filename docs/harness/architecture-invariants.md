@@ -94,6 +94,12 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   The line of the sash between Card Detail and the Agent Area stayed lit
   for the rest of a question asked about a PDF (reported on 2026-11-13, in
   the launch film).
+- A sash lights only when the pointer moves on it. While the pointer is in
+  a webview, the workbench still places it where it last saw it, and when
+  what lies under that place changes, the browser reports that the pointer
+  entered what is there now, though it did not move: after Grow Branch
+  closed Card Detail, the sash the pointer had crossed into the reader lit
+  with the pointer standing on the canvas (2026-11-13, the launch film).
 - BaseHalf never shows the system's tooltip, the box that an HTML `title`
   draws (D65). A hover is drawn by the workbench's hover service, as VS
   Code's own buttons draw theirs, and only where it tells what is not in
