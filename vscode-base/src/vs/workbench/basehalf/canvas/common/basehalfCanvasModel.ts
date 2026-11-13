@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { basename } from '../../../../base/common/resources.js';
+import { basename, extname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileStat } from '../../../../platform/files/common/files.js';
 import { baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
@@ -162,11 +162,25 @@ export function baseHalfCanvasItemsSharePreviewVersion(
 	previous: IBaseHalfCanvasItem,
 	current: IBaseHalfCanvasItem
 ): boolean {
-	if (previous.path !== current.path
-		|| previous.name !== current.name
-		|| previous.kind !== current.kind
+	return previous.path === current.path
+		&& previous.name === current.name
+		&& previous.stat.resource.toString() === current.stat.resource.toString()
+		&& baseHalfCanvasItemsShareFileVersion(previous, current);
+}
+
+/**
+ * Whether `current` is the file `previous` was, at the version it had, under
+ * any name: a rename keeps a file's version, and its card shows what it
+ * showed (canvas card name, "After the rename"). The kind of the face is
+ * the same only for the same extension.
+ */
+export function baseHalfCanvasItemsShareFileVersion(
+	previous: IBaseHalfCanvasItem,
+	current: IBaseHalfCanvasItem
+): boolean {
+	if (previous.kind !== current.kind
 		|| !!previous.generation?.draft !== !!current.generation?.draft
-		|| previous.stat.resource.toString() !== current.stat.resource.toString()
+		|| extname(previous.stat.resource).toLowerCase() !== extname(current.stat.resource).toLowerCase()
 		|| previous.stat.isFile !== current.stat.isFile
 		|| previous.stat.isDirectory !== current.stat.isDirectory
 		|| previous.stat.isSymbolicLink !== current.stat.isSymbolicLink) {

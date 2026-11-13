@@ -20,7 +20,7 @@ import {
 	resolveBaseHalfCanvasResizeCornerGeometry
 } from '../../browser/scene/basehalfCanvasCardNode.js';
 import { BaseHalfCanvasPendingConnectionState } from '../../browser/scene/basehalfCanvasSceneConnections.js';
-import { baseHalfCanvasSceneGeometryForCommit, baseHalfCanvasSceneNodeSize } from '../../browser/scene/basehalfCanvasSceneGeometry.js';
+import { baseHalfCanvasSceneGeometryForCommit, baseHalfCanvasSceneHandleBoxes, baseHalfCanvasSceneNodeSize } from '../../browser/scene/basehalfCanvasSceneGeometry.js';
 import { baseHalfCanvasTargetBlocksGraphShortcuts, baseHalfCanvasTargetOwnsSelectionShortcuts, baseHalfCanvasTargetOwnsSelectedEdgeShortcuts } from '../../browser/scene/basehalfCanvasSceneKeyboard.js';
 import { baseHalfCanvasCardDoubleClickAction, baseHalfCanvasShouldOpenCreateMenu } from '../../browser/scene/basehalfCanvasSceneMouse.js';
 import { captureBaseHalfCanvasNodeDragOrigins, filterBaseHalfCanvasCancelledNodeDragChanges, restoreBaseHalfCanvasNodeDragOrigins } from '../../browser/scene/basehalfCanvasSceneNodeDrag.js';
@@ -566,6 +566,15 @@ suite('BaseHalfCanvasReactScene', () => {
 			measured: { width: 640, height: 360 },
 			style: { width: 640, height: 360 }
 		});
+	});
+
+	test('gives a card that appears the handles React Flow measures: a box of 5 at the middle of each side', () => {
+		assert.deepStrictEqual(baseHalfCanvasSceneHandleBoxes({ width: 300, height: 220 }), [
+			{ anchor: 'north', x: 147.5, y: -2.5, width: 5, height: 5 },
+			{ anchor: 'east', x: 297.5, y: 107.5, width: 5, height: 5 },
+			{ anchor: 'south', x: 147.5, y: 217.5, width: 5, height: 5 },
+			{ anchor: 'west', x: -2.5, y: 107.5, width: 5, height: 5 }
+		]);
 	});
 
 	test('anchors each corner resize target on its rounded corner arc', () => {

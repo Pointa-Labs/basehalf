@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT, BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH } from '../../common/basehalfCanvasModel.js';
+import { BaseHalfCanvasAnchor, BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT, BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH } from '../../common/basehalfCanvasModel.js';
 import { BASEHALF_CANVAS_HELD_SNAP_NONE, BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD, sameBaseHalfCanvasSnapGuides, snapBaseHalfCanvasFlowNodeChanges, snapBaseHalfCanvasHeldCards } from '../../common/basehalfCanvasFlowSnap.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import {
@@ -13,10 +13,10 @@ import {
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneViewport
 } from '../../common/basehalfCanvasScene.js';
-import type { NodeChange } from '@xyflow/react';
+import type { NodeChange, NodeHandle } from '@xyflow/react';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 import { filterBaseHalfCanvasCancelledNodeDragChanges, IBaseHalfCanvasNodeDragState } from './basehalfCanvasSceneNodeDrag.js';
-import { BaseHalfCanvasFlowNode, IBaseHalfCanvasSceneEnvironment, numericStyle } from './basehalfCanvasSceneShared.js';
+import { BaseHalfCanvasFlowNode, BaseHalfCanvasReactVendor, flowPosition, IBaseHalfCanvasSceneEnvironment, numericStyle } from './basehalfCanvasSceneShared.js';
 
 export function baseHalfCanvasSceneNodeSize(
 	card: Pick<IBaseHalfCanvasSceneCard, 'width' | 'height'>
@@ -31,6 +31,51 @@ export function baseHalfCanvasSceneNodeSize(
 		measured: { width: card.width, height: card.height },
 		style: { width: card.width, height: card.height }
 	};
+}
+
+/** The side of the box React Flow measures for a handle of a card: its smallest handle (basehalfCanvasCardNode.css). */
+const FLOW_HANDLE_BOX = 5;
+
+/** A handle of a card where React Flow measures it, relative to the card. */
+export interface IBaseHalfCanvasSceneHandleBox {
+	readonly anchor: BaseHalfCanvasAnchor;
+	readonly x: number;
+	readonly y: number;
+	readonly width: number;
+	readonly height: number;
+}
+
+/**
+ * Where React Flow measures the handles of a card: a box of 5 by 5 pixels
+ * whose middle is the middle of each side.
+ */
+export function baseHalfCanvasSceneHandleBoxes(card: Pick<IBaseHalfCanvasSceneCard, 'width' | 'height'>): readonly IBaseHalfCanvasSceneHandleBox[] {
+	const half = FLOW_HANDLE_BOX / 2;
+	const box = (anchor: BaseHalfCanvasAnchor, x: number, y: number): IBaseHalfCanvasSceneHandleBox => ({ anchor, x: x - half, y: y - half, width: FLOW_HANDLE_BOX, height: FLOW_HANDLE_BOX });
+	return [
+		box('north', card.width / 2, 0),
+		box('east', card.width, card.height / 2),
+		box('south', card.width / 2, card.height),
+		box('west', 0, card.height / 2)
+	];
+}
+
+/**
+ * The handles a card that appears is given, so that its lines are drawn in
+ * the frame it appears in: React Flow draws a line only between cards whose
+ * handles it knows, and it measures them a frame after a card is drawn
+ * (canvas card name, "After the rename").
+ */
+export function baseHalfCanvasSceneNodeHandles(vendor: BaseHalfCanvasReactVendor, card: Pick<IBaseHalfCanvasSceneCard, 'width' | 'height'>): NodeHandle[] {
+	return baseHalfCanvasSceneHandleBoxes(card).map(box => ({
+		id: box.anchor,
+		type: 'source',
+		position: flowPosition(vendor, box.anchor),
+		x: box.x,
+		y: box.y,
+		width: box.width,
+		height: box.height
+	}));
 }
 
 export function baseHalfCanvasSceneGeometryForCommit(

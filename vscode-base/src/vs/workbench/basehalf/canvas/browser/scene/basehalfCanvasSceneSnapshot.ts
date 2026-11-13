@@ -48,7 +48,7 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 	readonly revealNodeDragChrome: (drag: IBaseHalfCanvasNodeDragState) => void;
 	readonly beginNodeResize: (path: string) => void;
 	readonly endNodeResize: (path: string) => void;
-	readonly makeNode: (card: IBaseHalfCanvasSceneCard, sceneKey: string, structuralEpoch: number, selected?: boolean) => BaseHalfCanvasFlowNode;
+	readonly makeNode: (card: IBaseHalfCanvasSceneCard, sceneKey: string, structuralEpoch: number, selected?: boolean, appears?: boolean) => BaseHalfCanvasFlowNode;
 	readonly makeEdge: (edge: IBaseHalfCanvasSceneEdge, sceneKey: string, structuralEpoch: number, selected?: boolean) => BaseHalfCanvasFlowEdge;
 	readonly nodesRef: RefObject<BaseHalfCanvasFlowNode[]>;
 	readonly setLiveNodes: (next: BaseHalfCanvasFlowNode[]) => void;
@@ -135,7 +135,7 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 					selected
 				};
 			}
-			return makeNode(card, snapshot.key, snapshot.structuralEpoch, selected);
+			return makeNode(card, snapshot.key, snapshot.structuralEpoch, selected, !current);
 		}).map(node => droppedPaths.current.has(node.id) ? { ...node, hidden: true, selected: false } : node);
 		setLiveNodes(nextNodes);
 

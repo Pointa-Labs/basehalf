@@ -307,6 +307,28 @@ card.
 - In no frame is the card shown without its editor while the rename is
   open.
 
+### After the rename
+
+A rename is a new name for the same item, and the canvas shows it as one
+change: the name, and nothing else.
+
+- The card of the new name stands where the card of the old name stood, with
+  its size and its card information, and shows what that card showed. In no
+  frame is the card gone, empty, or showing a loading face. The canvas draws
+  it from what the card of the old name showed when the file is the version
+  it showed; a picture, a video, a sound, a PDF, or a book is drawn from the
+  file at its new name, which reads nothing first.
+- Its lines stay drawn, and its badge counts stay as they were: the
+  reference index holds the item at its new path from the moment it moved,
+  and an entry that names its old path names it until the entry is rewritten
+  ([reference graph](reference-graph.md#a-move-that-basehalf-makes)). React
+  Flow draws a line only to a card whose handles it knows; a card that appears
+  is given them, so its lines are drawn in the frame it appears in.
+- This holds for every rename and move within the shown folder that
+  BaseHalf makes: the rename editor, a note that takes the name of its title
+  ([a note's title names its file](note-title.md)), Files, and the undo and
+  redo of a rename.
+
 ### States
 
 | State when the name is double-clicked | What happens |
@@ -424,6 +446,10 @@ The editor in place
 23. While the name of another item of the folder stands in the editor, the
     text is underlined and no message is shown. Enter then keeps the editor
     open and shows the reason.
+29. After a rename by the rename editor of a note between two others, and
+    after its undo and its redo, every frame shows the card at its place with
+    what it showed, both lines, and the same counts on its badge (After the
+    rename).
 
 ## Verification
 
@@ -460,6 +486,14 @@ The editor in place
   cards). Until 2026-10-24 a file renamed on the canvas or in
   Card Detail went to the undo of Files: Undo on the canvas did nothing, or
   took back an older step of the canvas.
+
+- Criterion 29 was measured in a development window (2026-11-13), with every
+  frame sampled inside the window while the middle note of three was renamed
+  with F2, and the rename undone and done again: both lines and the counts of
+  the badge were in every frame, and the card of the new name came in the
+  frame the old one went. Before, the line to the note below was gone for 98
+  to 107 ms each time. Unit tests hold the parts: the reference index's moves,
+  the version of a renamed file, and the handles of a card that appears.
 
 ### Seen in the real window (2026-10-13)
 

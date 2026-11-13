@@ -227,6 +227,13 @@ export function roundCanvasPosition(value: number): number {
 	return Number(value.toFixed(2));
 }
 
+/**
+ * What the card of a note without text shows: the hint at rest, the title
+ * line for a note that is about to be edited, and nothing while its text is
+ * not read (note title, "From the card's first frame").
+ */
+export type BaseHalfCanvasNoteEmptyFace = 'hint' | 'titleLine' | 'nothing';
+
 /** The label a Note card shows instead of a note it cannot show. */
 export function appendCanvasNoteFullEditorLabel(container: HTMLElement): void {
 	const label = append(container, $('span.basehalf-canvas-note-empty.basehalf-canvas-note-full-editor-required'));

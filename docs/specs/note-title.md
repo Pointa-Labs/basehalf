@@ -97,6 +97,17 @@ Not in scope, and unchanged:
   a note with only frontmatter keeps only that.
 - Backspace or Enter in an empty title line makes it a paragraph, for a note
   that is to begin without a title. The toolbar's text button does the same.
+- **From the card's first frame.** The card of a new note shows the title
+  line from the first frame it is drawn in: the pale `Title` where the
+  editor shows it, and nothing else before the editor is ready. The card is
+  drawn once, with the text BaseHalf wrote into the file, so the editor
+  opens on that first drawing. The editor takes a few frames to open; until
+  it is ready, the note the card shows under it is drawn as the editor will
+  show it, with the title line. A note at rest that holds no text says
+  `Double-click to edit`. A note that is about to be edited never says it,
+  and a note whose text is not read yet shows no text at all rather than
+  those words. Measured before (2026-11-13): `Double-click to edit` for 12
+  to 44 ms after New Note, in two drawings of the card.
 
 ### The file takes the name of the title
 
@@ -125,6 +136,15 @@ the title it had when the edit began.
   ([reference graph](reference-graph.md#rename-refactor)), the anchor row of
   a connection follows, and it is one step of the canvas's undo, named as a
   rename.
+- **Nothing shows the rename.** In every frame of the rename the card stands
+  at its place and shows its note, and its lines stay drawn: no frame shows
+  the card empty, with a loading face, or without its lines. The card of the
+  new name is drawn with what the card of the old name showed, and the
+  reference index holds the note and the entries that name it at the new
+  name at once ([canvas card name](canvas-card-name.md#after-the-rename)).
+  Measured before (2026-11-13): the line was gone for 158 to 166 ms after
+  each rename, and for 1.2 s in a window that had just opened, while the card
+  showed no text and then `Loading preview…` for 1.4 s.
 - **A name that is taken.** When another item of the folder, a draft
   included, has the name, the note takes the title with the next free number
   after it, before the extension: `Anatomy 2.md`, `Anatomy 3.md`, as a moved
@@ -256,6 +276,13 @@ above the card would say it a second time, or say the file's other name.
     top edge.
 18. The card of a picture, of a file that is no note, and of a folder shows
     its caption as before.
+19. After New Note, and after Note from a connection, every frame from the
+    card's first to the editor's first shows the title line in the pale
+    color; none shows `Double-click to edit`, a loading face, or no text.
+    The card is drawn once in that time.
+20. From the press outside to 1 s after the rename of criteria 2 and 3,
+    every frame shows the card at its place with its title, and the note
+    made from a connection with its line.
 
 ## Verification
 
@@ -276,6 +303,13 @@ above the card would say it a second time, or say the file's other name.
   note's rename editor open while the note is written from outside
   (criterion 16). The other steps of the suite take a note by its face,
   where they took it by its caption.
+- Criteria 19 and 20: `canvas-note-title-names-file` samples every frame of
+  the window while New Note opens and while the note takes its title's name,
+  and `canvas-create-from-connection` while the note made from a line takes
+  its name, with its line in every frame. The rename's own parts have unit
+  tests: the reference index's moves (`basehalfReferenceServices.test.ts`),
+  the version of a renamed file (`basehalfCanvasModel.test.ts`), and the
+  handles of a card that appears (`basehalfCanvasReactScene.test.ts`).
 - Criteria 13, 14, 17, and 18 were measured in a development window on a
   disposable workspace: see below.
 
@@ -301,6 +335,20 @@ the repository, driven with the keyboard and the pointer as a user's are.
 | The card of `by-hand.md` at rest, edited, and selected | no glyph and no name; the badge button 10 pixels from the card's right edge and 11 from its top edge, which is 9 and 10 inside the card's border of one pixel; the toolbar's lower edge 10 pixels above the card |
 | The badge button of `black-holes.md` pressed, a description typed | the badge face in the card; the description field ended 5 pixels left of the button |
 | F2 on the selected card, then Escape | the caption above the card, 300 wide and 24 high, with the editor; then no caption |
+
+### Seen in the real window (2026-11-13)
+
+A development window of 1280 × 720 on a disposable copy of the launch film's
+folder, every frame sampled inside the window while a line was pulled out of
+a note, Note chosen, `Anatomy` typed, and a press made outside: as in the
+film.
+
+| What was done | Before | After |
+| --- | --- | --- |
+| Note chosen | the card drawn twice; `Double-click to edit` for 12 to 44 ms; the line one frame after the card; the toolbar's Heading 1 lit when the editor was ready | the card drawn once, with its line and the pale `Title`, Heading 1 lit; the editor ready 15 to 31 ms later over the same picture |
+| The press outside, the rename | a new card drawn with `Loading preview…` or no text, for up to 1.4 s in a window that had just opened; the line gone for 158 to 166 ms | the card of the new name in the frame the old one went, with its title and its line |
+| F2 on the middle note of three, a name, Enter; undo; redo | the line to the note below gone for 98 to 107 ms each time | both lines, and the counts of its badge, in every frame |
+| The picture of the card under the editor and the editor | | the same: the word `Title` at the same place, in the same color |
 
 ## Open questions
 

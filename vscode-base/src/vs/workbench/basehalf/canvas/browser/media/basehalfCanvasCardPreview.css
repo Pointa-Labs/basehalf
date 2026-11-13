@@ -178,6 +178,13 @@
 	font-size: 13px;
 }
 
+/* A note without text that is about to be edited is drawn as its editor shows
+ * it: one title line with a pale word, until the editor covers it (note title). */
+.monaco-workbench .bh-md-preview .basehalf-canvas-note-title-line::before {
+	content: attr(data-placeholder);
+	color: var(--vscode-input-placeholderForeground);
+}
+
 /* The first line of a note leaves the card's upper right corner to the buttons that stand there (note title). */
 .monaco-workbench .basehalf-canvas-card.caption-free .bh-md-preview::before {
 	content: '';

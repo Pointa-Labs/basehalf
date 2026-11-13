@@ -9,6 +9,7 @@ import { FileOperationResult, IFileStat, toFileOperationResult } from '../../../
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
 	baseHalfCanvasCardToggleConnections,
+	baseHalfCanvasItemsShareFileVersion,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasDefaultCardSize,
 	baseHalfCanvasGenerationCardSize,
@@ -32,6 +33,37 @@ import { baseHalfCodePreviewLines, baseHalfCodePreviewLinesFor } from '../../com
 import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
 import { PLAINTEXT_LANGUAGE_ID } from '../../../../../editor/common/languages/modesRegistry.js';
 import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
+
+/**
+ * How long a face the canvas knows without reading waits for a drawing that
+ * takes it. A face holds only for the file at the version it shows, so this
+ * only lets go of what no drawing took, as for a move that failed.
+ */
+const KNOWN_FACE_LIFETIME_MS = 10_000;
+
+/** The version of a file: what its card's face holds for. */
+type BaseHalfCanvasFileVersion = Pick<IFileStat, 'etag' | 'mtime' | 'size'>;
+
+function sameFileVersion(left: BaseHalfCanvasFileVersion, right: BaseHalfCanvasFileVersion): boolean {
+	if (left.etag !== undefined || right.etag !== undefined) {
+		return left.etag !== undefined && left.etag === right.etag;
+	}
+	return left.mtime !== undefined && left.mtime === right.mtime && left.size === right.size;
+}
+
+/**
+ * What the card of a file shows before the canvas has read the file: the
+ * text BaseHalf wrote into a new note at the version that write made, or what
+ * the card of a file that BaseHalf moved showed under its old name.
+ */
+interface IBaseHalfCanvasKnownFace {
+	readonly preview: BaseHalfCanvasCardPreview;
+	/** The card of the old name, for a move: the face holds for the file at the version that card showed. */
+	readonly movedFrom?: IBaseHalfCanvasItem;
+	/** The version the write of a new note made. */
+	readonly written?: BaseHalfCanvasFileVersion;
+	readonly until: number;
+}
 
 /** An excerpt shows the first lines of a file, so only its head is read, whatever its size. */
 const CARD_EXCERPT_READ_BYTES = 8192;
@@ -82,6 +114,8 @@ function cleanCardPreviewText(name: string, raw: string): string {
  */
 export class BaseHalfCanvasPreviews {
 	private cardPreviewHydrationRunning = false;
+	/** By the comparison key of the file's resource. */
+	private readonly knownFaces = new Map<string, IBaseHalfCanvasKnownFace>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -128,6 +162,76 @@ export class BaseHalfCanvasPreviews {
 		await this.view.pictureShapes.measure([picture], BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS);
 		const ratio = this.view.pictureShapes.ratioOf(picture);
 		return baseHalfCanvasGenerationCardSize(kind, typeof ratio === 'number' ? ratio : undefined);
+	}
+
+	/**
+	 * BaseHalf wrote `text` into the new note `written`: its card is drawn with
+	 * that text at once, without reading the file first, as long as the file is
+	 * at the version that write made. So a note that is to be edited is drawn
+	 * once, with its editor (note title, "From the card's first frame").
+	 */
+	rememberWrittenNote(written: IFileStat, text: string): void {
+		if (!isBaseHalfMarkdownResource(written.resource)) {
+			return;
+		}
+		this.knownFaces.set(this.view.uriIdentityService.extUri.getComparisonKey(written.resource), {
+			preview: { kind: 'markdown', text },
+			written: { etag: written.etag, mtime: written.mtime, size: written.size },
+			until: Date.now() + KNOWN_FACE_LIFETIME_MS
+		});
+	}
+
+	/**
+	 * BaseHalf is about to move these files: the card of each new name is
+	 * drawn with what the card of its old name shows now (canvas card name,
+	 * "After the rename"), the canvas's own part of the move, as the card
+	 * information is the mirror's.
+	 */
+	carryMovedCards(files: readonly { readonly source?: URI; readonly target: URI }[]): void {
+		const extUri = this.view.uriIdentityService.extUri;
+		const shown = new Map([...this.view.renderedCardPreviewsByPath.values()].map(entry => [extUri.getComparisonKey(entry.item.stat.resource), entry]));
+		for (const { source, target } of files) {
+			const entry = source ? shown.get(extUri.getComparisonKey(source)) : undefined;
+			if (!entry || entry.preview.kind === 'loading' || entry.preview.kind === 'unavailable' || entry.preview.kind === 'draft') {
+				continue;
+			}
+			this.knownFaces.set(extUri.getComparisonKey(target), {
+				preview: entry.preview,
+				movedFrom: entry.item,
+				until: Date.now() + KNOWN_FACE_LIFETIME_MS
+			});
+		}
+	}
+
+	/** The face the canvas knows for `item` without reading its file, if it knows one for the file at its version. */
+	knownCardPreview(item: IBaseHalfCanvasItem): BaseHalfCanvasCardPreview | undefined {
+		const key = this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
+		const face = this.knownFaces.get(key);
+		if (!face) {
+			return undefined;
+		}
+		if (face.until < Date.now()) {
+			this.knownFaces.delete(key);
+			return undefined;
+		}
+		if (face.movedFrom) {
+			if (!baseHalfCanvasItemsShareFileVersion(face.movedFrom, item)) {
+				return undefined;
+			}
+			// A picture, a video, a sound, a PDF, or a book names its file: its face is the file's at its new name, which reads nothing.
+			return face.preview.kind === 'media' ? this.mediaPreview(item) : face.preview;
+		}
+		return item.kind === 'file' && face.written && sameFileVersion(face.written, item.stat) ? face.preview : undefined;
+	}
+
+	/** These cards are drawn: what they show is the canvas's own now. */
+	forgetKnownFaces(items: readonly IBaseHalfCanvasItem[]): void {
+		if (this.knownFaces.size === 0) {
+			return;
+		}
+		for (const item of items) {
+			this.knownFaces.delete(this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource));
+		}
 	}
 
 	/** What the card of an item shows of it when there is no file to read: a draft's. */

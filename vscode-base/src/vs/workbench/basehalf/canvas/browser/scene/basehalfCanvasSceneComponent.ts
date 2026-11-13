@@ -29,7 +29,7 @@ import { createBaseHalfCanvasReferenceEdge } from './basehalfCanvasReferenceEdge
 import { useBaseHalfCanvasSceneCancellation } from './basehalfCanvasSceneCancellation.js';
 import { BaseHalfCanvasPendingConnectionState, BaseHalfCanvasPendingEdgeMutation, IBaseHalfCanvasDropLine, useBaseHalfCanvasSceneConnections } from './basehalfCanvasSceneConnections.js';
 import { useBaseHalfCanvasSceneFolderDrop } from './basehalfCanvasSceneFolderDrop.js';
-import { baseHalfCanvasSceneNodeSize, IBaseHalfCanvasPendingGeometry, useBaseHalfCanvasSceneGeometry } from './basehalfCanvasSceneGeometry.js';
+import { baseHalfCanvasSceneNodeHandles, baseHalfCanvasSceneNodeSize, IBaseHalfCanvasPendingGeometry, useBaseHalfCanvasSceneGeometry } from './basehalfCanvasSceneGeometry.js';
 import { CANVAS_GRAPH_CONTROL_SELECTOR, useBaseHalfCanvasSceneKeyboard } from './basehalfCanvasSceneKeyboard.js';
 import { useBaseHalfCanvasSceneMouse } from './basehalfCanvasSceneMouse.js';
 import { captureBaseHalfCanvasNodeDragOrigins, IBaseHalfCanvasNodeDragState } from './basehalfCanvasSceneNodeDrag.js';
@@ -243,11 +243,13 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			}
 			view.requestAnimationFrame(() => view.requestAnimationFrame(settle));
 		}, [endInteraction]);
-		const makeNode = vendor.useCallback((card: IBaseHalfCanvasSceneCard, sceneKey: string, structuralEpoch: number, selected = false): BaseHalfCanvasFlowNode => ({
+		const makeNode = vendor.useCallback((card: IBaseHalfCanvasSceneCard, sceneKey: string, structuralEpoch: number, selected = false, appears = false): BaseHalfCanvasFlowNode => ({
 			id: card.path,
 			type: 'basehalf-card',
 			position: { x: card.x, y: card.y },
 			...baseHalfCanvasSceneNodeSize(card),
+			// A card that appears has its lines in the frame it appears in.
+			...(appears ? { handles: baseHalfCanvasSceneNodeHandles(vendor, card) } : {}),
 			data: { card, sceneKey, structuralEpoch, beginResize: () => beginNodeResize(card.path), endResize: () => endNodeResize(card.path) },
 			deletable: false,
 			selected
@@ -273,13 +275,26 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 
 		const [nodes, setNodes] = vendor.useState<BaseHalfCanvasFlowNode[]>(() => {
 			const selected = new Set(initialSnapshot.selectedCardPaths ?? []);
-			return initialSnapshot.cards.map(card => makeNode(card, initialSnapshot.key, initialSnapshot.structuralEpoch, selected.has(card.path)));
+			return initialSnapshot.cards.map(card => makeNode(card, initialSnapshot.key, initialSnapshot.structuralEpoch, selected.has(card.path), true));
 		});
 		const nodesRef = vendor.useRef(nodes);
 		const setLiveNodes = vendor.useCallback((next: BaseHalfCanvasFlowNode[]) => {
 			nodesRef.current = next;
 			setNodes(next);
 		}, []);
+		// Once the cards that appeared are drawn, React Flow keeps their handles
+		// and measures them again when a card changes its size.
+		vendor.useEffect(() => {
+			if (nodes.some(node => node.handles)) {
+				setLiveNodes(nodesRef.current.map(node => {
+					if (!node.handles) {
+						return node;
+					}
+					const { handles: _drawn, ...rest } = node;
+					return rest;
+				}));
+			}
+		}, [nodes, setLiveNodes]);
 
 		// Every change of the selected cards ends here, however it was made, and
 		// the workbench learns the result (the selection agents can see).

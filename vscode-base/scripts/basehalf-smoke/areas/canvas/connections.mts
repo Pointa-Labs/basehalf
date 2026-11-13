@@ -28,6 +28,7 @@ import {
 	waitForCanvasNoteInlineEditor,
 	zoomCanvas
 } from '../../lib/canvas.mts';
+import { cardFramesFailing, stopCardFrames, watchCardFrames } from '../../lib/cardFrames.mts';
 import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { clickNotificationAction } from '../../lib/notifications.mts';
 import { waitUntil } from '../../lib/steps.mts';
@@ -484,10 +485,19 @@ export async function assertCanvasCreateFromConnection(page) {
 	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8').includes('to: "untitled.md"'), 'canvas.yaml to remember the anchors of the line to the new note');
 	const anchorsBefore = anchorRowOf(fs.readFileSync(canvasPath, 'utf8'), 'untitled.md');
 	await page.keyboard.type('Grown from a line');
+	// Note title, criterion 20: in every frame of the rename the note shows its
+	// title, and its line is drawn.
+	await watchCardFrames(page);
 	const blank = await emptyCanvasPoint(page);
 	await page.mouse.click(blank.x, blank.y);
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
 	await waitUntil(() => fs.existsSync(titledPath) && !fs.existsSync(notePath), 'the note made from a connection to take the name of its title');
+	await page.waitForTimeout(1000);
+	const renameFrames = cardFramesFailing(await stopCardFrames(page), ['untitled.md', titled], (shown, frame) => shown.text.includes('Grown from a line') && !shown.loading
+		&& frame.lines.includes(`${source}\u0000${shown.path}`));
+	if (renameFrames.wrong.length) {
+		throw new Error(`A note made from a connection must keep its title and its line in every frame of its rename: of ${renameFrames.shown} frames, ${renameFrames.wrong.length} did not, first ${JSON.stringify(renameFrames.wrong[0])}`);
+	}
 	const titledText = readWorkspaceFile(titled);
 	if (titledText.replace(/\n$/, '') !== `---\nupstream:\n  - ${source}\n---\n# Grown from a line`) {
 		throw new Error(`A note made from a connection and named by its title must keep its upstream list, got ${JSON.stringify(titledText)}`);

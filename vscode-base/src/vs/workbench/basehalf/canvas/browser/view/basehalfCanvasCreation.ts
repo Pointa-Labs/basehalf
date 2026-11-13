@@ -54,7 +54,7 @@ import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLO
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasTargetTakesOwnTransfer, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget, baseHalfCanvasMoveTarget } from './basehalfCanvasViewShared.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfSourceTreeMarker.js';
-import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension } from '../../../workspace/common/basehalfItems.js';
+import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 /**
  * Making things on the canvas: the inline editors that name a new item or
@@ -554,14 +554,6 @@ export class BaseHalfCanvasCreation {
 			contents: connected?.contents,
 			edge: connected?.edge
 		});
-		if (connected) {
-			// Show the new connection now instead of after the file watcher event.
-			this.view.referenceIndexService.acceptSavedContent(
-				{ resource: target, workspaceFolder: folder.workspaceFolder, relativePath: path },
-				'markdown',
-				connected.contents.toString()
-			);
-		}
 		if (!this.view.isCanvasPostCreateOwnerCurrent(createOwner)) {
 			return;
 		}
@@ -1105,10 +1097,22 @@ export class BaseHalfCanvasCreation {
 		const postCreateOwner = options.postCreateOwner ?? this.view.captureCanvasPostCreateOwner();
 		await this.view.canvasActionContextService.assertCurrent(context);
 		const target = joinPath(folder.resource, name);
+		const path = baseHalfCanvasChildPath(folder.relativePath, name);
 		if (kind === 'folder') {
 			await this.view.workingCopyFileService.createFolder([{ resource: target }], CancellationToken.None);
 		} else {
-			await this.view.workingCopyFileService.create([{ resource: target, contents: options.contents }], CancellationToken.None);
+			const [created] = await this.view.workingCopyFileService.create([{ resource: target, contents: options.contents }], CancellationToken.None);
+			if (isBaseHalfMarkdownResource(target)) {
+				// A new note is drawn with what was written into it, at the version
+				// the write made, and the list it was written with is drawn as lines
+				// at once, not after the file watcher's event (note title, "From the
+				// card's first frame").
+				const text = options.contents?.toString() ?? '';
+				if (created) {
+					this.view.previews.rememberWrittenNote(created, text);
+				}
+				this.view.referenceIndexService.acceptSavedContent({ resource: target, workspaceFolder: folder.workspaceFolder, relativePath: path }, 'markdown', text);
+			}
 		}
 		// One step of the canvas's undo: undo keeps what it made, with what was
 		// typed or put into it since, and redo brings it back to its place
@@ -1119,7 +1123,6 @@ export class BaseHalfCanvasCreation {
 				: localize('basehalf.canvas.newFile.undo', "Create File {0}", name)
 		});
 
-		const path = baseHalfCanvasChildPath(folder.relativePath, name);
 		const size = options.size ?? (kind === 'folder'
 			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });

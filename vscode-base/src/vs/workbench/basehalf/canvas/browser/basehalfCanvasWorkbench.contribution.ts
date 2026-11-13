@@ -19,7 +19,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { IDialogService, IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
+import { FileOperation, IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -684,6 +684,13 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.updateCanvasLayer();
 		this.geometry.updateCanvasZoomChrome();
 		this.createContributions();
+		// A file BaseHalf moves keeps what its card shows, and its lines, under
+		// its new name (canvas card name, "After the rename").
+		this._register(this.workingCopyFileService.onWillRunWorkingCopyFileOperation(event => {
+			if (event.operation === FileOperation.MOVE) {
+				this.previews.carryMovedCards(event.files);
+			}
+		}));
 		this._register(this.workspaceMutationCoordinator.onDidFinishStructuralMutation(outcome => {
 			let detailReconciliation: Promise<void> | undefined;
 			const detail = this.canvasNavigationService.state.cardDetail;

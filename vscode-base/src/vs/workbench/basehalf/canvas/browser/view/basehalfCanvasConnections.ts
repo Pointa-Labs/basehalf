@@ -65,6 +65,10 @@ export class BaseHalfCanvasConnections {
 	 * follows in the drawing in which it appears (canvas card placement,
 	 * "Beside the card it follows"). A folder that shows more new cards than a
 	 * canvas shows cards is not read card by card.
+	 *
+	 * A line goes to the item an entry names, as the index resolves it: an entry
+	 * that names an item that BaseHalf just moved names it at its new path while
+	 * the entry is rewritten (reference graph, "A move that BaseHalf makes").
 	 */
 	async readCanvasConnections(folder: IBaseHalfCanvasFolderState, stat: IFileStat, appearing?: ReadonlySet<string>): Promise<{
 		readonly state: BaseHalfReferenceIndexState | undefined;
@@ -123,7 +127,7 @@ export class BaseHalfCanvasConnections {
 			}
 			const upstream = view
 				? baseHalfCanvasResolveSiblingUpstream(
-					view.entries.flatMap(entry => entry.status === 'valid' && entry.path !== undefined ? [entry.path] : []),
+					view.entries.flatMap(entry => entry.status === 'valid' && entry.path !== undefined ? [entry.target?.relativePath ?? entry.path] : []),
 					siblingPaths,
 					identity
 				)

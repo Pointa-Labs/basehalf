@@ -584,7 +584,11 @@ export class BaseHalfCanvasRenderer {
 		}
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
 		for (const item of items) {
-			previews.set(item.path, this.view.previews.cardPreviewWithoutFile(item) ?? this.reusableCardPreview(item) ?? this.replacedMediaPreview(item) ?? { kind: 'loading', text: 'Loading preview…' });
+			previews.set(item.path, this.view.previews.cardPreviewWithoutFile(item)
+				?? this.reusableCardPreview(item)
+				?? this.replacedMediaPreview(item)
+				?? this.view.previews.knownCardPreview(item)
+				?? { kind: 'loading', text: 'Loading preview…' });
 		}
 		if (this.view.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
 			return;
@@ -674,6 +678,7 @@ export class BaseHalfCanvasRenderer {
 			item.path,
 			{ item, preview: previews.get(item.path)! }
 		]));
+		this.view.previews.forgetKnownFaces(items);
 		this.view.renderedCardsByPath = new Map();
 		this.view.renderedCardElementsByPath = new Map();
 		if (this.view.inlineEdit?.kind === 'rename') {

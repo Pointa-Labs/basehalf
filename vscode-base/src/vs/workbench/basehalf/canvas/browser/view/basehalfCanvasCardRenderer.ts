@@ -32,6 +32,7 @@ import {
 	BaseHalfCanvasSceneVideoFrame,
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
+	BASEHALF_CANVAS_NOTE_TITLE_LINE_FORMAT_STATE,
 	IBaseHalfCanvasSceneCardPresentation
 } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../../common/basehalfCanvasCardPreview.js';
@@ -39,7 +40,7 @@ import { BaseHalfCodePreviewTokens, baseHalfCodePreviewLinesFor } from '../../co
 import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { IBaseHalfCanvasCodeFace } from '../basehalfCanvasExtensions.js';
-import { appendCanvasNoteFullEditorLabel, badgeType, cardDisplayName, isVideoMediaPreview } from './basehalfCanvasViewShared.js';
+import { appendCanvasNoteFullEditorLabel, badgeType, BaseHalfCanvasNoteEmptyFace, cardDisplayName, isVideoMediaPreview } from './basehalfCanvasViewShared.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../../markdown/browser/basehalfNoteLinkRouter.js';
 import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
@@ -128,11 +129,19 @@ export class BaseHalfCanvasCardRenderer {
 		}
 	}
 
-	sceneCardControls(item: IBaseHalfCanvasItem, _preview: BaseHalfCanvasCardPreview | undefined): BaseHalfCanvasSceneCardControls | undefined {
+	sceneCardControls(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): BaseHalfCanvasSceneCardControls | undefined {
 		if (isBaseHalfMarkdownResource(item.stat.resource)) {
 			return {
 				kind: 'note',
-				formatState: this.view.canvasNoteFormatStates.get(this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource)) ?? BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
+			// A note without text that is about to be edited starts at its title
+			// line, and the toolbar says so before the editor is ready.
+			const startsAtTitleLine = this.view.canvasNoteSurfacePath === item.path
+				&& this.view.activeCanvasNoteEditor?.path !== item.path
+				&& preview?.kind === 'markdown'
+				&& !splitBaseHalfMarkdownFrontmatter(preview.text).body.trim();
+				formatState: startsAtTitleLine
+					? BASEHALF_CANVAS_NOTE_TITLE_LINE_FORMAT_STATE
+					: this.view.canvasNoteFormatStates.get(this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource)) ?? BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 				background: this.view.renderedNoteBackgrounds.get(item.path) ?? 'default'
 			};
 		}
@@ -450,7 +459,7 @@ export class BaseHalfCanvasCardRenderer {
 			&& isBaseHalfMarkdownResource(item.stat.resource)) {
 			previewNode.classList.remove(previewKindClass);
 			previewNode.classList.add('kind-markdown');
-			this.view.noteEditing.renderMarkdownPreview(previewNode, item, preview?.kind === 'markdown' ? preview.text : '', listeners, card);
+			this.view.noteEditing.renderMarkdownPreview(previewNode, item, preview?.kind === 'markdown' ? preview.text : undefined, listeners, card);
 			return;
 		}
 		if (carried && item.generation && preview?.kind !== 'media') {
@@ -985,21 +994,28 @@ export class BaseHalfCanvasCardRenderer {
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
 		text: string,
-		listeners: DisposableStore
+		listeners: DisposableStore,
+		empty: BaseHalfCanvasNoteEmptyFace = 'hint'
 	): void {
-		this.renderStaticMarkdownSource(container, item.stat.resource, text, listeners);
+		this.renderStaticMarkdownSource(container, item.stat.resource, text, listeners, empty);
 	}
 
 	renderStaticMarkdownSource(
 		container: HTMLElement,
 		resource: URI,
 		text: string,
-		listeners: DisposableStore
+		listeners: DisposableStore,
+		empty: BaseHalfCanvasNoteEmptyFace = 'hint'
 	): void {
 		const { body } = splitBaseHalfMarkdownFrontmatter(text);
 		if (!body.trim()) {
-			const empty = append(container, $('span.basehalf-canvas-note-empty'));
-			empty.textContent = localize('basehalf.canvas.note.empty', "Double-click to edit");
+			if (empty === 'titleLine') {
+				const line = append(container, $('h1.basehalf-canvas-note-title-line'));
+				line.dataset.placeholder = localize('basehalf.canvas.note.titleLine', "Title");
+			} else if (empty === 'hint') {
+				const hint = append(container, $('span.basehalf-canvas-note-empty'));
+				hint.textContent = localize('basehalf.canvas.note.empty', "Double-click to edit");
+			}
 			return;
 		}
 		const rendering = renderBaseHalfCanvasNoteInParts(
@@ -1007,6 +1023,12 @@ export class BaseHalfCanvasCardRenderer {
 			resource,
 			text,
 			href => this.openStaticMarkdownPreviewLink(resource, href)
+	/**
+	 * Draws the note `text` as its card shows it at rest. A note without text
+	 * shows `empty`: the hint at rest, the title line for a note that is about
+	 * to be edited, which is drawn as its editor shows it (note title, "From
+	 * the card's first frame"), and nothing while its text is not read.
+	 */
 		);
 		if (rendering) {
 			listeners.add(rendering);

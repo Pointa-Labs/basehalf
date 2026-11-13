@@ -10,6 +10,7 @@ import path from 'path';
 import process from 'process';
 import { centerCanvasCards, deleteCanvasCardFromItsMenu } from './creation.mts';
 import { workspacePath } from '../../context.mts';
+import { cardFramesFailing, stopCardFrames, watchCardFrames } from '../../lib/cardFrames.mts';
 import { clickCanvasCreateAction, emptyCanvasPoint, waitForCanvasCardSelection, waitForCanvasNoteInlineEditor } from '../../lib/canvas.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
@@ -87,7 +88,14 @@ export async function assertCanvasNoteTitleNamesFile(page) {
 
 	// 1. A new note starts at its title line: one empty heading of level 1
 	// that shows a pale `Title`, with the caret in it, and an empty file.
+	// 19. Every frame from the card's first shows the title line, the one card
+	// that is drawn, and never the hint or a loading face.
+	await watchCardFrames(page);
 	const editor = await newNote();
+	const madeFrames = cardFramesFailing(await stopCardFrames(page), ['untitled.md'], card => (card.editor || card.titleLine) && !card.hint && !card.loading);
+	if (madeFrames.wrong.length) {
+		throw new Error(`A new note must show its title line from the first frame of its card: of ${madeFrames.shown} frames, ${madeFrames.wrong.length} did not, first ${JSON.stringify(madeFrames.wrong[0])}`);
+	}
 	const start = await editor.editable.evaluate(editable => {
 		const blocks = [...editable.querySelectorAll('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, hr')];
 		const first = blocks[0];
@@ -120,9 +128,18 @@ export async function assertCanvasNoteTitleNamesFile(page) {
 	// 2. A press outside the card: the file takes the name of the title, and
 	// the card stays where it is, as large as it is.
 	const placeBefore = await card('untitled.md').boundingBox();
+	// 20. Every frame of the rename shows the card at its place with its title.
+	await watchCardFrames(page);
 	await pressOutside();
 	await waitUntil(() => fs.existsSync(at(TITLED)) && !fs.existsSync(at('untitled.md')), 'the new note to take the name of its title');
 	await card(TITLED).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForTimeout(1000);
+	const renameFrames = cardFramesFailing(await stopCardFrames(page), ['untitled.md', TITLED], (shown, frame) => shown.text.includes(TITLE) && !shown.loading && !shown.hint
+		&& Math.abs(shown.x - Math.round(placeBefore?.x ?? 0)) <= 1 && Math.abs(shown.y - Math.round(placeBefore?.y ?? 0)) <= 1
+		&& frame.cards.filter(other => other.path === 'untitled.md' || other.path === TITLED).length === 1);
+	if (renameFrames.wrong.length) {
+		throw new Error(`A note that takes its title's name must show its title at its place in every frame: of ${renameFrames.shown} frames, ${renameFrames.wrong.length} did not, first ${JSON.stringify(renameFrames.wrong[0])}`);
+	}
 	const placeAfter = await card(TITLED).boundingBox();
 	if (!/^# Smoke title\n?$/.test(text(TITLED) ?? '') || !placeBefore || !placeAfter
 		|| Math.abs(placeAfter.x - placeBefore.x) > 1 || Math.abs(placeAfter.y - placeBefore.y) > 1

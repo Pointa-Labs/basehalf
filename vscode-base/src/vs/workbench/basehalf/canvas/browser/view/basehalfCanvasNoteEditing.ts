@@ -1120,17 +1120,24 @@ export class BaseHalfCanvasNoteEditing {
 		return true;
 	}
 
+	/**
+	 * Draws the note of a card, which the editor on the card opens on. `text`
+	 * is `undefined` while the note is not read. A note that is about to be
+	 * edited is drawn as its editor shows it (note title, "From the card's
+	 * first frame").
+	 */
 	renderMarkdownPreview(
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
-		text: string,
+		text: string | undefined,
 		listeners: DisposableStore,
 		card: HTMLElement
 	): void {
 		const fallback = append(container, $('.bh-md-preview'));
 		const rendering = new DisposableStore();
 		listeners.add(rendering);
-		this.view.cardRenderer.renderStaticMarkdownPreview(fallback, item, text, rendering);
+		this.view.cardRenderer.renderStaticMarkdownPreview(fallback, item, text ?? '', rendering,
+			text === undefined ? 'nothing' : this.view.canvasNoteSurfacePath === item.path ? 'titleLine' : 'hint');
 		const mount: IBaseHalfCanvasNotePreviewMount = {
 			path: item.path,
 			resourceKey: this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource),
@@ -1138,7 +1145,7 @@ export class BaseHalfCanvasNoteEditing {
 			container,
 			fallback,
 			rendering,
-			preview: { kind: 'markdown', text }
+			preview: { kind: 'markdown', text: text ?? '' }
 		};
 		this.view.canvasNotePreviewMounts.set(card, mount);
 		listeners.add(toDisposable(() => {

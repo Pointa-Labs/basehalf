@@ -25,6 +25,7 @@ import {
 	baseHalfCanvasFolderWithDrafts,
 	baseHalfCanvasGenerationCardSize,
 	baseHalfCanvasItemsFromStat,
+	baseHalfCanvasItemsShareFileVersion,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasLineSides,
@@ -111,6 +112,27 @@ suite('BaseHalfCanvasModel', () => {
 			{ ...withoutEtag, stat: { ...withoutEtag.stat, mtime: undefined } },
 			{ ...withoutEtag, stat: { ...withoutEtag.stat, mtime: undefined } }
 		), false);
+	});
+
+	test('takes a renamed file at its version for the file it was, while its extension stays', () => {
+		const previous = {
+			path: 'untitled.md',
+			name: 'untitled.md',
+			kind: 'file' as const,
+			stat: { ...file('/workspace/untitled.md'), etag: 'v1', mtime: 10, size: 12 }
+		};
+		const renamed = (name: string, version: { etag?: string; mtime?: number; size?: number } = {}) => ({
+			...previous,
+			path: name,
+			name,
+			stat: { ...previous.stat, resource: URI.file(`/workspace/${name}`), ...version }
+		});
+		assert.deepStrictEqual([
+			baseHalfCanvasItemsShareFileVersion(previous, renamed('Anatomy.md')),
+			baseHalfCanvasItemsShareFileVersion(previous, renamed('Anatomy.md', { etag: 'v2', mtime: 11 })),
+			baseHalfCanvasItemsShareFileVersion(previous, renamed('Anatomy.txt')),
+			baseHalfCanvasItemsSharePreviewVersion(previous, renamed('Anatomy.md'))
+		], [true, false, false, false]);
 	});
 
 	test('returns stable grid positions', () => {

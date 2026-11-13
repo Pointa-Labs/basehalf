@@ -30,6 +30,19 @@ export const BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE: IBaseHalfCanvasNoteForma
 	italic: false,
 });
 
+/**
+ * The format of a note that its editor opens at the title line, as the
+ * editor reports it once it is ready: the toolbar shows it from the card's
+ * first frame (note title, "From the card's first frame").
+ */
+export const BASEHALF_CANVAS_NOTE_TITLE_LINE_FORMAT_STATE: IBaseHalfCanvasNoteFormatState = Object.freeze({
+	ready: true,
+	editable: true,
+	blockType: 'heading1',
+	bold: false,
+	italic: false,
+});
+
 export type BaseHalfCanvasNoteBackground = 'default' | 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue' | 'purple';
 
 /** A pointer location measured in the unscaled body of a Markdown card. */
