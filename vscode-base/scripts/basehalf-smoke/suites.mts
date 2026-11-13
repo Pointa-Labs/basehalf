@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { assertConflictHasItsActions, assertPicturesInTheEditor, assertChangedCardsAreMarked, assertChangedFileOpensAsUsual, assertCodeCardAsTheEditor, assertCommitBoxTakesSpaces, assertLastChangeGoes, assertMultiFileDiff, assertStagedBinaryOpens, assertViewsOfASoundTakeTurns, assertRowOpensTheChangesView, assertRowsOfOtherKinds, assertWhatOpenedLastIsInFront, finishChangedFiles, prepareChangedFiles } from './areas/workbench/changes.mts';
-import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentSeesSelection, assertAgentUpstreamEditDrawsEdge } from './areas/canvas/agents.mts';
+import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentNotesAppearWithFaces, assertAgentSeesSelection, assertAgentUpstreamEditDrawsEdge } from './areas/canvas/agents.mts';
 import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndConnectors, assertCanvasUnreadableBadgeRecovers } from './areas/canvas/badges.mts';
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasPulledLineIsTheConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
 import { assertCanvasCopyPasteKeys } from './areas/canvas/clipboard.mts';
@@ -253,6 +253,7 @@ async function runCanvasSuite(page) {
 	await step('note-that-cannot-hold-a-list', () => assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page));
 	await step('canvas-document-cards-show-covers', () => assertDocumentCardsShowCovers(page));
 	await step('canvas-document-cover-hides-and-shows', () => assertDocumentCoverHidesAndShows(page));
+	await step('agent-notes-appear-with-faces', () => assertAgentNotesAppearWithFaces(page));
 }
 
 /** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the editors of a video, an image, and a sound; back and forward from it. */

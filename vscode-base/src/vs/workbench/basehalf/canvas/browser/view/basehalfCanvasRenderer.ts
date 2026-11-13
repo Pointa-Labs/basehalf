@@ -79,6 +79,8 @@ export class BaseHalfCanvasRenderer {
 	/** The first drawing waits for the comparison at open for a shorter time. */
 	private firstRenderHeld = false;
 	/** The canvas layout damage last written to the log, so a re-render does not repeat it. */
+	/** The folder whose cards the scene shows: the last drawing of its cards was of this key. */
+	private drawnSceneKey: string | undefined;
 	private loggedCanvasDamage: string | undefined;
 	/** Connections of the rendered cards, from the reference index. */
 	private renderedRelationships: ReadonlyMap<string, IBaseHalfCanvasItemRelationships> = new Map();
@@ -361,6 +363,7 @@ export class BaseHalfCanvasRenderer {
 			this.view.renderedIndexState = undefined;
 			this.view.renderedItemsByPath = new Map();
 			this.view.renderedCardPreviewsByPath = new Map();
+			this.drawnSceneKey = undefined;
 			this.view.renderedCardsByPath = new Map();
 			this.view.renderedCardElementsByPath = new Map();
 			this.view.renderedSceneCards = [];
@@ -406,6 +409,7 @@ export class BaseHalfCanvasRenderer {
 			this.view.renderedIndexState = undefined;
 			this.view.renderedItemsByPath = new Map();
 			this.view.renderedCardPreviewsByPath = new Map();
+			this.drawnSceneKey = undefined;
 			this.view.renderedCardsByPath = new Map();
 			this.view.renderedCardElementsByPath = new Map();
 			this.view.renderedSceneCards = [];
@@ -591,6 +595,23 @@ export class BaseHalfCanvasRenderer {
 				?? this.view.previews.knownCardPreview(item)
 				?? { kind: 'loading', text: 'Loading preview…' });
 		}
+		// A card that appears on the canvas that is shown, such as a note an agent
+		// just wrote, is drawn with its face: what it shows is read first (canvas
+		// card interaction continuity, "A card that appears shows its face"). The
+		// first drawing of a folder does not wait: its cards fill in as they are read.
+		const appearing = this.drawnSceneKey === currentSceneKey
+			? items.filter(item => previews.get(item.path)?.kind === 'loading' && !this.view.renderedCardPreviewsByPath.has(item.path))
+			: [];
+		if (appearing.length > 0) {
+			const faces = await this.view.previews.readAppearingFaces(appearing);
+			if (!this.isRenderCurrent(seq)
+				|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+				return;
+			}
+			for (const [path, face] of faces) {
+				previews.set(path, face);
+			}
+		}
 		if (this.view.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
 			return;
 		}
@@ -761,6 +782,7 @@ export class BaseHalfCanvasRenderer {
 			|| !this.view.isCanvasPostCreateOwnerCurrent(pendingSelectionRequest.owner))) {
 			pendingSelection = undefined;
 		}
+		this.drawnSceneKey = currentSceneKey;
 		this.view.canvasScene.update({
 			key: currentSceneKey,
 			structuralEpoch: structuralStamp.structuralEpoch,

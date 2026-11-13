@@ -1,6 +1,6 @@
 # Canvas card interaction continuity
 
-Status: Active (2026-10-10; 2026-10-24: a change of connections keeps the cards; 2026-10-27: a change elsewhere in the workspace keeps the gesture)
+Status: Active (2026-10-10; 2026-10-24: a change of connections keeps the cards; 2026-10-27: a change elsewhere in the workspace keeps the gesture; 2026-11-13: a card that appears shows its face)
 Related: [canvas card resize](canvas-card-resize.md),
 [canvas connection handles](canvas-connection-handles.md)
 
@@ -87,6 +87,24 @@ player. A face that could not be shown, one that offers Reload, is drawn
 again, which tries again, as before. A card goes on being drawn anew when it
 moves out of sight and back, and when what it shows changes.
 
+### A card that appears shows its face
+
+Added 2026-11-13. A card that appeared on a shown canvas, the card of a file
+that an agent, a program, or another window wrote, was drawn with a loading
+face, and the canvas read what it shows after the drawing, four cards at a
+time. Ten notes that Claude Code wrote at once showed "Loading preview…" and
+filled in over four frames of the launch film.
+
+The drawing that brings a card to a canvas that is already shown reads what
+the card shows first, and draws it with its face in the frame it appears in.
+It reads at most 24 cards, and waits at most 150 ms; a card whose face is not
+read by then is drawn with its loading face and fills in as before, and so is
+a code file, which is coloured for the height of its card. A face is taken
+only for the file at the version that the drawing lists. The first drawing of
+a folder does not wait: its cards fill in as they are read. A card out of
+sight is drawn as its frame alone, as before, and shows its face when it
+comes into sight.
+
 ### A change elsewhere in the workspace
 
 Added 2026-10-27 ([D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)).
@@ -139,6 +157,10 @@ refuses it, as before.
 10. Selecting and deselecting the card of a PDF, a book, an image, a note, a
     folder, and a file keeps its element and its face: the cover and the
     picture are on every frame.
+11. Six notes written at once into the shown folder appear in one frame, and
+    each that is in sight shows its title and its text from that frame on; no
+    frame shows one of them with a loading face. The smoke's
+    `agent-notes-appear-with-faces` step reads every frame.
 
 ## Verification
 

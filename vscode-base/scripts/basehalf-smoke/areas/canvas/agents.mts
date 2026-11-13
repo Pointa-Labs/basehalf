@@ -15,6 +15,7 @@ import { gitStatusOfWorkspace } from '../../fixture.mts';
 import { assertCanvasEdgeVisible, openRootCanvas, waitForCanvasCardSelection, waitForCanvasNoteInlineEditor, zoomCanvas } from '../../lib/canvas.mts';
 import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
+import { cardFramesFailing, stopCardFrames, watchCardFrames } from '../../lib/cardFrames.mts';
 import { clickNotificationAction } from '../../lib/notifications.mts';
 import { quickOpen, runCommand } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
@@ -380,6 +381,52 @@ export async function assertAgentCreatesCard(page) {
 
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${AGENT_CREATED_CARD_PATH}"]`)
 		.waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+// Canvas card interaction continuity, "A card that appears shows its face":
+// notes that an agent writes at once into the shown folder appear in one frame,
+// each with its face, never with a loading face that fills in later.
+export async function assertAgentNotesAppearWithFaces(page) {
+	const names = ['Probe one', 'Probe two', 'Probe three', 'Probe four', 'Probe five', 'Probe six'];
+	const paths = names.map(name => `${name}.md`);
+	// The notes follow README.md: with the canvas small enough, they appear in sight beside it.
+	await closeCardDetailIfOpen(page);
+	await openRootCanvas(page);
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	await centerCanvasCards(page, [readme]);
+	await page.locator('.basehalf-canvas-cards').focus();
+	for (let step = 0; step < 4; step++) {
+		await zoomCanvas(page, 'out', { preserveFocus: true });
+	}
+	await centerCanvasCards(page, [readme]);
+	await watchCardFrames(page);
+	for (const [index, name] of names.entries()) {
+		fs.writeFileSync(path.join(workspacePath, paths[index]), `---\nupstream:\n  - README.md\n---\n# ${name}\n\nA line that an agent wrote.\n`, 'utf8');
+	}
+	await page.waitForFunction(count => document.querySelectorAll('.basehalf-canvas-card[data-basehalf-card-path^="Probe "]').length === count, names.length, { timeout: 15_000 });
+	await page.waitForTimeout(600);
+	const frames = await stopCardFrames(page);
+	try {
+		for (const [index, name] of names.entries()) {
+			const failing = cardFramesFailing(frames, [paths[index]], card => card.shell || (!card.loading && card.text.includes(name)));
+			if (failing.wrong.length) {
+				throw new Error(`The card of ${paths[index]} must appear with its face: of ${failing.shown} frames, ${failing.wrong.length} did not show it, first ${JSON.stringify(failing.wrong[0])}`);
+			}
+		}
+		const drawn = paths.filter(cardPath => frames.some(frame => frame.cards.some(card => card.path === cardPath && !card.shell)));
+		if (drawn.length < 3) {
+			throw new Error(`At least three of the notes must appear in sight to be checked, ${drawn.length} did: ${JSON.stringify(drawn)}`);
+		}
+		const firsts = paths.map(cardPath => frames.findIndex(frame => frame.cards.some(card => card.path === cardPath)));
+		if (new Set(firsts).size !== 1) {
+			throw new Error(`Notes written at once must appear in one frame: ${JSON.stringify(Object.fromEntries(paths.map((cardPath, index) => [cardPath, firsts[index]])))}`);
+		}
+	} finally {
+		for (const cardPath of paths) {
+			fs.rmSync(path.join(workspacePath, cardPath), { force: true });
+		}
+		await page.waitForFunction(() => document.querySelectorAll('.basehalf-canvas-card[data-basehalf-card-path^="Probe "]').length === 0, undefined, { timeout: 15_000 });
+	}
 }
 
 // An AGENT edits the note's `upstream` list as ordinary text (D37). The index

@@ -41,6 +41,15 @@ import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfIt
  */
 const KNOWN_FACE_LIFETIME_MS = 10_000;
 
+/**
+ * The cards that appear on a canvas that is shown are drawn with their faces,
+ * read before the drawing that brings them: at most this many of them, and what
+ * is read within this long (canvas card interaction continuity, "A card that
+ * appears shows its face"). The others fill in as they are read.
+ */
+const APPEARING_FACES_LIMIT = 24;
+const APPEARING_FACES_WAIT_MS = 150;
+
 /** The version of a file: what its card's face holds for. */
 type BaseHalfCanvasFileVersion = Pick<IFileStat, 'etag' | 'mtime' | 'size'>;
 
@@ -255,6 +264,43 @@ export class BaseHalfCanvasPreviews {
 			query: baseHalfMediaVersionQuery(item.stat)
 		});
 		return { kind: 'media', text: MEDIA_LABELS[mediaKind], mediaKind, resource };
+	}
+
+	/**
+	 * What the cards of `items`, which appear on the canvas that is shown, show:
+	 * read now, so that the drawing that brings them draws them with their faces
+	 * and not with a loading face that fills in a frame or more later. A face is
+	 * taken only for the file at the version the drawing has; a code file, which
+	 * is coloured for its card's height, and what is not read in time are left
+	 * to the reads after the drawing.
+	 */
+	async readAppearingFaces(items: readonly IBaseHalfCanvasItem[]): Promise<ReadonlyMap<string, BaseHalfCanvasCardPreview>> {
+		const faces = new Map<string, BaseHalfCanvasCardPreview>();
+		const reads = items.slice(0, APPEARING_FACES_LIMIT).map(async item => {
+			try {
+				const before = await this.view.fileService.stat(item.stat.resource);
+				if (!sameFileVersion(before, item.stat)) {
+					return;
+				}
+				const preview = await this.readCardPreview(item);
+				const after = await this.view.fileService.stat(item.stat.resource);
+				if (sameFileVersion(after, item.stat) && preview.kind !== 'code' && preview.kind !== 'loading') {
+					faces.set(item.path, preview);
+				}
+			} catch {
+				// Read after the drawing, as before.
+			}
+		});
+		let waited: number | undefined;
+		await Promise.race([
+			Promise.all(reads),
+			new Promise<void>(resolve => { waited = mainWindow.setTimeout(resolve, APPEARING_FACES_WAIT_MS); })
+		]);
+		if (waited !== undefined) {
+			mainWindow.clearTimeout(waited);
+		}
+		// What a read brings after the wait belongs to no drawing.
+		return new Map(faces);
 	}
 
 	private async readCardPreview(item: IBaseHalfCanvasItem): Promise<BaseHalfCanvasCardPreview> {

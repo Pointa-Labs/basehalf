@@ -37,6 +37,8 @@ export async function watchCardFrames(page) {
 					titleLine: !editor && !!card.querySelector('.bh-md-preview .basehalf-canvas-note-title-line'),
 					hint: !editor && !!card.querySelector('.basehalf-canvas-note-empty'),
 					loading: !!preview?.classList.contains('kind-loading'),
+					// A card out of sight is drawn as its frame alone, with no face to check.
+					shell: !editor && !preview && !document,
 					cover: document instanceof HTMLElement ? document.dataset.cover ?? null : null,
 					text: ((editor ?? preview)?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 80),
 					x: Math.round(box.x),
