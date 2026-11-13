@@ -12,7 +12,7 @@ import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
+import { hideBaseHalfHoverOfRenamedButton, setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { renderBaseHalfItemGlyph } from '../../ui/browser/basehalfItemGlyph.js';
 import { baseHalfMediaUrl, baseHalfKnownVideoAspect, registerBaseHalfMediaPause, releaseBaseHalfMedia, rememberBaseHalfVideoAspect } from './basehalfMediaElements.js';
 import { BaseHalfVideoSound, BaseHalfVideoSoundGraph } from './basehalfVideoSound.js';
@@ -853,11 +853,23 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfVideo
 			: localize('basehalf.canvas.videoPlayer.mute', "Mute"));
 	}
 
-	/** Names a button, for a screen reader, and for the window's own hover of BaseHalf where no hover service draws one. */
+	/**
+	 * Names a button, for a screen reader and in its hover: the hover
+	 * service's, or the window's own hover of BaseHalf where no hover service
+	 * draws one. A hover that names what the button did before goes, as the
+	 * tooltip of Play when the sound starts (generation cards, "The player").
+	 */
 	private label(button: HTMLElement, text: string): void {
+		if (button.getAttribute('aria-label') === text) {
+			return;
+		}
+		const renamed = button.hasAttribute('aria-label');
 		button.setAttribute('aria-label', text);
-		if (!this.options.hoverService) {
+		const hoverService = this.options.hoverService;
+		if (!hoverService) {
 			setBaseHalfHover(button, text);
+		} else if (renamed) {
+			hideBaseHalfHoverOfRenamedButton(button, hoverService);
 		}
 	}
 

@@ -327,8 +327,9 @@ class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerati
 		return undefined;
 	}
 
+	/** The generation of the store's card changed. */
 	report(): void {
-		this.progress.fire(NODE);
+		this.progress.fire(this.store.resource);
 	}
 }
 
@@ -1013,6 +1014,87 @@ suite('BaseHalfVideoNodePanel', () => {
 			generated: ['Rain on the window'],
 			stop: { stop: true, label: 'Stop Generating' },
 			stops: 1
+		});
+	});
+
+	test('a draft\'s panel of any kind goes from its generation straight to the panel of its file: it draws nothing of the writes of its landing or of the record that says the card landed, and its stop square stops nothing then; a generation that fails leaves a panel that can be changed (criterion 104)', async () => {
+		/** What the panel shows of the card: Generate or the stop square, the model, the voice, the prompt's placeholder, the buttons that add an input, and whether the prompt takes typing. */
+		const look = (panel: BaseHalfVideoNodePanel) => [
+			find(panel, '.bh-video-panel-generate').classList.contains('stop') ? 'stop' : 'generate',
+			find(panel, '.bh-video-panel-model-label').textContent,
+			// Only an audio card's panel places the voice button (D91).
+			panel.element.querySelector<HTMLElement>('.bh-video-panel-voice:not([hidden])')?.textContent ?? 'no voice',
+			promptOf(panel).dataset.placeholder,
+			find(panel, '.bh-add-inputs').hidden ? 'no buttons' : 'buttons',
+			promptOf(panel).contentEditable === 'true' ? 'typing' : 'read only'
+		].join(' · ');
+		/**
+		 * The looks of the panel through a landing, as the generation service
+		 * makes it (generation cards, "Landing"): the file put at the card's
+		 * path, its `made.yaml` written, its `generation.yaml` removed, and the
+		 * record that says the card landed, each read by the panel before the
+		 * next comes or, with `atOnce`, all before the panel has read any.
+		 */
+		const lands = async (panel: BaseHalfVideoNodePanel, atOnce: boolean) => {
+			generation.generating = true;
+			generation.report();
+			await settle();
+			const looks = [look(panel)];
+			const seen = async () => {
+				looks.push(look(panel));
+				if (!atOnce) {
+					await settle();
+					looks.push(look(panel));
+				}
+			};
+			store.hasFile = true;
+			store.writeFromElsewhere(store.info);
+			await seen();
+			store.writeFromElsewhere({ prompt: '' });
+			await seen();
+			generation.generating = false;
+			generation.report();
+			await seen();
+			await settle();
+			looks.push(look(panel));
+			find(panel, '.bh-video-panel-generate').click();
+			await settle();
+			looks.push(look(panel));
+			return { first: looks[0], others: [...new Set(looks.slice(1))], stops: generation.stops };
+		};
+		/** Each landing of a draft made by `create`, read step by step and all at once: the looks after the generation's, and how often the stop square stopped. */
+		const each = async (create: () => Promise<BaseHalfVideoNodePanel>) => {
+			const shown: Record<string, unknown> = {};
+			for (const atOnce of [false, true]) {
+				store.hasFile = false;
+				const landed = await lands(await create(), atOnce);
+				shown[atOnce ? 'atOnce' : 'readEach'] = { generation: landed.first, after: landed.others.filter(other => other !== landed.first), stops: landed.stops };
+			}
+			return shown;
+		};
+		const video = await each(() => {
+			// The landing before took the prompt and settings away.
+			store.info = { prompt: '', ...READY };
+			return createPanel();
+		});
+		const image = await each(() => createImagePanel(['refs/c.png']));
+		const speech = await each(() => createAudioPanel({ prompt: '@[notes/intro.md]', ...SPEECH }, ['notes/intro.md']));
+		const straight = (generation: string) => ({ readEach: { generation, after: [], stops: 0 }, atOnce: { generation, after: [], stops: 0 } });
+
+		// A generation that fails: the card is a draft again once the panel has read it, and it can be changed.
+		store.hasFile = false;
+		const failed = await createAudioPanel({ prompt: '@[notes/intro.md]', ...SPEECH }, ['notes/intro.md']);
+		generation.generating = true;
+		generation.report();
+		await settle();
+		generation.generating = false;
+		generation.report();
+		await settle();
+		assert.deepStrictEqual({ video, image, speech, failed: look(failed) }, {
+			video: straight('stop · Acme Motion 2 · no voice · Describe the video. Type @ to mention an input. · no buttons · read only'),
+			image: straight('stop · Corvid Paint · no voice · Describe the image. Type @ to mention an input. · no buttons · read only'),
+			speech: straight('stop · Dunlin Voice · Ember · Write what the voice says. Type @ to mention an input. · no buttons · read only'),
+			failed: 'generate · Dunlin Voice · Ember · Write what the voice says. Type @ to mention an input. · buttons · typing'
 		});
 	});
 

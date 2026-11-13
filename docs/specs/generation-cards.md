@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes; 2026-10-31, D106: every panel's footer begins with the two buttons that add an input and ends with the model beside Generate, and the panel of a card with its file ends with its model's name beside New Version; D107: Set Up and Providers… open Providers at the card's type; 2026-11-02, D110: a note's text in a prompt drops the tags of the elements a note shows, and a video or a sound inside a note plays in its own controls)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes; 2026-10-31, D106: every panel's footer begins with the two buttons that add an input and ends with the model beside Generate, and the panel of a card with its file ends with its model's name beside New Version; D107: Set Up and Providers… open Providers at the card's type; 2026-11-02, D110: a note's text in a prompt drops the tags of the elements a note shows, and a video or a sound inside a note plays in its own controls; 2026-11-12: a draft's panel goes from its generation straight to the panel of its file, and the tooltips of the player's controls follow them)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -1201,6 +1201,23 @@ settings buttons show their values and open nothing; Generate is the stop
 square; and Pick on Canvas ends. When the generation fails or is stopped, the card is a draft again
 and its panel can be changed again.
 
+**When its file lands**, the panel goes from the generation straight to the
+panel of the card with its file, which takes its place once it has read its
+card ([Placement](#placement)). A draft's panel shows only a draft. The
+landing puts the file at the card's path, writes its `made.yaml`, removes its
+`generation.yaml`, and records that the card landed, one after the other,
+before the canvas draws the card with its file; a read of the card between
+those writes finds a file with no prompt, model, or settings of a draft. The
+draft's panel never draws such a read: it stays as the generation showed it,
+with its stop square, until the other panel takes its place. So a panel whose
+generation ended shows the generation until a read of the card made after
+the end says what the card is now: a draft again, after a failure or a stop,
+whose panel can be changed, or a card with its file. Meanwhile its stop
+square stops nothing. Found on 2026-11-12 while a speech generation was
+filmed: for about 0.12 s while the card said "Saving", the panel of the draft
+showed the panel of a draft without a model, "Describe the sound.", "Choose
+Model", and a dimmed Generate, before the panel of the card with its file.
+
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
 open, returns focus to the card. The input row is one stop of Tab: Left and
@@ -1502,6 +1519,19 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   sound of a card plays in the system's controls. A video or a sound inside
   a note plays in the element's own controls, until files in notes (D111)
   ([formats of a note](note-formats.md#pictures-videos-and-sounds)).
+- **The tooltips of the controls follow them**, as every hover does
+  ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
+  The tooltip of a control, Play or Pause, Unmute or Mute, Open, and Full
+  Screen or Exit Full Screen, shows after the workbench's delay while the
+  pointer rests on the control, and says what the control does then. It
+  goes 200 ms after the pointer leaves the control; at once when the
+  control is pressed, also before it showed; and when what the control does
+  changes under the pointer, as when the sound ends and Pause becomes Play.
+  It comes again when the pointer comes onto the control again. Found on
+  2026-11-12 while a speech generation was filmed: the pointer rested on
+  Play for about a second and clicked, and the tooltip "Play" showed once
+  the pointer had moved onto the picture, while the button showed Pause,
+  and stayed for 2 to 3 s.
 - **The keyboard.** The buttons are buttons; the position slider moves a
   second with Left and Right, and goes to the start and the end with Home
   and End. The arrow keys on a control move no card. In Card Detail the same
@@ -2596,6 +2626,24 @@ Each panel's footer (D106)
      voice for a speech model and the summary of the settings before the
      model's name.
 
+The panel while a file lands, and the player's tooltips (2026-11-12)
+
+104. With the panel of an image, a video, or a speech draft open while it
+     generates, every frame from the first that shows the stop square to the
+     first that shows the panel of the card with its file shows the panel of
+     the generation as it was: its model, its voice, its prompt's
+     placeholder, and its stop square, with no button that adds an input. Its
+     stop square stops nothing once the generation has ended. A generation
+     that fails leaves a panel that can be changed.
+105. On the selected card of a sound at rest, with the pointer resting on
+     Play for a second, a click, and the pointer on the card's picture
+     350 ms later, before the tooltip's delay of 1.5 s ends, no tooltip
+     shows. With the pointer back on the button while the sound plays, the
+     tooltip says Pause, and it goes in the frame in which the sound ends
+     and the button becomes Play. In no frame does a tooltip of the player
+     say another name than its control has, or stay longer than 200 ms
+     after the pointer left the control.
+
 ## Verification
 
 - Unit tests of the pure modules (`basehalfGenerationInfo.test.ts`,
@@ -2702,6 +2750,15 @@ Each panel's footer (D106)
   (`basehalfCanvasVideoPanel.contribution.test.ts`);
   the count's buttons from 1 to as far as the model makes, in rows, and the
   model menu's line (`basehalfGenerationKindParts.test.ts`).
+- Unit tests for the landing and the tooltips of 2026-11-12: a draft's
+  panel of each kind through the writes of a landing, read one by one and
+  all at once, its stop square after the end, and a generation that fails
+  (`basehalfVideoNodePanel.test.ts`, criterion 104); a hover that waits for
+  its delay and is clicked, taken away, or left by the pointer
+  (`hoverService.test.ts`); a hover of BaseHalf whose text changes
+  (`basehalfHover.test.ts`); and the tooltips of the player's controls when
+  their names change under the pointer (`basehalfVideoPlayer.test.ts`,
+  criterion 105).
 - Unit tests for D106: the footer of each kind's panel from left to right,
   a speech model's with its two buttons and no row, where its parts begin
   and end, the summary of the settings that gives way before the voice's
@@ -2712,8 +2769,9 @@ Each panel's footer (D106)
   (`basehalfGenerationRecordPanel.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
-  42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 69 to 76, 78, 95 to 97, and 100, against the local test provider through the ByteDance module, and
-  for criteria 80 to 89 through the ElevenLabs and Mureka modules
+  42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 69 to 76, 78, 95 to 97, 100, and
+  104, against the local test provider through the ByteDance module, and
+  for criteria 80 to 89, 104, and 105 through the ElevenLabs, Mureka, and Alibaba modules
   (`audioCards.mts`; the canvas suite checks that the Create menu offers New
   Audio and makes an audio draft from Create from Connection), with a test
   key; no paid provider is called. The test provider answers every task, image, and sound with a

@@ -14,6 +14,8 @@ import path from 'path';
 import process from 'process';
 import { videoSmokeProvider } from './generationCards.mts';
 import {
+	assertPanelGoesStraightToItsFile,
+	assertTooltipsFollowTheirControl,
 	canonicalJson,
 	canvasCard,
 	cardInformationFiles,
@@ -42,6 +44,8 @@ import {
 	readSettingsPopover,
 	readUpstreamSidecar,
 	readVoiceMenu,
+	sampleControlHovers,
+	samplePanelLooks,
 	savePrompt,
 	selectGenerationCard,
 	showCardOnCanvas,
@@ -532,6 +536,7 @@ async function assertNoteIsSpoken(page) {
 
 	const requestsBefore = provider.mock.requests.length;
 	const watch = watchGenerations([AUDIO_FOLDER]);
+	const looks = await samplePanelLooks(page, SPEECH);
 	await clickGenerate(panel);
 	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(SPEECH)) && readMade(SPEECH) !== undefined, `the speech to land on ${SPEECH}`);
 	watch.stop();
@@ -555,12 +560,14 @@ async function assertNoteIsSpoken(page) {
 		|| JSON.stringify(cardInformationFiles(SPEECH)) !== JSON.stringify(['made.yaml', 'upstream.yaml'])) {
 		throw new Error(`The sound must land as ${SPEECH}, with its record: ${JSON.stringify(cardInformationFiles(SPEECH))}`);
 	}
-	// The open panel becomes the panel of the card with its file: the model, the voice, and the settings (criterion 89).
+	// The open panel becomes the panel of the card with its file: the model, the voice, and the settings (criterion 89),
+	// straight from the generation (criterion 104).
 	const record = await waitForReading(() => readRecordPanel(panel), seen => seen.record && seen.state === 'ready' && seen.model === ELEVEN_V4.label, 'the panel of the card to show what made its sound');
 	if (record.voice !== ACCOUNT_VOICE.label || !record.settings?.startsWith('Speech') || record.settings.includes(ACCOUNT_VOICE.label) || record.prompt !== made.prompt
 		|| JSON.stringify(record.inputs) !== JSON.stringify(['intro']) || record.line !== null || JSON.stringify(record.buttons) !== JSON.stringify(['New Version'])) {
 		throw new Error(`The panel of the card must name the model, the voice, and the settings it was made with: ${JSON.stringify(record)}`);
 	}
+	assertPanelGoesStraightToItsFile(await looks.stop(), `The panel of ${SPEECH}`);
 
 	// The card plays the sound in the player, the glyph of a sound where a video shows its frame: Play plays it with its sound.
 	await clickBlankCanvas(page);
@@ -581,6 +588,7 @@ async function assertNoteIsSpoken(page) {
 	}
 	await page.mouse.click(play.x, play.y);
 	await waitForReading(() => readCardVideoPlayer(page, SPEECH), seen => seen?.paused === true, 'Pause to pause the sound');
+	await assertPlayTooltipFollowsItsButton(page, SPEECH);
 
 	// Open shows it in Card Detail, as its waveform in place of a player (editing media, D85), which plays it with what made it under it.
 	const toolbar = await waitForReading(() => readCardToolbar(page), seen => seen?.path === SPEECH, 'the toolbar of the card with its sound');
@@ -634,6 +642,45 @@ async function assertNoteIsSpoken(page) {
 	await detail.waitFor({ state: 'hidden', timeout: 10_000 });
 	await assertCanvasFolder(page, AUDIO_FOLDER);
 	await clickBlankCanvas(page);
+}
+
+// Criterion 105: the tooltip of Play, on the selected card of a sound at rest.
+// As on 2026-11-12: the pointer rests on Play for a second, clicks, and moves
+// onto the card's picture 350 ms later, as the tooltip's delay of 1.5 s ends.
+// Then, with the pointer back on the button while the sound plays, the
+// tooltip says Pause, until the sound ends and the button becomes Play.
+async function assertPlayTooltipFollowsItsButton(page, cardPath) {
+	const picture = await cardVideoPicturePoint(page, cardPath);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	const play = await cardVideoControlBox(page, cardPath, 'play');
+	let hovers = await sampleControlHovers(page, cardPath, 'play');
+	await page.mouse.move(play.x, play.y, { steps: 4 });
+	await page.waitForTimeout(1_000);
+	await page.mouse.click(play.x, play.y);
+	await page.waitForTimeout(350);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	await page.waitForTimeout(1_500);
+	const clicked = await hovers.stop();
+	assertTooltipsFollowTheirControl(clicked, 'Play, clicked before its tooltip showed');
+	if (clicked.some(look => look.hovers.length > 0)) {
+		throw new Error(`A click on Play before its tooltip showed must leave no tooltip: ${JSON.stringify(clicked)}`);
+	}
+	await waitForReading(() => readCardVideoPlayer(page, cardPath), seen => seen?.paused === true, 'the sound to play to its end', 15_000);
+
+	hovers = await sampleControlHovers(page, cardPath, 'play');
+	await page.mouse.move(play.x, play.y, { steps: 4 });
+	await page.mouse.click(play.x, play.y);
+	await page.mouse.move(picture.x, picture.y, { steps: 2 });
+	await page.mouse.move(play.x, play.y, { steps: 2 });
+	await waitForReading(() => readCardVideoPlayer(page, cardPath), seen => seen?.paused === true, 'the sound to play to its end with the pointer on Pause', 15_000);
+	await page.waitForTimeout(300);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	await page.waitForTimeout(500);
+	const ended = await hovers.stop();
+	assertTooltipsFollowTheirControl(ended, 'Pause, when the sound ends under the pointer');
+	if (!ended.some(look => look.hovers.includes('Pause') && look.name === 'Pause')) {
+		throw new Error(`The tooltip of Pause must show while the pointer rests on it and the sound plays: ${JSON.stringify(ended)}`);
+	}
 }
 
 // --- several songs ---------------------------------------------------------------------------------
@@ -789,6 +836,7 @@ async function assertAlibabaSpeaksNote(page) {
 
 	const requestsBefore = provider.mock.requests.length;
 	const watch = watchGenerations([AUDIO_FOLDER]);
+	const looks = await samplePanelLooks(page, cardPath);
 	await clickGenerate(panel);
 	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(cardPath)) && readMade(cardPath) !== undefined, `the speech to land on ${cardPath}`);
 	watch.stop();
@@ -817,6 +865,8 @@ async function assertAlibabaSpeaksNote(page) {
 	if (record.voice !== QWEN_CHINA_VOICE.label || !record.settings?.startsWith('Speech')) {
 		throw new Error(`The panel of the card must name ${QWEN_FLASH.label} and ${QWEN_CHINA_VOICE.label}: ${JSON.stringify(record)}`);
 	}
+	// Straight from the generation, where a film of 2026-11-12 caught a draft without a model between them (criterion 104).
+	assertPanelGoesStraightToItsFile(await looks.stop(), `The panel of ${cardPath}`);
 	const holding = filesContaining(workspacePath, provider.key);
 	if (holding.length) {
 		throw new Error(`A provider's credentials are in workspace files: ${holding.join(', ')}`);

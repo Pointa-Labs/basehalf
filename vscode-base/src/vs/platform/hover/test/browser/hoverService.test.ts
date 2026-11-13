@@ -305,6 +305,20 @@ suite('HoverService', () => {
 			assert.strictEqual(hover.isDisposed, true, 'Locked hover should be disposed with force=true');
 			assertNotInDOM(hover, 'Locked hover should be removed from DOM with force');
 		});
+
+		test('should cancel a delayed hover that has not been shown yet', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+			(instantiationService.get(IConfigurationService) as TestConfigurationService).setUserConfiguration('workbench.hover.delay', 500);
+
+			const hover = hoverService.showDelayedHover({ content: 'Manage', target: createTarget() }, {});
+			assert.ok(hover, 'Hover should be created');
+			assertNotInDOM(hover, 'Hover should not be visible before the delay elapses');
+
+			// Simulates something else taking over, e.g. a context menu opening
+			hoverService.hideHover();
+
+			await timeout(500);
+			assertNotInDOM(hover, 'Cancelled delayed hover should never be shown');
+		}));
 	});
 
 	suite('nested hovers', () => {
@@ -510,6 +524,45 @@ suite('HoverService', () => {
 			await timeout(150);
 			const hoversAfter = mainWindow.document.querySelectorAll('.monaco-hover');
 			assert.strictEqual(hoversAfter.length, 1, 'Hover should be visible after reduced delay');
+
+			disposable.dispose();
+			hoverService.hideHover(true);
+		}));
+
+		test('should not show a pending hover after the target was clicked', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+			const target = createTarget();
+			(instantiationService.get(IConfigurationService) as TestConfigurationService).setUserConfiguration('workbench.hover.delay', 500);
+
+			const disposable = hoverService.setupDelayedHover(target, { content: 'Manage' });
+			target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+			target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+			await timeout(500);
+			assert.strictEqual(mainWindow.document.querySelectorAll('.monaco-hover').length, 0, 'Pending hover should be cancelled by the click');
+
+			disposable.dispose();
+		}));
+
+		// BaseHalf: the tooltip of a player's Play stayed up for seconds after the pointer left it (docs/specs/generation-cards.md, "The player").
+		test('should not show a pending hover whose target the pointer left while it waited, also when its delay elapses before the mouse-out of that leave', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+			const target = createTarget();
+			(instantiationService.get(IConfigurationService) as TestConfigurationService).setUserConfiguration('workbench.hover.delay', 500);
+
+			const disposable = hoverService.setupDelayedHover(target, { content: 'Play' });
+			target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+			await timeout(400);
+			target.dispatchEvent(new MouseEvent('mouseleave'));
+			// The delay elapses 100 ms after the leave, while its mouse-out waits for 200 ms.
+			await timeout(100);
+			const atDelay = mainWindow.document.querySelectorAll('.monaco-hover').length;
+			await timeout(1_000);
+			const later = mainWindow.document.querySelectorAll('.monaco-hover').length;
+
+			// The pointer that comes back has the hover after the delay.
+			target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+			await timeout(500);
+			const back = mainWindow.document.querySelectorAll('.monaco-hover').length;
+			assert.deepStrictEqual({ atDelay, later, back }, { atDelay: 0, later: 0, back: 1 });
 
 			disposable.dispose();
 			hoverService.hideHover(true);

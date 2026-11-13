@@ -15,6 +15,7 @@ import { localize } from '../../../../nls.js';
 import type { VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { hideBaseHalfHoverOfRenamedButton } from '../../ui/browser/basehalfHover.js';
 import { IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 import {
@@ -321,9 +322,17 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 			}
 			play.classList.toggle('playing', !!sample);
 			play.classList.toggle('loading', sample?.phase === 'loading');
-			play.setAttribute('aria-label', sample
+			const label = sample
 				? localize('basehalf.generation.voices.stopSampleOf', "Stop the Sample of {0}", voice.label)
-				: localize('basehalf.generation.voices.playSampleOf', "Play the Sample of {0}", voice.label));
+				: localize('basehalf.generation.voices.playSampleOf', "Play the Sample of {0}", voice.label);
+			if (play.getAttribute('aria-label') !== label) {
+				const renamed = play.hasAttribute('aria-label');
+				play.setAttribute('aria-label', label);
+				if (renamed) {
+					// Its hover names what it did before, Play Sample or Stop Sample: it goes.
+					hideBaseHalfHoverOfRenamedButton(play, this.hoverService);
+				}
+			}
 		}
 		const failure = this.voices.sampleFailure;
 		const shown = failure?.provider === this.target.provider.id ? failure : undefined;

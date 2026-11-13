@@ -259,6 +259,20 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	presentation: IBaseHalfVideoPanelPresentation | undefined;
 	private readError: string | undefined;
 	private refreshSequence = 0;
+	/** The panel showed the card's generation while it ran. */
+	private generationRan = false;
+	/**
+	 * While the panel shows a generation that has ended: the last read of the
+	 * card started before the end. Only a read started after it says what the
+	 * card is now (generation cards, "When its file lands").
+	 */
+	private generationEnd: number | undefined;
+	/**
+	 * A read found the card's file: the panel of a draft keeps what it showed
+	 * until the panel of the card with its file takes its place (generation
+	 * cards, "When its file lands").
+	 */
+	private landed = false;
 	/** The upstream list whose inputs the panel drew last, as the host was told it. */
 	private shownUpstream: string | undefined;
 	private readonly refreshScheduler = this._register(new RunOnceScheduler(() => { void this.refresh(); }, 0));
@@ -503,6 +517,10 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	 * saved and the composition itself is not.
 	 */
 	async flush(): Promise<void> {
+		if (this.landed) {
+			// A card with its file has no prompt or settings of a draft: its `made.yaml` says what made it.
+			return;
+		}
 		if (this.promptDirty || this.saveScheduled) {
 			await this.savePrompt();
 		}
@@ -515,18 +533,36 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		this.editor.focus();
 	}
 
-	/** Reads the card, its inputs, and the text of its text inputs again. */
+	/**
+	 * Reads the card, its inputs, and the text of its text inputs again. A
+	 * draft's panel shows only a draft: a read that finds the card's file, as
+	 * between the writes of its landing, is not drawn (generation cards, "When
+	 * its file lands").
+	 */
 	async refresh(): Promise<void> {
 		const sequence = ++this.refreshSequence;
 		try {
 			const snapshot = await this.store.read(this.resource);
-			const inputs = await this.store.resolveInputs(snapshot);
-			const texts = await this.readTexts(inputs);
+			const draft = !snapshot.hasFile && !snapshot.made && !snapshot.madeUnreadable;
+			const inputs = draft ? await this.store.resolveInputs(snapshot) : [];
+			const texts = draft ? await this.readTexts(inputs) : new Map<string, string>();
 			if (this.disposed || sequence !== this.refreshSequence) {
 				return;
 			}
-			this.texts = texts;
-			this.applySnapshot(snapshot, inputs);
+			if (!draft) {
+				this.landed = true;
+				if (!this.snapshot) {
+					// Nothing of a draft to show: the panel the canvas shows stays until the panel of the card with its file takes its place (D91).
+					return;
+				}
+			} else {
+				if (this.generationEnd !== undefined && sequence > this.generationEnd) {
+					// Read after the generation ended: the card is a draft again, and its panel can be changed again.
+					this.generationEnd = undefined;
+				}
+				this.texts = texts;
+				this.applySnapshot(snapshot, inputs);
+			}
 		} catch (error) {
 			if (this.disposed || sequence !== this.refreshSequence) {
 				return;
@@ -866,7 +902,8 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	//#region Rendering
 
 	render(): void {
-		if (this.disposed) {
+		if (this.disposed || this.landed) {
+			// A draft's panel whose card has its file stays as it was until the panel of the card with its file takes its place.
 			return;
 		}
 		const snapshot = this.snapshot;
@@ -889,7 +926,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			setup: provider => this.providerSettings.getStatus(provider),
 			voices: (provider, region, model) => this.voiceService.voices(provider, region, model).list,
 			...(this.lastCheck && this.lastCheck.model === modelKey ? { check: this.lastCheck.result } : {}),
-			generating: this.generationService.isGenerating(this.resource),
+			generating: this.showsGeneration(),
 			prompt: this.editor.value
 		});
 		this.scheduleCheck(this.presentation);
@@ -935,6 +972,29 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	/** The draft generates: its prompt, inputs, model, and settings show what is being generated and cannot be changed (D67). */
 	isLocked(): boolean {
 		return this.presentation?.generate.kind === 'stop';
+	}
+
+	/**
+	 * Whether the panel shows the card's generation: while it runs, and after
+	 * it ended until a read of the card started since then says what the card
+	 * is now, a draft again or a card with its file. So the panel never draws
+	 * the card between the writes of its landing, nor the record that says the
+	 * card landed before the canvas has the card with its file (generation
+	 * cards, "When its file lands").
+	 */
+	private showsGeneration(): boolean {
+		if (this.generationService.isGenerating(this.resource)) {
+			this.generationRan = true;
+			this.generationEnd = undefined;
+			return true;
+		}
+		if (this.generationRan) {
+			// The generation the panel showed ended: what the card is now is read first.
+			this.generationRan = false;
+			this.generationEnd = this.refreshSequence;
+			this.scheduleRefresh();
+		}
+		return this.generationEnd !== undefined;
 	}
 
 	private renderNotice(): void {
@@ -1245,6 +1305,10 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private async stop(): Promise<void> {
+		if (!this.generationService.isGenerating(this.resource)) {
+			// The generation ended: its stop square shows only until a read says what the card is now, and stops nothing.
+			return;
+		}
 		try {
 			await this.generationService.stop(this.resource);
 		} catch (error) {

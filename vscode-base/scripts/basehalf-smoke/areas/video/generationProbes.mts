@@ -571,6 +571,71 @@ export async function sampleCardPhases(page, cardPath) {
 
 // --- the panel --------------------------------------------------------------------------------------
 
+/**
+ * Samples, every frame inside the window, what the panel under the card at
+ * `cardPath` shows: `none`; `file`, the panel of a card with its file; or a
+ * draft's panel, `generating` while its Generate is the stop square and
+ * `draft` otherwise, with its model, its prompt's placeholder, and whether
+ * its buttons that add an input show. `stop` returns each look in the order
+ * it showed, with its frames and milliseconds.
+ */
+export async function samplePanelLooks(page, cardPath) {
+	await page.evaluate(path => {
+		const sampled = { looks: [], running: true, frames: 0 };
+		globalThis.__bhPanelLooks = sampled;
+		const tick = now => {
+			const surface = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+			const panel = surface?.getAttribute('data-visible') === 'true' ? surface.querySelector('.bh-video-panel') : null;
+			let look = 'none';
+			if (panel?.classList.contains('bh-record-panel')) {
+				look = 'file';
+			} else if (panel) {
+				const adding = panel.querySelector('.bh-add-inputs');
+				look = [
+					panel.querySelector('button.bh-video-panel-generate')?.classList.contains('stop') ? 'generating' : 'draft',
+					panel.querySelector('.bh-video-panel-model-label')?.textContent ?? '',
+					panel.querySelector('.bh-prompt-editor')?.getAttribute('data-placeholder') ?? '',
+					adding instanceof HTMLElement && !adding.hidden ? 'buttons that add an input' : 'no buttons that add an input'
+				].join(' · ');
+			}
+			const last = sampled.looks.at(-1);
+			if (last?.look === look) {
+				last.frames++;
+				last.to = now;
+			} else {
+				sampled.looks.push({ look, frames: 1, from: now, to: now });
+			}
+			sampled.frames++;
+			if (sampled.running && sampled.frames < 20_000) {
+				requestAnimationFrame(tick);
+			}
+		};
+		requestAnimationFrame(tick);
+	}, cardPath);
+	return {
+		stop: () => page.evaluate(() => {
+			const sampled = globalThis.__bhPanelLooks;
+			sampled.running = false;
+			return sampled.looks.map(entry => ({ look: entry.look, frames: entry.frames, ms: Math.round(entry.to - entry.from) }));
+		})
+	};
+}
+
+/**
+ * Generation cards, "The panel" (criterion 104): the panel of a draft goes
+ * from its generation straight to the panel of the card with its file. Of
+ * the looks that `samplePanelLooks` saw, every one from the first frame of
+ * the generation to the first frame of the panel of the card with its file
+ * is that of the generation.
+ */
+export function assertPanelGoesStraightToItsFile(looks, what) {
+	const generating = looks.findIndex(entry => entry.look.startsWith('generating'));
+	const file = looks.findIndex(entry => entry.look === 'file');
+	if (generating < 0 || file < generating || looks.slice(generating, file).some(entry => entry.look !== looks[generating].look)) {
+		throw new Error(`${what}: the panel must go from the generation straight to the panel of the card with its file: ${JSON.stringify(looks)}`);
+	}
+}
+
 export function readGenerationPanel(panel) {
 	return panel.evaluate(element => {
 		const text = selector => element.querySelector(selector)?.textContent?.trim() ?? null;
@@ -1327,6 +1392,69 @@ export async function cardVideoControlBox(page, cardPath, control) {
 		throw new Error(`The player of ${cardPath} must show its ${control} with nothing over it: ${JSON.stringify(box)}`);
 	}
 	return box;
+}
+
+/**
+ * Samples, every frame inside the window, the hovers the window shows while
+ * the pointer is near a control of the card's player, `sound`, `play`, or
+ * `open`: what each hover says, the name the control has, and whether the
+ * pointer is on the control. `stop` returns each look in the order it showed,
+ * with its frames, when it first showed (`at`, in milliseconds from the
+ * start), and how long it showed (`ms`).
+ */
+export async function sampleControlHovers(page, cardPath, control) {
+	await page.evaluate(({ path, control }) => {
+		const sampled = { looks: [], running: true, frames: 0, start: performance.now() };
+		globalThis.__bhControlHovers = sampled;
+		const tick = now => {
+			const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+			const button = card?.querySelector(`.basehalf-canvas-video-player-button.${control}`);
+			const hovers = Array.from(document.querySelectorAll('.workbench-hover')).filter(element => element.getBoundingClientRect().width > 0).map(element => element.querySelector('.hover-contents')?.textContent ?? element.textContent ?? '');
+			const look = JSON.stringify({ hovers, name: button?.getAttribute('aria-label') ?? null, pointer: button?.matches(':hover') ? 'on the control' : 'elsewhere' });
+			const last = sampled.looks.at(-1);
+			if (last?.look === look) {
+				last.frames++;
+				last.to = now;
+			} else {
+				sampled.looks.push({ look, frames: 1, from: now, to: now });
+			}
+			sampled.frames++;
+			if (sampled.running && sampled.frames < 20_000) {
+				requestAnimationFrame(tick);
+			}
+		};
+		requestAnimationFrame(tick);
+	}, { path: cardPath, control });
+	return {
+		stop: () => page.evaluate(() => {
+			const sampled = globalThis.__bhControlHovers;
+			sampled.running = false;
+			return sampled.looks.map(entry => ({ ...JSON.parse(entry.look), frames: entry.frames, at: Math.round(entry.from - sampled.start), ms: Math.round(entry.to - entry.from) }));
+		})
+	};
+}
+
+/**
+ * Generation cards, "The player" (criterion 105): of the looks that
+ * `sampleControlHovers` saw, none has a tooltip that says another name than
+ * the control has, and a tooltip shows with the pointer off the control only
+ * in the 200 ms after the pointer left it, and the frame after them, which a
+ * busy machine may draw up to 100 ms late.
+ */
+export function assertTooltipsFollowTheirControl(looks, what) {
+	let leftAt;
+	for (const [index, look] of looks.entries()) {
+		if (look.pointer === 'elsewhere' && looks[index - 1]?.pointer === 'on the control') {
+			leftAt = look.at;
+		} else if (look.pointer === 'on the control') {
+			leftAt = undefined;
+		}
+		const stale = look.hovers.some(hover => hover !== look.name);
+		const lingers = look.hovers.length > 0 && look.pointer === 'elsewhere' && (leftAt === undefined || look.at + look.ms - leftAt > 300);
+		if (stale || lingers) {
+			throw new Error(`${what}: the tooltip of the control must say its name, and go once the pointer left it: ${JSON.stringify(looks)}`);
+		}
+	}
 }
 
 // The pointer's shape at a point of the window: the cursor of what the point hits.
