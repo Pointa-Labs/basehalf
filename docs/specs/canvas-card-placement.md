@@ -5,7 +5,8 @@ and revised so that the layout stays out of git; revised on 2026-10-12 for
 D50, so that a place the user points at is taken as it is; revised on
 2026-10-27 for D88, so that a card let go on a folder goes into it; revised
 on 2026-11-12 for D131, so that a card that follows a card of the canvas
-appears beside it).
+appears beside it; revised on 2026-11-13 for D134, so that a card the user
+makes is drawn at once).
 Implementation in
 progress: until it lands, the code does what the
 first version of this document required, which is summarized under
@@ -13,9 +14,10 @@ first version of this document required, which is summarized under
 [Specifications this changes](#specifications-this-changes) are updated in
 the commit that implements the part they describe.
 Decision: [D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11),
-refined by [D50](../decisions.md#d50--a-place-the-user-points-at-is-taken-as-it-is-new-2026-10-12)
-and [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27),
-and [D131](../decisions.md#d131--a-card-that-follows-a-card-of-the-canvas-appears-beside-it-new-2026-11-12)
+refined by [D50](../decisions.md#d50--a-place-the-user-points-at-is-taken-as-it-is-new-2026-10-12),
+[D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27),
+[D131](../decisions.md#d131--a-card-that-follows-a-card-of-the-canvas-appears-beside-it-new-2026-11-12),
+and [D134](../decisions.md#d134--the-line-being-pulled-is-the-line-it-becomes-and-a-card-the-user-makes-is-drawn-at-once-new-2026-11-13)
 Related: [following moved items](following-moved-items.md),
 [mirror file resilience](mirror-file-resilience.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -561,6 +563,32 @@ zoom on. With the middle taken, it went to the end of the first row, out of
 sight, and the view stayed: the draft's panel was hidden, and its prompt
 never had the keyboard. Since then the card is centered on the middle, and
 the view goes to a card that is out of sight all the same.
+
+### A card the user makes is drawn at once
+
+The card of an item the user just made on the canvas (a note, a folder, a
+draft, a file dropped or pasted at a point, a note or a draft made from a
+connection line) is drawn as soon as the item is there, at the place it was
+given, and with the line it was made with. It does not wait until its row
+and the row of its line are in the layout.
+
+- BaseHalf holds the place, and the sides of the line it was made with, from
+  the moment the item is there until the user's write of the layout has put
+  them there. The drawings in between draw the card at that place and the
+  line with those sides.
+- A held place is the user's: no drawing takes it for a place BaseHalf
+  chose, and BaseHalf does not write it by itself.
+- A place that could not be written stays held as long as the window is
+  open, so that the card does not move, as for
+  [a place that cannot be saved](#when-a-place-cannot-be-saved).
+- In a marked folder the line's sides are not written, and none are held:
+  the line takes its sides by itself from the start.
+
+Measured on 2026-11-13, a note made from a line in a fixture of two cards:
+the card came 60 ms after the menu closed, of which 25 ms waited for the
+layout's writes (its row, and the row of the line). Drawn at once, it comes
+17 to 35 ms after the menu closed: the time to create the file and to draw
+the canvas once.
 
 ### What the user changes
 
@@ -1146,6 +1174,11 @@ written with this document.
     together, Tidy Canvas changes no card's column and no column's order:
     it moves no card of the third column, and moves the root and the second
     column down as a whole.
+50. **Drawn at once.** A note made from a line let go on empty canvas is drawn
+    in the first drawing after its file is created, at the release point and
+    with its line, before its row and the line's row are in the layout; its
+    row there afterwards has that place. No frame draws it anywhere else, or
+    its line with other sides.
 
 ## Verification
 

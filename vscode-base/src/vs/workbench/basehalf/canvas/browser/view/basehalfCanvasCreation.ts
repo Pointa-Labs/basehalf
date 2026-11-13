@@ -1145,7 +1145,12 @@ export class BaseHalfCanvasCreation {
 	 * Gives the card of an item the user just created its row at the place the
 	 * canvas chose for it, and with `edge` the anchor row of the connection the
 	 * item was created with. The item exists either way: a row that cannot be
-	 * saved says so, and the card appears at the end of the canvas.
+	 * saved says so, and the card stays where it was put while the window is
+	 * open.
+	 *
+	 * The item is there already, so its card is drawn now, at that place and
+	 * with that line, and does not wait for these writes (canvas card
+	 * placement, "A card the user makes is drawn at once").
 	 */
 	async placeCreatedCard(
 		folder: IBaseHalfCanvasFolderState,
@@ -1154,31 +1159,35 @@ export class BaseHalfCanvasCreation {
 		size: { readonly width: number; readonly height: number },
 		options: { readonly kind?: 'file' | 'folder'; readonly edge?: IBaseHalfCanvasEdge } = {}
 	): Promise<void> {
-		// A change by the user writes the layout, and the places that wait are
-		// saved with it: before, as they were drawn, and after, for a layout that
-		// only this write made readable.
-		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
-		try {
-			await this.view.canvasMirrorService.updateCardGeometry(folder, {
-				path,
-				kind: options.kind ?? 'file',
-				x: canvasPosition.x,
-				y: canvasPosition.y,
-				width: size.width,
-				height: size.height
-			});
-		} catch (error) {
-			this.view.logService.warn(error);
-			this.view.queueCanvasWarning(localize('basehalf.canvas.createGeometryFailed', "The item was created, but its canvas position could not be saved."));
-		}
-		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
+		const row = { path, kind: options.kind ?? 'file', x: canvasPosition.x, y: canvasPosition.y, width: size.width, height: size.height } as const;
 		// Anchor memory only: in a marked folder the edge uses default anchors.
-		if (options.edge && !await baseHalfIsWorkspaceFolderMarked(this.view.fileService, folder.workspaceFolder)) {
+		const edge = options.edge && !await baseHalfIsWorkspaceFolderMarked(this.view.fileService, folder.workspaceFolder) ? options.edge : undefined;
+		const release = this.view.chosenCanvasPlaces.give(folder, row, edge);
+		this.view.requestRender();
+		let written = false;
+		try {
+			// A change by the user writes the layout, and the places that wait are
+			// saved with it: before, as they were drawn, and after, for a layout that
+			// only this write made readable.
+			await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
 			try {
-				await this.view.canvasMirrorService.upsertCanvasEdge(folder, options.edge);
+				await this.view.canvasMirrorService.updateCardGeometry(folder, row);
+				written = true;
 			} catch (error) {
-				this.view.logService.warn(`[BaseHalf] could not remember the anchors of ${options.edge.from} -> ${options.edge.to}`, error);
+				this.view.logService.warn(error);
+				this.view.queueCanvasWarning(localize('basehalf.canvas.createGeometryFailed', "The item was created, but its canvas position could not be saved."));
 			}
+			await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
+			if (edge) {
+				try {
+					await this.view.canvasMirrorService.upsertCanvasEdge(folder, edge);
+				} catch (error) {
+					written = false;
+					this.view.logService.warn(`[BaseHalf] could not remember the anchors of ${edge.from} -> ${edge.to}`, error);
+				}
+			}
+		} finally {
+			release(written);
 		}
 	}
 

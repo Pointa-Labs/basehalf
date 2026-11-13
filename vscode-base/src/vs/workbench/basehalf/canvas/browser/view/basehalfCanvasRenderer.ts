@@ -548,7 +548,8 @@ export class BaseHalfCanvasRenderer {
 		const model = baseHalfCanvasModelFromStat(stat, {
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
-			canvas,
+			// The line a card was just made with has its sides before the layout holds them.
+			canvas: this.view.chosenCanvasPlaces.withGivenLines(folder, canvas),
 			badges: badgeRead.badges,
 			relationships: connections.relationships,
 			appearingUpstream: connections.appearingUpstream,
@@ -1111,7 +1112,7 @@ export class BaseHalfCanvasRenderer {
 		const model = baseHalfCanvasModelFromStat(stat, {
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
-			canvas,
+			canvas: this.view.chosenCanvasPlaces.withGivenLines(folder, canvas),
 			badges: this.view.renderedBadges,
 			relationships: this.renderedRelationships,
 			// A card whose place is not saved yet stays where it was drawn.

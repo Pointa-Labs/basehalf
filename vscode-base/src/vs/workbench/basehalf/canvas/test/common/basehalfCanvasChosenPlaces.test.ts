@@ -435,4 +435,40 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 			redrawn: '2240,690*'
 		});
 	});
+
+	test('a place the user gave a new item is drawn with its line before the layout holds them, BaseHalf writes neither, and they go once the user wrote them', async () => {
+		const fileService = await createFiles({ 'a.md': 'a' });
+		const window = openWindow(fileService);
+		assert.deepStrictEqual(await draw(fileService, window), { 'a.md': slot(0, 1) });
+		// A note made from a line: its file is there before its row and the row of its line.
+		await fileService.createFile(URI.joinPath(workspaceFolder, 'n.md'), VSBuffer.fromString('n'));
+		const card: IBaseHalfCanvasCard = { path: 'n.md', kind: 'file', x: 900, y: 40, width: 300, height: 220 };
+		const line = { from: 'a.md', from_anchor: 'south', to: 'n.md', to_anchor: 'north' } as const;
+		const release = window.places.give(root, card, line);
+		assert.deepStrictEqual(await draw(fileService, window), { 'a.md': slot(0, 1), 'n.md': '900,40' }, 'drawn at the given place, as the user\'s');
+		assert.deepStrictEqual(await rows(window), { 'a.md': slot(0, 1) }, 'BaseHalf wrote no row for it by itself');
+		assert.deepStrictEqual(window.places.withGivenLines(root, await window.mirror.readCanvas(root))?.edges, [line], 'the line has its sides');
+		// The user's write lands.
+		await window.mirror.updateCardGeometry(root, card);
+		await window.mirror.upsertCanvasEdge(root, line);
+		release(true);
+		assert.strictEqual(window.places.waitingFor(root)?.has('n.md') ?? false, false);
+		assert.strictEqual(window.places.withGivenLines(root, null), null);
+		assert.deepStrictEqual(await draw(fileService, window), { 'a.md': slot(0, 1), 'n.md': '900,40' });
+		assert.deepStrictEqual((await window.mirror.readCanvas(root))?.edges, [line]);
+	});
+
+	test('a place the user gave that could not be written stays held, and a line the layout holds is not given twice', async () => {
+		const fileService = await createFiles({ 'a.md': 'a' });
+		const window = openWindow(fileService);
+		await draw(fileService, window);
+		await fileService.createFile(URI.joinPath(workspaceFolder, 'n.md'), VSBuffer.fromString('n'));
+		const line = { from: 'a.md', from_anchor: 'east', to: 'n.md', to_anchor: 'west' } as const;
+		const release = window.places.give(root, { path: 'n.md', kind: 'file', x: 600, y: 0, width: 300, height: 220 }, line);
+		release(false);
+		assert.deepStrictEqual(await draw(fileService, window), { 'a.md': slot(0, 1), 'n.md': '600,0' });
+		assert.deepStrictEqual(await draw(fileService, window), { 'a.md': slot(0, 1), 'n.md': '600,0' }, 'it does not move at a later drawing');
+		await window.mirror.upsertCanvasEdge(root, line);
+		assert.deepStrictEqual(window.places.withGivenLines(root, await window.mirror.readCanvas(root))?.edges, [line]);
+	});
 });

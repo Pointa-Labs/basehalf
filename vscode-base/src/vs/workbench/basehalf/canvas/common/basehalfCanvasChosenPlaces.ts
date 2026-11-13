@@ -7,7 +7,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IBaseHalfCanvasMirrorService } from './basehalfCanvasMirror.js';
-import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from './basehalfCanvasModel.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasFile } from './basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfPathHoldsDraft } from '../../generation/common/basehalfGenerationDraft.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
@@ -33,6 +33,12 @@ export interface IBaseHalfCanvasPlacesMovedItems {
  */
 export class BaseHalfCanvasChosenPlaces {
 	private readonly waiting = new Map<string, Map<string, IBaseHalfCanvasCard>>();
+	/**
+	 * The places the user gave items that were just made, and the sides of the
+	 * lines they were made with, until the user's own write puts them in the
+	 * layout (canvas card placement, "A card the user makes is drawn at once").
+	 */
+	private readonly given = new Map<string, { readonly cards: Map<string, IBaseHalfCanvasCard>; readonly lines: Map<string, IBaseHalfCanvasEdge> }>();
 	/** One save at a time for each canvas. */
 	private readonly saves = new Map<string, Promise<void>>();
 	/** The failure that was logged last for a canvas, so that one that repeats at every drawing is logged once. */
@@ -56,7 +62,67 @@ export class BaseHalfCanvasChosenPlaces {
 	 */
 	waitingFor(folder: IBaseHalfCanvasFolderState): ReadonlyMap<string, IBaseHalfCanvasCard> | undefined {
 		const waiting = this.waiting.get(keyOf(folder));
-		return waiting?.size ? new Map(waiting) : undefined;
+		const given = this.given.get(keyOf(folder))?.cards;
+		return waiting?.size || given?.size ? new Map([...waiting ?? [], ...given ?? []]) : undefined;
+	}
+
+	/**
+	 * Holds the place the user gave an item that was just made on this canvas,
+	 * and the sides of the line it was made with, while the user's write of the
+	 * layout is on its way. The drawings in between draw the card there, with
+	 * that line, from the first frame in which the item is there (canvas card
+	 * placement, "A card the user makes is drawn at once").
+	 *
+	 * The returned function lets go of them once that write is done. A place that
+	 * could not be written is kept, as long as the window is open, so that the
+	 * card does not move.
+	 */
+	give(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard, line?: IBaseHalfCanvasEdge): (written: boolean) => void {
+		const key = keyOf(folder);
+		let given = this.given.get(key);
+		if (!given) {
+			given = { cards: new Map(), lines: new Map() };
+			this.given.set(key, given);
+		}
+		const held = given;
+		held.cards.set(card.path, card);
+		const lineKey = line ? linePairKey(line) : undefined;
+		if (line && lineKey) {
+			held.lines.set(lineKey, line);
+		}
+		return written => {
+			if (!written) {
+				return;
+			}
+			if (held.cards.get(card.path) === card) {
+				held.cards.delete(card.path);
+			}
+			if (lineKey && held.lines.get(lineKey) === line) {
+				held.lines.delete(lineKey);
+			}
+			if (held.cards.size === 0 && held.lines.size === 0 && this.given.get(key) === held) {
+				this.given.delete(key);
+			}
+		};
+	}
+
+	/**
+	 * The layout as a drawing takes it: with the sides of the lines that were
+	 * given with a place and that the layout does not hold yet.
+	 */
+	withGivenLines(folder: IBaseHalfCanvasFolderState, layout: IBaseHalfCanvasFile | null): IBaseHalfCanvasFile | null {
+		const lines = this.given.get(keyOf(folder))?.lines;
+		if (!lines?.size) {
+			return layout;
+		}
+		const held = new Set((layout?.edges ?? []).map(linePairKey));
+		const missing = [...lines.values()].filter(line => !held.has(linePairKey(line)));
+		if (missing.length === 0) {
+			return layout;
+		}
+		return layout
+			? { ...layout, edges: [...layout.edges, ...missing] }
+			: { path: folder.relativePath, cards: [], edges: missing };
 	}
 
 	/**
@@ -90,8 +156,11 @@ export class BaseHalfCanvasChosenPlaces {
 
 	/** A canvas was drawn. `appeared` are the rows of its cards that the layout does not hold. */
 	drawn(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[]): void {
-		if (appeared.length > 0) {
-			this.waiting.set(keyOf(folder), new Map(appeared.map(card => [card.path, card])));
+		// A place the user gave waits for the user's own write, not for this one.
+		const given = this.given.get(keyOf(folder))?.cards;
+		const chosen = given?.size ? appeared.filter(card => !given.has(card.path)) : appeared;
+		if (chosen.length > 0) {
+			this.waiting.set(keyOf(folder), new Map(chosen.map(card => [card.path, card])));
 		} else {
 			this.waiting.delete(keyOf(folder));
 		}
@@ -167,6 +236,10 @@ export class BaseHalfCanvasChosenPlaces {
 		const checked = await Promise.all(paths.map(async path => await this.fileService.exists(URI.joinPath(folder.workspaceFolder, ...path.split('/'))) || await baseHalfPathHoldsDraft(this.fileService, folder.workspaceFolder, path).catch(() => true) ? undefined : path));
 		return checked.filter((path): path is string => path !== undefined);
 	}
+}
+
+function linePairKey(line: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): string {
+	return JSON.stringify([line.from, line.to]);
 }
 
 function keyOf(folder: IBaseHalfCanvasFolderState): string {
