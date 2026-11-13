@@ -1,6 +1,6 @@
 # Canvas card interaction continuity
 
-Status: Active (2026-10-10; 2026-10-24: a change of connections keeps the cards; 2026-10-27: a change elsewhere in the workspace keeps the gesture; 2026-11-13: a card that appears shows its face)
+Status: Active (2026-10-10; 2026-10-24: a change of connections keeps the cards; 2026-10-27: a change elsewhere in the workspace keeps the gesture; 2026-11-13: a card that appears shows its face, and a pinch is one gesture)
 Related: [canvas card resize](canvas-card-resize.md),
 [canvas connection handles](canvas-connection-handles.md)
 
@@ -105,6 +105,23 @@ a folder does not wait: its cards fill in as they are read. A card out of
 sight is drawn as its frame alone, as before, and shows its face when it
 comes into sight.
 
+### A pinch is one gesture
+
+Added 2026-11-13. While a gesture runs on the canvas (a drag, a resize, a
+line pulled out of a card, a move of the view), a drawing that a change asks
+for waits, and is drawn when the gesture ends. A pinch of the trackpad, and
+the wheel with the zoom key, never ended. The canvas library reports a start
+for each wheel event of a zoom and one end, after the last. The canvas counted
+every start as a gesture of its own, so after the end some were still open.
+Only the next click on the canvas ended them. A note that an agent wrote after
+a pinch had no card for 4 s and more, and without the pinch it had one in
+250 ms. The launch film's recording clicked the canvas after its pinch to get
+around it.
+
+A move of the view is one gesture from its first start to its end, however
+many starts the library reports. A pinch ends 150 ms after its last event,
+and what waited for it is drawn then.
+
 ### A change elsewhere in the workspace
 
 Added 2026-10-27 ([D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)).
@@ -161,6 +178,9 @@ refuses it, as before.
     each that is in sight shows its title and its text from that frame on; no
     frame shows one of them with a loading face. The smoke's
     `agent-notes-appear-with-faces` step reads every frame.
+12. After a pinch of six wheel events with the zoom key, a note written into
+    the shown folder gets its card within 2 s with no click. The smoke's
+    `agent-note-appears-after-a-pinch` step.
 
 ## Verification
 

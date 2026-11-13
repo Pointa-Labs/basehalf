@@ -429,6 +429,49 @@ export async function assertAgentNotesAppearWithFaces(page) {
 	}
 }
 
+// Canvas card interaction continuity, criterion 12: a pinch is one gesture.
+// The canvas library starts a pinch anew on each of its wheel events and ends
+// it once; counted as many gestures, it held every drawing until the next
+// click. A note written after a pinch gets its card with no click.
+export async function assertAgentNoteAppearsAfterAPinch(page) {
+	const name = 'Probe after a pinch';
+	const cardPath = `${name}.md`;
+	await closeCardDetailIfOpen(page);
+	await openRootCanvas(page);
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	await centerCanvasCards(page, [readme]);
+	const box = await readme.boundingBox();
+	if (!box) {
+		throw new Error('README.md has no card to pinch beside');
+	}
+	// Over empty canvas below README.md, six wheel events with the zoom key, as a trackpad pinch sends them.
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height + 40);
+	await page.keyboard.down('Control');
+	try {
+		for (let event = 0; event < 6; event++) {
+			await page.mouse.wheel(0, 3);
+			await page.waitForTimeout(40);
+		}
+	} finally {
+		await page.keyboard.up('Control');
+	}
+	await page.waitForTimeout(400);
+	try {
+		fs.writeFileSync(path.join(workspacePath, cardPath), `---\nupstream:\n  - README.md\n---\n# ${name}\n\nA line that an agent wrote after a pinch.\n`, 'utf8');
+		const appeared = await page.waitForFunction(
+			cardPathToFind => Array.from(document.querySelectorAll('.basehalf-canvas-card[data-basehalf-card-path]')).some(card => card.getAttribute('data-basehalf-card-path') === cardPathToFind),
+			cardPath,
+			{ timeout: 2_000 }
+		).then(() => true, () => false);
+		if (!appeared) {
+			throw new Error(`${cardPath}, written after a pinch, must get its card within 2 s with no click`);
+		}
+	} finally {
+		fs.rmSync(path.join(workspacePath, cardPath), { force: true });
+		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+	}
+}
+
 // An AGENT edits the note's `upstream` list as ordinary text (D37). The index
 // picks up the saved file: a new entry draws its edge, and an entry that names
 // nothing is one dangling issue on the card and an inline row in its badge

@@ -501,6 +501,13 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 				if (!event || viewportCommandKey.current) {
 					return;
 				}
+				// A move of the view is one gesture however many starts it reports:
+				// a pinch, or the wheel with the zoom key, starts anew on each of its
+				// wheel events and ends once, 150 ms after the last (canvas card
+				// interaction continuity, "A pinch is one gesture").
+				if (viewportGestureSceneKey.current !== undefined) {
+					return;
+				}
 				delegate.didStartViewportInteraction();
 				viewportGestureSceneKey.current = sceneKeyRef.current;
 				beginInteraction();
