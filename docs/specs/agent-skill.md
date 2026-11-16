@@ -402,7 +402,8 @@ the user's home folder.
    contains every line of the launch instruction's shared sections, and has
    fewer than 500 lines. It names no `.bhnode` and no `--run-node`. It gives
    the forms of section 6, each spelled as the writer of formats of a note
-   writes it. Its version is `11`. Unit test.
+   writes it, and section 8 on comments, last. Its version is `14`. Unit
+   test.
 2. Installing writes BaseHalf's own copy with exactly the bundled bytes and
    links both entries to its folder, creating missing folders. The states
    are missing before and linked after. An earlier copy of BaseHalf's text
