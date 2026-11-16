@@ -410,7 +410,9 @@ suite('BaseHalfNoteWriter', () => {
 	});
 
 	test('writes headings, quotes, and blocks of other types', () => {
-		assert.strictEqual(writeBaseHalfNoteBlock(block('heading', { level: 4 }, [])), '####');
+		// A heading without a character writes nothing, a note's empty title line among them (rule 23).
+		assert.strictEqual(writeBaseHalfNoteBlock(block('heading', { level: 4 }, [])), '');
+		assert.strictEqual(writeBaseHalfNoteBlocks([block('heading', { level: 1 }, []), paragraph(text('Text first'))]), 'Text first');
 		assert.strictEqual(writeBaseHalfNoteBlock(block('heading', { level: 9 }, words('x'))), '# x');
 		assert.strictEqual(writeBaseHalfNoteBlock(block('heading', { level: 5, isToggleable: true }, words('T'))), '<details>\n<summary><h5>T</h5></summary>\n</details>');
 		assert.strictEqual(writeBaseHalfNoteBlock(block('quote', {}, [])), '>');

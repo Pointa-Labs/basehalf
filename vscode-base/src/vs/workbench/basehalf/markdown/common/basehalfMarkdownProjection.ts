@@ -551,6 +551,11 @@ async function readSegment(editor: IBaseHalfMarkdownEditorApi, segment: IBaseHal
 	if (isDropped(blocks)) {
 		return undefined;
 	}
+	if (isEmptyHeading(blocks)) {
+		// A `#` of the file is a heading that Rich edits, a title line when it stands
+		// first; it writes nothing, and keeps its bytes until it is changed (rule 23).
+		return blocks;
+	}
 	try {
 		// The guard reads what a save would write: the same writer, in the same order.
 		const written = writtenTogether(writeContainerBlocks(editor, blocks, note, true), note);
@@ -965,7 +970,8 @@ function contributionsOf(
 		}
 
 		const text = current.text;
-		const kept = (text !== '' || current.failed) && entry !== undefined && !entry.multi && !entry.fixed;
+		// A block that writes nothing is gone from the file, unless it wrote nothing as it was read, as a `#` of the file did: that one keeps its bytes (rule 23).
+		const kept = (text !== '' || current.failed || entry?.key === '') && entry !== undefined && !entry.multi && !entry.fixed;
 		// A block the writer cannot write keeps the bytes it stood for (design A5).
 		const parts = !kept ? { prefix: '', body: text, sep: '' } : text === entry.key || current.failed ? entryParts(entry) : { prefix: entry.prefix, body: text, sep: entry.sep };
 		const slot = kept ? entry.slot : undefined;
@@ -1587,6 +1593,16 @@ function isEmptyParagraph(block: unknown): boolean {
 
 function isDropped(blocks: readonly unknown[]): boolean {
 	return blocks.length === 0 || blocks.every(isEmptyParagraph);
+}
+
+/** One heading that is no toggle, holds no blocks, and shows no character, as `#` reads. */
+function isEmptyHeading(blocks: readonly unknown[]): boolean {
+	const [block] = blocks;
+	if (blocks.length !== 1 || baseHalfNoteBlockType(block) !== 'heading' || isBaseHalfNoteToggle(block) || baseHalfNoteBlockChildren(block).length > 0) {
+		return false;
+	}
+	const content = isBaseHalfNoteRecord(block) ? block.content : undefined;
+	return !Array.isArray(content) || content.every(node => isBaseHalfNoteRecord(node) && node.type === 'text' && (typeof node.text !== 'string' || node.text.trim() === ''));
 }
 
 function isOwnMarker(source: string): boolean {

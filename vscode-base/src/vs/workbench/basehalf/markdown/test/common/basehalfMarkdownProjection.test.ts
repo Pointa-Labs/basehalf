@@ -344,6 +344,25 @@ suite('BaseHalfMarkdownProjection', () => {
 			assert.strictEqual(await save(editor, projection, document), 'Alpha!\n\nBeta\n');
 		});
 
+		test('a title line writes nothing while it is empty, and the title typed into it above the text', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Text first.\n\nMore.\n');
+			const titleLine = { id: 'title-line', type: 'heading', props: { level: 1 }, content: [], children: [] };
+
+			assert.strictEqual(await save(editor, projection, [titleLine, ...projection.blocks]), 'Text first.\n\nMore.\n');
+			assert.strictEqual(await save(editor, projection, [withText(titleLine, 'Plan'), ...projection.blocks]), '# Plan\n\nText first.\n\nMore.\n');
+		});
+
+		test('a `#` of the file is an empty heading that keeps its bytes until it is changed', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, '#\n\nBody\n');
+
+			assert.deepStrictEqual(projection.blocks.map(typeOf), ['heading', 'paragraph']);
+			assert.strictEqual(await save(editor, projection), '#\n\nBody\n');
+			assert.strictEqual(await save(editor, projection, [projection.blocks[0], withText(projection.blocks[1], 'Body changed')]), '#\n\nBody changed\n');
+			assert.strictEqual(await save(editor, projection, [withText(projection.blocks[0], 'Plan'), projection.blocks[1]]), '# Plan\n\nBody\n');
+		});
+
 		test('an edit changes the bytes of its block alone', async () => {
 			const editor = new BaseHalfNoteTestEditor();
 			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Alpha  \n\nBeta\n');
