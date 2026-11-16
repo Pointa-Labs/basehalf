@@ -31,6 +31,7 @@ import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelection
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
 import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
 import { baseHalfNoteFileLinks } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
+import { baseHalfNoteStartsAtTitleLine } from '../../markdown/common/basehalfNoteTitle.js';
 import { playBaseHalfNoteMedia } from '../../playback/browser/basehalfNoteMedia.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { restoreBaseHalfSidewaysScroll } from '../../ui/browser/basehalfSidewaysScrollbar.js';
@@ -348,6 +349,12 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 	private bodyStart = 0;
 	private bodyEnd = 0;
 	private bodyMarkdown = '';
+	/**
+	 * Whether this edit starts with the note's title line, decided when the
+	 * edit begins and kept while the editor is drawn again for an undo or a
+	 * change made elsewhere (note title, "The title line and the text under it").
+	 */
+	private titleLine: boolean | undefined;
 	private openGeneration = 0;
 	private structuralFrozen = false;
 	private closeFrozen = false;
@@ -435,6 +442,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.state = state;
 		this.resource = state.resource;
 		this.resourceKey = state.resource.toString();
+		this.titleLine = undefined;
 		this.closeFrozen = false;
 		this.saveFailed = false;
 		this.compositionConflict = false;
@@ -761,6 +769,9 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			units.push(target);
 		}
 		const targetIndex = units.indexOf(target);
+		// The edit starts with the title line for a note without text or one that
+		// begins with a heading the editor edits, and keeps it (note title).
+		this.titleLine ??= baseHalfNoteStartsAtTitleLine(content) && (body.trim() === '' || units[0]?.supported === true);
 		let runtime: IBaseHalfCanvasMarkdownInlineRuntime;
 		try {
 			runtime = vendor.createCanvasMarkdownInlineEditor(this.root, {
@@ -781,8 +792,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				// Without focus, the selection is drawn as not active, as the
 				// editor it replaces drew it while the user was elsewhere.
 				inactive: !options.focus,
-				// A note without text starts at its title (note title).
-				titleLine: localize('basehalf.canvas.note.titleLine', "Title"),
+				titleLine: this.titleLine ? localize('basehalf.canvas.note.titleLine', "Title") : undefined,
 				onMarkdownChange: (markdown, ownStep) => this.applyDocumentMarkdown(markdown, ownStep),
 				onPasteBlocksRequest: (markdown, offset) => this.pasteBlocks(markdown, offset),
 				onCompositionChange: composing => this.handleCompositionChange(composing),
