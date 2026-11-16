@@ -6512,14 +6512,18 @@ line of its own, and the card's editor showed a title line only as the single li
   the title line only where the note has one or has nothing yet.
 - A title kept apart from the text, as a field or in the frontmatter. The title would no longer be the first heading that
   agents, git, and every other reader of the Markdown see (D129).
-- A title line that writes `#` while it is empty, so that a heading under it stays a heading of the text. Every card of
-  such a note would show an empty heading at its top. An empty title line writes nothing, and a heading that comes to stand
-  under one is the title.
+- A title line that writes `#` whenever it is empty, so that a heading under it stays a heading of the text. Every note
+  without a title would hold an empty heading at its top, for agents, git, and every card. An empty title line writes
+  nothing, and `#` only where a heading stands right under it: there, writing nothing would make that heading the title.
+- An empty title line that gives way to any heading under it. A title emptied above a heading would hand the title to the
+  heading and rename the file. It gives way only to a heading that comes under it while it is empty, the line under it
+  made a heading or a heading written there, and never to what an undo or a redo brings back.
 
 **Consequences.**
 - A note can begin with its text: a press under the title line, or Enter in it, and the title comes later or never.
 - After New Note and Expand, Card Detail has the caret in the title line.
-- An empty heading writes nothing in either editor; a `#` that a note was written with stays until its block is changed.
+- An empty heading writes nothing in either editor, but for an empty title line with a heading right under it, which
+  writes `#`; a `#` that a note was written with stays until its block is changed.
 - Card Detail shows no handles beside the title line.
 - The name in Card Detail's header still follows the title only when Card Detail closes (open, named in the
   specification).

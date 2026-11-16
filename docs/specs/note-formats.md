@@ -283,7 +283,10 @@ start).
     text is white space alone, in Rich and in the card's editor alike. A
     heading without a character that the note held as it was read, such as
     a `#` written elsewhere, keeps its bytes until that block is changed
-    (rule 87). An empty check item is
+    (rule 87). A note's empty title line with a heading right under it
+    writes `#` of its level, so that the heading is no title
+    ([a note's title names its file](note-title.md#the-title-line-and-the-text-under-it)).
+    An empty check item is
     `- [ ] &#32;`: the space after its box is a reference, which neither the
     card's reader nor a tool that trims lines takes away. A list item without
     text that holds blocks is its marker alone when its first child starts a

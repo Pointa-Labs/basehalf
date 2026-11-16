@@ -111,7 +111,9 @@ Not in scope, and unchanged:
 - **Title line**: the first line of a note's editor, where its title is
   written: the note's first block when that block is a heading that is no
   toggle, and otherwise an empty heading of level 1 that the editor shows
-  above the note's first block. An empty title line writes nothing.
+  above the note's first block. An empty title line writes nothing, or `#`
+  when a heading stands right under it
+  ([below](#the-title-line-and-the-text-under-it)).
 - **Text under the title**: the blocks of the body after the title line.
 - **An edit of a note**: the time an editor of BaseHalf holds the note. For
   the editor on a card that is from its opening to its closing. For Card
@@ -147,6 +149,13 @@ Not in scope, and unchanged:
   as from a link to a heading or a result of Search, shows that line, and
   the lines of a selection that agents are told of are the file's
   ([the selection agents can see](selection-for-agents.md)).
+- **An empty title line with a heading right under it writes `#`**, with
+  the hashes of its level, and a blank line under it. Written as nothing,
+  it would leave the note beginning with that heading, which would be its
+  title. So a title emptied above a heading leaves the note without a
+  title, and the heading stays a heading of the text: `# Plan` above
+  `## Goals`, emptied, is `#` above `## Goals`. Blocks that write nothing
+  between the two, as an empty line, do not count.
 - **There is always a line to type under the title.** When the text under
   the title holds no line to type in, as in a new note or a note of only a
   title, the editor shows an empty line under the title line. It writes
@@ -174,11 +183,14 @@ Not in scope, and unchanged:
   start of the line under the title joins that line to the title, as it
   joins any two lines.
 - **An empty title line that the editor added stands only where the note
-  has no title.** When a heading comes to stand right under it, or above
-  it, the note begins with that heading: it is the title line, and the
-  empty line goes. That happens when the user makes the line under an
-  empty title line a heading, and when another program writes a heading at
-  the top of a note that Card Detail shows.
+  has no title.** When a heading comes to stand right under it while it is
+  empty, or above it, the note begins with that heading: it is the title
+  line, and the empty line goes. That happens when the user makes the line
+  under an empty title line a heading, and when another program writes a
+  heading at the top of a note that Card Detail shows. A title emptied
+  above a heading is no such case, in one step or in two: the title line
+  stays, and writes `#`. An undo or a redo in Card Detail brings back the
+  note as it was, its title line among it, and takes no line away.
 - **Nothing is confirmed.** Each editor saves what is typed as it is typed,
   the title as the rest; no key ends the title for the file. The file takes
   the name of the title once the note is let go
@@ -413,10 +425,18 @@ The title line and the text under it (D136)
     caret in the line under the title, and the first block shows no
     handles under the pointer.
 29. An empty heading writes nothing in either editor, and a note that
-    holds `#` written elsewhere keeps it until that block is changed.
+    holds `#` written elsewhere keeps it until that block is changed: given
+    text, or made another kind of block.
 30. `Nebu` typed into the title line of a new note's card, then Expand:
     Card Detail has the caret at the end of `Nebu`, and `la` typed there
     and Escape give `Nebula.md` holding `# Nebula`.
+31. In either editor, a new note with the title `Plan` and the line under
+    it made the heading `## Goals`, and then the title emptied: the title
+    line stays, with the pale `Title`, and the file holds `#` above
+    `## Goals` and keeps its name. In Card Detail an undo gives `Plan`
+    back and a redo empties it again, the same with the two changes made
+    in one step, and an undo of the heading's deletion gives back the empty
+    title line above it.
 
 ## Verification
 
@@ -426,14 +446,16 @@ The title line and the text under it (D136)
   (`test.canvasMarkdownInlineCommands.mts`) covers the title line and the
   line under it, the empty heading that writes nothing, Backspace and Enter,
   a press below the title and on a fixed block, and the title line that
-  follows a change of its kind (criteria 1, 5, 6, 21 to 24, and 29 as
+  follows a change of its kind (criteria 1, 5, 6, 21 to 24, 29, and 31 as
   rules). Rich's bundle test (`test.markdownRichFormats.mts`, part t) covers
   the same rules in Card Detail's editor: the title line of a note without
   text and of a note that begins with a paragraph, what they write, Enter,
-  Backspace, the empty line that goes under a heading, a press below, and
-  the undo of each (criteria 23 to 29 as rules). The writer's tests
+  Backspace, the empty line that goes under a heading, a title emptied
+  above one, a press below, and the undo of each (criteria 23 to 29 and 31
+  as rules). The writer's tests
   (`basehalfNoteWriter.test.ts`, `basehalfMarkdownProjection.test.ts`)
-  cover the empty heading and the `#` that a note keeps (criterion 29); the
+  cover the empty heading, the `#` that a note keeps, and the `#` of an
+  empty title line above a heading (criteria 29 and 31); the
   line mapping's (`basehalfMarkdownBlockLines.test.ts`) that an empty title
   line stands on no line, and the merge's (`basehalfMarkdownMerge.test.ts`)
   that blocks that write nothing stay with a part of the note.
@@ -462,10 +484,11 @@ The title line and the text under it (D136)
 - Smoke, D136: the canvas suite's `canvas-note-title-line` covers criteria
   21 to 23 on the card, and `canvas-note-title-names-file` the line under
   the title of criterion 1. The Card Detail suite's `note-title-line` covers
-  criteria 25 to 28 and 30 in the real window: New Note and Expand, at once
-  and after a title begun on the card, a note that begins with a
-  paragraph, a heading made under an empty title line, and a press below a
-  note of only a title, with no handles beside it.
+  criteria 25 to 28, 30, and 31 in the real window: New Note and Expand, at
+  once and after a title begun on the card, a title emptied above a heading,
+  a note that begins with a paragraph, a heading made under an empty title
+  line, and a press below a note of only a title, with no handles beside
+  it.
 
 ### Seen in the real window (2026-11-12)
 
