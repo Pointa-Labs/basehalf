@@ -8,7 +8,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey, Selection, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { BASEHALF_RAW_PASSTHROUGH_BLOCK } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
-import { isBaseHalfNoteSharedChange } from './noteNormalizer.js';
+import { isBaseHalfNoteSharedChange, isBaseHalfNoteUndoOrRedo } from './noteNormalizer.js';
 
 // The title line of a note in Rich (docs/specs/note-title.md, "The title line
 // and the text under it"): every note starts with its title line, the note's
@@ -33,11 +33,12 @@ const titleLineKey = new PluginKey<ITitleLineState>('baseHalfNoteTitleLine');
 
 interface ITitleLineState {
 	/**
-	 * The id of the block of the empty title line that Rich added, while it is
-	 * there: an id outlives the collaboration plugin's drawing of the whole
-	 * document anew, where a position would not.
+	 * The ids of the blocks of the empty title lines that Rich added. An id
+	 * outlives the collaboration plugin's drawing of the whole document anew,
+	 * where a position would not, and an undo or a redo that brings a block back
+	 * brings its id: an id is kept after its block goes.
 	 */
-	readonly added: string | undefined;
+	readonly added: ReadonlySet<string>;
 	readonly decorations: DecorationSet;
 }
 
@@ -97,48 +98,63 @@ function hasLineUnderTitle(document: ProseMirrorNode): boolean {
 	return false;
 }
 
-/** Where the top-level block `id` stands, and the block. */
-function topLevelBlock(document: ProseMirrorNode, id: string): { readonly position: number; readonly block: ProseMirrorNode } | undefined {
-	const group = document.firstChild;
-	let position = FIRST_BLOCK;
-	for (let index = 0; index < (group?.childCount ?? 0); index++) {
-		const block = group!.child(index);
-		if (block.attrs.id === id) {
-			return { position, block };
-		}
-		position += block.nodeSize;
-	}
-	return undefined;
+/** A heading of the note that is no toggle: one that Rich edits, or one kept as it is. */
+function isHeadingBlock(content: ProseMirrorNode | null | undefined): boolean {
+	return isTitleHeading(content) || isFixedHeading(content);
+}
+
+/**
+ * Whether a heading has come to stand right under the note's empty title line
+ * since `before`, where the title line was empty and had no heading under it.
+ * A title emptied above a heading, in the same change or after it, is no such
+ * case.
+ */
+function headingCameUnderEmptyTitle(document: ProseMirrorNode, before: ProseMirrorNode): boolean {
+	const titleThen = contentAt(before, 0);
+	return isHeadingBlock(contentAt(document, 1))
+		&& isTitleHeading(titleThen) && titleThen!.content.size === 0 && !isHeadingBlock(contentAt(before, 1));
+}
+
+/** What a change of the note was: the document before it, and whether it was an undo or a redo, which brings back what was. */
+interface ITitleLineChange {
+	readonly before: ProseMirrorNode;
+	readonly restores: boolean;
 }
 
 /**
  * Gives `transaction`'s document a title line first and a line to type in
- * under it, and takes away an empty title line that Rich added where it no
- * longer stands first or a heading has come to stand under it. Returns the id
- * of the added title line.
+ * under it, and takes away an empty title line that Rich added where the note
+ * has come to begin with a heading: when the line stands first no more, or a
+ * heading has come to stand right under it. A title line emptied above a
+ * heading stays, and so does what an undo or a redo brings back. Returns the
+ * ids of the title lines that Rich added.
  */
-function keepTitleLine(transaction: Transaction, added: string | undefined): string | undefined {
+function keepTitleLine(transaction: Transaction, added: ReadonlySet<string>, change: ITitleLineChange): ReadonlySet<string> {
 	const { schema } = transaction.doc.type;
-	if (added !== undefined) {
-		// The added title line stands first but for a structural change: it is looked for further only then.
-		const first = transaction.doc.firstChild?.firstChild;
-		const found = first?.attrs.id === added ? { position: FIRST_BLOCK, block: first } : topLevelBlock(transaction.doc, added);
-		const content = found?.block.firstChild;
-		if (found && content && isTitleHeading(content) && content.content.size === 0 && found.block.childCount === 1) {
-			const atTop = found.position === FIRST_BLOCK;
-			const under = atTop ? contentAt(transaction.doc, 1) : undefined;
-			if (!atTop || isTitleHeading(under) || isFixedHeading(under)) {
-				transaction.delete(found.position, found.position + found.block.nodeSize);
-				added = undefined;
+	const group = transaction.doc.firstChild;
+	const { before } = change;
+	if (group && added.size > 0 && !change.restores) {
+		// A title line that Rich added stands first but for a change of the note's blocks: the others are looked at only then.
+		const moved = before.firstChild?.childCount !== group.childCount || before.firstChild?.firstChild?.attrs.id !== group.firstChild?.attrs.id;
+		const goes: { readonly from: number; readonly to: number }[] = [];
+		let position = FIRST_BLOCK;
+		for (let index = 0; index < (moved ? group.childCount : Math.min(1, group.childCount)); index++) {
+			const block = group.child(index);
+			const content = block.firstChild;
+			if (added.has(block.attrs.id) && block.childCount === 1 && isTitleHeading(content) && content!.content.size === 0
+				&& (index > 0 || headingCameUnderEmptyTitle(transaction.doc, before))) {
+				goes.push({ from: position, to: position + block.nodeSize });
 			}
-		} else if (!found || !isTitleHeading(content)) {
-			added = undefined;
+			position += block.nodeSize;
+		}
+		for (const range of goes.reverse()) {
+			transaction.delete(range.from, range.to);
 		}
 	}
-	const first = contentAt(transaction.doc, 0);
-	if (!isTitleHeading(first) && !isFixedHeading(first)) {
-		added = newBlockId();
-		transaction.insert(FIRST_BLOCK, schema.nodes.blockContainer.create({ id: added }, schema.nodes.heading.create({ level: 1 })));
+	if (!isHeadingBlock(contentAt(transaction.doc, 0))) {
+		const id = newBlockId();
+		transaction.insert(FIRST_BLOCK, schema.nodes.blockContainer.create({ id }, schema.nodes.heading.create({ level: 1 })));
+		added = new Set([...added, id]);
 	}
 	if (!hasLineUnderTitle(transaction.doc)) {
 		transaction.insert(transaction.doc.firstChild!.nodeSize - 1, schema.nodes.blockContainer.create(null, schema.nodes.paragraph.create()));
@@ -231,6 +247,10 @@ export function baseHalfNoteTitleOnlyEnd(document: ProseMirrorNode): Selection |
 
 /** The title line of every note in Rich (note title, "The title line and the text under it"). */
 export function makeBaseHalfNoteTitleLineExtension(options: IBaseHalfNoteTitleLineOptions) {
+	// A change that came from the shared document (an undo, a redo, the host's copy) has its own pass of the collaboration
+	// plugin, which writes nothing of what is appended to it into the shared document: the title line it needs follows it
+	// as a change of its own, outside the note's undo.
+	let afterSharedChange: ITitleLineChange | undefined;
 	return createExtension({
 		key: 'baseHalfNoteTitleLine',
 		// Ahead of the note's own keys and of the editor's, which would make the title a paragraph or the text under it.
@@ -243,31 +263,55 @@ export function makeBaseHalfNoteTitleLineExtension(options: IBaseHalfNoteTitleLi
 			new Plugin<ITitleLineState>({
 				key: titleLineKey,
 				state: {
-					init: (_config, state) => ({ added: undefined, decorations: decorationsOf(state.doc, options.placeholder) }),
+					init: (_config, state) => ({ added: new Set(), decorations: decorationsOf(state.doc, options.placeholder) }),
 					apply: (transaction, value, _old, state) => {
 						if (!transaction.docChanged) {
 							return value;
 						}
-						const kept = transaction.getMeta(titleLineKey) as { readonly added: string | undefined } | undefined;
+						const kept = transaction.getMeta(titleLineKey) as { readonly added: ReadonlySet<string> } | undefined;
 						return { added: kept ? kept.added : value.added, decorations: decorationsOf(state.doc, options.placeholder) };
 					},
 				},
-				appendTransaction: (transactions, _old, state) => {
+				appendTransaction: (transactions, old, state) => {
 					if (!transactions.some(transaction => transaction.docChanged)) {
 						return null;
 					}
+					if (transactions.some(isBaseHalfNoteSharedChange)) {
+						afterSharedChange = { before: old.doc, restores: transactions.some(isBaseHalfNoteUndoOrRedo) };
+						return null;
+					}
 					const transaction = state.tr;
-					const added = keepTitleLine(transaction, titleLineKey.getState(state)?.added);
+					const added = keepTitleLine(transaction, titleLineKey.getState(state)?.added ?? new Set(), { before: old.doc, restores: false });
 					if (!transaction.docChanged) {
 						return null;
 					}
 					transaction.setMeta(titleLineKey, { added });
-					// What follows an undo, a redo, or a load stays out of the note's undo (exact undo).
-					if (transactions.some(each => isBaseHalfNoteSharedChange(each) || each.getMeta('addToHistory') === false)) {
+					// What follows a load stays out of the note's undo (exact undo).
+					if (transactions.some(each => each.getMeta('addToHistory') === false)) {
 						transaction.setMeta('addToHistory', false);
 					}
 					return transaction;
 				},
+				view: () => ({
+					update: view => {
+						const change = afterSharedChange;
+						if (!change) {
+							return;
+						}
+						afterSharedChange = undefined;
+						// Once the collaboration plugin's pass is over, the change goes into the shared document as its own.
+						queueMicrotask(() => {
+							if (view.isDestroyed) {
+								return;
+							}
+							const transaction = view.state.tr;
+							const added = keepTitleLine(transaction, titleLineKey.getState(view.state)?.added ?? new Set(), change);
+							if (transaction.docChanged) {
+								view.dispatch(transaction.setMeta(titleLineKey, { added }).setMeta('addToHistory', false));
+							}
+						});
+					},
+				}),
 				props: {
 					decorations: state => titleLineKey.getState(state)?.decorations ?? null,
 				},

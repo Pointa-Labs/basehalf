@@ -2174,7 +2174,8 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
  * to type in under it; Enter in the title line ends the title, Backspace at
  * its start does nothing, and a press below it goes to the text under it; a
  * title line made text is followed by an empty one in the same step of undo;
- * and an empty title line that Rich added gives way to a heading under it.
+ * an empty title line that Rich added gives way to a heading made under it;
+ * and a title emptied above a heading stays, and writes `#`.
  */
 async function titleLine(t: INoteFormatsTest): Promise<void> {
 	const raw = () => shortBlocks(t.editor.document);
@@ -2304,6 +2305,62 @@ async function titleLine(t: INoteFormatsTest): Promise<void> {
 		written: [{ type: 'heading', text: 'Written' }, { type: 'paragraph', text: 'Body.' }],
 	});
 
+	// A title emptied above a heading: the title line stays, empty, and writes `#`, so that the heading under it is no
+	// title. An undo and a redo bring back what was, the heading made and the title emptied in steps of their own or in one.
+	const titleAboveGoals = async (): Promise<void> => {
+		await t.load('');
+		await t.frames();
+		t.editor.focus();
+		await t.keyboard.type('Plan');
+		await t.keyboard.press('Enter');
+		await t.keyboard.type('Goals');
+		await t.frames();
+		t.history.ensure()?.stopCapturing();
+	};
+	await titleAboveGoals();
+	t.editor.updateBlock(t.editor.document[1], toHeading);
+	await t.frames();
+	t.history.ensure()?.stopCapturing();
+	t.caret('Plan', 'end');
+	for (let step = 0; step < 'Plan'.length; step++) {
+		await t.keyboard.press('Backspace');
+	}
+	await t.frames();
+	const emptied = { blocks: raw(), saved: await t.save() };
+	t.command('undo');
+	await t.frames();
+	const titleBack = raw();
+	t.command('redo');
+	await t.frames();
+	const emptiedAgain = raw();
+	t.editor.removeBlocks([t.editor.document[1]]);
+	await t.frames();
+	t.command('undo');
+	await t.frames();
+	const headingBack = { blocks: raw(), saved: await t.save() };
+	await titleAboveGoals();
+	const toEmpty: Parameters<typeof t.editor.updateBlock>[1] = { content: [] };
+	t.editor.transact(() => {
+		t.editor.updateBlock(t.editor.document[1], toHeading);
+		t.editor.updateBlock(t.editor.document[0], toEmpty);
+	});
+	await t.frames();
+	const inOneStep = raw();
+	t.command('undo');
+	await t.frames();
+	t.command('redo');
+	await t.frames();
+	const oneStepAgain = { blocks: raw(), saved: await t.save() };
+	const titleAndGoals = [{ type: 'heading', text: '' }, { type: 'heading', text: 'Goals' }];
+	t.check('a title emptied above a heading stays an empty title line that writes `#`, and an undo or a redo brings back what was', { emptied, titleBack, emptiedAgain, headingBack, inOneStep, oneStepAgain }, {
+		emptied: { blocks: titleAndGoals, saved: '#\n\n## Goals\n' },
+		titleBack: [{ type: 'heading', text: 'Plan' }, { type: 'heading', text: 'Goals' }],
+		emptiedAgain: titleAndGoals,
+		headingBack: { blocks: titleAndGoals, saved: '#\n\n## Goals\n' },
+		inOneStep: titleAndGoals,
+		oneStepAgain: { blocks: titleAndGoals, saved: '#\n\n## Goals\n' },
+	});
+
 	// A note of only a title: the line under it takes a press below the title.
 	await t.load('# Anatomy\n');
 	await t.frames();
@@ -2337,6 +2394,14 @@ async function titleLine(t: INoteFormatsTest): Promise<void> {
 	t.check('a `#` of the file is the title line, which keeps its bytes until a title is typed into it', { kept, titled: await t.save() }, {
 		kept: { blocks: [{ type: 'heading', text: '' }, { type: 'paragraph', text: 'Body' }], saved: '#\n\nBody\n' },
 		titled: '# T\n\nBody\n',
+	});
+
+	// An empty heading of HTML is no `#`: it may hold what Rich cannot write, so it stays as it is.
+	await t.load('<h2 id="intro"></h2>\n\nBody\n');
+	await t.frames();
+	t.check('an empty heading of HTML stays as it is, under an empty title line', { blocks: raw(), saved: await t.save() }, {
+		blocks: [{ type: 'heading', text: '' }, { type: 'rawPassthrough' }, { type: 'paragraph', text: 'Body' }],
+		saved: '<h2 id="intro"></h2>\n\nBody\n',
 	});
 }
 

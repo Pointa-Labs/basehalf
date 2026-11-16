@@ -29,6 +29,11 @@ export function isBaseHalfNoteSharedChange(transaction: Transaction): boolean {
 	return (transaction.getMeta(ySyncPluginKey) as { readonly isChangeOrigin?: boolean } | undefined)?.isChangeOrigin === true;
 }
 
+/** Whether `transaction` is an undo or a redo of the note, which brings back what was. */
+export function isBaseHalfNoteUndoOrRedo(transaction: Transaction): boolean {
+	return (transaction.getMeta(ySyncPluginKey) as { readonly isUndoRedoOperation?: boolean } | undefined)?.isUndoRedoOperation === true;
+}
+
 /**
  * The transaction that gives what `transactions` changed the shape a note
  * can store, or `null` when it has that shape. A change from the shared
