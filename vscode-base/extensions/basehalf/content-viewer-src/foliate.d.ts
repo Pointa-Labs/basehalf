@@ -70,6 +70,11 @@ declare module 'foliate-js/view.js' {
 		deselect(): void;
 		search(options: { readonly query: string; readonly matchCase?: boolean; readonly matchDiacritics?: boolean; readonly matchWholeWords?: boolean; readonly draw?: FoliateDraw; readonly drawOptions?: { readonly color?: string } }): AsyncGenerator<FoliateSearchResult>;
 		clearSearch(): void;
+		/** Draws a place of the book, named by its canonical fragment, by the overlay of its section, which asks how with `draw-annotation`. */
+		addAnnotation(annotation: { readonly value: string }, remove?: boolean): Promise<unknown>;
+		deleteAnnotation(annotation: { readonly value: string }): Promise<unknown>;
+		/** The canonical fragment of a range of a section. */
+		getCFI(index: number, range?: Range): string;
 		close(): void;
 	}
 

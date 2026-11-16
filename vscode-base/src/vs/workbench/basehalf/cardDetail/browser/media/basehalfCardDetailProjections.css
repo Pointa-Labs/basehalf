@@ -625,3 +625,18 @@
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
 }
+
+/* The title of the chapter a book shows, after its name (PDFs and books, rule 15). */
+.monaco-workbench .basehalf-card-detail-chapter {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	font-weight: 400;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-card-detail-chapter[hidden] {
+	display: none;
+}

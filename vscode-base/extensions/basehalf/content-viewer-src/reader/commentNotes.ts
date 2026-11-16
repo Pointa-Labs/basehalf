@@ -61,6 +61,13 @@ export class CommentNotes {
 		}, true);
 	}
 
+	/** A press in a document of the page that holds no note, such as a section of a book: an open note closes. */
+	pressedOutside(): void {
+		if (this.note?.pinned) {
+			this.close();
+		}
+	}
+
 	/** The comment whose note or tools are open. */
 	get openId(): string | undefined {
 		return this.note?.pinned ? this.note.comment.id : undefined;

@@ -53,7 +53,13 @@ export interface IBaseHalfReaderTextFocusMessage {
 	readonly focused: boolean;
 }
 
-export type BaseHalfReaderPageMessage = IBaseHalfReaderPanelMessage | IBaseHalfReaderOpenLinkMessage | IBaseHalfReaderTextFocusMessage;
+/** The title of the chapter a book shows, which the header shows after the name (PDFs and books, rule 15). */
+export interface IBaseHalfReaderChapterMessage {
+	readonly type: 'basehalf.reader.chapter';
+	readonly title: string;
+}
+
+export type BaseHalfReaderPageMessage = IBaseHalfReaderPanelMessage | IBaseHalfReaderOpenLinkMessage | IBaseHalfReaderTextFocusMessage | IBaseHalfReaderChapterMessage;
 
 /** A press of Sidebar or Search in the header of Card Detail, which the page carries out. */
 export interface IBaseHalfReaderCommandMessage {
@@ -75,6 +81,9 @@ export function baseHalfReaderPageMessage(value: unknown): BaseHalfReaderPageMes
 	}
 	if (message.type === 'basehalf.reader.textFocus') {
 		return { type: 'basehalf.reader.textFocus', focused: message.focused === true };
+	}
+	if (message.type === 'basehalf.reader.chapter') {
+		return { type: 'basehalf.reader.chapter', title: typeof message.title === 'string' ? message.title.replace(/\s+/g, ' ').trim().slice(0, 300) : '' };
 	}
 	return undefined;
 }

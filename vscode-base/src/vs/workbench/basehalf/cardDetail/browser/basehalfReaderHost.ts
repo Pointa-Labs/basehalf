@@ -48,6 +48,8 @@ export interface IBaseHalfReaderHostOptions {
 	readonly growBranch: (selection: IBaseHalfDocumentSelection) => void;
 	/** The element that holds the page: it says whether a field of text of the page has the keyboard. */
 	readonly pageHost: HTMLElement;
+	/** Where the header holds, after the name, the title of the chapter a book shows. */
+	readonly titleActions: HTMLElement | undefined;
 }
 
 /**
@@ -59,9 +61,13 @@ export interface IBaseHalfReaderHostOptions {
 export class BaseHalfReaderHost extends Disposable {
 	private readonly sidebarButton: HTMLButtonElement | undefined;
 	private readonly searchButton: HTMLButtonElement | undefined;
+	private readonly chapter: HTMLElement | undefined;
 	private comments: readonly IBaseHalfComment[] = [];
 	private ready = false;
 	private visible = true;
+	/** The text selected in the document, and the comment whose note is open, which wins (comments, rule 25). */
+	private selectedText: BaseHalfAgentSelectionDetail | undefined;
+	private focusedComment: string | undefined;
 
 	constructor(
 		private readonly options: IBaseHalfReaderHostOptions,
@@ -83,6 +89,10 @@ export class BaseHalfReaderHost extends Disposable {
 			this._register(addDisposableListener(button, 'click', () => this.command('toggleSidebar')));
 			this._register(toDisposable(() => button.remove()));
 			this.showPanelState(panel);
+		}
+		if (options.titleActions && options.kind === 'book') {
+			const chapter = this.chapter = append(options.titleActions, $('span.basehalf-card-detail-chapter'));
+			this._register(toDisposable(() => chapter.remove()));
 		}
 		if (options.trailingActions) {
 			const button = this.searchButton = append(options.trailingActions, $<HTMLButtonElement>('button.basehalf-card-detail-reader-button.codicon.codicon-search'));
@@ -130,6 +140,13 @@ export class BaseHalfReaderHost extends Disposable {
 			this.openLink(reader.href);
 			return true;
 		}
+		if (reader?.type === 'basehalf.reader.chapter') {
+			if (this.chapter) {
+				this.chapter.textContent = reader.title;
+				this.chapter.hidden = !reader.title;
+			}
+			return true;
+		}
 		if (reader?.type === 'basehalf.reader.textFocus') {
 			this.options.pageHost.classList.toggle('text-focused', reader.focused);
 			return true;
@@ -142,22 +159,23 @@ export class BaseHalfReaderHost extends Disposable {
 		const message = baseHalfCommentsPageMessage(value);
 		switch (message?.type) {
 			case 'basehalf.comments.change':
+				if (message.comment) {
+					// The words of the comment that is open are what agents see of it, also before the file has them.
+					this.comments = [...this.comments.filter(comment => comment.id !== message.comment!.id), message.comment];
+					if (message.comment.id === this.focusedComment) {
+						this.reportSelection();
+					}
+				}
 				void this.commentService.change(this.options.target, message.step, message.comment ? { comment: message.comment } : { remove: message.remove! }).catch(error => {
 					this.logService.error('[BaseHalf] a comment could not be kept', error);
 					this.notificationService.error(localize('basehalf.comments.writeFailed', "BaseHalf could not save the comment: {0}", error instanceof Error ? error.message : String(error)));
 					void this.sendComments();
 				});
 				return true;
-			case 'basehalf.comments.focus': {
-				const comment = message.id ? this.comments.find(candidate => candidate.id === message.id) : undefined;
-				this.options.onComment(message.id ? {
-					path: this.options.target.relativePath,
-					comment: message.id,
-					...(comment?.quote ? { quote: comment.quote } : {}),
-					text: comment?.text ?? ''
-				} : undefined);
+			case 'basehalf.comments.focus':
+				this.focusedComment = message.id;
+				this.reportSelection();
 				return true;
-			}
 			case 'basehalf.comments.grow': {
 				const comment = this.comments.find(candidate => candidate.id === message.id);
 				if (comment?.quote) {
@@ -172,6 +190,27 @@ export class BaseHalfReaderHost extends Disposable {
 			}
 		}
 		return false;
+	}
+
+	/** The text selected in the document, or none; an open comment wins over it. */
+	setSelectedText(selected: BaseHalfAgentSelectionDetail | undefined): void {
+		this.selectedText = selected;
+		this.reportSelection();
+	}
+
+	private reportSelection(): void {
+		const id = this.focusedComment;
+		if (!id) {
+			this.options.onComment(this.selectedText);
+			return;
+		}
+		const comment = this.comments.find(candidate => candidate.id === id);
+		this.options.onComment({
+			path: this.options.target.relativePath,
+			comment: id,
+			...(comment?.quote ? { quote: comment.quote } : {}),
+			text: comment?.text ?? ''
+		});
 	}
 
 	private command(command: IBaseHalfReaderCommandMessage['command']): void {
@@ -214,6 +253,9 @@ export class BaseHalfReaderHost extends Disposable {
 				return;
 			}
 			this.comments = read.comments;
+			if (this.focusedComment) {
+				this.reportSelection();
+			}
 			if (!this.ready) {
 				return;
 			}

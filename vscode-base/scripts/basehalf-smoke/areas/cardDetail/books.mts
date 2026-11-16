@@ -19,7 +19,7 @@ async function bookFrames(page) {
 		let reader;
 		let section;
 		for (const frame of page.frames()) {
-			if (await frame.locator('#basehalf-book-reader[data-status="ready"]').count().catch(() => 0) > 0) {
+			if (await frame.locator('#basehalf-reader.book[data-status="ready"]').count().catch(() => 0) > 0) {
 				reader = frame;
 			} else if (await frame.locator('#smoke-passage').count().catch(() => 0) > 0) {
 				section = frame;
@@ -29,32 +29,44 @@ async function bookFrames(page) {
 	}, frames => !!frames.reader && !!frames.section, 'the book reader to show the first chapter of primer.epub', 20_000);
 }
 
-async function readChapter(reader) {
-	return (await reader.locator('#chapter').textContent())?.trim();
+/** The title of the chapter shown, which the header of Card Detail holds after the name (PDFs and books, rule 15). */
+async function readChapter(page) {
+	return (await page.locator('.basehalf-card-detail-chapter').first().textContent())?.trim();
 }
 
 /** Criterion 8, in part: the book opens at its start, in the reader of its own. */
 export async function assertBookCardDetail(page) {
 	await assertCardDetail(page, 'primer.epub');
 	const { reader } = await bookFrames(page);
-	const chapter = await readChapter(reader);
+	const chapter = await waitForReading(() => readChapter(page), title => title === 'Chapter One', 'the header to name the first chapter');
 	if (chapter !== 'Chapter One') {
 		throw new Error(`The book did not open at its first chapter: ${JSON.stringify(chapter)}`);
 	}
+	// The reader draws no bar of its own; its place and the size of its text stand at the bottom left (criterion 25).
+	const shown = await reader.evaluate(() => ({
+		bars: document.querySelectorAll('.bar').length,
+		chrome: document.querySelector('.reader-chrome')?.textContent ?? ''
+	}));
+	if (shown.bars !== 0 || !/%Aa$/.test(shown.chrome)) {
+		throw new Error(`The book reader does not have the reader's controls in place of its bars: ${JSON.stringify(shown)}`);
+	}
 }
 
-/** Criterion 8, in part: Next Page and the Left arrow key turn the pages of a book. */
+/** Criterion 8, in part: the Right and the Left arrow keys turn the pages of a book. */
 export async function assertBookTurnsPages(page) {
-	const { reader } = await bookFrames(page);
-	await reader.locator('#next').click();
-	await waitForReading(() => readChapter(reader), chapter => chapter === 'Chapter Two', 'Next Page to turn to the second chapter');
+	await bookFrames(page);
+	await waitForReading(async () => {
+		await page.keyboard.press('ArrowRight');
+		await page.waitForTimeout(300);
+		return readChapter(page);
+	}, chapter => chapter === 'Chapter Two', 'the Right arrow key to turn to the second chapter');
 	// The reader turns a page once the turn before it has ended, and a key
 	// pressed while it ends is dropped: press again until the page turns. The
 	// first chapter is one page, so a press too many changes nothing.
 	await waitForReading(async () => {
 		await page.keyboard.press('ArrowLeft');
 		await page.waitForTimeout(300);
-		return readChapter(reader);
+		return readChapter(page);
 	}, chapter => chapter === 'Chapter One', 'the Left arrow key to turn back to the first chapter');
 }
 
@@ -68,7 +80,7 @@ export async function assertBookGrowsBranch(page) {
 		selection.removeAllRanges();
 		selection.addRange(range);
 	});
-	const grow = reader.locator('#grow');
+	const grow = reader.locator('.reader-selection-menu button', { hasText: 'Grow branch' });
 	await grow.waitFor({ state: 'visible', timeout: 10_000 });
 	await grow.click();
 	const branchPath = path.join(workspacePath, 'docs', 'primer-note.md');

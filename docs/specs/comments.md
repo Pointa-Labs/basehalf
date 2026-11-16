@@ -179,10 +179,11 @@ moving the page and without closing a comment note the user is writing in.
 
 6. The passage of each comment is tinted with its color, under its text, on
    every line it covers. Where two comments overlap, both tints show.
-7. A comment with words or replies has a mark: at the right edge of the line
-   its passage begins on, inside the page of a PDF, at the right edge of the
-   column of a book, and in the margin to the right of a note's text. A page
-   comment's mark stands at its place. A highlight has no mark.
+7. A comment with words or replies has a mark: in a PDF at the right edge of
+   the page, on the line its passage begins on; in a book just after the end
+   of its passage, since a book's text flows and its columns move with the
+   size of the text; and in a note in the margin to the right of its text. A
+   page comment's mark stands at its place. A highlight has no mark.
 8. With the pointer on a mark, or on the passage of a comment with words,
    for 300 ms, the comment note shows beside the mark. Nothing else moves.
    It goes 200 ms after the pointer has left both the mark, the passage, and

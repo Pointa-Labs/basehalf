@@ -433,7 +433,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			trailingActions: this.modeActions,
 			onComment: selected => this.onSelectionChange(selected),
 			growBranch: selection => this.growBranch(state.resource, selection),
-			pageHost: this.webviewHost
+			pageHost: this.webviewHost,
+			titleActions: this.editActions
 		}) : undefined;
 		this.readerHost.value?.setVisible(this.visible);
 		store.add(webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
@@ -793,7 +794,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		const change = baseHalfPdfSelectionChangeFromMessage(message);
 		if (change && this.state) {
 			const pages = change.selection?.pages;
-			this.onSelectionChange(change.selection && pages?.length
+			this.setSelectedText(change.selection && pages?.length
 				? { path: this.state.relativePath, text: change.selection.text, pages: { first: pages[0], last: pages[pages.length - 1] } }
 				: undefined);
 		}
@@ -820,7 +821,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				return;
 			case 'basehalf.book.selectionChanged':
 				if (this.state) {
-					this.onSelectionChange(message.selection
+					this.setSelectedText(message.selection
 						? { path: this.state.relativePath, text: message.selection.text, ...(message.selection.chapter ? { chapter: message.selection.chapter } : {}) }
 						: undefined);
 				}
@@ -844,6 +845,15 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			case 'basehalf.book.failed':
 				this.logService.warn(`[BaseHalf] the book reader could not open ${resource.toString()}: ${message.message}`);
 				return;
+		}
+	}
+
+	/** Text selected in a PDF or a book: the reader host lets a comment that is open win over it (comments, rule 25). */
+	private setSelectedText(selected: BaseHalfAgentSelectionDetail | undefined): void {
+		if (this.readerHost.value) {
+			this.readerHost.value.setSelectedText(selected);
+		} else {
+			this.onSelectionChange(selected);
 		}
 	}
 
