@@ -48,6 +48,24 @@ export function colorLabel(labels: IBaseHalfReaderLabels, color: BaseHalfComment
 	return labels[color];
 }
 
+/** The size of a comment's mark (comments.css), and the room between two marks one under the other. */
+const MARK_SIZE = 14;
+const MARK_GAP = 3;
+
+/**
+ * Marks that would cover one another stand one under the other, in the order
+ * of their places: each keeps its place unless the mark above reaches into it
+ * (comments, rule 7).
+ */
+export function stackCommentMarks<T extends { readonly top: number }>(marks: readonly T[]): T[] {
+	let next = -Infinity;
+	return [...marks].sort((a, b) => a.top - b.top).map(mark => {
+		const top = Math.max(mark.top, next);
+		next = top + MARK_SIZE + MARK_GAP;
+		return top === mark.top ? mark : { ...mark, top };
+	});
+}
+
 /** The comment note and the tools of a highlight. Only one is open at a time (comments, rule 11). */
 export class CommentNotes {
 	private note: IOpenNote | undefined;

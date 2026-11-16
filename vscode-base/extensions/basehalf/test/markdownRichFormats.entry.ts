@@ -2181,6 +2181,27 @@ async function comments(t: INoteFormatsTest): Promise<void> {
 	const marks = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-mark')].map(mark => `${mark.dataset.comment}${mark.classList.contains('missing') ? ' (not found)' : ''}`).sort();
 	t.check('each passage is tinted, a highlight\'s too', tints(), ['the error back', 'Vanishing gradients']);
 	t.check('each comment has a mark, a highlight too, and one whose passage is not found has its own', marks(), ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)']);
+	// Two comments that begin on the same line: their marks stand one under the other.
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'green', ''),
+		comment('cccccccc', 'residual connections', 'pink', 'see'),
+		comment('dddddddd', 'Backprop sends', 'purple', 'and this?'),
+	]);
+	await t.frames();
+	const tintTop = (id: string) => view.dom.querySelector<HTMLElement>(`.note-comment-tint[data-comment="${id}"]`)!.getBoundingClientRect().top;
+	const markBox = (id: string) => view.dom.querySelector<HTMLElement>(`.note-comment-mark[data-comment="${id}"]`)!.getBoundingClientRect();
+	const [first, second] = [markBox('dddddddd'), markBox('aaaaaaaa')];
+	t.check('the marks of two comments that begin on the same line do not cover each other', {
+		sameLine: tintTop('dddddddd') === tintTop('aaaaaaaa'),
+		apart: second.top >= first.bottom || first.top >= second.bottom,
+	}, { sameLine: true, apart: true });
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'green', ''),
+		comment('cccccccc', 'residual connections', 'pink', 'see'),
+	]);
+	await t.frames();
 	t.check('showing comments is no step of undo', t.command('undo'), false);
 	t.check('the Markdown holds no trace of them', await t.save(), saved);
 

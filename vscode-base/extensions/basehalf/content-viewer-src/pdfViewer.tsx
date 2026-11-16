@@ -34,7 +34,7 @@ import { baseHalfCommentsSetMessage, type BaseHalfCommentStep } from '../../../s
 import { baseHalfCommentCut, baseHalfCommentTime, type IBaseHalfComment, newBaseHalfCommentId } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 import { baseHalfReaderCommandMessage, normalizeBaseHalfReaderPanelState, type IBaseHalfReaderLabels } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
 import { hasMark, PdfCommentStore } from './pdfComments.js';
-import { CommentNotes, renderCommentList } from './reader/commentNotes.js';
+import { CommentNotes, renderCommentList, stackCommentMarks } from './reader/commentNotes.js';
 import { ReaderChrome } from './reader/readerChrome.js';
 import { element, format, isTextField } from './reader/readerDom.js';
 import { installReaderHover } from './reader/readerHover.js';
@@ -398,9 +398,9 @@ function Page({ documentId, layout, scale }: { readonly documentId: string; read
 				<SelectionLayer documentId={documentId} pageIndex={pageIndex} textStyle={{ background: 'rgb(51 136 255 / 30%)' }} />
 				{links.map((link, index) => <a key={index} class='pdf-link' style={box(link.rect)} onClick={event => followLink(event, link.target)} />)}
 			</PagePointerProvider>
-			{tints.filter(tint => tint.first && hasMark(tint.comment) && tint.rects.length).map(tint => (
+			{stackCommentMarks(tints.filter(tint => tint.first && hasMark(tint.comment) && tint.rects.length).map(tint => ({ tint, top: Math.max(2, tint.rects[0].origin.y * scale) }))).map(({ tint, top }) => (
 				<button key={tint.comment.id} type='button' class='comment-mark' data-comment={tint.comment.id} data-color={tint.comment.color}
-					style={{ left: layout.width - 13, top: Math.max(2, tint.rects[0].origin.y * scale) }}
+					style={{ left: layout.width - 13, top }}
 					onPointerEnter={() => notes.hoverEnter(tint.comment, () => markRect(tint.comment.id))}
 					onPointerLeave={() => notes.hoverLeave()}
 					onPointerDown={event => event.stopPropagation()}

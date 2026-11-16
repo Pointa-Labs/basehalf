@@ -186,7 +186,9 @@ moving the page and without closing a comment note the user is writing in.
    size of the text; and in a note in the margin to the right of its text,
    on the line its passage begins on. A page comment's mark stands at its
    place. A highlight has no mark, except in a note: a click in a note's
-   text places the caret, so there the mark is the way to a comment.
+   text places the caret, so there the mark is the way to a comment. Marks
+   that would cover one another, of passages that begin on the same line or
+   the next, stand one under the other.
 8. With the pointer on a mark, or on the passage of a comment with words in
    a PDF or a book, for 300 ms, the comment note shows beside the mark.
    Nothing else moves. It goes 200 ms after the pointer has left both the

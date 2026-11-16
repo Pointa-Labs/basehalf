@@ -16,6 +16,7 @@ import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition,
 import type { Doc as YDoc, XmlFragment } from 'yjs';
 import { baseHalfCommentContext, findBaseHalfCommentQuote, normalizeBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
 import type { IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
+import { stackCommentMarks } from '../content-viewer-src/reader/commentNotes.js';
 
 /** Where a comment's passage is in the document, from `from` to before `to`. */
 export interface INoteCommentAnchor {
@@ -233,6 +234,26 @@ function buildDecorations(doc: PmNode, comments: readonly IBaseHalfComment[], an
 	return DecorationSet.create(doc, decorations);
 }
 
+/** Marks of comments that begin on the same line stand one under the other, as in a PDF (comments, rule 7). */
+function stackNoteMarks(dom: HTMLElement): void {
+	const marks = [...dom.querySelectorAll<HTMLElement>('.note-comment-mark:not(.missing)')];
+	if (marks.length < 2) {
+		return;
+	}
+	for (const mark of marks) {
+		mark.style.translate = '';
+	}
+	const placed = marks.map(mark => {
+		const top = mark.getBoundingClientRect().top;
+		return { mark, at: top, top };
+	});
+	for (const { mark, at, top } of stackCommentMarks(placed)) {
+		if (top !== at) {
+			mark.style.translate = `0 ${top - at}px`;
+		}
+	}
+}
+
 function markElement(comment: IBaseHalfComment, handlers: INoteCommentMarkHandlers, offset: number, label: string, missing: boolean): HTMLElement {
 	const mark = document.createElement('button');
 	mark.type = 'button';
@@ -313,14 +334,22 @@ export function makeBaseHalfNoteCommentsExtension(handlers: INoteCommentMarkHand
 						}
 					};
 					attach();
+					// The lines of the text move when the note's width changes: the marks stand anew.
+					const resize = new ResizeObserver(() => stackNoteMarks(view.dom));
+					resize.observe(view.dom);
 					return {
 						update(view, previous) {
 							attach();
-							if (!view.state.doc.eq(previous.doc) && (key.getState(view.state)?.comments.length ?? 0) > 0) {
+							const shown = key.getState(view.state);
+							if (shown !== key.getState(previous)) {
+								stackNoteMarks(view.dom);
+							}
+							if (!view.state.doc.eq(previous.doc) && (shown?.comments.length ?? 0) > 0) {
 								handlers.changed();
 							}
 						},
 						destroy() {
+							resize.disconnect();
 							doc?.off('beforeAllTransactions', mark);
 							marked = undefined;
 						}
