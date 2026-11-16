@@ -10,6 +10,7 @@ import { BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE } from '../../markdown/common/
 import { language } from '../../../../base/common/platform.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
+import { baseHalfReaderLabels } from '../../documents/browser/basehalfReaderPage.js';
 import { escape } from '../../../../base/common/strings.js';
 
 // The page of the Rich editor: its webview and the HTML it loads, the states of its first frame, and the guard that
@@ -143,7 +144,7 @@ export function baseHalfMarkdownRichWebviewHtml(key: string, locale = language):
 	<link nonce="${nonce}" rel="stylesheet" href="${styles}">
 </head>
 <body>
-	<div id="root" data-basehalf-key="${escapeAttribute(encodeURIComponent(key))}"></div>
+	<div id="root" data-basehalf-key="${escapeAttribute(encodeURIComponent(key))}" data-comment-labels="${escapeAttribute(encodeURIComponent(JSON.stringify(baseHalfReaderLabels())))}"></div>
 	<script nonce="${nonce}" type="module" src="${script}"></script>
 </body>
 </html>`;

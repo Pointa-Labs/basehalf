@@ -7,17 +7,15 @@ import { $, addDisposableListener, append } from '../../../../base/browser/dom.j
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { BaseHalfAgentSelectionDetail } from '../../agentArea/common/basehalfAgentSelection.js';
-import { IBaseHalfCommentService, IBaseHalfCommentsTarget } from '../../comments/browser/basehalfCommentService.js';
-import { baseHalfCommentsPageMessage, IBaseHalfCommentsSetMessage } from '../../comments/common/basehalfCommentProtocol.js';
-import { IBaseHalfComment } from '../../comments/common/basehalfComments.js';
+import { IBaseHalfCommentsTarget } from '../../comments/browser/basehalfCommentService.js';
 import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocumentBranch.js';
 import { baseHalfReaderPageMessage, IBaseHalfReaderCommandMessage, IBaseHalfReaderPanelState, normalizeBaseHalfReaderPanelState } from '../../documents/common/basehalfReaderProtocol.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
+import { BaseHalfCommentsBridge } from './basehalfCommentsBridge.js';
 
 /** The schemes of a link in a document that the browser opens (PDFs and books, rules 30 and 39). */
 const LINK_SCHEMES = new Set(['http', 'https', 'mailto']);
@@ -62,20 +60,14 @@ export class BaseHalfReaderHost extends Disposable {
 	private readonly sidebarButton: HTMLButtonElement | undefined;
 	private readonly searchButton: HTMLButtonElement | undefined;
 	private readonly chapter: HTMLElement | undefined;
-	private comments: readonly IBaseHalfComment[] = [];
-	private ready = false;
+	private readonly comments: BaseHalfCommentsBridge;
 	private visible = true;
-	/** The text selected in the document, and the comment whose note is open, which wins (comments, rule 25). */
-	private selectedText: BaseHalfAgentSelectionDetail | undefined;
-	private focusedComment: string | undefined;
 
 	constructor(
 		private readonly options: IBaseHalfReaderHostOptions,
-		@IBaseHalfCommentService private readonly commentService: IBaseHalfCommentService,
 		@IStorageService private readonly storageService: IStorageService,
 		@IOpenerService private readonly openerService: IOpenerService,
-		@INotificationService private readonly notificationService: INotificationService,
-		@ILogService private readonly logService: ILogService
+		@IInstantiationService instantiationService: IInstantiationService
 	) {
 		super();
 		const panel = readBaseHalfReaderPanelState(storageService, options.kind);
@@ -104,13 +96,12 @@ export class BaseHalfReaderHost extends Disposable {
 			this._register(addDisposableListener(button, 'click', () => this.command('search')));
 			this._register(toDisposable(() => button.remove()));
 		}
-		this._register(commentService.watch(options.target));
-		this._register(commentService.onDidChange(resource => {
-			if (resource.toString() === options.target.resource.toString()) {
-				void this.sendComments();
-			}
+		this.comments = this._register(instantiationService.createInstance(BaseHalfCommentsBridge, {
+			target: options.target,
+			post: options.post,
+			onSelection: options.onComment,
+			growBranch: options.growBranch
 		}));
-		void this.sendComments();
 	}
 
 	/** The panel's state that the page starts with. */
@@ -151,66 +142,12 @@ export class BaseHalfReaderHost extends Disposable {
 			this.options.pageHost.classList.toggle('text-focused', reader.focused);
 			return true;
 		}
-		if ((value as { type?: unknown } | undefined)?.type === 'basehalf.comments.ready') {
-			this.ready = true;
-			void this.sendComments();
-			return true;
-		}
-		const message = baseHalfCommentsPageMessage(value);
-		switch (message?.type) {
-			case 'basehalf.comments.change':
-				if (message.comment) {
-					// The words of the comment that is open are what agents see of it, also before the file has them.
-					this.comments = [...this.comments.filter(comment => comment.id !== message.comment!.id), message.comment];
-					if (message.comment.id === this.focusedComment) {
-						this.reportSelection();
-					}
-				}
-				void this.commentService.change(this.options.target, message.step, message.comment ? { comment: message.comment } : { remove: message.remove! }).catch(error => {
-					this.logService.error('[BaseHalf] a comment could not be kept', error);
-					this.notificationService.error(localize('basehalf.comments.writeFailed', "BaseHalf could not save the comment: {0}", error instanceof Error ? error.message : String(error)));
-					void this.sendComments();
-				});
-				return true;
-			case 'basehalf.comments.focus':
-				this.focusedComment = message.id;
-				this.reportSelection();
-				return true;
-			case 'basehalf.comments.grow': {
-				const comment = this.comments.find(candidate => candidate.id === message.id);
-				if (comment?.quote) {
-					this.options.growBranch({
-						text: comment.quote,
-						...(comment.page !== undefined ? { pages: [comment.page] } : {}),
-						...(comment.chapter ? { chapter: comment.chapter } : {}),
-						comment: { text: comment.text, replies: comment.replies }
-					});
-				}
-				return true;
-			}
-		}
-		return false;
+		return this.comments.handleMessage(value);
 	}
 
 	/** The text selected in the document, or none; an open comment wins over it. */
 	setSelectedText(selected: BaseHalfAgentSelectionDetail | undefined): void {
-		this.selectedText = selected;
-		this.reportSelection();
-	}
-
-	private reportSelection(): void {
-		const id = this.focusedComment;
-		if (!id) {
-			this.options.onComment(this.selectedText);
-			return;
-		}
-		const comment = this.comments.find(candidate => candidate.id === id);
-		this.options.onComment({
-			path: this.options.target.relativePath,
-			comment: id,
-			...(comment?.quote ? { quote: comment.quote } : {}),
-			text: comment?.text ?? ''
-		});
+		this.comments.setSelectedText(selected);
 	}
 
 	private command(command: IBaseHalfReaderCommandMessage['command']): void {
@@ -243,26 +180,6 @@ export class BaseHalfReaderHost extends Disposable {
 		if (LINK_SCHEMES.has(link.scheme)) {
 			// The opener asks first, as for every link to a website.
 			void this.openerService.open(link, { openExternal: true, allowCommands: false, fromUserGesture: true });
-		}
-	}
-
-	private async sendComments(): Promise<void> {
-		try {
-			const read = await this.commentService.read(this.options.target);
-			if (this._store.isDisposed) {
-				return;
-			}
-			this.comments = read.comments;
-			if (this.focusedComment) {
-				this.reportSelection();
-			}
-			if (!this.ready) {
-				return;
-			}
-			const message: IBaseHalfCommentsSetMessage = { type: 'basehalf.comments.set', comments: read.comments, unreadable: read.unreadable, color: this.commentService.color };
-			this.options.post(message);
-		} catch (error) {
-			this.logService.warn(`[BaseHalf] the comments of ${this.options.target.resource.toString()} could not be read`, error);
 		}
 	}
 }

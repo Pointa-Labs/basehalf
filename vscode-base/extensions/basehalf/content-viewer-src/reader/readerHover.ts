@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { element } from './readerDom.js';
+import './readerHover.css';
 
 /** The name of a control that shows only an icon, under the pointer after half a second, as the workbench's hovers come. */
 export function installReaderHover(root: HTMLElement): void {

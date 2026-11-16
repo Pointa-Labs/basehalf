@@ -7,6 +7,7 @@
 // comments draws alike (comments, "How comments show"), and the Comments list
 // of the reader's panel.
 
+import './comments.css';
 import type { BaseHalfCommentStep } from '../../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
 import { BASEHALF_COMMENT_COLORS, baseHalfCommentCut, BaseHalfCommentColor, baseHalfCommentTime, IBaseHalfComment, IBaseHalfCommentReply, isBaseHalfHighlight } from '../../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 import type { IBaseHalfReaderLabels } from '../../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
@@ -25,7 +26,8 @@ export interface ICommentNotesOptions {
 	readonly change: (step: BaseHalfCommentStep, comment: IBaseHalfComment | undefined, remove?: string) => void;
 	/** The comment whose note is open, or none: what the record of the selection names. */
 	readonly focus: (id: string | undefined) => void;
-	readonly grow: (comment: IBaseHalfComment) => void;
+	/** Grow branch of a comment; without it, a note offers none. */
+	readonly grow?: (comment: IBaseHalfComment) => void;
 	/** A comment that was made and closed without words: the page takes its tint away. */
 	readonly discard: (comment: IBaseHalfComment) => void;
 	/** The note or the tools closed: the page shows what it shows at rest. */
@@ -77,8 +79,8 @@ export class CommentNotes {
 		return !!this.note?.pinned;
 	}
 
-	/** The pointer came onto a mark or the passage of a comment with words: its note shows after a moment. */
-	hoverEnter(comment: IBaseHalfComment, anchor: () => DOMRect | undefined): void {
+	/** The pointer came onto a mark or the passage of a comment with words: its note shows after a moment, with `status` under its words. */
+	hoverEnter(comment: IBaseHalfComment, anchor: () => DOMRect | undefined, status?: string): void {
 		if (this.note?.pinned || isBaseHalfHighlight(comment)) {
 			return;
 		}
@@ -90,7 +92,7 @@ export class CommentNotes {
 		this.hoverTimer = window.setTimeout(() => {
 			const rect = anchor();
 			if (rect && this.hoverComment === comment.id && !this.note?.pinned) {
-				this.show(comment, rect, false);
+				this.show(comment, rect, false, false, status);
 			}
 		}, HOVER_SHOW_MS);
 	}
@@ -105,11 +107,12 @@ export class CommentNotes {
 	}
 
 	/** Opens a comment's note to be read and changed; with `unsaved`, a comment just made by Comment. */
-	open(comment: IBaseHalfComment, anchor: DOMRect, options: { readonly unsaved?: boolean } = {}): void {
+	open(comment: IBaseHalfComment, anchor: DOMRect, options: { readonly unsaved?: boolean; readonly status?: string } = {}): void {
 		window.clearTimeout(this.hoverTimer);
 		this.close();
-		this.show(comment, anchor, true, !!options.unsaved);
+		this.show(comment, anchor, true, !!options.unsaved, options.status);
 		this.options.focus(comment.id);
+		this.takeKeyboard();
 	}
 
 	/** Shows the tools of a highlight beside it: the colors, Comment, and Delete (comments, rule 10). */
@@ -136,6 +139,19 @@ export class CommentNotes {
 		this.place(tools, anchor);
 		this.note = { element: tools, comment, pinned: true, unsaved: false };
 		this.options.focus(comment.id);
+		this.takeKeyboard();
+	}
+
+	/**
+	 * A note or tools opened by a click that left the keyboard where it was,
+	 * such as on a mark in a note, whose press does not move the caret: the
+	 * page takes the keyboard, so that Escape closes them here and not Card
+	 * Detail.
+	 */
+	private takeKeyboard(): void {
+		if (!document.hasFocus()) {
+			window.focus();
+		}
 	}
 
 	/** Closes the open note or tools; a note's words are saved first. */
@@ -205,7 +221,7 @@ export class CommentNotes {
 		}
 	}
 
-	private show(comment: IBaseHalfComment, anchor: DOMRect, pinned: boolean, unsaved = false): void {
+	private show(comment: IBaseHalfComment, anchor: DOMRect, pinned: boolean, unsaved = false, status?: string): void {
 		this.removePreview();
 		const labels = this.options.labels;
 		const note = element('div', `comment-note${pinned ? ' open' : ''}`, this.options.root);
@@ -215,12 +231,13 @@ export class CommentNotes {
 			const tools = element('div', 'comment-tools', note);
 			this.colorDots(tools, comment, color => this.change('color', { ...this.note!.comment, color }));
 			element('span', 'spacer', tools);
-			if (comment.quote) {
+			const growBranch = this.options.grow;
+			if (comment.quote && growBranch) {
 				const grow = iconButton('branch', labels.growBranch, { parent: tools });
 				grow.addEventListener('click', () => {
 					const current = this.note?.comment ?? comment;
 					this.close();
-					this.options.grow(current);
+					growBranch(current);
 				});
 			}
 			const remove = iconButton('delete', labels.delete, { parent: tools });
@@ -237,6 +254,9 @@ export class CommentNotes {
 				this.options.focus(undefined);
 				this.options.closed?.();
 			});
+		}
+		if (status) {
+			element('div', 'comment-status', note).textContent = status;
 		}
 		if (comment.by) {
 			element('div', 'comment-author', note).textContent = comment.by;

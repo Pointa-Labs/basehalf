@@ -52,6 +52,8 @@ import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchem
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from '../markdown-rich-src/noteUndo.js';
 import { makeBaseHalfSelectionRevealExtension } from '../markdown-rich-src/selectionRevealDecorations.js';
+import { baseHalfNoteCommentFollowUps, makeBaseHalfNoteCommentsExtension, setBaseHalfNoteComments } from '../markdown-rich-src/noteComments.js';
+import type { BaseHalfCommentColor, IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 
 /**
  * How the test runs Rich: `basehalf`, as BaseHalf builds Rich, or `baseline`
@@ -177,6 +179,9 @@ const openedLinks: string[] = [];
 /** Rich's undo of the note open now, and whether a load reads it: the shape extension asks for them as editor.tsx's does. */
 const openNow: { history?: IBaseHalfNoteUndo; reading: boolean } = { reading: false };
 
+/** How often an edit told the comments of the note that their passages may have to be quoted anew. */
+const noteCommentEdits = { count: 0 };
+
 const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 	basehalf: {
 		editorApi: editor => createBaseHalfNoteEditorApi(editor),
@@ -184,7 +189,12 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 			openLink: href => openedLinks.push(href),
 			undoManager: () => openNow.history?.ensure(),
 			reading: () => openNow.reading,
-		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems })],
+		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems }), makeBaseHalfNoteCommentsExtension({
+			hover: () => undefined,
+			leave: () => undefined,
+			open: () => undefined,
+			changed: () => noteCommentEdits.count++,
+		}, { comment: 'Comment', passageNotFound: 'Passage not found' })],
 		paste: { handler: makeBaseHalfNotePasteHandler(requestTestItems, () => noteNow.resource), install: (editor, api) => installBaseHalfNotePaste(editor, api) },
 		copy: editor => installBaseHalfNoteCopy(editor, document.body, () => noteNow.resource, (files, text, mark) => copiedFiles.push({ files: [...files], text, mark })),
 		blockIndex: editor => installBaseHalfNoteBlockIndex(editor),
@@ -2147,6 +2157,70 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
+ * Comments on a note in its Rich view of Card Detail (comments): a tint under
+ * each passage and a mark beside it, passages that follow an edit, and a note
+ * whose Markdown and undo know nothing of them.
+ */
+async function comments(t: INoteFormatsTest): Promise<void> {
+	if (t.mode === 'baseline') {
+		t.log('comments', 'Rich had no comments before D135');
+		return;
+	}
+	const view = t.editor.prosemirrorView;
+	await t.load('# Comments\n\nBackprop sends the error back layer by layer.\n\nVanishing gradients starve the first layers.\n');
+	await t.frames();
+	const saved = await t.save();
+	const comment = (id: string, quote: string, color: BaseHalfCommentColor, text: string): IBaseHalfComment => ({ id, quote, color, text, replies: [] });
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'green', ''),
+		comment('cccccccc', 'residual connections', 'pink', 'see'),
+	]);
+	await t.frames();
+	const tints = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-tint')].map(tint => tint.textContent);
+	const marks = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-mark')].map(mark => `${mark.dataset.comment}${mark.classList.contains('missing') ? ' (not found)' : ''}`).sort();
+	t.check('each passage is tinted, a highlight\'s too', tints(), ['the error back', 'Vanishing gradients']);
+	t.check('each comment has a mark, a highlight too, and one whose passage is not found has its own', marks(), ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)']);
+	t.check('showing comments is no step of undo', t.command('undo'), false);
+	t.check('the Markdown holds no trace of them', await t.save(), saved);
+
+	const editsBefore = noteCommentEdits.count;
+	t.caret('the error', 'end');
+	await t.keyboard.type(' signal');
+	await t.frames();
+	t.check('text typed inside a passage joins it, and the comment quotes it anew', {
+		tints: tints(),
+		quotes: baseHalfNoteCommentFollowUps(view.state).map(followed => followed.quote),
+	}, { tints: ['the error signal back', 'Vanishing gradients'], quotes: ['the error signal back'] });
+	t.check('an edit tells the comments, which quote their passages anew a moment later', noteCommentEdits.count > editsBefore, true);
+	t.caret('signal back', 'end');
+	await t.keyboard.type('wards');
+	t.caret('sends ', 'end');
+	await t.keyboard.type('all ');
+	await t.frames();
+	t.check('text typed at either end of a passage stays out of it', tints()[0], 'the error signal back');
+
+	// The highlight's passage deleted whole, then given back by undo.
+	const passage = 'Vanishing gradients';
+	let from = -1;
+	view.state.doc.descendants((node, position) => {
+		const offset = from < 0 && node.isText ? (node.text ?? '').indexOf(passage) : -1;
+		if (offset >= 0) {
+			from = position + offset;
+		}
+		return from < 0;
+	});
+	view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, from + passage.length)));
+	t.editor.focus();
+	await t.keyboard.press('Backspace');
+	await t.frames();
+	t.check('a passage deleted whole leaves its comment not found', marks(), ['aaaaaaaa', 'bbbbbbbb (not found)', 'cccccccc (not found)']);
+	t.command('undo');
+	await t.frames();
+	t.check('undo gives the comment its passage back', { tinted: tints().includes('Vanishing gradients'), marks: marks() }, { tinted: true, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
+}
+
+/**
  * The parts of the test, by name. Each runs on a note of its own and records
  * its checks with `t.check`. Parts a to i of D110 join here.
  */
@@ -2166,6 +2240,7 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	n: shape,
 	r: fileBlocks,
 	s: blockMenu,
+	t: comments,
 };
 
 // As editor.tsx does before the first note is drawn.

@@ -45,7 +45,13 @@ import {
 	type TableCellButtonProps,
 	type TableHandleProps,
 } from '@blocknote/react';
-import { RiExternalLinkFill, RiImageEditFill } from 'react-icons/ri';
+import { RiChat3Line, RiExternalLinkFill, RiImageEditFill } from 'react-icons/ri';
+import { CommentNotes } from '../content-viewer-src/reader/commentNotes.js';
+import { installReaderHover } from '../content-viewer-src/reader/readerHover.js';
+import { baseHalfCommentsSetMessage, type BaseHalfCommentsPageMessage, type BaseHalfCommentStep } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
+import { BASEHALF_COMMENT_DEFAULT_COLOR, baseHalfCommentTime, isBaseHalfHighlight, newBaseHalfCommentId, type BaseHalfCommentColor, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
+import type { IBaseHalfReaderLabels } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
+import { baseHalfNoteCommentFollowUps, makeBaseHalfNoteCommentsExtension, notePassage, setBaseHalfNoteComments, type INoteCommentAnchor } from './noteComments.js';
 import { applyUpdate, Doc as YDoc, UndoManager, type Transaction as YTransaction, type XmlFragment, type YMapEvent } from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
 import { AllSelection, TextSelection, type EditorState } from '@tiptap/pm/state';
@@ -140,8 +146,11 @@ import { baseHalfCaptureStableMarkdownRichSnapshot } from '../../../src/vs/workb
 import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
 import { BaseHalfMarkdownRichAsyncMutationBarrier } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichAsyncMutation.js';
 
+/** What the page says of the comments of its note (comments): their changes, the one that is open, and that it is ready for them. */
+type BaseHalfNoteCommentsPageMessage = BaseHalfCommentsPageMessage | { readonly type: 'basehalf.comments.ready' };
+
 interface VsCodeApi {
-	postMessage(message: BaseHalfMarkdownRichWebviewMessage, transfer?: readonly ArrayBuffer[]): void;
+	postMessage(message: BaseHalfMarkdownRichWebviewMessage | BaseHalfNoteCommentsPageMessage, transfer?: readonly ArrayBuffer[]): void;
 	getState(): unknown;
 	setState(state: unknown): void;
 }
@@ -614,6 +623,46 @@ function MarkdownRichEditor(): JSX.Element {
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
 	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
 	const noteMediaEditExtension = useMemo(() => makeBaseHalfNoteMediaEditExtension(), []);
+	// The comments of the note in Card Detail (comments): those the window sent, the one being made, and the color of the next.
+	const commentLabels = useMemo(() => {
+		try {
+			const labels = document.getElementById('root')?.dataset.commentLabels;
+			return labels ? JSON.parse(decodeHtmlKey(labels)) as IBaseHalfReaderLabels : undefined;
+		} catch {
+			return undefined;
+		}
+	}, []);
+	const noteComments = useRef<{ comments: IBaseHalfComment[]; readonly drafts: Map<string, IBaseHalfComment>; color: BaseHalfCommentColor }>({ comments: [], drafts: new Map(), color: BASEHALF_COMMENT_DEFAULT_COLOR });
+	const commentNotes = useRef<CommentNotes | undefined>(undefined);
+	const followTimer = useRef<number | undefined>(undefined);
+	const followNoteCommentsRef = useRef<() => void>(() => undefined);
+	const noteCommentOf = useCallback((id: string) => noteComments.current.drafts.get(id) ?? noteComments.current.comments.find(comment => comment.id === id), []);
+	const noteCommentsExtension = useMemo(() => makeBaseHalfNoteCommentsExtension({
+		hover: (id, mark) => {
+			const comment = noteCommentOf(id);
+			if (comment) {
+				commentNotes.current?.hoverEnter(comment, () => mark.getBoundingClientRect(), mark.classList.contains('missing') ? commentLabels?.passageNotFound : undefined);
+			}
+		},
+		leave: () => commentNotes.current?.hoverLeave(),
+		// The mark of a highlight shows its tools, as a click on a highlight does in a reader (comments, rule 10).
+		open: (id, mark) => {
+			const comment = noteCommentOf(id);
+			const missing = mark.classList.contains('missing');
+			if (!comment) {
+				return;
+			} else if (isBaseHalfHighlight(comment) && !missing) {
+				commentNotes.current?.tools(comment, mark.getBoundingClientRect());
+			} else {
+				commentNotes.current?.open(comment, mark.getBoundingClientRect(), missing && commentLabels ? { status: commentLabels.passageNotFound } : {});
+			}
+		},
+		// An edit of the note: the comments whose passage it changed quote it anew a moment later (comments, rule 5).
+		changed: () => {
+			window.clearTimeout(followTimer.current);
+			followTimer.current = window.setTimeout(() => followNoteCommentsRef.current(), 1_000);
+		}
+	}, { comment: commentLabels?.comment ?? 'Comment', passageNotFound: commentLabels?.passageNotFound ?? '' }), [noteCommentOf, commentLabels]);
 	// The picture whose editor the window draws over it (D113), and the version of each file it edited, by address.
 	const mediaEdit = useRef<{ readonly blockId: string; readonly url: string; readonly room: number; ending: boolean } | undefined>(undefined);
 	const [editedMedia, setEditedMedia] = useState<string | undefined>(undefined);
@@ -741,7 +790,7 @@ function MarkdownRichEditor(): JSX.Element {
 				return true;
 			},
 		},
-		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension, noteMediaEditExtension, fileDropExtension],
+		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension, noteMediaEditExtension, fileDropExtension, noteCommentsExtension],
 		dropCursor: baseHalfNoteDropCursor,
 		pasteHandler,
 		collaboration: {
@@ -767,6 +816,115 @@ function MarkdownRichEditor(): JSX.Element {
 		tableHandles: portalElement,
 		comments: portalElement,
 	} : undefined, [portalElement]);
+
+	/** The comments of the note, those of its file and the one being made, shown where their passages are. */
+	const showNoteComments = useCallback((known?: ReadonlyMap<string, INoteCommentAnchor>) => {
+		const view = editor.prosemirrorView;
+		const state = noteComments.current;
+		if (view) {
+			setBaseHalfNoteComments(view, [...state.comments.filter(comment => !state.drafts.has(comment.id)), ...state.drafts.values()], known);
+		}
+	}, [editor]);
+	const changeNoteComment = useCallback((step: BaseHalfCommentStep, comment: IBaseHalfComment | undefined, remove?: string) => {
+		const state = noteComments.current;
+		if (remove) {
+			state.drafts.delete(remove);
+			state.comments = state.comments.filter(existing => existing.id !== remove);
+			vscode.postMessage({ type: 'basehalf.comments.change', step, remove });
+		} else if (comment) {
+			state.drafts.delete(comment.id);
+			state.comments = [...state.comments.filter(existing => existing.id !== comment.id), comment];
+			vscode.postMessage({ type: 'basehalf.comments.change', step, comment });
+		}
+		showNoteComments();
+	}, [vscode, showNoteComments]);
+	const ensureCommentNotes = useCallback((): CommentNotes | undefined => {
+		if (!commentNotes.current && commentLabels) {
+			commentNotes.current = new CommentNotes({
+				root: document.body,
+				labels: commentLabels,
+				change: (step, comment, remove) => changeNoteComment(step, comment, remove),
+				focus: id => vscode.postMessage({ type: 'basehalf.comments.focus', ...(id ? { id } : {}) }),
+				discard: comment => {
+					noteComments.current.drafts.delete(comment.id);
+					showNoteComments();
+				}
+			});
+			// The names of the note's colors and tools under the pointer.
+			installReaderHover(document.body);
+		}
+		return commentNotes.current;
+	}, [commentLabels, changeNoteComment, showNoteComments, vscode]);
+	// A comment whose passage an edit changed quotes it anew, as no step of undo: the edit is the step (comments, rule 5).
+	followNoteCommentsRef.current = () => {
+		const view = editor.prosemirrorView;
+		if (!view) {
+			return;
+		}
+		for (const comment of baseHalfNoteCommentFollowUps(view.state)) {
+			if (!noteComments.current.drafts.has(comment.id)) {
+				changeNoteComment('follow', comment);
+			}
+		}
+	};
+	// The comments the window sends, after the note opened and after every change (comments).
+	useEffect(() => {
+		const onMessage = (event: MessageEvent<unknown>) => {
+			const set = baseHalfCommentsSetMessage(event.data);
+			if (!set) {
+				return;
+			}
+			const state = noteComments.current;
+			state.comments = [...set.comments];
+			state.color = set.color;
+			for (const comment of set.comments) {
+				state.drafts.delete(comment.id);
+			}
+			ensureCommentNotes()?.update(set.comments);
+			showNoteComments();
+		};
+		window.addEventListener('message', onMessage);
+		return () => window.removeEventListener('message', onMessage);
+	}, [ensureCommentNotes, showNoteComments]);
+	/** Comment on the selected text (comments, rule 17). */
+	const commentOnSelection = useCallback(() => {
+		const view = editor.prosemirrorView;
+		const notes = ensureCommentNotes();
+		if (!view || !notes) {
+			return;
+		}
+		const { from, to, empty } = view.state.selection;
+		const passage = empty ? undefined : notePassage(view.state.doc, from, to);
+		if (!passage?.quote) {
+			return;
+		}
+		const state = noteComments.current;
+		const comment: IBaseHalfComment = {
+			id: newBaseHalfCommentId(new Set([...state.comments.map(existing => existing.id), ...state.drafts.keys()])),
+			quote: passage.quote,
+			...(passage.before ? { before: passage.before } : {}),
+			...(passage.after ? { after: passage.after } : {}),
+			color: state.color,
+			text: '',
+			at: baseHalfCommentTime(),
+			replies: []
+		};
+		state.drafts.set(comment.id, comment);
+		showNoteComments(new Map([[comment.id, { from, to }]]));
+		// The selection ends at the passage's end, and its toolbar goes: the comment note has the keyboard.
+		try {
+			view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).setMeta('addToHistory', false));
+		} catch {
+			// The view may be gone.
+		}
+		window.requestAnimationFrame(() => {
+			const mark = view.dom.querySelector<HTMLElement>(`.note-comment-mark[data-comment="${comment.id}"]`);
+			if (mark) {
+				notes.open(comment, mark.getBoundingClientRect(), { unsaved: true });
+			}
+		});
+	}, [editor, ensureCommentNotes, showNoteComments]);
+	const noteCommentContext = useMemo(() => ({ comment: commentLabels ? commentOnSelection : undefined, label: commentLabels?.comment ?? 'Comment' }), [commentLabels, commentOnSelection]);
 
 	// Rich owns its collaboration undo manager, so that undo outlives the
 	// plugin-view teardowns of this webview's startup (noteUndo.ts).
@@ -1201,6 +1359,10 @@ function MarkdownRichEditor(): JSX.Element {
 		renderedAnnounced.current = true;
 		const key = state.key;
 		vscode.postMessage({ type: 'basehalf.markdownRich.rendered', key });
+		// The comments of the note come once it is drawn, in Card Detail (comments).
+		if (state.surface === 'detail') {
+			vscode.postMessage({ type: 'basehalf.comments.ready' });
+		}
 
 		const announceFocusBoundarySettled = () => {
 			vscode.postMessage({ type: 'basehalf.markdownRich.focusBoundarySettled', key });
@@ -2846,6 +3008,20 @@ function MarkdownRichEditor(): JSX.Element {
 			if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
 				return;
 			}
+			// An open comment note or the tools of a highlight close first, and
+			// the keyboard goes back from the note to the text (comments, rule 9).
+			const notes = commentNotes.current;
+			if (notes) {
+				const inNote = !!(document.activeElement as HTMLElement | null)?.closest?.('.comment-note');
+				if (notes.escape()) {
+					event.preventDefault();
+					event.stopPropagation();
+					if (inNote) {
+						editor.prosemirrorView?.focus();
+					}
+					return;
+				}
+			}
 			// What takes Escape itself takes it first: a menu or a list, and a
 			// field of its own, such as that of a link.
 			const target = event.target as HTMLElement | null;
@@ -2866,7 +3042,7 @@ function MarkdownRichEditor(): JSX.Element {
 		};
 		window.addEventListener('keydown', onKeyDown, true);
 		return () => window.removeEventListener('keydown', onKeyDown, true);
-	}, [contextMenu, vscode]);
+	}, [contextMenu, vscode, editor]);
 
 
 	useEffect(() => {
@@ -3029,7 +3205,9 @@ function MarkdownRichEditor(): JSX.Element {
 					>
 						{usesEmbeddedControls && (
 							<BaseHalfNoteMediaEditContext.Provider value={noteMediaEdit}>
-								<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
+								<BaseHalfNoteCommentContext.Provider value={noteCommentContext}>
+									<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
+								</BaseHalfNoteCommentContext.Provider>
 							</BaseHalfNoteMediaEditContext.Provider>
 						)}
 						{usesEmbeddedControls && <BaseHalfSideMenuController portalElement={portalElement} addedLine={addedLine} />}
@@ -3089,7 +3267,20 @@ function BaseHalfFormattingToolbar(): JSX.Element | null {
 		.filter(item => !baseHalfRemovedToolbarItems.has(String(item.key)))
 		.map(item => item.key === 'replaceFileButton' ? <BaseHalfFileReplaceButton key={'replaceFileButton'} /> : item);
 	// While a picture is edited, its editor has the tools; after it, the toolbar waits for the pointer.
-	return mediaEdit.hidden ? null : <FormattingToolbar>{[<BaseHalfMediaEditButton key={'mediaEditButton'} />, ...items]}</FormattingToolbar>;
+	return mediaEdit.hidden ? null : <FormattingToolbar>{[<BaseHalfMediaEditButton key={'mediaEditButton'} />, ...items, <BaseHalfCommentButton key={'commentButton'} />]}</FormattingToolbar>;
+}
+
+/** What Comment of the toolbar of a text selection does, in Card Detail (comments, rule 17). */
+const BaseHalfNoteCommentContext = createContext<{ readonly comment: (() => void) | undefined; readonly label: string }>({ comment: undefined, label: 'Comment' });
+
+/** Comment, at the end of the toolbar of a text selection: it marks the passage and opens its comment note (comments, rule 17). */
+function BaseHalfCommentButton(): JSX.Element | null {
+	const Components = useComponentsContext()!;
+	const context = useContext(BaseHalfNoteCommentContext);
+	if (!context.comment) {
+		return null;
+	}
+	return <Components.FormattingToolbar.Button className={'bn-button'} mainTooltip={context.label} label={context.label} icon={<RiChat3Line />} onClick={() => context.comment?.()} />;
 }
 
 /** Edit for a picture, a video, or a sound of a file (D113, D114): the window draws the editor of the file's card over it, in the note. */

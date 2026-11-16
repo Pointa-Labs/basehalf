@@ -171,7 +171,8 @@ moving the page and without closing a comment note the user is writing in.
 5. In a note, a comment follows its passage while the user edits the note in
    Rich: text typed inside the passage joins it, and the comment's `quote`,
    `before`, and `after` are written again 1 s after the note is saved. A
-   passage that is deleted whole leaves its comment not found.
+   passage that is deleted whole leaves its comment not found until its words
+   are in the note again, as after an undo.
 
 ## How comments show
 
@@ -182,19 +183,21 @@ moving the page and without closing a comment note the user is writing in.
 7. A comment with words or replies has a mark: in a PDF at the right edge of
    the page, on the line its passage begins on; in a book just after the end
    of its passage, since a book's text flows and its columns move with the
-   size of the text; and in a note in the margin to the right of its text. A
-   page comment's mark stands at its place. A highlight has no mark.
-8. With the pointer on a mark, or on the passage of a comment with words,
-   for 300 ms, the comment note shows beside the mark. Nothing else moves.
-   It goes 200 ms after the pointer has left both the mark, the passage, and
-   the note.
+   size of the text; and in a note in the margin to the right of its text,
+   on the line its passage begins on. A page comment's mark stands at its
+   place. A highlight has no mark, except in a note: a click in a note's
+   text places the caret, so there the mark is the way to a comment.
+8. With the pointer on a mark, or on the passage of a comment with words in
+   a PDF or a book, for 300 ms, the comment note shows beside the mark.
+   Nothing else moves. It goes 200 ms after the pointer has left both the
+   mark, the passage, and the note.
 9. A click on a mark or on such a passage opens its comment note: it stays
    until a click outside it or Escape. In an open note, the words are edited
    where they stand, without a box, and its tools show at its top: the five
    colors, Grow branch, and Delete.
-10. A click on a highlight shows its tools beside it: the five colors,
-    Comment, and Delete. Comment opens a comment note on it, with the caret
-    in it.
+10. A click on a highlight, or on its mark in a note, shows its tools beside
+    it: the five colors, Comment, and Delete. Comment opens a comment note on
+    it, with the caret in it.
 11. Only one comment note or set of tools is open at a time.
 
 ### The comment note
@@ -235,8 +238,9 @@ moving the page and without closing a comment note the user is writing in.
     is the color of the next highlight too.
 20. **Grow branch** of a comment makes a note from its passage as Grow branch
     of a selection does ([reference graph](reference-graph.md#creating-connected-nodes)),
-    with the comment's words and replies below the quote. A page comment has
-    no Grow branch. The comment stays.
+    with the comment's words and replies below the quote. A page comment and
+    a comment of a note have no Grow branch, as a note's own text has none.
+    The comment stays.
 21. **Delete** removes the comment with its replies.
 
 ## The Comments list

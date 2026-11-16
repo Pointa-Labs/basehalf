@@ -38,7 +38,8 @@ import { IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../
 import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
-import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { BaseHalfAgentSelectionDetail, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { BaseHalfCommentsBridge } from './basehalfCommentsBridge.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
@@ -69,8 +70,8 @@ export interface IBaseHalfMarkdownRichCardDetailOptions {
 	readonly onCanvasExitRequest?: () => void;
 	/** Escape in the editor of Card Detail, which closes Card Detail (opening and closing Card Detail, "The keyboard"). */
 	readonly onDetailCloseRequest?: () => void;
-	/** The text the user selected, or `undefined` once nothing is (the selection agents can see). */
-	readonly onSelectionChange?: (selected: IBaseHalfAgentSelectionText | undefined) => void;
+	/** The text the user selected, or the comment whose note is open, or `undefined` once nothing is (the selection agents can see). */
+	readonly onSelectionChange?: (selected: BaseHalfAgentSelectionDetail | undefined) => void;
 }
 
 export class BaseHalfMarkdownRichCardDetail extends Disposable {
@@ -97,6 +98,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	documentKey: string | undefined;
 	private liveDocument: IBaseHalfMarkdownRichLiveDocumentHandle | undefined;
 	bridge: BaseHalfMarkdownRichWebviewBridge | undefined;
+	/** The comments of the note, in Card Detail (comments). */
+	private comments: BaseHalfCommentsBridge | undefined;
 	/** The picture of the note whose editor stands over it, while it is edited (D113), and the layer it is drawn in. */
 	readonly mediaEditing = this._register(new MutableDisposable<BaseHalfNoteMediaEditing>());
 	private noteMediaLayer: HTMLElement | undefined;
@@ -251,6 +254,13 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				postMessage: (message, transfer) => this.webview?.postMessage(message, transfer) ?? Promise.resolve(false)
 			}));
 			this.firstFrame.mountFirstFrameWebview();
+			if (this.surface === 'detail') {
+				this.comments = this._register(this.instantiationService.createInstance(BaseHalfCommentsBridge, {
+					target: state,
+					post: message => void this.webview?.postMessage(message),
+					onSelection: selected => this.options.onSelectionChange?.(selected)
+				}));
+			}
 
 			this._register(UndoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('undo')));
 			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
@@ -443,6 +453,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	async handleWebviewMessage(message: unknown): Promise<void> {
+		if (this.comments?.handleMessage(message)) {
+			return;
+		}
 		const bridge = this.bridge;
 		const state = this.state;
 		const model = this.model;
@@ -598,9 +611,16 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.adhdCommand':
 				await this.handleAdhdCommand(state, message.command);
 				break;
-			case 'basehalf.markdownRich.selectionChanged':
-				this.options.onSelectionChange?.(this.selectedText(state, model, message.text, message.startLineNumber, message.endLineNumber));
+			case 'basehalf.markdownRich.selectionChanged': {
+				const selected = this.selectedText(state, model, message.text, message.startLineNumber, message.endLineNumber);
+				// An open comment of the note wins over the selected text (comments, rule 25).
+				if (this.comments) {
+					this.comments.setSelectedText(selected);
+				} else {
+					this.options.onSelectionChange?.(selected);
+				}
 				break;
+			}
 			case 'basehalf.markdownRich.error':
 				this.setSaveStatus('saving');
 				this.logService.error(message.stack ?? message.message);

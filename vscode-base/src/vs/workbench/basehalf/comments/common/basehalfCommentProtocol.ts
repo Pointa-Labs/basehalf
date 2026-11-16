@@ -9,10 +9,14 @@
 
 import { baseHalfCommentFromMessage, BaseHalfCommentColor, IBaseHalfComment, isBaseHalfCommentColor, isBaseHalfCommentId } from './basehalfComments.js';
 
-/** What a change of the user is, which names its step of undo (exact undo, "Comments"). */
-export type BaseHalfCommentStep = 'highlight' | 'comment' | 'edit' | 'color' | 'reply' | 'delete';
+/**
+ * What a change is, which names its step of undo (exact undo, "Comments"). A
+ * `follow` is no step: the passage of a comment in a note was edited, and the
+ * comment quotes it anew (comments, rule 5).
+ */
+export type BaseHalfCommentStep = 'highlight' | 'comment' | 'edit' | 'color' | 'reply' | 'delete' | 'follow';
 
-const STEPS = new Set<BaseHalfCommentStep>(['highlight', 'comment', 'edit', 'color', 'reply', 'delete']);
+const STEPS = new Set<BaseHalfCommentStep>(['highlight', 'comment', 'edit', 'color', 'reply', 'delete', 'follow']);
 
 /** The window tells a page the comments of its file, after it opened and after every change. */
 export interface IBaseHalfCommentsSetMessage {

@@ -875,3 +875,35 @@ body,
 		transition: none;
 	}
 }
+
+/* Comments of a note in Card Detail (comments): the tint of a passage, and its
+ * mark in the margin to the right of the text, on the line the passage begins
+ * on. The text's own element is the box the mark stands beside. */
+.basehalf-markdown-rich.surface-detail .ProseMirror {
+	position: relative;
+}
+
+.basehalf-markdown-rich .ProseMirror .note-comment-tint {
+	background: color-mix(in srgb, var(--bh-comment) 32%, transparent);
+	border-radius: 2px;
+}
+
+.basehalf-markdown-rich .ProseMirror .note-comment-mark {
+	position: absolute;
+	right: -40px;
+	width: 14px;
+	height: 14px;
+	margin-top: 5px;
+	padding: 0;
+	border: 0;
+	border-radius: 2px 2px 2px 6px;
+	background: var(--bh-comment);
+	box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
+	cursor: pointer;
+	user-select: none;
+}
+
+.basehalf-markdown-rich .ProseMirror .note-comment-mark.missing {
+	top: 6px;
+	opacity: 0.55;
+}

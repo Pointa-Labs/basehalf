@@ -139,7 +139,10 @@ export class BaseHalfCommentService extends Disposable implements IBaseHalfComme
 						this.storageService.store(COLOR_STORAGE_KEY, color, StorageScope.PROFILE, StorageTarget.USER);
 					}
 				}
-				this.pushStep(target, step, id, before, after, index);
+				// A comment that follows its edited passage is no step of its own: the edit of the note is.
+				if (step !== 'follow') {
+					this.pushStep(target, step, id, before, after, index);
+				}
 				this.onDidChangeEmitter.fire(target.resource);
 			});
 		});
@@ -239,6 +242,7 @@ function stepLabel(kind: BaseHalfCommentStep, name: string): string {
 		case 'color': return localize('basehalf.comments.step.color', "Change Color in {0}", name);
 		case 'reply': return localize('basehalf.comments.step.reply', "Reply in {0}", name);
 		case 'delete': return localize('basehalf.comments.step.delete', "Delete Comment in {0}", name);
+		case 'follow': return name;
 	}
 }
 
