@@ -48,10 +48,11 @@ async function openNote(page, relativePath) {
 }
 
 /**
- * Note title, criteria 25 to 28 and 30, in the real window: New Note and
+ * Note title, criteria 25 to 28, 30, and 31, in the real window: New Note and
  * Expand open Card Detail at the title line, and the title typed there names
  * the file once Card Detail closes; a title begun on the card goes on at its
- * end in Card Detail; a note that begins with a paragraph shows an
+ * end in Card Detail; a title emptied above a heading stays, writes `#`, and
+ * renames nothing; a note that begins with a paragraph shows an
  * empty title line above it, which writes nothing until a title is typed into
  * it; the line under an empty title line made a heading is the title line;
  * and a press below a note of only a title puts the caret in the line under
@@ -106,6 +107,37 @@ export async function assertCardDetailNoteTitleLine(page) {
 		});
 		await page.keyboard.press('Escape');
 		await waitUntil(() => /^# Nebula\n?$/.test(text(`${FOLDER}/Nebula.md`) ?? '') && text(`${FOLDER}/untitled.md`) === null, 'the note to take the name of its title once Card Detail closed');
+
+		// 31. A title emptied above a heading: the title line stays, and the file holds `#` above the heading and keeps its name.
+		await clickCanvasCreateAction(page, 'New Note');
+		await waitUntil(() => text(`${FOLDER}/untitled.md`) !== null, 'New Note to make untitled.md in the folder');
+		await waitForCanvasNoteInlineEditor(page, `${FOLDER}/untitled.md`);
+		await page.locator(`button[aria-label="Expand ${FOLDER}/untitled.md"]`).click();
+		await assertCardDetail(page, 'untitled.md');
+		frame = await activeMarkdownRichFrame(page);
+		await frame.waitForFunction(() => document.querySelector('.bn-editor')?.contains(document.activeElement) === true, null, { timeout: 10_000 });
+		await page.keyboard.type('Plan');
+		await page.keyboard.press('Enter');
+		await page.keyboard.type('## Goals');
+		await waitUntil(() => text(`${FOLDER}/untitled.md`) === '# Plan\n\n## Goals\n', 'the title and the heading under it to be saved');
+		const plan = await frame.locator('.bn-block-content', { hasText: 'Plan' }).boundingBox();
+		await page.mouse.click(plan.x + 4, plan.y + plan.height / 2);
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End');
+		for (let step = 0; step < 'Plan'.length; step++) {
+			await page.keyboard.press('Backspace');
+		}
+		await waitUntil(() => text(`${FOLDER}/untitled.md`) === '#\n\n## Goals\n', 'the emptied title to be saved as `#` above the heading').catch(() => {
+			throw new Error(`A title emptied above a heading must be saved as \`#\` above it: ${JSON.stringify(text(`${FOLDER}/untitled.md`))}`);
+		});
+		const emptied = await richLines(frame);
+		if (JSON.stringify(emptied.map(line => [line.type, line.text, line.title])) !== JSON.stringify([['heading', '', '"Title"'], ['heading', 'Goals', undefined]])) {
+			throw new Error(`A title emptied above a heading must stay an empty title line above it: ${JSON.stringify(emptied)}`);
+		}
+		await page.keyboard.press('Escape');
+		await page.waitForTimeout(700);
+		if (text(`${FOLDER}/untitled.md`) !== '#\n\n## Goals\n' || text(`${FOLDER}/Goals.md`) !== null) {
+			throw new Error('A note whose title was emptied above a heading must keep its name and its `#`');
+		}
 
 		// 26. A note that begins with a paragraph: an empty title line above it.
 		frame = await openNote(page, `${FOLDER}/plain-first.md`);
