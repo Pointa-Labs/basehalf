@@ -99,6 +99,7 @@ import { baseHalfNoteLinkPath } from '../../../src/vs/workbench/basehalf/markdow
 import { installBaseHalfNoteBlockIndex } from './noteBlockIndex.js';
 import { installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from './notePaste.js';
 import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
+import { baseHalfNoteTitleLinePress, baseHalfNoteTitleLineStart, isBaseHalfNoteTitleLineBlock, makeBaseHalfNoteTitleLineExtension } from './noteTitleLine.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/ui/browser/basehalfSidewaysScrollbar.js';
@@ -548,12 +549,14 @@ function BaseHalfSideMenuController({ portalElement, addedLine }: { readonly por
 		}),
 	}], []);
 
+	// The title line stays first: it shows no handle to drag it or to add a block beside it (note title).
+	const titleLine = state?.blockId !== undefined && isBaseHalfNoteTitleLineBlock(editor.prosemirrorView.state, state.blockId);
 	return (
 		<GenericPopover
 			reference={reference}
 			portalElement={portalElement ?? undefined}
 			useFloatingOptions={{
-				open: state?.show && !listOpen,
+				open: state?.show && !listOpen && !titleLine,
 				placement: 'left-start',
 				middleware,
 			}}
@@ -627,6 +630,10 @@ function MarkdownRichEditor(): JSX.Element {
 		openLink: href => openLinkRef.current(href),
 		undoManager: () => noteUndoRef.current?.ensure(),
 		reading: () => session.current.loading,
+	}), []);
+	// Every note starts with its title line (note title, "The title line and the text under it").
+	const noteTitleLineExtension = useMemo(() => makeBaseHalfNoteTitleLineExtension({
+		placeholder: document.getElementById('root')?.dataset.basehalfTitlePlaceholder || 'Title',
 	}), []);
 	// The link toolbar opens a link with the note's link router, not in the page.
 	const linkToolbar = useMemo(() => function BaseHalfLinkToolbar(props: LinkToolbarProps): JSX.Element {
@@ -741,7 +748,7 @@ function MarkdownRichEditor(): JSX.Element {
 				return true;
 			},
 		},
-		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension, noteMediaEditExtension, fileDropExtension],
+		extensions: [noteTitleLineExtension, adhdExtension, selectionRevealExtension, noteShapeExtension, noteMediaEditExtension, fileDropExtension],
 		dropCursor: baseHalfNoteDropCursor,
 		pasteHandler,
 		collaboration: {
@@ -1170,6 +1177,12 @@ function MarkdownRichEditor(): JSX.Element {
 			// The blocks were drawn before the state had their toggles.
 			openBaseHalfNoteStoredOpenToggles(editor.domElement);
 		}
+		// A note without text starts at its title line; any other at its end (note title, opening and closing Card Detail).
+		const loadedView = editor.prosemirrorView;
+		const titleStart = loadedView && !body.trim() ? baseHalfNoteTitleLineStart(loadedView.state.doc) : undefined;
+		if (loadedView && titleStart) {
+			loadedView.dispatch(loadedView.state.tr.setSelection(titleStart));
+		}
 		// Loading or adopting a projection must not become an undoable edit.
 		// Otherwise undo could walk past the load and blank the document. The
 		// fallback covers loads that land while the editor view is unmounted.
@@ -1403,7 +1416,7 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 			event.preventDefault();
 			view.focus();
-			view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(found.pos))));
+			view.dispatch(view.state.tr.setSelection(baseHalfNoteTitleLinePress(view, TextSelection.near(view.state.doc.resolve(found.pos)), event.clientY)));
 		};
 		scroll.addEventListener('mousedown', onMouseDown, true);
 		return () => scroll.removeEventListener('mousedown', onMouseDown, true);
@@ -1854,7 +1867,7 @@ function MarkdownRichEditor(): JSX.Element {
 					const hit = view.posAtCoords({ left: point.x, top: point.y });
 					if (hit && state.doc.content.size > 1) {
 						const position = Math.max(1, Math.min(hit.pos, state.doc.content.size - 1));
-						view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(position))));
+						view.dispatch(state.tr.setSelection(baseHalfNoteTitleLinePress(view, TextSelection.near(state.doc.resolve(position)), point.y)));
 					}
 					view.focus();
 				});
