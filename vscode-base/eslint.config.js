@@ -2391,15 +2391,15 @@ export default defineConfig(
 					'layers': ['common', 'browser', 'electron-browser'],
 					'order': {
 						'common': [
-							'workspace', 'ui', 'playback', 'cardDetail', 'navigation', 'mediaEdit', 'markdown', 'agentArea', 'generation',
+							'workspace', 'ui', 'comments', 'playback', 'cardDetail', 'navigation', 'mediaEdit', 'markdown', 'agentArea', 'generation',
 							'references', 'documents', 'canvas', 'canvasContrib/*', 'changes', 'clipboard', 'sequence', 'shell', 'upkeep'
 						],
 						'browser': [
-							'workspace', 'ui', 'playback', 'navigation', 'clipboard', 'documents', 'markdown', 'mediaEdit', 'cardDetail',
+							'workspace', 'ui', 'comments', 'playback', 'navigation', 'clipboard', 'documents', 'markdown', 'mediaEdit', 'cardDetail',
 							'changes', 'references', 'upkeep', 'generation', 'canvas', 'canvasContrib/*', 'sequence', 'agentArea', 'shell'
 						],
 						'electron-browser': [
-							'workspace', 'ui', 'playback', 'navigation', 'clipboard', 'documents', 'markdown', 'mediaEdit', 'cardDetail',
+							'workspace', 'ui', 'comments', 'playback', 'navigation', 'clipboard', 'documents', 'markdown', 'mediaEdit', 'cardDetail',
 							'changes', 'references', 'upkeep', 'generation', 'canvas', 'canvasContrib/*', 'sequence', 'agentArea', 'shell'
 						]
 					}
