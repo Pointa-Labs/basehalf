@@ -88,16 +88,23 @@ function blockUnderTitle(document: ProseMirrorNode, schema: ICanvasTitleLineSche
 /**
  * Whether the text under the title line holds a line to type in. It looks
  * from the top and stops at the first: in most notes the block right under
- * the title.
+ * the title. A block that stands outside the units counts as well, as the
+ * empty line that Enter lifts out of a unit.
  */
 function hasLineUnderTitle(document: ProseMirrorNode, schema: ICanvasTitleLineSchema): boolean {
 	for (let index = 0; index < document.childCount; index++) {
-		const unit = document.child(index);
-		if (unit.type !== schema.unit) {
+		const node = document.child(index);
+		if (node.type === schema.fixed) {
 			continue;
 		}
-		for (let blockIndex = index === 0 ? 1 : 0; blockIndex < unit.childCount; blockIndex++) {
-			const block = unit.child(blockIndex);
+		if (node.type !== schema.unit) {
+			if (index > 0 && (node.isTextblock || containsTextblock(node))) {
+				return true;
+			}
+			continue;
+		}
+		for (let blockIndex = index === 0 ? 1 : 0; blockIndex < node.childCount; blockIndex++) {
+			const block = node.child(blockIndex);
 			if (block.isTextblock || containsTextblock(block)) {
 				return true;
 			}
@@ -115,21 +122,38 @@ function containsTextblock(node: ProseMirrorNode): boolean {
 	return found;
 }
 
+/** Whether `block` is a heading of the note: one the editor edits, or one kept as it is. */
+function isHeadingBlock(block: ProseMirrorNode | undefined, options: ICanvasTitleLineOptions): boolean {
+	return !!block && (block.type === options.schema.heading || (block.type === options.schema.fixed && options.isHeadingUnit(block)));
+}
+
+/**
+ * Whether a heading has come to stand right under the empty title line of
+ * `document` since `before`, where the title line was empty and had no
+ * heading under it. A title emptied above a heading, in the same change or
+ * after it, is no such case. Without `before`, any heading under it.
+ */
+function headingCameUnderEmptyTitle(document: ProseMirrorNode, options: ICanvasTitleLineOptions, before: ProseMirrorNode | undefined): boolean {
+	const { schema } = options;
+	return isHeadingBlock(blockUnderTitle(document, schema), options)
+		&& (!before || (canvasTitleLine(before, schema)?.content.size === 0 && !isHeadingBlock(blockUnderTitle(before, schema), options)));
+}
+
 /**
  * Gives `transaction`'s document a title line and a line under it, and takes
  * away an empty title line that the editor added where the note has come to
- * begin with a heading. Returns where the added title line stands.
+ * begin with a heading: when the line stands first no more, or a heading has
+ * come to stand right under it since `before`. A title line emptied above a
+ * heading stays. Returns where the added title line stands.
  */
-function keepTitleLine(transaction: Transaction, added: number | undefined, options: ICanvasTitleLineOptions): number | undefined {
+function keepTitleLine(transaction: Transaction, added: number | undefined, options: ICanvasTitleLineOptions, before?: ProseMirrorNode): number | undefined {
 	const { schema } = options;
 	// An empty title line that the editor added stands only where the note has no title.
 	if (added !== undefined) {
 		const line = transaction.doc.nodeAt(added);
 		if (line?.type === schema.heading && line.content.size === 0) {
 			const first = added === TITLE_POSITION && transaction.doc.firstChild?.type === schema.unit;
-			const under = first ? blockUnderTitle(transaction.doc, schema) : undefined;
-			const headingUnder = under !== undefined && (under.type === schema.heading || (under.type === schema.fixed && options.isHeadingUnit(under)));
-			if (!first || headingUnder) {
+			if (!first || headingCameUnderEmptyTitle(transaction.doc, options, before)) {
 				const unit = transaction.doc.resolve(added).parent;
 				// A unit holds blocks: a unit of the title line alone goes with it.
 				if (unit.type === schema.unit && unit.childCount === 1) {
@@ -204,12 +228,12 @@ export function canvasTitleLinePlugin(options: ICanvasTitleLineOptions, added: n
 				return { added: kept ? kept.added : mapped && !mapped.deleted ? mapped.pos : undefined, decorations: decorationsOf(state.doc, options) };
 			},
 		},
-		appendTransaction: (transactions, _old, state) => {
+		appendTransaction: (transactions, old, state) => {
 			if (!transactions.some(transaction => transaction.docChanged)) {
 				return null;
 			}
 			const transaction = state.tr;
-			const added = keepTitleLine(transaction, titleLineKey.getState(state)?.added, options);
+			const added = keepTitleLine(transaction, titleLineKey.getState(state)?.added, options, old.doc);
 			return transaction.docChanged ? transaction.setMeta(titleLineKey, { added }) : null;
 		},
 		props: {

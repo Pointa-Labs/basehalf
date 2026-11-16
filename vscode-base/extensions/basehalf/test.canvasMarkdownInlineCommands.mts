@@ -193,25 +193,24 @@ export function exerciseTitleLine(sources: readonly string[], steps: readonly st
 			return direction === 'backward' || direction === 'left' ? cursor.parentOffset === 0 : cursor.parentOffset === cursor.parent.content.size;
 		},
 	} as unknown as EditorView;
+	// The lines the editor shows, those of blocks that stand outside the units among them.
 	const lines = () => {
 		const shown: string[] = [];
 		let caret = -1;
-		state.doc.forEach((unit, offset) => {
-			if (unit.type === canvasSchema.nodes.unsupported_markdown) {
+		state.doc.descendants((block, position) => {
+			if (block.type === canvasSchema.nodes.unsupported_markdown) {
 				shown.push('fixed');
-				return;
-			}
-			unit.descendants((block, position) => {
-				if (!block.isTextblock) {
-					return true;
-				}
-				const from = offset + 1 + position + 1;
-				if (state.selection.from >= from && state.selection.from <= from + block.content.size) {
-					caret = shown.length;
-				}
-				shown.push((block.type === canvasSchema.nodes.heading ? 'h' + block.attrs.level : 'p') + ':' + block.textContent);
 				return false;
-			});
+			}
+			if (!block.isTextblock) {
+				return true;
+			}
+			const from = position + 1;
+			if (state.selection.from >= from && state.selection.from <= from + block.content.size) {
+				caret = shown.length;
+			}
+			shown.push((block.type === canvasSchema.nodes.heading ? 'h' + block.attrs.level : 'p') + ':' + block.textContent);
+			return false;
 		});
 		return { shown, caret };
 	};
@@ -565,6 +564,10 @@ assert.deepEqual({
 	madeText: title(['# Anatomy', 'Text.'], ['<title>', '<setParagraph>']),
 	headingUnder: title([''], ['<below>', 'Ingredients', '<setHeading2>']),
 	emptiedOverHeading: title(['# Foo', '## Bar'], ['<title>', '<clear>']),
+	emptiedAfterHeading: title([''], ['Plan', '<enter>', 'Goals', '<setHeading2>', '<title>', '<clear>']),
+	emptiedOverEmptyLine: title([''], ['Plan', '<enter>', '<enter>', '<enter>', 'Goals', '<setHeading2>', '<title>', '<clear>']),
+	enterTwice: title([''], ['Plan', '<enter>', '<enter>', 'Text']),
+	headingUnderEmptied: title([''], ['Plan', '<enter>', 'Goals', '<title>', '<clear>', '<line 1>', '<setHeading2>']),
 	onFixed: title(['# Anatomy', '<html>'], ['<fixed 1>', 'x']),
 }, {
 	openedOnlyTitle: { shown: ['h1:Anatomys', 'p:'], caret: 0, placeholder: 0, markdown: '# Anatomys\n' },
@@ -573,8 +576,12 @@ assert.deepEqual({
 	textOnly: { shown: ['h2:How they form', 'p:Stars form. More.'], caret: 1, placeholder: 0, markdown: '## How they form\n\nStars form. More.\n' },
 	madeText: { shown: ['h1:', 'p:Anatomy', 'p:Text.'], caret: 1, placeholder: 1, markdown: 'Anatomy\n\nText.\n' },
 	headingUnder: { shown: ['h2:Ingredients', 'p:'], caret: 0, placeholder: 0, markdown: '## Ingredients' },
-	emptiedOverHeading: { shown: ['h1:', 'h2:Bar'], caret: 0, placeholder: 1, markdown: '## Bar\n' },
+	emptiedOverHeading: { shown: ['h1:', 'h2:Bar'], caret: 0, placeholder: 1, markdown: '#\n\n## Bar\n' },
+	emptiedAfterHeading: { shown: ['h1:', 'h2:Goals'], caret: 0, placeholder: 1, markdown: '#\n\n## Goals' },
+	emptiedOverEmptyLine: { shown: ['h1:', 'p:', 'h2:Goals'], caret: 0, placeholder: 1, markdown: '#\n\n## Goals' },
+	enterTwice: { shown: ['h1:Plan', 'p:Text'], caret: 1, placeholder: 0, markdown: '# Plan\n\nText' },
+	headingUnderEmptied: { shown: ['h2:Goals', 'p:'], caret: 0, placeholder: 0, markdown: '## Goals' },
 	onFixed: { shown: ['h1:Anatomy', 'fixed', 'p:x'], caret: 2, placeholder: 0, markdown: '# Anatomy\n\n![](a.png)\n\nx\n' },
-}, 'a note of only a title opens at the end of its title and gets a line under it, text under the title is never the title, a title made text is followed by an empty title line, and an empty title line the editor added gives way to a heading under it');
+}, 'a note of only a title opens at the end of its title and gets a line under it, text under the title is never the title, a title made text is followed by an empty title line, an empty title line the editor added gives way to a heading made under it, and a title emptied above a heading stays and writes `#`');
 
 console.log('Canvas Markdown inline command tests passed.');

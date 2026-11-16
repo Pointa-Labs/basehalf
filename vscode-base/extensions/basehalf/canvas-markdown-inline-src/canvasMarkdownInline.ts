@@ -773,6 +773,14 @@ function canvasMarkdownDocumentSource(
 	};
 	// Whether the last thing written is a block that the file does not hold yet.
 	let afterAdded = false;
+	// Whether anything but white space is written yet: kept as written, as reading it back would cost each unit the whole note.
+	let wroteText = false;
+	// A note's empty title line with a heading right under it writes `#`, so that
+	// the note keeps no title and the heading stays a heading of its text (note title).
+	const titleMark = emptyTitleMark(document, records);
+	const withTitleMark = (source: string, index: number): string => index === 0 && titleMark !== undefined
+		? source.trim() === '' ? titleMark : `${titleMark}${documentLineEnding.repeat(2)}${source.replace(/^(?:[ \t]*\r?\n)+/, '')}`
+		: source;
 	document.forEach((node, _offset, index) => {
 		const unitId = typeof node.attrs.unitId === 'string' ? node.attrs.unitId : undefined;
 		const record = unitId ? records.get(unitId) : undefined;
@@ -783,28 +791,30 @@ function canvasMarkdownDocumentSource(
 			} else {
 				addBlock(documentLineEnding === '\r\n' ? source.replace(/\n/g, '\r\n') : source);
 				afterAdded = true;
+				wroteText = true;
 			}
 			return;
 		}
 		if (record) {
 			let source = record.input.markdown;
 			if (node.type === canvasSchema.nodes.markdown_unit && !node.content.eq(record.initialNode.content)) {
-				source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node.content));
+				source = withTitleMark(serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node.content)), index);
 				if (record.input.markdown.includes('\r\n') || documentLineEnding === '\r\n') {
 					source = source.replace(/\n/g, '\r\n');
 				}
 			}
 			let prefix = record.input.prefix;
-			if (index > 0 && markdown.trim() === '') {
+			if (index > 0 && !wroteText) {
 				// Nothing is written before this unit, as when the title above it was
 				// emptied: the note does not begin with the lines that stood between them.
-				prefix = prefix.replace(/^(?:\r?\n)+/, '');
+				prefix = prefix.replace(/^(?:[ \t]*\r?\n)+/, '');
 			} else if (afterAdded && countLineBreaks(/\s*$/.exec(markdown)?.[0] ?? '') + countLineBreaks(prefix) < 2) {
 				// A unit after a block the editor added, as a title typed above the
 				// note's first unit, stands a blank line after it.
 				prefix = documentLineEnding.repeat(2 - countLineBreaks(/\s*$/.exec(markdown)?.[0] ?? '') - countLineBreaks(prefix)) + prefix;
 			}
 			afterAdded = false;
+			wroteText ||= source.trim() !== '';
 			const start = markdown.length + prefix.length;
 			units.push({ start, end: start + source.length });
 			markdown += `${prefix}${source}${record.input.separator}`;
@@ -813,7 +823,7 @@ function canvasMarkdownDocumentSource(
 		// A unit the editor added, as a paragraph started after a fixed block,
 		// or a bare top-level block, which no command makes today.
 		const content = node.type === canvasSchema.nodes.markdown_unit ? node.content : Fragment.from(node);
-		const source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, content));
+		const source = withTitleMark(serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, content)), index);
 		// An empty paragraph started after a fixed block writes nothing until it holds something.
 		if (source.trim() === '') {
 			units.push({ start: markdown.length, end: markdown.length });
@@ -821,8 +831,48 @@ function canvasMarkdownDocumentSource(
 		}
 		addBlock(documentLineEnding === '\r\n' ? source.replace(/\n/g, '\r\n') : source);
 		afterAdded = true;
+		wroteText = true;
 	});
 	return { markdown, units };
+}
+
+/**
+ * The `#` that the note's empty title line writes when a heading stands right
+ * under it (note title, note formats rule 23): the title line is the first
+ * block of the first unit, and the hashes are those of its level. Lines that
+ * write nothing between the two do not count. `undefined` when the title line
+ * holds text or no heading stands under it.
+ */
+function emptyTitleMark(document: ProseMirrorNode, records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>): string | undefined {
+	const title = document.firstChild?.type === canvasSchema.nodes.markdown_unit ? document.firstChild.firstChild : undefined;
+	if (title?.type !== canvasSchema.nodes.heading || title.content.size > 0) {
+		return undefined;
+	}
+	const under = firstWrittenBlockUnderTitle(document);
+	const headingUnder = !!under && (under.type === canvasSchema.nodes.heading
+		|| (under.type === canvasSchema.nodes.unsupported_markdown && isHeadingUnit(records, under)));
+	return headingUnder ? '#'.repeat(Number(title.attrs.level) || 1) : undefined;
+}
+
+/** The first block under the title line that writes something: not an empty heading or paragraph. It looks from the top and stops at the first. */
+function firstWrittenBlockUnderTitle(document: ProseMirrorNode): ProseMirrorNode | undefined {
+	const writesNothing = (block: ProseMirrorNode) => (block.type === canvasSchema.nodes.heading || block.type === canvasSchema.nodes.paragraph) && block.content.size === 0;
+	for (let index = 0; index < document.childCount; index++) {
+		const unit = document.child(index);
+		if (unit.type !== canvasSchema.nodes.markdown_unit) {
+			if (!writesNothing(unit)) {
+				return unit;
+			}
+			continue;
+		}
+		for (let blockIndex = index === 0 ? 1 : 0; blockIndex < unit.childCount; blockIndex++) {
+			const block = unit.child(blockIndex);
+			if (!writesNothing(block)) {
+				return block;
+			}
+		}
+	}
+	return undefined;
 }
 
 function countLineBreaks(text: string): number {
