@@ -6485,3 +6485,45 @@ two writes of the layout that nothing on screen needs.
 - In a fixture of two cards the card comes 17 to 35 ms after the menu closes, the time of creating the file and of one
   drawing, where it came 60 ms after.
 - The canvas has one arrowhead of its own for all its lines, in place of the one React Flow made for each kind of marker.
+
+## D135 — Comments mark passages of PDFs, books, and notes, and the reader of a PDF is BaseHalf's own (NEW, 2026-11-16)
+
+**Decision.** A comment marks a passage of a PDF, a book, or a note and holds words about it, by the user or by an agent;
+a comment without words is a highlight, and in a PDF a comment can also stand on a place of a page. The passage takes the
+comment's color and the words stand beside it on a small sticky note, folded to a mark until the pointer is on it or it is
+opened. Comments are kept in `.bh/mirror/<path>/comments.yaml`, beside the file and never in it: the bytes of a PDF or a book
+and the Markdown of a note do not change. A comment finds its passage by quoting it, with the page of a PDF or the chapter of
+a book, so that an agent can write one with the file alone; agents read and write comments and replies through the skill, and
+an open comment note is what the selection record names. The PDF reader and the book reader become one reader of BaseHalf's
+own: the header of Card Detail is its only bar, with Sidebar and Search; a panel holds Pages, Contents, and Comments and the
+search; the page and the zoom, or the place and the size of a book's text, stand at the bottom left as the canvas's zoom does;
+and selecting text offers Highlight, Comment, Grow branch, and Copy. The PDF reader keeps the engine of EmbedPDF and leaves its
+screens: no hand, pointer, menu, or page settings. See [comments](specs/comments.md) and
+[PDFs and books](specs/documents-and-books.md#the-reader).
+
+**Why.** On 2026-11-16 the owner asked for a PDF module of BaseHalf's own, with the e-book formats in it: the toolbar merged
+into the top, the hand, the pointer, and the menu taken away, the zoom at the bottom left, and a comment in the menu of a
+selection that is "a comment and also a sticky note". Asked where comments live, they chose BaseHalf's own file over writing
+into the PDF: one way for PDFs and books, whose formats have no common place for comments; a PDF that git keeps whole does not
+gain a new version for each remark; and an agent reads and writes text. Asked about agents, they answered that reading and
+writing go together, and that notes should have comments too. Asked about two pages side by side and turning pages, they left
+it to the reader's design, which leaves both out.
+
+**What was set aside.**
+- Comments written into the PDF as its own annotations: other programs would show them, but every remark would rewrite the
+  whole file, mark it changed in git and on its card, make its cover again, and books would still need another place.
+- A comment as a card on the canvas: one file for each remark. Grow branch stays for a passage that deserves a note, and a
+  comment can grow one.
+- Positions that only BaseHalf can compute, such as the character offsets of a PDF or the canonical fragment of a book, as the
+  anchor: an agent could not write them. The quote, with the text around it and the page or the chapter, is enough to find a
+  passage again, also after a note was edited.
+- The library's ready-made viewer with its toolbar hidden: comments need their own layer in each page, and the selection menu,
+  the panel, and the controls follow BaseHalf's look only when BaseHalf draws them.
+- A highlight button with several colors in the selection menu: one button marks in the color used last, and the color is
+  changed on the comment.
+
+**Consequences.**
+- Revises D81's non-goal that nothing is marked in a document: the marks are kept beside it.
+- Revises D57's record: `selected: "comment"`. The skill's version grows.
+- The header of Card Detail holds the reader's Sidebar and Search for a PDF or a book.
+- The book reader loses its own top and bottom bars, its Previous and Next Page buttons, and the button above a selection.

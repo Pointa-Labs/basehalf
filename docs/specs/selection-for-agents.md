@@ -81,6 +81,7 @@ says what differs in this record.
 | Selected text in a note, on its card or in Card Detail | the text, its note, and the lines it is on | a text icon and the start of the text |
 | Selected text in a code file, on its card or in Card Detail | the text, its file, and the lines it is on | the same |
 | Selected text in a PDF or a book in Card Detail | the text, its document, and the pages or the chapter it is in | the same |
+| Opened a comment of a PDF, a book, or a note ([comments](comments.md#agents)) | the comment, by its file and its id | a comment glyph and the start of its words |
 | Selected two or more cards | every selected card | "N cards selected" |
 
 - **Only selecting changes it.** Moving the pointer, scrolling, zooming, and
@@ -148,7 +149,13 @@ last_line: 5
 text: "核心概念\nIR（原始需求）：用户想要什么（业务导向、模糊）"
 ```
 
-- `selected` is `folder`, `card`, `cards`, or `text`.
+- `selected` is `folder`, `card`, `cards`, `text`, or `comment`.
+- `comment` has `path`, the PDF, the book, or the note; `comment`, the
+  comment's `id` in its `comments.yaml`; `quote`, its passage, missing for a
+  comment on a place of a page; and `text`, its words, empty for a
+  highlight. It is recorded while the comment's note is open, and the
+  record goes back to the document's card, or to the note's text, when it
+  closes ([comments](comments.md#agents)).
 - `path` names the folder, the card, or the note of the text, relative to the
   workspace folder, with forward slashes, as the entries of an upstream list
   do. The workspace folder itself is `.`.

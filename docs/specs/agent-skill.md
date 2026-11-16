@@ -14,8 +14,10 @@ a book its chapter; installed as a link to BaseHalf's own copy, which
 follows every release, and offered until the user answers, 2026-10-26, D83;
 version 11, 2026-11-02, D110: the formats a note keeps; version 12,
 2026-11-03, D111: the files inside a note; version 13, 2026-11-04, D119: text
-selected in the earlier version of a file)
-Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
+selected in the earlier version of a file; version 14, 2026-11-16, D135:
+comments, and a comment in the record of what the user selected)
+Decisions: [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16),
+[D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
@@ -174,6 +176,18 @@ its own, which the agents' folders link to
    image or a sound the agent makes for a note when the user asks goes into
    the note's folder, not beside the note as a card. A selected file under
    `.bh/attachments/` belongs to the note whose links name its folder.
+8. **Comments.** A PDF, a book, or a note can have comments in
+   `.bh/mirror/<path>/comments.yaml` ([comments](comments.md#the-file)): what
+   each field means; that a comment finds its passage by `quote`, copied
+   from the text as the reader shows it (a note's text without its Markdown
+   marks), with `page` counted from 1 in the file for a PDF and `chapter`
+   for a book when the agent knows it; that a comment without `text` is a
+   highlight; that an agent adds a comment or a reply at the end of its list
+   with `by` set to its own name and `at` to the time, leaves `id` out or
+   makes one of eight lowercase letters and digits, and changes or deletes
+   the user's comments and replies only when the user asks; that the file
+   stays YAML; and that BaseHalf shows a change at once. The record of what
+   the user selected can name a comment (`selected: "comment"`).
 
 The body describes where things are and what they mean. Following D36, it
 does not tell an agent what to read or in what order. It stays under 500

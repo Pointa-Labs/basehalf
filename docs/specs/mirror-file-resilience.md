@@ -243,6 +243,10 @@ being moved", keeps its text.
 
 ## Annotation files
 
+`comments.yaml` is read and written as [comments](comments.md#the-file)
+says: field by field, with a recovery copy before a write over content that
+is not YAML, under `.bh/cache/recovered/mirror/<path>/comments.<12 hex digits>.yaml`.
+
 `badge.yaml`, `adhd.yaml`, and `generation.yaml` use the value grammar and
 the write check. A description, keyword, or prompt that looks like a number,
 a boolean, or `null` is read as the text the user typed.
