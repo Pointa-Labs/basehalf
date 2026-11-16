@@ -57,6 +57,24 @@ function searchText(original: string, compact: boolean): ISearchText {
 	let afterSpace = true;
 	for (let index = 0; index < original.length;) {
 		const codePoint = original.codePointAt(index)!;
+		// Most of a page is ASCII, which is its own plain form: no normalization, and white space by its codes.
+		if (codePoint < 0x80) {
+			if (codePoint === 0x20 || (codePoint >= 0x09 && codePoint <= 0x0d)) {
+				if (!compact && !afterSpace) {
+					text += ' ';
+					starts.push(index);
+					ends.push(index + 1);
+					afterSpace = true;
+				}
+			} else if (!(compact && codePoint === 0x2d && /^[ \t]*\r?\n/.test(original.slice(index + 1, index + 8)))) {
+				text += original[index];
+				starts.push(index);
+				ends.push(index + 1);
+				afterSpace = false;
+			}
+			index++;
+			continue;
+		}
 		const width = codePoint > 0xffff ? 2 : 1;
 		const character = String.fromCodePoint(codePoint);
 		if (character === '­') {
@@ -77,7 +95,8 @@ function searchText(original: string, compact: boolean): ISearchText {
 			index += width;
 			continue;
 		}
-		const plain = SPACE.test(plainCharacter(character)) ? ' ' : plainCharacter(character);
+		const normalized = plainCharacter(character);
+		const plain = SPACE.test(normalized) ? ' ' : normalized;
 		for (let unit = 0; unit < plain.length; unit++) {
 			starts.push(index);
 			ends.push(index + width);
@@ -94,6 +113,23 @@ function searchText(original: string, compact: boolean): ISearchText {
 	return { text, starts, ends };
 }
 
+/** The search texts of the texts searched last, by form: a reader looks for many quotes in the same page. */
+const searchTexts = [new Map<string, ISearchText>(), new Map<string, ISearchText>()];
+const SEARCH_TEXTS_KEPT = 8;
+
+function cachedSearchText(original: string, compact: boolean): ISearchText {
+	const cache = searchTexts[compact ? 1 : 0];
+	let value = cache.get(original);
+	if (!value) {
+		value = searchText(original, compact);
+		if (cache.size >= SEARCH_TEXTS_KEPT) {
+			cache.delete(cache.keys().next().value!);
+		}
+		cache.set(original, value);
+	}
+	return value;
+}
+
 /** A quote as a comment keeps it: runs of white space as one space, without white space at either end. */
 export function normalizeBaseHalfCommentQuote(text: string): string {
 	return text.replace(/\s+/gu, ' ').trim();
@@ -106,7 +142,7 @@ export function normalizeBaseHalfCommentQuote(text: string): string {
  */
 export function findBaseHalfCommentQuote(text: string, quote: string, before?: string, after?: string): IBaseHalfCommentMatch | undefined {
 	for (const compact of [false, true]) {
-		const haystack = searchText(text, compact);
+		const haystack = cachedSearchText(text, compact);
 		const needle = searchText(quote, compact).text;
 		if (!needle) {
 			return undefined;

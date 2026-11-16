@@ -28,6 +28,9 @@ export type PdfPageTextReader = (pageIndex: number) => Promise<string | undefine
 /** How far from its `page` a quote is looked for, either way (comments, rule 1). */
 const NEARBY_PAGES = 5;
 
+/** How long the comments are looked for before the page may draw again. */
+const FIND_SLICE_MS = 8;
+
 /**
  * The comments of the PDF, those of its file and those just made by Comment
  * and not saved yet, with where each stands once it was found.
@@ -155,12 +158,21 @@ export class PdfCommentStore {
 	private async findAll(): Promise<void> {
 		const run = ++this.run;
 		this.changed();
+		let slice = performance.now();
 		for (const comment of this.all()) {
 			const place = await this.find(comment);
 			if (run !== this.run) {
 				return;
 			}
 			this.places.set(comment.id, place);
+			// Many comments are found a slice at a time, and the page draws between slices (comments, "Limits").
+			if (performance.now() - slice > FIND_SLICE_MS) {
+				await new Promise(resolve => setTimeout(resolve, 0));
+				if (run !== this.run) {
+					return;
+				}
+				slice = performance.now();
+			}
 		}
 		this.changed();
 	}

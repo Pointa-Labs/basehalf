@@ -51,6 +51,19 @@ suite('BaseHalf comments', () => {
 			]);
 		});
 
+		test('a page searched for many quotes is read once, and a page whose text changed is read again', () => {
+			const page = 'Café au lait, then the error is measured. ';
+			assert.deepStrictEqual([
+				passage(page, 'the error is'),
+				passage(page, 'au lait'),
+				passage(page.replace('Café', 'Tea, '), 'the error is')
+			], [
+				'19:the error is',
+				'5:au lait',
+				'20:the error is'
+			]);
+		});
+
 		test('a new comment keeps up to 32 characters around its passage', () => {
 			const text = 'The   quick brown fox jumps over the lazy dog, again and again and again.';
 			const start = text.indexOf('jumps');

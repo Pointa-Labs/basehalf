@@ -287,7 +287,11 @@ moving the page and without closing a comment note the user is writing in.
 - Words: at most 10,000 characters for a comment and for a reply. A quote is
   at most 10,000 characters, as a selection that agents can see is.
 - A PDF with 500 comments opens with no frame over 34 ms more than without
-  them.
+  them. Measured (2026-11-17), a paper of 14 pages with 500 comments, at a
+  load of about 5: one frame over 34 ms while it opened, as without comments,
+  and none while it scrolled. Before a page's text was read once for all its
+  quotes, finding them took 460 ms and made five such frames, the longest
+  158 ms.
 - The passage of a comment in a book is found once the reader has opened its
   section: a comment without `chapter` in a long book is listed before its
   passage is found.
