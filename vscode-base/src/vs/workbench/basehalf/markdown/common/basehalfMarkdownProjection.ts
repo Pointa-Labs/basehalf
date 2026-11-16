@@ -551,9 +551,10 @@ async function readSegment(editor: IBaseHalfMarkdownEditorApi, segment: IBaseHal
 	if (isDropped(blocks)) {
 		return undefined;
 	}
-	if (isEmptyHeading(blocks)) {
+	if (isEmptyHeading(blocks) && /^ {0,3}#{1,6}(?:[ \t]+#*)?[ \t]*$/.test(segment.source.trim())) {
 		// A `#` of the file is a heading that Rich edits, a title line when it stands
 		// first; it writes nothing, and keeps its bytes until it is changed (rule 23).
+		// An empty heading of HTML, which may hold attributes, goes by the guard below.
 		return blocks;
 	}
 	try {
@@ -920,8 +921,32 @@ function collectContributions(
 	note: IBaseHalfMarkdownNote
 ): IContribution[] {
 	const contributions = contributionsOf(editor, document, byId, note);
+	markEmptyTitle(contributions, document);
 	keepBlocksApart(contributions, note, '');
 	return contributions;
+}
+
+/**
+ * A note whose first block is an empty heading, its empty title line, with a
+ * heading right under it: the title line writes `#`, of its level, so that
+ * the note keeps no title and the heading under it stays a heading of its
+ * text (note title; note formats, rule 23).
+ */
+function markEmptyTitle(contributions: IContribution[], document: readonly unknown[]): void {
+	const [first] = document;
+	// One contribution for each block: the first block's, which writes nothing, is the one to mark.
+	if (contributions.length !== document.length || contributions[0]?.body !== '' || !isEmptyHeading([first])) {
+		return;
+	}
+	const under = contributions.findIndex((contribution, index) => index > 0 && contribution.body !== '');
+	const block = under > 0 ? document[under] : undefined;
+	const headingUnder = baseHalfNoteBlockType(block) === BASEHALF_RAW_PASSTHROUGH_BLOCK
+		? /^ {0,3}#{1,6}(?:[ \t]|$)/.test(String(baseHalfNoteBlockProps(block).source ?? ''))
+		: baseHalfNoteBlockType(block) === 'heading' && !isBaseHalfNoteToggle(block) && !isEmptyHeading([block]);
+	if (headingUnder) {
+		const level = Number(baseHalfNoteBlockProps(first).level);
+		contributions[0] = { ...contributions[0], body: '#'.repeat(Number.isInteger(level) && level >= 1 && level <= 6 ? level : 1) };
+	}
 }
 
 /** A toggle in parts, as the entry of its first lines says, that is still a toggle. */
@@ -970,8 +995,10 @@ function contributionsOf(
 		}
 
 		const text = current.text;
-		// A block that writes nothing is gone from the file, unless it wrote nothing as it was read, as a `#` of the file did: that one keeps its bytes (rule 23).
-		const kept = (text !== '' || current.failed || entry?.key === '') && entry !== undefined && !entry.multi && !entry.fixed;
+		// A block that writes nothing is gone from the file, unless it wrote nothing as it was read and is the block it was,
+		// as a `#` of the file that is still an empty heading: that one keeps its bytes (rule 23).
+		const unchangedEmpty = entry?.key === '' && text === '' && entry.slot !== undefined && sameBaseHalfNoteBlockKind(entry.slot.kind, current.kind);
+		const kept = (text !== '' || current.failed || unchangedEmpty) && entry !== undefined && !entry.multi && !entry.fixed;
 		// A block the writer cannot write keeps the bytes it stood for (design A5).
 		const parts = !kept ? { prefix: '', body: text, sep: '' } : text === entry.key || current.failed ? entryParts(entry) : { prefix: entry.prefix, body: text, sep: entry.sep };
 		const slot = kept ? entry.slot : undefined;
