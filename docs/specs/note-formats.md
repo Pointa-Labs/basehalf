@@ -138,11 +138,17 @@ start).
 1. **Rich offers only what the file keeps.** Every control, menu item, and
    key of Rich gives a result that is written into the file and shows the
    same after the note opens again. A control whose result the file cannot
-   keep is not shown, and no key reaches it.
+   keep is not shown, and no key reaches it. Comment is no format: BaseHalf
+   keeps a comment beside the note, and the file holds nothing of it
+   ([comments](comments.md)).
 2. The toolbar of selected text has the block type menu (paragraph, headings
    1 to 6, toggle headings 1 to 3, quote, toggle list, bullet list, numbered
    list, check list), Bold, Italic, Underline, Strikethrough, the color menu,
-   and Create link. It has no alignment, Nest, Unnest, or comment button.
+   and Create link, and in Card Detail Comment last
+   ([comments](comments.md#making-a-comment), rule 17). It has no alignment,
+   Nest, or Unnest, and not the editor's own comments, which would keep their
+   threads nowhere. The toolbar of a picture, a video, a sound, or a file has
+   no Comment.
 3. The toolbar of a picture, a video, and a sound has Edit caption, Replace,
    and Delete, and a picture also Rename, which edits its name, and Edit,
    first, which edits the picture where it is when its address is a file's
@@ -872,7 +878,8 @@ this specification. Outside changes are merged meanwhile, as always.
 4. With a text selection, a picture, a video, a sound, a file, and a table
    cell selected in turn, and with the menu of a drag handle open, Rich shows
    0 alignment, Nest, Unnest, Toggle preview, comment, merge, Colors, and
-   header controls, and no caption control for a file.
+   header controls, and no caption control for a file. The one exception is
+   Comment, last in the toolbar of a text selection in Card Detail.
 5. Tab in a paragraph after a paragraph leaves the document and the file as
    they were and the keyboard in the editor; Tab in a bullet after a bullet
    nests it; Tab in a table's last cell adds a row, and the file has that

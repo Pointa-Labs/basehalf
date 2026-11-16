@@ -12,6 +12,8 @@ import { createExtension } from '@blocknote/core';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, ySyncPluginKey } from 'y-prosemirror';
+import type { Doc as YDoc, XmlFragment } from 'yjs';
 import { baseHalfCommentContext, findBaseHalfCommentQuote, normalizeBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
 import type { IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 
@@ -99,13 +101,19 @@ export function notePassage(doc: PmNode, from: number, to: number): { readonly q
 	return { quote: normalizeBaseHalfCommentQuote(text.slice(start, end)), ...baseHalfCommentContext(text, start, end) };
 }
 
-/** Each comment's passage, kept where an edit left it while its text is still its quote, and otherwise found by its quote. */
-function anchorAll(doc: PmNode, comments: readonly IBaseHalfComment[], previous: ReadonlyMap<string, INoteCommentAnchor>): Map<string, INoteCommentAnchor> {
+/**
+ * Each comment's passage: kept where the edits since left it while the
+ * comment's quote is the one the note had for it, or is the passage's text
+ * now, and otherwise found by its quote. A passage the user is editing keeps
+ * its comment when the comments come again before the follow-up wrote its new
+ * words, as they do after a change of another comment.
+ */
+function anchorAll(doc: PmNode, comments: readonly IBaseHalfComment[], previous: ReadonlyMap<string, INoteCommentAnchor>, quotes: ReadonlyMap<string, string | undefined>): Map<string, INoteCommentAnchor> {
 	const anchors = new Map<string, INoteCommentAnchor>();
 	for (const comment of comments) {
 		const kept = comment.quote ? previous.get(comment.id) : undefined;
-		if (kept && kept.from < kept.to && kept.to <= doc.content.size
-			&& normalizeBaseHalfCommentQuote(doc.textBetween(kept.from, kept.to, '\n', ' ')) === normalizeBaseHalfCommentQuote(comment.quote!)) {
+		if (kept && kept.from < kept.to && kept.to <= doc.content.size && (quotes.get(comment.id) === comment.quote
+			|| normalizeBaseHalfCommentQuote(doc.textBetween(kept.from, kept.to, '\n', ' ')) === normalizeBaseHalfCommentQuote(comment.quote!))) {
 			anchors.set(comment.id, kept);
 		}
 	}
@@ -143,6 +151,56 @@ function mapAnchors(anchors: ReadonlyMap<string, INoteCommentAnchor>, transactio
 		}
 	}
 	return mapped;
+}
+
+/** The binding of the note to its shared document (y-prosemirror). */
+interface IYBinding {
+	readonly doc: YDoc;
+	readonly type: XmlFragment;
+	readonly mapping: Parameters<typeof absolutePositionToRelativePosition>[2];
+}
+
+function yBinding(state: EditorState): IYBinding | undefined {
+	return (ySyncPluginKey.getState(state) as { binding?: IYBinding | null } | undefined)?.binding ?? undefined;
+}
+
+/** Where the passages are in the shared document: before their first character, and after their last. */
+type MarkedAnchors = ReadonlyMap<string, { readonly from: unknown; readonly to: unknown }>;
+
+/**
+ * The binding writes each change that comes from the shared document, an
+ * undo, a redo, or a merge among them, as one replacement of the whole
+ * document, through which no position can follow. So the passages are marked
+ * in the shared document before each of its transactions, as the binding marks
+ * the selection, and found from those marks after it: a mark follows its
+ * character, and a character that an undo puts back.
+ */
+function markAnchors(anchors: ReadonlyMap<string, INoteCommentAnchor>, binding: IYBinding): MarkedAnchors | undefined {
+	try {
+		const marked = new Map<string, { readonly from: unknown; readonly to: unknown }>();
+		for (const [id, anchor] of anchors) {
+			// After the passage's last character: text put back at its end stays out of it, as typed text does.
+			const to = absolutePositionToRelativePosition(anchor.to - 1, binding.type, binding.mapping) as { assoc: number };
+			to.assoc = -1;
+			marked.set(id, { from: absolutePositionToRelativePosition(anchor.from, binding.type, binding.mapping), to });
+		}
+		return marked;
+	} catch {
+		// A transaction of the editor's own, before the binding wrote it: no change of the shared document follows it.
+		return undefined;
+	}
+}
+
+function unmarkAnchors(marked: MarkedAnchors, binding: IYBinding, doc: PmNode): Map<string, INoteCommentAnchor> {
+	const anchors = new Map<string, INoteCommentAnchor>();
+	for (const [id, mark] of marked) {
+		const from = relativePositionToAbsolutePosition(binding.doc, binding.type, mark.from, binding.mapping);
+		const to = relativePositionToAbsolutePosition(binding.doc, binding.type, mark.to, binding.mapping);
+		if (from !== null && to !== null && from < to && to <= doc.content.size) {
+			anchors.set(id, { from, to });
+		}
+	}
+	return anchors;
 }
 
 /** The names of a mark: a comment's, and one's whose passage is not found. */
@@ -202,6 +260,8 @@ function markElement(comment: IBaseHalfComment, handlers: INoteCommentMarkHandle
 }
 
 export function makeBaseHalfNoteCommentsExtension(handlers: INoteCommentMarkHandlers, labels: INoteCommentLabels) {
+	// The passages as marked in the shared document before its last transaction.
+	let marked: MarkedAnchors | undefined;
 	return createExtension({
 		key: 'baseHalfNoteComments',
 		prosemirrorPlugins: [
@@ -209,14 +269,14 @@ export function makeBaseHalfNoteCommentsExtension(handlers: INoteCommentMarkHand
 				key,
 				state: {
 					init: () => ({ comments: [], anchors: new Map(), decorations: DecorationSet.empty }),
-					apply(transaction, value, _oldState, newState) {
+					apply(transaction, value, oldState, newState) {
 						const meta = transaction.getMeta(key) as INoteCommentsMeta | undefined;
 						if (meta) {
 							const previous = mapAnchors(value.anchors, transaction);
 							for (const [id, anchor] of meta.known ?? []) {
 								previous.set(id, anchor);
 							}
-							const anchors = anchorAll(newState.doc, meta.comments, previous);
+							const anchors = anchorAll(newState.doc, meta.comments, previous, new Map(value.comments.map(comment => [comment.id, comment.quote])));
 							for (const [id, anchor] of meta.known ?? []) {
 								anchors.set(id, anchor);
 							}
@@ -225,7 +285,9 @@ export function makeBaseHalfNoteCommentsExtension(handlers: INoteCommentMarkHand
 						if (!transaction.docChanged || value.comments.length === 0) {
 							return value;
 						}
-						const anchors = findLost(newState.doc, value.comments, mapAnchors(value.anchors, transaction));
+						const binding = (transaction.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined)?.isChangeOrigin ? yBinding(oldState) : undefined;
+						const moved = binding && marked ? unmarkAnchors(marked, binding, newState.doc) : mapAnchors(value.anchors, transaction);
+						const anchors = findLost(newState.doc, value.comments, moved);
 						return { comments: value.comments, anchors, decorations: buildDecorations(newState.doc, value.comments, anchors, handlers, labels) };
 					}
 				},
@@ -234,13 +296,36 @@ export function makeBaseHalfNoteCommentsExtension(handlers: INoteCommentMarkHand
 						return key.getState(state)?.decorations ?? DecorationSet.empty;
 					}
 				},
-				view: () => ({
-					update(view, previous) {
-						if (!view.state.doc.eq(previous.doc) && (key.getState(view.state)?.comments.length ?? 0) > 0) {
-							handlers.changed();
+				view: view => {
+					let doc: YDoc | undefined;
+					const mark = () => {
+						const binding = yBinding(view.state);
+						const anchors = key.getState(view.state)?.anchors;
+						marked = binding && anchors?.size ? markAnchors(anchors, binding) : undefined;
+					};
+					// The binding comes with the view of the shared document's plugin, which may follow this one.
+					const attach = () => {
+						const next = yBinding(view.state)?.doc;
+						if (next !== doc) {
+							doc?.off('beforeAllTransactions', mark);
+							doc = next;
+							doc?.on('beforeAllTransactions', mark);
 						}
-					}
-				})
+					};
+					attach();
+					return {
+						update(view, previous) {
+							attach();
+							if (!view.state.doc.eq(previous.doc) && (key.getState(view.state)?.comments.length ?? 0) > 0) {
+								handlers.changed();
+							}
+						},
+						destroy() {
+							doc?.off('beforeAllTransactions', mark);
+							marked = undefined;
+						}
+					};
+				}
 			})
 		]
 	});

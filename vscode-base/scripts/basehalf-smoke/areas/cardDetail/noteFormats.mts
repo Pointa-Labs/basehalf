@@ -89,6 +89,7 @@ const nothingTheFileCannotKeep = /align|nest|comment|merge|preview|download/i;
 /**
  * Note formats, criteria 4 and 21: no control Rich offers makes what the
  * note's file cannot keep, and a palette color is drawn as the file stores it.
+ * Comment shows for selected text only, not for a picture or a file.
  */
 export async function assertNoteFormatsOfferOnlyWhatTheFileKeeps(page) {
 	const frame = await activeMarkdownRichFrame(page);
@@ -99,9 +100,11 @@ export async function assertNoteFormatsOfferOnlyWhatTheFileKeeps(page) {
 		throw new Error(`A red word is drawn ${color}, not the stored rgb(232, 112, 107)`);
 	}
 
+	// Comment, last for selected text in Card Detail, is no format: its comment is kept beside the note (comments, rule 17).
 	await selectText(frame, 'target');
 	const text = await toolbarLabels(frame);
-	if (text.some(label => nothingTheFileCannotKeep.test(label)) || !text.some(label => /colors/i.test(label))) {
+	const formats = text.at(-1) === 'Comment' ? text.slice(0, -1) : text;
+	if (text.at(-1) !== 'Comment' || formats.some(label => nothingTheFileCannotKeep.test(label)) || !formats.some(label => /colors/i.test(label))) {
 		throw new Error(`The toolbar of selected text offers ${JSON.stringify(text)}`);
 	}
 

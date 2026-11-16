@@ -3275,9 +3275,12 @@ const BaseHalfNoteCommentContext = createContext<{ readonly comment: (() => void
 
 /** Comment, at the end of the toolbar of a text selection: it marks the passage and opens its comment note (comments, rule 17). */
 function BaseHalfCommentButton(): JSX.Element | null {
+	const editor = useBlockNoteEditor();
 	const Components = useComponentsContext()!;
 	const context = useContext(BaseHalfNoteCommentContext);
-	if (!context.comment) {
+	const blocks = useSelectedBlocks(editor);
+	// Text only: a picture, a video, a sound, or a file has no passage to quote.
+	if (!context.comment || blocks.length === 0 || blocks.some(block => block.content === undefined)) {
 		return null;
 	}
 	return <Components.FormattingToolbar.Button className={'bn-button'} mainTooltip={context.label} label={context.label} icon={<RiChat3Line />} onClick={() => context.comment?.()} />;

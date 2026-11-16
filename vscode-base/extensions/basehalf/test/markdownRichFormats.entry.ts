@@ -2193,6 +2193,14 @@ async function comments(t: INoteFormatsTest): Promise<void> {
 		quotes: baseHalfNoteCommentFollowUps(view.state).map(followed => followed.quote),
 	}, { tints: ['the error signal back', 'Vanishing gradients'], quotes: ['the error signal back'] });
 	t.check('an edit tells the comments, which quote their passages anew a moment later', noteCommentEdits.count > editsBefore, true);
+	// The comments come again before the new words are written, as after a change of another comment.
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'blue', ''),
+		comment('cccccccc', 'residual connections', 'pink', 'see'),
+	]);
+	await t.frames();
+	t.check('a passage being edited keeps its comment when the comments come again before its new words are written', tints(), ['the error signal back', 'Vanishing gradients']);
 	t.caret('signal back', 'end');
 	await t.keyboard.type('wards');
 	t.caret('sends ', 'end');
@@ -2218,6 +2226,17 @@ async function comments(t: INoteFormatsTest): Promise<void> {
 	t.command('undo');
 	await t.frames();
 	t.check('undo gives the comment its passage back', { tinted: tints().includes('Vanishing gradients'), marks: marks() }, { tinted: true, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
+
+	// The shared document's binding writes an undo as a new document: the passage follows the part that changed.
+	t.history.current?.stopCapturing();
+	const passageBefore = tints()[0];
+	t.caret('the error', 'end');
+	await t.keyboard.type(' X');
+	await t.frames();
+	t.history.current?.stopCapturing();
+	t.command('undo');
+	await t.frames();
+	t.check('undo of words typed inside a passage keeps its comment there', { tint: tints()[0], marks: marks() }, { tint: passageBefore, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
 }
 
 /**
