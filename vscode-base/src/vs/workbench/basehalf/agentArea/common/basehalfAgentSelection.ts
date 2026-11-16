@@ -58,6 +58,21 @@ export interface IBaseHalfAgentSelectionDocumentText {
 	readonly text: string;
 }
 
+/** A comment of a PDF, a book, or a note whose note is open in Card Detail (comments, "Agents"). */
+export interface IBaseHalfAgentSelectionComment {
+	/** The file of the comment, relative to the workspace folder. */
+	readonly path: string;
+	/** The comment's id in its `comments.yaml`. */
+	readonly comment: string;
+	/** Its passage; none for a comment on a place of a page. */
+	readonly quote?: string;
+	/** Its words; empty for a highlight. */
+	readonly text: string;
+}
+
+/** What a view of Card Detail tells of its selection: text, or an open comment. */
+export type BaseHalfAgentSelectionDetail = IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText | IBaseHalfAgentSelectionComment;
+
 /**
  * What a window knows of the user's selection. Paths are relative to
  * `workspaceFolder`, with forward slashes; the workspace folder itself is `.`.
@@ -74,6 +89,8 @@ export interface IBaseHalfAgentSelectionInput {
 	readonly detail?: IBaseHalfAgentSelectionCard;
 	/** Text selected in the note being edited, on its card or in Card Detail, or in the PDF or the book Card Detail shows. */
 	readonly text?: IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText;
+	/** The comment whose note is open in Card Detail. */
+	readonly comment?: IBaseHalfAgentSelectionComment;
 }
 
 /** What is recorded (the selection agents can see, "What is recorded"). */
@@ -96,13 +113,25 @@ export type BaseHalfAgentSelection =
 		readonly chapter?: string;
 		readonly text: string;
 		readonly cut: boolean;
-	};
+	}
+	| { readonly selected: 'comment'; readonly path: string; readonly comment: string; readonly quote?: string; readonly text: string };
 
 /**
  * The rule: selected text wins, then the card Card Detail shows, then the
  * selected cards, then the folder of the canvas.
  */
 export function baseHalfAgentSelectionFor(input: IBaseHalfAgentSelectionInput): BaseHalfAgentSelection {
+	// An open comment is what the user is on (comments, "Agents").
+	if (input.comment) {
+		const cutText = (value: string) => value.length > BASEHALF_AGENT_SELECTION_TEXT_LIMIT ? value.slice(0, /[\ud800-\udbff]/.test(value.charAt(BASEHALF_AGENT_SELECTION_TEXT_LIMIT - 1)) ? BASEHALF_AGENT_SELECTION_TEXT_LIMIT - 1 : BASEHALF_AGENT_SELECTION_TEXT_LIMIT) : value;
+		return {
+			selected: 'comment',
+			path: input.comment.path,
+			comment: input.comment.comment,
+			...(input.comment.quote ? { quote: cutText(input.comment.quote) } : {}),
+			text: cutText(input.comment.text)
+		};
+	}
 	// Text that is only white space, such as a selected image or line break, shows nothing.
 	if (input.text && input.text.text.trim().length > 0) {
 		const cut = input.text.text.length > BASEHALF_AGENT_SELECTION_TEXT_LIMIT;
@@ -186,6 +215,13 @@ export function serializeBaseHalfAgentSelection(selection: BaseHalfAgentSelectio
 				lines.push('text_is_cut: true');
 			}
 			break;
+		case 'comment':
+			lines.push(`path: ${quote(selection.path)}`, `comment: ${quote(selection.comment)}`);
+			if (selection.quote !== undefined) {
+				lines.push(`quote: ${quote(selection.quote)}`);
+			}
+			lines.push(`text: ${quote(selection.text)}`);
+			break;
 	}
 	return `${lines.join('\n')}\n`;
 }
@@ -199,7 +235,7 @@ function quote(value: string): string {
 }
 
 /** The icon of the status bar entry: an item's kind, a node's kind, several cards, or selected text. */
-export type BaseHalfAgentSelectionIcon = BaseHalfItemKindIcon | 'presentation' | 'file' | 'cards' | 'selectedText';
+export type BaseHalfAgentSelectionIcon = BaseHalfItemKindIcon | 'presentation' | 'file' | 'cards' | 'selectedText' | 'comment';
 
 /** What the status bar entry shows for a selection. */
 export interface IBaseHalfAgentSelectionLabel {
@@ -227,6 +263,8 @@ export function baseHalfAgentSelectionLabel(selection: BaseHalfAgentSelection): 
 			return { icon: 'cards', text: '', count: selection.paths.length };
 		case 'text':
 			return { icon: 'selectedText', text: selection.text.slice(0, LABEL_TEXT_LIMIT * 4).replace(/\s+/g, ' ').trim().slice(0, LABEL_TEXT_LIMIT) };
+		case 'comment':
+			return { icon: 'comment', text: (selection.text.trim() || selection.quote || '').slice(0, LABEL_TEXT_LIMIT * 4).replace(/\s+/g, ' ').trim().slice(0, LABEL_TEXT_LIMIT) };
 	}
 }
 

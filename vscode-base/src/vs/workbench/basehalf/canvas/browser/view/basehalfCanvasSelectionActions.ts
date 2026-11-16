@@ -9,6 +9,7 @@ import { DisposableStore, IDisposable, toDisposable } from '../../../../../base/
 import { toAction } from '../../../../../base/common/actions.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { basename, dirname } from '../../../../../base/common/resources.js';
+import { hasKey } from '../../../../../base/common/types.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
@@ -18,7 +19,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasChildPath, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CARD_IS_DRAFT, IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
-import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
+import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionComment, IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfCanvasSceneContextMenuRequest, BaseHalfCanvasSceneSelectionAction } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasCardPick, IBaseHalfCanvasCardPickCard } from '../../common/basehalfCanvasCardPick.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from '../basehalfCanvasContextMenu.js';
@@ -729,9 +730,17 @@ export class BaseHalfCanvasSelectionActions {
 			.map(({ path, isFolder, caption, draft }) => ({ path, isFolder, caption, ...(draft ? { draft: true as const } : {}) }));
 		// Text in a note on its card, or in the note, the PDF, or the book of Card Detail.
 		let text: IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText | undefined;
+		// An open comment of the PDF, the book, or the note of Card Detail (comments, "Agents").
+		let comment: IBaseHalfAgentSelectionComment | undefined;
 		if (detail) {
 			const detailText = this.view.activeDetailProjection ? this.view.agentSelectionDetailText.get(this.view.activeDetailProjection) : undefined;
-			text = detailText?.path === detail.relativePath ? detailText : undefined;
+			if (detailText?.path === detail.relativePath) {
+				if (hasKey(detailText, { comment: true })) {
+					comment = detailText;
+				} else {
+					text = detailText;
+				}
+			}
 		} else {
 			const cardText = this.view.agentSelectionCardText;
 			text = cardText && (this.view.activeCanvasNoteEditor?.path === cardText.path || this.view.codeCards?.isEditing(cardText.path)) ? cardText : undefined;
@@ -743,7 +752,8 @@ export class BaseHalfCanvasSelectionActions {
 			folderPath: folder.relativePath || '.',
 			cards,
 			detail: detail && this.view.uriIdentityService.extUri.isEqual(detail.workspaceFolder, folder.workspaceFolder) ? { path: detail.relativePath, isFolder: false, caption: this.agentSelectionCaption(detail.relativePath) } : undefined,
-			text
+			text,
+			comment
 		});
 	}
 

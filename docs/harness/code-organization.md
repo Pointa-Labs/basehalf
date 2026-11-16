@@ -19,6 +19,7 @@ per feature:
 | --- | --- | --- |
 | `workspace/` | The workspace as every feature reads it: what an item is by its path (a note or media, the name BaseHalf shows for it, the icon of its kind, and whether BaseHalf shows it), the `.bh/` folder and the parts of its mirror files (their tree, YAML, recovery, commits, and ignore rules), the marker that keeps BaseHalf from setting up a folder, failure reasons in plain words, and the coordinator of workspace mutations. It imports no other folder of BaseHalf's | [Mirror file resilience](../specs/mirror-file-resilience.md), [workspace state](../specs/workspace-state-and-legacy-cleanup.md), [spec-driven development](../specs/spec-driven-development.md) for the marker |
 | `ui/` | What several surfaces draw alike: the hover, the glyph of an item, and the sideways scrollbar | [Architecture invariants](architecture-invariants.md#product-shell), [workbench appearance](../specs/workbench-appearance.md) |
+| `comments/` | Comments on PDFs, books, and notes: the comment and its colors, finding a passage by its quote, `comments.yaml` read and written field by field, what the pages that show comments and the window say to each other, and the service that keeps a change as a step of undo and follows the file | [Comments](../specs/comments.md) |
 | `playback/` | How videos and sounds play anywhere in BaseHalf: the player, its sound, one medium playing at a time, what a media element shows and when it is released, and the media in notes | [Generation cards](../specs/generation-cards.md#the-player), [note rendering](../specs/note-rendering.md) |
 | `shell/` | The product profile with the extension allowlist and install policy, About, release notes, settings, and layout controls | [Layout controls](../specs/layout-controls.md), [workbench appearance](../specs/workbench-appearance.md) |
 | `navigation/` | Folders opening as canvases and files as Card Detail, back and forward, and the flush before Card Detail is left | [Roadmap](../roadmap.md) tracks 2 and 4 |
@@ -80,8 +81,8 @@ BaseHalf's folders are in an order, from the bottom:
 
 | Layer | The order of its folders |
 | --- | --- |
-| `common/` | `workspace`, `ui`, `playback`, `cardDetail`, `navigation`, `mediaEdit`, `markdown`, `agentArea`, `generation`, `references`, `documents`, `canvas`, `canvasContrib/*`, `changes`, `clipboard`, `sequence`, `shell`, `upkeep` |
-| `browser/` and `electron-browser/` | `workspace`, `ui`, `playback`, `navigation`, `clipboard`, `documents`, `markdown`, `mediaEdit`, `cardDetail`, `changes`, `references`, `upkeep`, `generation`, `canvas`, `canvasContrib/*`, `sequence`, `agentArea`, `shell` |
+| `common/` | `workspace`, `ui`, `comments`, `playback`, `cardDetail`, `navigation`, `mediaEdit`, `markdown`, `agentArea`, `generation`, `references`, `documents`, `canvas`, `canvasContrib/*`, `changes`, `clipboard`, `sequence`, `shell`, `upkeep` |
+| `browser/` and `electron-browser/` | `workspace`, `ui`, `comments`, `playback`, `navigation`, `clipboard`, `documents`, `markdown`, `mediaEdit`, `cardDetail`, `changes`, `references`, `upkeep`, `generation`, `canvas`, `canvasContrib/*`, `sequence`, `agentArea`, `shell` |
 
 - In its own layer, a module of a folder imports only folders that come
   before its folder in that layer's order.

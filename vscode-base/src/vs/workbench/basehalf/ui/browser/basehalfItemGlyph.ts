@@ -51,6 +51,10 @@ function renderGlyphPath(svg: SVGElement, type: BaseHalfItemGlyph): void {
 		appendPath('M5 3h7a1.5 1.5 0 0 1 1.5 1.5V11');
 		return;
 	}
+	if (type === 'comment') {
+		appendPath('M3 3.5h10a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5H7l-3 2.5V11H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z');
+		return;
+	}
 	if (type === 'selectedText') {
 		appendPath('M2.5 12.5L5.5 4l3 8.5M3.6 9.6h3.8');
 		appendPath('M11.5 3.5v9M10 3.5h3M10 12.5h3');

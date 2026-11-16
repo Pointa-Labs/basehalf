@@ -68,7 +68,8 @@ export class BaseHalfCardDetailProjectionsContribution extends Disposable implem
 						() => host.close(),
 						selected => host.setSelectionForAgents(selected),
 						host.modeActions,
-						host.editActions
+						host.editActions,
+						host.leadingActions
 					)
 				};
 			}

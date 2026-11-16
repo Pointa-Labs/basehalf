@@ -133,8 +133,15 @@ export class BaseHalfCanvasGeometry {
 		}
 		// While Card Detail is open, its steps and the canvas's are one history:
 		// they are undone unless the keyboard is in an editor of text, whose own
-		// undo goes first (exact undo, "Undo while Card Detail is open").
-		return !this.view.canvasNavigationService.state.cardDetail || !active.closest(TEXT_EDITING_SELECTOR);
+		// undo goes first (exact undo, "Undo while Card Detail is open"). The page
+		// of the reader of a PDF or a book is none, unless one of its fields, such
+		// as a comment note, has the keyboard (comments, rule 26).
+		if (!this.view.canvasNavigationService.state.cardDetail) {
+			return true;
+		}
+		const textEditor = active.closest(TEXT_EDITING_SELECTOR);
+		const reader = textEditor?.closest('.basehalf-reader-page');
+		return !textEditor || (!!reader && !reader.classList.contains('text-focused'));
 	}
 
 	private pushCanvasUndoElement(

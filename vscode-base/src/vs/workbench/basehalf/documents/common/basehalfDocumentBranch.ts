@@ -17,6 +17,11 @@ export interface IBaseHalfDocumentSelection {
 	readonly pages?: readonly number[];
 	/** The entry of a book's contents that the selection begins in. */
 	readonly chapter?: string;
+	/** The words and replies of the comment that Grow branch was pressed on (comments, rule 20). */
+	readonly comment?: {
+		readonly text: string;
+		readonly replies: readonly { readonly text: string; readonly by?: string }[];
+	};
 }
 
 const DOCUMENT_EXTENSIONS = [...BASEHALF_MEDIA_FILE_EXTENSIONS.pdf, ...BASEHALF_MEDIA_FILE_EXTENSIONS.book];
@@ -79,7 +84,12 @@ export function baseHalfDocumentBranchMarkdown(sourceName: string, selection: IB
 	const linkLabel = displayName.replace(/([\\\[\]])/g, '\\$1');
 	const encodedSourceName = encodeURIComponent(sourceName).replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 	const linkTarget = `./${encodedSourceName}`;
-	const body = `# ${title}\n\n${quote}\n\nSource: [${linkLabel}](${linkTarget})${place ? `, ${place}` : ''}\n`;
+	// The comment's words below the quote, and each reply under the name of the agent that wrote it.
+	const remarks = selection.comment ? [
+		selection.comment.text.trim(),
+		...selection.comment.replies.map(reply => reply.by ? `**${escapeMarkdownInline(reply.by)}:** ${reply.text.trim()}` : reply.text.trim())
+	].filter(remark => remark.length > 0).map(remark => `${remark}\n\n`).join('') : '';
+	const body = `# ${title}\n\n${quote}\n\n${remarks}Source: [${linkLabel}](${linkTarget})${place ? `, ${place}` : ''}\n`;
 	if (!upstream) {
 		return body;
 	}

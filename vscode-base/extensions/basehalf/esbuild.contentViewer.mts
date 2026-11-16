@@ -12,7 +12,7 @@ const outDir = path.join(import.meta.dirname, 'content-viewer-out');
 
 run({
 	entryPoints: [
-		path.join(srcDir, 'pdfViewer.ts'),
+		path.join(srcDir, 'pdfViewer.tsx'),
 		// The window's worker that draws the first page of a PDF for its card.
 		path.join(srcDir, 'pdfCoverWorker.ts'),
 		// The book reader of Card Detail (PDFs and books, "The book reader").
@@ -44,7 +44,7 @@ run({
 	// requests to a third-party CDN.
 	await fs.mkdir(outputDirectory, { recursive: true });
 	await fs.copyFile(
-		path.join(import.meta.dirname, '..', '..', 'node_modules', '@embedpdf', 'snippet', 'dist', 'pdfium.wasm'),
+		path.join(import.meta.dirname, '..', '..', 'node_modules', '@embedpdf', 'pdfium', 'dist', 'pdfium.wasm'),
 		path.join(outputDirectory, 'pdfium.wasm')
 	);
 	await fs.copyFile(
@@ -59,11 +59,10 @@ run({
 	// themselves (D122), so that their notices go beside it.
 	const modules = path.join(import.meta.dirname, '..', '..', 'node_modules');
 	const pdfNotices = await Promise.all([
-		['EmbedPDF', '@embedpdf/snippet/LICENSE'],
+		['EmbedPDF', '@embedpdf/core/LICENSE'],
 		['PDFium, as EmbedPDF builds it', '@embedpdf/pdfium/LICENSE'],
 		['PDFium', '@embedpdf/pdfium/LICENSE.pdfium'],
 		['Preact', 'preact/LICENSE'],
-		['tailwind-merge', 'tailwind-merge/LICENSE.md'],
 	].map(async ([name, file]) => `${name}\n\n${(await fs.readFile(path.join(modules, ...file.split('/')), 'utf8')).trim()}\n`));
 	await fs.writeFile(path.join(outputDirectory, 'pdfViewerNotices.txt'), pdfNotices.join('\n---\n\n'));
 	// foliate-js and the zip.js and fflate it carries have no license comment

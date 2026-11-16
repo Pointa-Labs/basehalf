@@ -1,0 +1,713 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The reader of PDFs and books and the comments on what it shows (PDFs and books, "The reader"; comments). */
+
+:root {
+	/* The five colors of comments: the mark and the dot; tints and notes mix them. */
+	--bh-comment-yellow: #e8b923;
+	--bh-comment-green: #3fae6a;
+	--bh-comment-blue: #3b8fe6;
+	--bh-comment-pink: #e2558c;
+	--bh-comment-purple: #8d63da;
+	--bh-reader-panel-width: 260px;
+	--bh-reader-surface: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+	--bh-reader-border: var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
+	--bh-reader-shadow: 0 6px 22px rgb(0 0 0 / 18%);
+}
+
+body.vscode-dark,
+body.vscode-high-contrast {
+	--bh-reader-shadow: 0 6px 22px rgb(0 0 0 / 45%);
+}
+
+[hidden] {
+	display: none !important;
+}
+
+.reader-icon {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.25;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	flex: none;
+}
+
+.reader-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	height: 26px;
+	min-width: 26px;
+	padding: 0 5px;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.reader-button.with-text {
+	padding: 0 8px 0 6px;
+}
+
+.reader-button:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.reader-button:focus-visible,
+.reader-chrome-button:focus-visible,
+.reader-tab:focus-visible,
+.reader-menu-item:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+/* The name of a control that shows only an icon. */
+.reader-hover {
+	position: fixed;
+	z-index: 100;
+	max-width: 280px;
+	padding: 4px 8px;
+	border: 1px solid var(--vscode-editorHoverWidget-border, var(--bh-reader-border));
+	border-radius: 4px;
+	background: var(--vscode-editorHoverWidget-background);
+	color: var(--vscode-editorHoverWidget-foreground);
+	font-size: 12px;
+	pointer-events: none;
+	box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
+}
+
+/* The panel (PDFs and books, "The panel"). */
+.reader-panel {
+	position: absolute;
+	z-index: 20;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: var(--bh-reader-panel-width);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	background: var(--vscode-sideBar-background, var(--bh-reader-surface));
+	color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
+	border-right: 1px solid var(--bh-reader-border);
+	font-size: 13px;
+}
+
+.reader:not(.wide) .reader-panel {
+	box-shadow: var(--bh-reader-shadow);
+}
+
+.reader-search {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 10px 10px 4px;
+	padding: 0 8px;
+	height: 28px;
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 6px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+}
+
+.reader-search:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.reader-search .reader-icon {
+	opacity: 0.7;
+}
+
+.reader-search input {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+}
+
+.reader-search-status {
+	margin: 0 12px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.reader-search-status:empty {
+	display: none;
+}
+
+.reader-tabs {
+	display: flex;
+	gap: 2px;
+	margin: 6px 10px 6px;
+	padding: 2px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
+}
+
+.reader-tab {
+	flex: 1;
+	height: 24px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.reader-tab.selected {
+	background: var(--vscode-editor-background);
+	color: var(--vscode-foreground);
+	box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.reader-section,
+.reader-results {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	margin: 0;
+	padding: 2px 6px 16px;
+	list-style: none;
+}
+
+.reader-results ol,
+.reader-section ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.result-group {
+	margin: 10px 6px 4px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.result,
+.toc-entry {
+	display: block;
+	width: 100%;
+	padding: 5px 8px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	line-height: 1.4;
+	cursor: pointer;
+}
+
+.toc-entry {
+	padding-inline-start: calc(8px + var(--depth, 0) * 14px);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.result:hover,
+.toc-entry:hover:not(:disabled) {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.toc-entry.current {
+	background: var(--vscode-list-inactiveSelectionBackground);
+	color: var(--vscode-list-inactiveSelectionForeground, inherit);
+}
+
+.toc-entry:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.result mark {
+	background: var(--vscode-editor-findMatchHighlightBackground, rgb(234 92 0 / 33%));
+	color: inherit;
+	border-radius: 2px;
+}
+
+/* The pictures of the pages of a PDF. */
+.thumbnail {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	width: 100%;
+	padding: 8px 0 6px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.thumbnail img,
+.thumbnail .thumbnail-paper {
+	display: block;
+	border-radius: 2px;
+	background: #fff;
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 10%), 0 1px 4px rgb(0 0 0 / 14%);
+}
+
+.thumbnail:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.thumbnail.current {
+	background: var(--vscode-list-inactiveSelectionBackground);
+	color: var(--vscode-foreground);
+}
+
+.thumbnail.current img,
+.thumbnail.current .thumbnail-paper {
+	box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+}
+
+/* At the bottom left (PDFs and books, rule 20): the zoom of the canvas, on a small surface. */
+.reader-chrome {
+	position: absolute;
+	z-index: 15;
+	left: 14px;
+	bottom: 16px;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--bh-reader-border);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--bh-reader-surface) 94%, transparent);
+	box-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+	backdrop-filter: blur(8px);
+}
+
+.reader.panel-open.wide .reader-chrome {
+	left: calc(var(--bh-reader-panel-width) + 14px);
+}
+
+.reader-chrome-button {
+	display: inline-flex;
+	align-items: center;
+	height: 26px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font: inherit;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.reader-chrome-button:hover,
+.reader-chrome-button.open {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.reader-chrome-button .page-field {
+	outline: none;
+	min-width: 1ch;
+	caret-color: var(--vscode-editorCursor-foreground, currentColor);
+}
+
+/* A menu above a control at the bottom left. */
+.reader-menu {
+	position: absolute;
+	z-index: 40;
+	min-width: 196px;
+	padding: 4px;
+	border: 1px solid var(--vscode-menu-border, var(--bh-reader-border));
+	border-radius: 8px;
+	background: var(--vscode-menu-background, var(--bh-reader-surface));
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	box-shadow: var(--bh-reader-shadow);
+	font-size: 13px;
+}
+
+.reader-menu-field {
+	display: flex;
+	align-items: center;
+	margin: 2px 2px 4px;
+	padding: 0 8px;
+	height: 28px;
+	border: 1px solid var(--vscode-input-border, var(--bh-reader-border));
+	border-radius: 5px;
+	background: var(--vscode-input-background);
+}
+
+.reader-menu-field:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.reader-menu-field.invalid {
+	border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+
+.reader-menu-field input {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: var(--vscode-input-foreground);
+	font: inherit;
+	font-variant-numeric: tabular-nums;
+}
+
+.reader-menu-field .suffix {
+	color: var(--vscode-descriptionForeground);
+}
+
+.reader-menu-item {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: 26px;
+	padding: 0 8px 0 4px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+}
+
+.reader-menu-item:hover:not(:disabled),
+.reader-menu-item:focus-visible {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+	color: var(--vscode-menu-selectionForeground, inherit);
+}
+
+.reader-menu-item:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.reader-menu-item .check {
+	width: 18px;
+	flex: none;
+	text-align: center;
+}
+
+.reader-menu-item .label {
+	flex: 1;
+}
+
+.reader-menu-item .shortcut {
+	margin-inline-start: 16px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.reader-menu-separator {
+	height: 1px;
+	margin: 4px 6px;
+	background: var(--vscode-menu-separatorBackground, var(--bh-reader-border));
+}
+
+.reader-place {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 8px 6px;
+	min-width: 240px;
+}
+
+.reader-place input {
+	flex: 1;
+	accent-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+}
+
+.reader-place .percent {
+	min-width: 4ch;
+	text-align: end;
+	font-variant-numeric: tabular-nums;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+/* The menu of a text selection (PDFs and books, "The selection menu"). */
+.reader-selection-menu {
+	position: absolute;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	gap: 1px;
+	padding: 3px;
+	border: 1px solid var(--vscode-menu-border, var(--bh-reader-border));
+	border-radius: 8px;
+	background: var(--vscode-menu-background, var(--bh-reader-surface));
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	box-shadow: var(--bh-reader-shadow);
+	white-space: nowrap;
+}
+
+/* Comments (comments, "How comments show"). */
+[data-color="yellow"] { --bh-comment: var(--bh-comment-yellow); }
+[data-color="green"] { --bh-comment: var(--bh-comment-green); }
+[data-color="blue"] { --bh-comment: var(--bh-comment-blue); }
+[data-color="pink"] { --bh-comment: var(--bh-comment-pink); }
+[data-color="purple"] { --bh-comment: var(--bh-comment-purple); }
+
+.comment-note {
+	position: absolute;
+	z-index: 35;
+	width: 240px;
+	max-height: 320px;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	padding: 10px 12px;
+	border-radius: 4px 4px 4px 14px;
+	background: color-mix(in srgb, var(--bh-comment) 24%, #fffdf6);
+	color: #2b2a26;
+	box-shadow: 0 1px 2px rgb(0 0 0 / 10%), var(--bh-reader-shadow);
+	font-size: 13px;
+	line-height: 1.45;
+	overflow: auto;
+}
+
+body.vscode-dark .comment-note,
+body.vscode-high-contrast .comment-note {
+	background: color-mix(in srgb, var(--bh-comment) 30%, #24232a);
+	color: #efece4;
+}
+
+.comment-note:not(.open) {
+	cursor: pointer;
+}
+
+.comment-tools {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin: -4px -6px 6px;
+}
+
+.comment-tools .spacer {
+	flex: 1;
+}
+
+.comment-tools .reader-button {
+	height: 24px;
+	min-width: 24px;
+	color: inherit;
+	opacity: 0.8;
+}
+
+.comment-tools .reader-button:hover {
+	opacity: 1;
+	background: rgb(0 0 0 / 7%);
+}
+
+.comment-tools.floating {
+	position: absolute;
+	z-index: 35;
+	margin: 0;
+	padding: 3px;
+	border: 1px solid var(--vscode-menu-border, var(--bh-reader-border));
+	border-radius: 8px;
+	background: var(--vscode-menu-background, var(--bh-reader-surface));
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	box-shadow: var(--bh-reader-shadow);
+}
+
+.comment-color {
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	cursor: pointer;
+	position: relative;
+}
+
+.comment-color::after {
+	content: '';
+	position: absolute;
+	inset: 5px;
+	border-radius: 50%;
+	background: var(--bh-comment);
+}
+
+.comment-color.selected::before {
+	content: '';
+	position: absolute;
+	inset: 2px;
+	border-radius: 50%;
+	border: 1.5px solid var(--bh-comment);
+}
+
+.comment-author {
+	margin-bottom: 2px;
+	font-size: 11px;
+	font-weight: 600;
+	opacity: 0.7;
+}
+
+.comment-text,
+.comment-reply-text,
+.comment-reply-field {
+	outline: none;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	min-height: 1.45em;
+}
+
+.comment-text:empty::before,
+.comment-reply-field:empty::before {
+	content: attr(data-placeholder);
+	opacity: 0.5;
+}
+
+.comment-replies:empty {
+	display: none;
+}
+
+.comment-replies {
+	margin-top: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.comment-reply {
+	padding-top: 8px;
+	border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.comment-reply-field {
+	padding-top: 8px;
+	border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/* The mark of a comment with words: a small square folded at one corner. */
+.comment-mark {
+	position: absolute;
+	z-index: 6;
+	width: 14px;
+	height: 14px;
+	border-radius: 2px 2px 2px 6px;
+	background: var(--bh-comment);
+	box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
+	cursor: pointer;
+	transform: translate(-50%, 0);
+}
+
+.comment-mark::after {
+	content: '';
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 5px;
+	height: 5px;
+	background: linear-gradient(135deg, color-mix(in srgb, var(--bh-comment) 60%, #000) 50%, transparent 50%);
+	border-radius: 0 0 2px 0;
+	opacity: 0.55;
+}
+
+/* The tint of a passage on a page of paper, under its text. */
+.comment-tint {
+	position: absolute;
+	background: color-mix(in srgb, var(--bh-comment) 42%, transparent);
+	mix-blend-mode: multiply;
+	border-radius: 1px;
+	cursor: pointer;
+}
+
+.comment-list-empty {
+	margin: 18px 12px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.comment-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.comment-list-item {
+	display: block;
+	width: 100%;
+	padding: 7px 8px 7px 12px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+	position: relative;
+	line-height: 1.4;
+}
+
+.comment-list-item::before {
+	content: '';
+	position: absolute;
+	left: 4px;
+	top: 8px;
+	bottom: 8px;
+	width: 3px;
+	border-radius: 2px;
+	background: var(--bh-comment);
+}
+
+.comment-list-item:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.comment-list-head {
+	display: flex;
+	gap: 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+}
+
+.comment-list-author {
+	margin-inline-start: auto;
+	font-weight: 600;
+}
+
+.comment-list-quote {
+	color: var(--vscode-descriptionForeground);
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.comment-list-text,
+.comment-list-replies {
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	white-space: pre-wrap;
+}
+
+.comment-list-replies {
+	margin-top: 2px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}

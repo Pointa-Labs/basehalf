@@ -9,9 +9,12 @@
 			"DOM.Iterable"
 		],
 		"skipLibCheck": true,
-		"noEmit": true
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"jsxImportSource": "preact"
 	},
 	"include": [
-		"./**/*.ts"
+		"./**/*.ts",
+		"./**/*.tsx"
 	]
 }

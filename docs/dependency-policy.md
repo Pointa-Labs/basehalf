@@ -29,7 +29,8 @@ gets considered.
 |---|---|---|---|
 | **React Flow** (`@xyflow/react`) | Canvas (free-position + edges) | MIT | ✅ Locked in |
 | **BlockNote** | Block editor (Notion-style; MD round-trip) | MIT | ✅ Locked in |
-| **EmbedPDF** (`@embedpdf/snippet`) | Ready PDF viewer; bundles PDFium WASM | MIT (PDFium: Apache-2.0) | ✅ Locked in |
+| **EmbedPDF** (`@embedpdf/core`, `@embedpdf/engines`, `@embedpdf/plugin-*`, `@embedpdf/pdfium`) | The engine and headless parts under BaseHalf's own PDF reader (D135); bundles PDFium WASM | MIT (PDFium: Apache-2.0) | ✅ Locked in |
+| **Preact** (`preact`) | The components of EmbedPDF's headless parts that draw the pages of the PDF reader | MIT | ✅ Locked in |
 | **foliate-js** | Book reader: EPUB, MOBI, KF8, FictionBook, comic book archives (D81). Taken from its author's repository at a fixed commit; the npm package of that name is someone else's | MIT (with zip.js: BSD-3-Clause, fflate: MIT) | ✅ Locked in |
 | **VS Code workbench services** | Files, watching, working copies, UI state | MIT | ✅ Lower application substrate |
 

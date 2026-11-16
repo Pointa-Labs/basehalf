@@ -45,6 +45,27 @@ suite('BaseHalfDocumentBranch', () => {
 		].join('\n'));
 	});
 
+	test('a branch of a comment holds its words and its replies below the quote (comments, rule 20)', () => {
+		assert.strictEqual(baseHalfDocumentBranchMarkdown('paper.pdf', {
+			text: 'Backpropagation computes the gradient.',
+			pages: [5],
+			comment: { text: '这里没看懂', replies: [{ text: 'It applies the chain rule layer by layer.', by: 'Claude Code' }, { text: 'Thanks' }] }
+		}), [
+			'# Backpropagation computes the gradient.',
+			'',
+			'> Backpropagation computes the gradient.',
+			'',
+			'这里没看懂',
+			'',
+			'**Claude Code:** It applies the chain rule layer by layer.',
+			'',
+			'Thanks',
+			'',
+			'Source: [paper.pdf](./paper.pdf), page 5',
+			''
+		].join('\n'));
+	});
+
 	test('names the chapter of a passage from a book, and nothing without one', () => {
 		assert.deepStrictEqual([
 			baseHalfDocumentBranchMarkdown('alice.epub', { text: 'Curiouser and curiouser!', chapter: 'Chapter II. The Pool of *Tears*' }),

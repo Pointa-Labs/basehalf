@@ -9,6 +9,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { IBaseHalfBookReaderLabels, IBaseHalfBookReaderPreferences, IBaseHalfBookViewState } from '../common/basehalfBookReaderProtocol.js';
+import { IBaseHalfReaderLabels, IBaseHalfReaderPanelState } from '../common/basehalfReaderProtocol.js';
 
 /** The words of the book reader, in the workbench's language. */
 export function baseHalfBookReaderLabels(): IBaseHalfBookReaderLabels {
@@ -43,6 +44,10 @@ export interface IBaseHalfBookReaderPageOptions {
 	readonly preferences: IBaseHalfBookReaderPreferences;
 	readonly locale: string;
 	readonly labels: IBaseHalfBookReaderLabels;
+	/** The words of the reader that PDFs and books share. */
+	readonly reader?: IBaseHalfReaderLabels;
+	/** Whether the panel is open, and its tab, as when the last book closed. */
+	readonly panel?: IBaseHalfReaderPanelState;
 }
 
 /**

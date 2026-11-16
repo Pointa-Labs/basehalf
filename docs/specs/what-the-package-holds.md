@@ -98,9 +98,10 @@ Three more things came out of the same measurements:
 4. **`dependencies` is what runs from `node_modules`.** What a bundle takes in
    when it is built, or what only gives types to code that does not run, is in
    `devDependencies`. So are:
-   - `@embedpdf/fonts-sc`, `@embedpdf/models`, and `@embedpdf/snippet`, which the
-     reader's bundle takes in, and `yjs`, of which the workbench has a bundle in
-     `markdown/common/vendor`;
+   - `@embedpdf/fonts-sc`, `@embedpdf/models`, `@embedpdf/pdfium`, the engine,
+     the core, and the plugins of EmbedPDF that the PDF reader uses, and `preact`,
+     which the reader's bundle takes in (D135), and `yjs`, of which the workbench
+     has a bundle in `markdown/common/vendor`;
    - `@github/copilot`, `@github/copilot-sdk`, `@vscode/copilot-api`,
      `@anthropic-ai/sdk`, `@microsoft/dev-tunnels-*`, `ssh2`, and `zod`, of the agent
      host and of its tunnels;

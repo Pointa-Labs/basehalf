@@ -9,7 +9,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { ITextEditorSelection } from '../../../../platform/editor/common/editor.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { BaseHalfAgentSelectionDetail } from '../../agentArea/common/basehalfAgentSelection.js';
 import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocumentBranch.js';
 import { BaseHalfMarkdownFormatCommand } from '../../markdown/common/basehalfMarkdownFormatting.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
@@ -52,13 +52,15 @@ export interface IBaseHalfCardDetailHost {
 	/** Says in the header that the file is being saved, is saved, or failed to save; `undefined` says nothing. */
 	setSaveStatus(status: BaseHalfCardDetailSaveStatus | undefined): void;
 	/** What agents can see selected in this projection, `undefined` when nothing is (the selection agents can see). */
-	setSelectionForAgents(selected: IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText | undefined): void;
+	setSelectionForAgents(selected: BaseHalfAgentSelectionDetail | undefined): void;
 	/** Closes Card Detail. */
 	close(): void;
 	/** Where the header holds Edit and Done of a video, an image, or a sound (editing media). */
 	readonly modeActions: HTMLElement;
 	/** Where the header holds Revert to Original, after the file's name (D120). */
 	readonly editActions: HTMLElement;
+	/** Where the header holds the reader's Sidebar of a PDF or a book, before the file's name (D135). */
+	readonly leadingActions: HTMLElement;
 	/** Closes the popover of the badge editor of the card that Card Detail shows. */
 	closeBadgePopover(): void;
 	/** The format commands that the file's card held for Card Detail; each is given once. */

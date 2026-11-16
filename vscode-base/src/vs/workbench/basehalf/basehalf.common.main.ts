@@ -14,6 +14,7 @@ import './navigation/common/basehalfCanvasNavigationService.js';
 import './canvas/common/basehalfCanvasViewportState.js';
 import './references/common/basehalfBadgeMirror.js';
 import './references/common/basehalfReferenceIndex.js';
+import './comments/browser/basehalfCommentService.js';
 
 //#endregion
 

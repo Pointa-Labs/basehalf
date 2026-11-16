@@ -585,3 +585,43 @@
 		border: 1px solid ButtonText;
 	}
 }
+
+/* The reader of a PDF or a book: Sidebar before the name, Search before Close (PDFs and books, rule 15). */
+.monaco-workbench .basehalf-card-detail-leading {
+	display: flex;
+	align-items: center;
+	margin-inline-start: -8px;
+}
+
+.monaco-workbench .basehalf-card-detail-leading:empty {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-reader-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	color: var(--vscode-icon-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	font-size: 16px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-card-detail-reader-button[hidden] {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-reader-button:hover,
+.monaco-workbench .basehalf-card-detail-reader-button.checked {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-card-detail-reader-button:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
