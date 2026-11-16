@@ -474,12 +474,12 @@ export async function assertCanvasCreateFromConnection(page) {
 	}
 	const editor = await waitForCanvasNoteInlineEditor(page, 'untitled.md');
 	await assertCanvasEdgeVisible(page, source, 'untitled.md');
-	// The note starts at its title line, and the title typed there names its
-	// file once the note is let go (note title, criterion 3): the file keeps
-	// the list it was made with, its line is drawn before and after, and the
-	// anchor row of the line names the new file.
+	// The note starts at its title line, with an empty line under it, and the
+	// title typed there names its file once the note is let go (note title,
+	// criteria 1 and 3): the file keeps the list it was made with, its line is
+	// drawn before and after, and the anchor row of the line names the new file.
 	const titleLine = await editor.editable.evaluate(editable => [...editable.querySelectorAll('h1, h2, h3, p')].map(block => `${block.tagName}:${block.textContent}`).join('|'));
-	if (titleLine !== 'H1:') {
+	if (titleLine !== 'H1:|P:') {
 		throw new Error(`A note made from a connection must start at its title line, got ${JSON.stringify(titleLine)}`);
 	}
 	const titled = 'Grown from a line.md';

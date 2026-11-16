@@ -109,8 +109,8 @@ export async function assertCanvasNoteTitleNamesFile(page) {
 			caretInTitle: !!first && first.contains(window.getSelection()?.anchorNode ?? null)
 		};
 	});
-	if (start.blocks.join() !== 'H1' || start.text !== '' || start.placeholder !== '"Title"' || !start.pale || start.pale === start.ink || !start.caretInTitle || text('untitled.md') !== '') {
-		throw new Error(`A new note must start at an empty title line that shows a pale Title: ${JSON.stringify({ start, file: text('untitled.md') })}`);
+	if (start.blocks.join() !== 'H1,P' || start.text !== '' || start.placeholder !== '"Title"' || !start.pale || start.pale === start.ink || !start.caretInTitle || text('untitled.md') !== '') {
+		throw new Error(`A new note must start at an empty title line that shows a pale Title, with an empty line under it: ${JSON.stringify({ start, file: text('untitled.md') })}`);
 	}
 	// 15. The card shows no glyph and no name while it is edited.
 	const edited = await captionOf('untitled.md');
@@ -257,5 +257,125 @@ export async function assertCanvasNoteTitleNamesFile(page) {
 		await deleteCanvasCardFromItsMenu(page, name);
 		await card(name).waitFor({ state: 'detached', timeout: 10_000 });
 	}
+	await page.keyboard.press('Escape');
+}
+
+/** The lines of a note's editor on its card: each block's tag and text, whether the caret is in it, and the pale word it shows. */
+function cardEditorLines(page, cardPath) {
+	return page.evaluate(wanted => {
+		const editable = document.querySelector(`[data-testid="canvas-note-editor-${wanted}"] .basehalf-canvas-markdown-inline > .ProseMirror`);
+		const selection = window.getSelection();
+		return editable ? [...editable.querySelectorAll('h1, h2, h3, p')].map(block => ({
+			tag: block.tagName,
+			text: block.textContent,
+			caret: block.contains(selection?.anchorNode ?? null),
+			pale: getComputedStyle(block, '::before').content,
+		})) : undefined;
+	}, cardPath);
+}
+
+/**
+ * Note title, criteria 21 to 23 (D136), on the card in the real window: a
+ * press below the title line of a new note puts the caret in the line under
+ * it, and the text typed there is no title; a double click below the title of
+ * a note of only a title puts the caret in an empty line under the title;
+ * Backspace at the start of the title line changes nothing, and the toolbar's
+ * text button makes the title a line of text under a new empty title line,
+ * which one undo takes back.
+ */
+export async function assertCanvasNoteTitleLine(page) {
+	const ONLY_TITLE = 'title-only-comet.md';
+	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+	const shape = lines => JSON.stringify(lines?.map(line => [line.tag, line.text, line.caret]));
+	const pressOutside = async () => {
+		const blank = await emptyCanvasPoint(page);
+		await page.mouse.click(blank.x, blank.y);
+	};
+	if (fs.existsSync(at('untitled.md'))) {
+		throw new Error('The title line checks need a canvas without untitled.md');
+	}
+
+	// 21. New Note, a press below the title line, the text first.
+	await clickCanvasCreateAction(page, 'New Note');
+	await waitUntil(() => fs.existsSync(at('untitled.md')), 'New Note to make untitled.md');
+	await waitForCanvasNoteInlineEditor(page, 'untitled.md');
+	const made = await card('untitled.md').boundingBox();
+	await page.mouse.click(made.x + made.width / 2, made.y + made.height * 0.7);
+	await page.waitForTimeout(200);
+	const pressed = await cardEditorLines(page, 'untitled.md');
+	if (shape(pressed) !== JSON.stringify([['H1', '', false], ['P', '', true]]) || pressed[0].pale !== '"Title"') {
+		throw new Error(`A press below the title line of a new note must put the caret in the line under it: ${JSON.stringify(pressed)}`);
+	}
+	await page.keyboard.type('Body first');
+	await pressOutside();
+	await waitUntil(() => text('untitled.md') === 'Body first', 'the text typed under the empty title line to be saved as the note\'s text');
+	await page.waitForTimeout(700);
+	if (!fs.existsSync(at('untitled.md')) || fs.existsSync(at('Body first.md'))) {
+		throw new Error('Text typed under the title line must not name the file');
+	}
+	await centerCanvasCards(page, [card('untitled.md')]);
+	await deleteCanvasCardFromItsMenu(page, 'untitled.md');
+	await card('untitled.md').waitFor({ state: 'detached', timeout: 10_000 });
+
+	// 22. A note of only a title: a double click below the title, at a person's speed.
+	fs.writeFileSync(at(ONLY_TITLE), '# Comet\n', 'utf8');
+	await card(ONLY_TITLE).waitFor({ state: 'visible', timeout: 10_000 });
+	await centerCanvasCards(page, [card(ONLY_TITLE)]);
+	const comet = await card(ONLY_TITLE).boundingBox();
+	await page.mouse.click(comet.x + comet.width / 2, comet.y + comet.height * 0.7);
+	await page.waitForTimeout(150);
+	await page.mouse.click(comet.x + comet.width / 2, comet.y + comet.height * 0.7, { clickCount: 2 });
+	await waitForCanvasNoteInlineEditor(page, ONLY_TITLE);
+	const below = await cardEditorLines(page, ONLY_TITLE);
+	if (shape(below) !== JSON.stringify([['H1', 'Comet', false], ['P', '', true]])) {
+		throw new Error(`A double click below the title of a note of only a title must put the caret in an empty line under the title: ${JSON.stringify(below)}`);
+	}
+	await page.keyboard.type('A tail of dust.');
+	// The smoke's workspace saves an open note when its editor closes (files.autoSaveDelay of an hour).
+	await pressOutside();
+	await waitUntil(() => text(ONLY_TITLE) === '# Comet\n\nA tail of dust.\n', 'the text typed below the title to be saved under it');
+	await page.waitForTimeout(700);
+	if (!fs.existsSync(at(ONLY_TITLE)) || fs.readdirSync(workspacePath).some(name => name.startsWith('Comet'))) {
+		throw new Error('Text typed under the title must not rename the note');
+	}
+
+	// 23. Backspace at the start of the title line; the title made text; one undo.
+	await centerCanvasCards(page, [card(ONLY_TITLE)]);
+	const restingTitle = await card(ONLY_TITLE).locator('.bh-md-preview h1').boundingBox();
+	await page.mouse.click(restingTitle.x + 4, restingTitle.y + restingTitle.height / 2);
+	await page.waitForTimeout(150);
+	await page.mouse.click(restingTitle.x + 4, restingTitle.y + restingTitle.height / 2, { clickCount: 2 });
+	await waitForCanvasNoteInlineEditor(page, ONLY_TITLE);
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home');
+	await page.keyboard.press('Backspace');
+	await page.waitForTimeout(300);
+	const kept = await cardEditorLines(page, ONLY_TITLE);
+	if (shape(kept) !== JSON.stringify([['H1', 'Comet', true], ['P', 'A tail of dust.', false]])) {
+		throw new Error(`Backspace at the start of the title line must change nothing: ${JSON.stringify(kept)}`);
+	}
+	await page.locator('.basehalf-canvas-note-toolbar button[aria-label="Paragraph"]').click();
+	await page.waitForTimeout(300);
+	const madeText = await cardEditorLines(page, ONLY_TITLE);
+	if (JSON.stringify(madeText?.map(line => [line.tag, line.text])) !== JSON.stringify([['H1', ''], ['P', 'Comet'], ['P', 'A tail of dust.']]) || madeText[0].pale !== '"Title"') {
+		throw new Error(`The title made text must stand under a new empty title line: ${JSON.stringify(madeText)}`);
+	}
+	const textBox = await card(ONLY_TITLE).locator('.ProseMirror p', { hasText: 'A tail of dust.' }).boundingBox();
+	await page.mouse.click(textBox.x + textBox.width - 4, textBox.y + textBox.height / 2);
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await page.waitForFunction(wanted => {
+		const first = document.querySelector(`[data-testid="canvas-note-editor-${wanted}"] .basehalf-canvas-markdown-inline > .ProseMirror`)?.querySelector('h1, h2, h3, p');
+		return first?.tagName === 'H1' && first.textContent === 'Comet';
+	}, ONLY_TITLE, { timeout: 10_000 }).catch(async () => {
+		throw new Error(`One undo in the note's editor must give the title back: ${JSON.stringify(await cardEditorLines(page, ONLY_TITLE))}`);
+	});
+	await pressOutside();
+	await waitUntil(() => text(ONLY_TITLE) === '# Comet\n\nA tail of dust.\n', 'the note to be as it was after the title came back');
+	await page.waitForTimeout(700);
+	if (!fs.existsSync(at(ONLY_TITLE))) {
+		throw new Error('A note whose title is as it was must keep its name');
+	}
+	await centerCanvasCards(page, [card(ONLY_TITLE)]);
+	await deleteCanvasCardFromItsMenu(page, ONLY_TITLE);
+	await card(ONLY_TITLE).waitFor({ state: 'detached', timeout: 10_000 });
 	await page.keyboard.press('Escape');
 }
