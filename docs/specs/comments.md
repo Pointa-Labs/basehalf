@@ -319,8 +319,9 @@ moving the page and without closing a comment note the user is writing in.
    change of the text size.
 10. In a note in Rich, Comment on a sentence shows a mark in the right margin
     and a tint; typing words into the passage keeps it tinted, and after the
-    save the file's `quote` holds the new words. The note's Markdown holds no
-    trace of the comment.
+    save the file's `quote` holds the new words. Cmd+Z of those words gives
+    the passage its old words with the comment still on it, and the file's
+    `quote` follows. The note's Markdown holds no trace of the comment.
 11. Renaming and moving a commented PDF keeps its comments; deleting it and
     undoing the delete brings them back.
 12. While a comment note is open, `.bh/cache/selection.yaml` holds
@@ -345,6 +346,9 @@ moving the page and without closing a comment note the user is writing in.
 - `npm run basehalf:smoke`: the cardDetail suite makes a highlight and a
   comment in a PDF, reads the file, undoes and redoes, and checks that an
   agent's comment written into the file appears.
+- The Rich bundle test, part t: the tints and marks of a note's comments,
+  passages that follow typing and undo, comments sent again while a passage
+  is edited, and a Markdown that holds none of them.
 - In the real window: a paper PDF and an EPUB, in the light and the dark
   theme, a comment by the user and a reply by Claude Code through the skill,
   per-frame sampling while a PDF with 500 comments opens and scrolls.
