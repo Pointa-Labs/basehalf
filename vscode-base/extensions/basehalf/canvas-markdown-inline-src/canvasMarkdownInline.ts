@@ -22,7 +22,7 @@ import { Decoration, DecorationSet, EditorView } from '@tiptap/pm/view';
 import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownFormatting.js';
 import { writeBaseHalfNoteInline, type BaseHalfNoteInlinePlace, type IBaseHalfNoteLink, type IBaseHalfNoteStyledText, type IBaseHalfNoteTextStyles } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteInline.js';
 import { baseHalfNotePaletteAlias, baseHalfNoteSpanStyle, isBaseHalfNotePaletteColor, parseBaseHalfNoteSpanStyle, type BaseHalfNotePaletteRole } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
-import { canvasTitleLineBackspace, canvasTitleLineEnter, canvasTitleLinePlugin, canvasTitleLinePress, canvasTitleLineRange, withCanvasTitleLine, type ICanvasTitleLineOptions, type ICanvasTitleLineSchema } from './canvasMarkdownTitleLine.js';
+import { canvasTitleLineBackspace, canvasTitleLineEnter, canvasTitleLineOpening, canvasTitleLinePlugin, canvasTitleLinePress, canvasTitleLineRange, withCanvasTitleLine, type ICanvasTitleLineOptions, type ICanvasTitleLineSchema } from './canvasMarkdownTitleLine.js';
 
 export interface CanvasMarkdownInlineSelection {
 	readonly anchor: number;
@@ -1972,13 +1972,11 @@ export function createCanvasMarkdownInlineEditor(
 		...(titleLine ? [canvasTitleLinePlugin(titleLine.options, titleLine.added)] : []),
 	];
 	const requestedSelection = mapSelectionAcrossDocuments(options.selection, options.selectionDocument, initialDocument);
-	// A note without text starts with the caret in its title line (note title).
-	const startsInTitle = !requestedSelection && titleLine !== undefined && initialDocument.textContent.length === 0 && fixedUnitCount(initialDocument) === 0;
+	// A note without text starts with the caret in its title line, and a note of only a title at its end (note title).
+	const opening = !requestedSelection && titleLine ? canvasTitleLineOpening(initialDocument, canvasTitleLineSchema) : undefined;
 	const initialState = EditorState.create({
 		doc: initialDocument,
-		selection: startsInTitle
-			? TextSelection.create(initialDocument, canvasTitleLineRange(initialDocument, canvasTitleLineSchema)!.from)
-			: selectionForDocument(initialDocument, requestedSelection),
+		selection: opening ?? selectionForDocument(initialDocument, requestedSelection),
 		plugins,
 	});
 

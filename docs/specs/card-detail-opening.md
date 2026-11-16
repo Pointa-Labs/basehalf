@@ -92,8 +92,9 @@ rule 26).
 
 - Once Card Detail is drawn and its transition is over, it takes the
   keyboard: the editor of a note has the caret at the end of the note, so
-  that what is typed goes on from there, and in the title line of a note
-  without text, so that a new note opened large starts at its title
+  that what is typed goes on from there (for a note of only a title, the
+  end of its title), and in the title line of a note without text, so that
+  a new note opened large starts at its title
   ([a note's title names its file](note-title.md#the-title-line-and-the-text-under-it));
   the editor of another text has it at its start, or where it was opened,
   as from a result of Search; a video

@@ -99,7 +99,7 @@ import { baseHalfNoteLinkPath } from '../../../src/vs/workbench/basehalf/markdow
 import { installBaseHalfNoteBlockIndex } from './noteBlockIndex.js';
 import { installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from './notePaste.js';
 import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
-import { baseHalfNoteTitleLinePress, baseHalfNoteTitleLineStart, isBaseHalfNoteTitleLineBlock, makeBaseHalfNoteTitleLineExtension } from './noteTitleLine.js';
+import { baseHalfNoteTitleLinePress, baseHalfNoteTitleLineStart, baseHalfNoteTitleOnlyEnd, isBaseHalfNoteTitleLineBlock, makeBaseHalfNoteTitleLineExtension } from './noteTitleLine.js';
 import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/ui/browser/basehalfSidewaysScrollbar.js';
@@ -1177,11 +1177,14 @@ function MarkdownRichEditor(): JSX.Element {
 			// The blocks were drawn before the state had their toggles.
 			openBaseHalfNoteStoredOpenToggles(editor.domElement);
 		}
-		// A note without text starts at its title line; any other at its end (note title, opening and closing Card Detail).
+		// A note without text starts at its title line; any other at its end, a note of only a title at the end of
+		// its title (note title, opening and closing Card Detail).
 		const loadedView = editor.prosemirrorView;
-		const titleStart = loadedView && !body.trim() ? baseHalfNoteTitleLineStart(loadedView.state.doc) : undefined;
-		if (loadedView && titleStart) {
-			loadedView.dispatch(loadedView.state.tr.setSelection(titleStart));
+		const opening = loadedView
+			? !body.trim() ? baseHalfNoteTitleLineStart(loadedView.state.doc) : baseHalfNoteTitleOnlyEnd(loadedView.state.doc)
+			: undefined;
+		if (loadedView && opening) {
+			loadedView.dispatch(loadedView.state.tr.setSelection(opening));
 		}
 		// Loading or adopting a projection must not become an undoable edit.
 		// Otherwise undo could walk past the load and blank the document. The

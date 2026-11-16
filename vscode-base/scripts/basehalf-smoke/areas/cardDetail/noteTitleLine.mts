@@ -48,9 +48,10 @@ async function openNote(page, relativePath) {
 }
 
 /**
- * Note title, criteria 25 to 28, in the real window: New Note and Expand
- * open Card Detail at the title line, and the title typed there names the
- * file once Card Detail closes; a note that begins with a paragraph shows an
+ * Note title, criteria 25 to 28 and 30, in the real window: New Note and
+ * Expand open Card Detail at the title line, and the title typed there names
+ * the file once Card Detail closes; a title begun on the card goes on at its
+ * end in Card Detail; a note that begins with a paragraph shows an
  * empty title line above it, which writes nothing until a title is typed into
  * it; the line under an empty title line made a heading is the title line;
  * and a press below a note of only a title puts the caret in the line under
@@ -84,6 +85,27 @@ export async function assertCardDetailNoteTitleLine(page) {
 		await waitUntil(() => text(`${FOLDER}/untitled.md`) === '# Anatomy\n', 'the title typed in Card Detail to be saved as the note\'s title');
 		await page.keyboard.press('Escape');
 		await waitUntil(() => text(`${FOLDER}/Anatomy.md`) === '# Anatomy\n' && text(`${FOLDER}/untitled.md`) === null, 'the new note to take the name of its title once Card Detail closed');
+
+		// 30. A title begun on the card goes on in Card Detail, at its end.
+		await clickCanvasCreateAction(page, 'New Note');
+		await waitUntil(() => text(`${FOLDER}/untitled.md`) !== null, 'New Note to make untitled.md in the folder');
+		await waitForCanvasNoteInlineEditor(page, `${FOLDER}/untitled.md`);
+		await page.keyboard.type('Nebu');
+		await page.locator(`button[aria-label="Expand ${FOLDER}/untitled.md"]`).click();
+		await assertCardDetail(page, 'untitled.md');
+		frame = await activeMarkdownRichFrame(page);
+		await frame.waitForFunction(() => document.querySelector('.bn-editor')?.contains(document.activeElement) === true, null, { timeout: 10_000 });
+		const begun = await richLines(frame);
+		if (JSON.stringify(begun.map(line => [line.type, line.text, line.caret])) !== JSON.stringify([['heading', 'Nebu', true], ['paragraph', '', false]])) {
+			throw new Error(`A title begun on the card must go on in Card Detail at its end: ${JSON.stringify(begun)}`);
+		}
+		await page.keyboard.type('la');
+		// The card wrote the title without a line break after it, and Rich keeps how the file ends.
+		await waitUntil(() => /^# Nebula\n?$/.test(text(`${FOLDER}/untitled.md`) ?? ''), 'the title to go on where it stopped').catch(() => {
+			throw new Error(`The title did not go on where it stopped: ${JSON.stringify(text(`${FOLDER}/untitled.md`))}`);
+		});
+		await page.keyboard.press('Escape');
+		await waitUntil(() => /^# Nebula\n?$/.test(text(`${FOLDER}/Nebula.md`) ?? '') && text(`${FOLDER}/untitled.md`) === null, 'the note to take the name of its title once Card Detail closed');
 
 		// 26. A note that begins with a paragraph: an empty title line above it.
 		frame = await openNote(page, `${FOLDER}/plain-first.md`);

@@ -215,6 +215,20 @@ export function baseHalfNoteTitleLineStart(document: ProseMirrorNode): Selection
 	return baseHalfNoteTitleLine(document) ? TextSelection.create(document, TITLE_TEXT) : undefined;
 }
 
+/**
+ * Where the caret goes in a note of only a title when Rich opens it at its
+ * end: the end of the title, so that a title begun on the card goes on there;
+ * the empty line under it is the editor's, not the note's end.
+ */
+export function baseHalfNoteTitleOnlyEnd(document: ProseMirrorNode): Selection | undefined {
+	const title = baseHalfNoteTitleLine(document);
+	const group = document.firstChild;
+	const under = group?.maybeChild(1)?.firstChild;
+	return title && title.content.size > 0 && group?.childCount === 2 && under?.type.name === 'paragraph' && under.content.size === 0
+		? TextSelection.create(document, TITLE_TEXT + title.content.size)
+		: undefined;
+}
+
 /** The title line of every note in Rich (note title, "The title line and the text under it"). */
 export function makeBaseHalfNoteTitleLineExtension(options: IBaseHalfNoteTitleLineOptions) {
 	return createExtension({

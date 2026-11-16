@@ -48,7 +48,7 @@ import { normalizeBaseHalfNote } from '../markdown-rich-src/noteNormalizer.js';
 import { installBaseHalfNoteBlockIndex } from '../markdown-rich-src/noteBlockIndex.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from '../markdown-rich-src/notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
-import { baseHalfNoteTitleLineStart, makeBaseHalfNoteTitleLineExtension } from '../markdown-rich-src/noteTitleLine.js';
+import { baseHalfNoteTitleLineStart, baseHalfNoteTitleOnlyEnd, makeBaseHalfNoteTitleLineExtension } from '../markdown-rich-src/noteTitleLine.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from '../markdown-rich-src/noteUndo.js';
@@ -428,10 +428,10 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult, b
 			note.frontmatter = frontmatter;
 			note.byId = byId;
 			note.note = projected;
-			// A note without text starts at its title line (note title).
-			const titleStart = mode === 'basehalf' && !body.trim() ? baseHalfNoteTitleLineStart(view.state.doc) : undefined;
-			if (titleStart) {
-				view.dispatch(view.state.tr.setSelection(titleStart));
+			// A note without text starts at its title line, and a note of only a title at its end (note title).
+			const opening = mode !== 'basehalf' ? undefined : !body.trim() ? baseHalfNoteTitleLineStart(view.state.doc) : baseHalfNoteTitleOnlyEnd(view.state.doc);
+			if (opening) {
+				view.dispatch(view.state.tr.setSelection(opening));
 			}
 		},
 		// As serializeAndRequestSave in editor.tsx: the body from the blocks, under the note's front matter.
@@ -2308,6 +2308,8 @@ async function titleLine(t: INoteFormatsTest): Promise<void> {
 	await t.load('# Anatomy\n');
 	await t.frames();
 	const titleOnly = raw();
+	// It opens at its end, the end of its title: a title begun on the card goes on there.
+	const openedAt = caretText();
 	const under = t.editor.domElement?.querySelectorAll<HTMLElement>('.bn-block-content')[1]?.getBoundingClientRect();
 	if (!under) {
 		throw new Error('The note has no line under its title.');
@@ -2317,8 +2319,9 @@ async function titleLine(t: INoteFormatsTest): Promise<void> {
 	const pressed = caretText();
 	await t.keyboard.type('Body line');
 	await t.frames();
-	t.check('a note of only a title has a line under it, where a press below the title puts the caret and the text goes under the title', { titleOnly, pressed, saved: await t.save() }, {
+	t.check('a note of only a title opens at the end of its title and has a line under it, where a press below the title puts the caret and the text goes under the title', { titleOnly, openedAt, pressed, saved: await t.save() }, {
 		titleOnly: [{ type: 'heading', text: 'Anatomy' }, { type: 'paragraph', text: '' }],
+		openedAt: { type: 'heading', text: 'Anatomy', offset: 7 },
 		pressed: { type: 'paragraph', text: '', offset: 0 },
 		saved: '# Anatomy\n\nBody line\n',
 	});

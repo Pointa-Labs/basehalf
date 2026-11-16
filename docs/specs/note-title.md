@@ -189,6 +189,10 @@ Not in scope, and unchanged:
   Expand, has the caret in the title line, and on any other note at the end
   of the note
   ([opening and closing Card Detail](card-detail-opening.md#the-keyboard)).
+  The end of a note of only a title is the end of its title, so that a title
+  begun on the card and opened large with Expand goes on where it stopped;
+  the empty line under it is the editor's. The editor on a card opened
+  without a press, as from the keyboard, starts at the same places.
 - **From the card's first frame.** The card of a new note shows the title
   line from the first frame it is drawn in: the pale `Title` where the
   editor shows it, and nothing else before the editor is ready. The card is
@@ -410,6 +414,9 @@ The title line and the text under it (D136)
     handles under the pointer.
 29. An empty heading writes nothing in either editor, and a note that
     holds `#` written elsewhere keeps it until that block is changed.
+30. `Nebu` typed into the title line of a new note's card, then Expand:
+    Card Detail has the caret at the end of `Nebu`, and `la` typed there
+    and Escape give `Nebula.md` holding `# Nebula`.
 
 ## Verification
 
@@ -455,9 +462,10 @@ The title line and the text under it (D136)
 - Smoke, D136: the canvas suite's `canvas-note-title-line` covers criteria
   21 to 23 on the card, and `canvas-note-title-names-file` the line under
   the title of criterion 1. The Card Detail suite's `note-title-line` covers
-  criteria 25 to 28 in the real window: New Note and Expand, a note that
-  begins with a paragraph, a heading made under an empty title line, and a
-  press below a note of only a title, with no handles beside it.
+  criteria 25 to 28 and 30 in the real window: New Note and Expand, at once
+  and after a title begun on the card, a note that begins with a
+  paragraph, a heading made under an empty title line, and a press below a
+  note of only a title, with no handles beside it.
 
 ### Seen in the real window (2026-11-12)
 

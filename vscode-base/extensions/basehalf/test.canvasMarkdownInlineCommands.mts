@@ -178,10 +178,10 @@ export function exerciseTitleLine(sources: readonly string[], steps: readonly st
 	}));
 	const created = createDocumentUnits(units, titleLine ? 'Title' : undefined);
 	const plugins = created.titleLine ? [canvasTitleLinePlugin(created.titleLine.options, created.titleLine.added)] : [];
-	const empty = created.document.textContent.length === 0 && fixedUnitCount(created.document) === 0;
+	// As the editor opens without a place asked for.
 	let state = EditorState.create({
 		doc: created.document,
-		selection: created.titleLine && empty ? TextSelection.create(created.document, 2) : selectionForDocument(created.document),
+		selection: (created.titleLine ? canvasTitleLineOpening(created.document, canvasTitleLineSchema) : undefined) ?? selectionForDocument(created.document),
 		plugins,
 	});
 	const dispatch = (transaction: Transaction) => { state = state.apply(transaction); };
@@ -558,6 +558,7 @@ assert.deepEqual({
 	without: { shown: ['p:'], caret: 0, placeholder: 0, markdown: '' },
 }, 'a new note is a title line with a line under it: the title is typed there, a press below or Enter goes to the line under it, Backspace keeps the title line, and an empty title writes nothing');
 assert.deepEqual({
+	openedOnlyTitle: title(['# Anatomy'], ['s']),
 	onlyTitle: title(['# Anatomy'], ['<below>', 'Body line']),
 	enterAtEnd: title(['# A', 'Text.'], ['<title>', '<enter>']),
 	textOnly: title(['## How they form', 'Stars form.'], ['<line 1>', ' More.']),
@@ -566,6 +567,7 @@ assert.deepEqual({
 	emptiedOverHeading: title(['# Foo', '## Bar'], ['<title>', '<clear>']),
 	onFixed: title(['# Anatomy', '<html>'], ['<fixed 1>', 'x']),
 }, {
+	openedOnlyTitle: { shown: ['h1:Anatomys', 'p:'], caret: 0, placeholder: 0, markdown: '# Anatomys\n' },
 	onlyTitle: { shown: ['h1:Anatomy', 'p:Body line'], caret: 1, placeholder: 0, markdown: '# Anatomy\n\nBody line\n' },
 	enterAtEnd: { shown: ['h1:A', 'p:', 'p:Text.'], caret: 1, placeholder: 0, markdown: '# A\n\nText.\n' },
 	textOnly: { shown: ['h2:How they form', 'p:Stars form. More.'], caret: 1, placeholder: 0, markdown: '## How they form\n\nStars form. More.\n' },
@@ -573,6 +575,6 @@ assert.deepEqual({
 	headingUnder: { shown: ['h2:Ingredients', 'p:'], caret: 0, placeholder: 0, markdown: '## Ingredients' },
 	emptiedOverHeading: { shown: ['h1:', 'h2:Bar'], caret: 0, placeholder: 1, markdown: '## Bar\n' },
 	onFixed: { shown: ['h1:Anatomy', 'fixed', 'p:x'], caret: 2, placeholder: 0, markdown: '# Anatomy\n\n![](a.png)\n\nx\n' },
-}, 'a note of only a title gets a line under it, text under the title is never the title, a title made text is followed by an empty title line, and an empty title line the editor added gives way to a heading under it');
+}, 'a note of only a title opens at the end of its title and gets a line under it, text under the title is never the title, a title made text is followed by an empty title line, and an empty title line the editor added gives way to a heading under it');
 
 console.log('Canvas Markdown inline command tests passed.');

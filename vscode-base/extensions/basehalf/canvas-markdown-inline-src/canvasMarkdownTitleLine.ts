@@ -259,6 +259,25 @@ export function canvasTitleLineEnter(schema: ICanvasTitleLineSchema): Command {
 	};
 }
 
+/**
+ * Where the caret goes when the editor opens without a place asked for: in
+ * the title line of a note without text, and at the end of the title of a
+ * note of only a title, whose end it is (the empty line under it is the
+ * editor's). `undefined` for any other note, which opens at its end.
+ */
+export function canvasTitleLineOpening(document: ProseMirrorNode, schema: ICanvasTitleLineSchema): Selection | undefined {
+	const range = canvasTitleLineRange(document, schema);
+	let fixed = false;
+	document.forEach(unit => {
+		fixed ||= unit.type === schema.fixed;
+	});
+	if (!range || fixed) {
+		return undefined;
+	}
+	const title = document.nodeAt(TITLE_POSITION)!;
+	return document.textContent === title.textContent ? TextSelection.create(document, title.content.size === 0 ? range.from : range.to) : undefined;
+}
+
 /** Backspace at the start of the title line does nothing: nothing stands before it, and it stays a title line. */
 export function canvasTitleLineBackspace(schema: ICanvasTitleLineSchema): Command {
 	return state => {
