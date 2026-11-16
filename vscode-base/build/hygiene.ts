@@ -45,8 +45,16 @@ export function checkNoNewJavaScriptFiles(repoRoot: string): string | undefined 
 	);
 
 	// `git ls-files` lists tracked files relative to repo root using forward slashes.
+	// BaseHalf: a hook of a linked worktree runs with GIT_DIR set, and git then takes the
+	// folder it runs in for the top of the work tree, so its paths were those of the
+	// repository's own root and no file matched the allowlist. Git finds the repository
+	// from `repoRoot` itself.
+	const env = { ...process.env };
+	delete env.GIT_DIR;
+	delete env.GIT_WORK_TREE;
 	const out = cp.execSync('git ls-files "*.js" "*.cjs" "*.mjs"', {
 		cwd: repoRoot,
+		env,
 		encoding: 'utf8',
 		maxBuffer: 10 * 1024 * 1024,
 	});
