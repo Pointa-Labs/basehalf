@@ -254,7 +254,8 @@ moving the page and without closing a comment note the user is writing in.
 15. The colors of highlights, the yellow of comments, and the wavy line are
     a light and a dark set, taken from the theme of the workbench, so that a
     tint keeps the text readable and a note stands out from the page in
-    both.
+    both. A PDF's page is paper in both themes: its wavy lines are the light
+    ones.
 
 ## Making a comment
 
