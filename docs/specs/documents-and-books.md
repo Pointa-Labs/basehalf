@@ -1,6 +1,6 @@
 # PDFs and books
 
-Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27; the cover is the card, 2026-11-13; one reader of BaseHalf's own with comments, 2026-11-16; Find at the top right and the Comments panel at the right, 2026-11-17)
+Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27; the cover is the card, 2026-11-13; one reader of BaseHalf's own with comments, 2026-11-16; Find at the top right and the Comments panel at the right, 2026-11-17; Find matches what a person means and leaves an input method alone, 2026-11-17)
 Decision: [D81](../decisions.md), [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16), [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27), [D133](../decisions.md#d133--the-cover-of-a-pdf-or-a-book-is-its-card-new-2026-11-13)
 Related: [canvas card placement](canvas-card-placement.md) (the size of a
 card), [canvas card resize](canvas-card-resize.md#which-cards-resize),
@@ -260,19 +260,46 @@ text that flows and a size of text.
     with the panels as they were when the last one of its kind closed.
 19. **Find.** Find in the header, or Cmd+F, shows the find bar at the top
     right of the document, under the header and left of the Comments panel,
-    with the cursor in its field and all of it selected. The bar holds the
-    field, the count, **Previous Match**, **Next Match**, and **Close**.
-    - Typing searches the whole document 250 ms after the last key. Every
-      match is marked in the pages in the color of a match of Find, and the
-      reader goes to the first match at or after the page or the place it
-      shows, which is marked more strongly. The count says "3 of 27", or "No
-      results"; a book's matches are counted as its sections are searched.
-    - Enter and Next Match go to the next match, and Shift+Enter and Previous
-      Match to the one before, round from the last to the first.
+    with the cursor in its field and all of it selected. With text selected
+    in the document, on one line and at most 200 characters, Cmd+F puts that
+    text into the field and searches for it at once, as the editor's Find
+    does. The bar holds the field, the count, **Previous Match**, **Next
+    Match**, and **Close**.
+    - Typing searches the whole document 250 ms after the last key. While an
+      input method composes, as for Chinese, nothing is searched: the search
+      starts 250 ms after the composed text is committed.
+    - Every match is marked in the pages in the color of a match of Find,
+      and the reader goes to the first match at or after the top of what it
+      shows, round to the first of the document, which is marked more
+      strongly. It scrolls only when that match is out of sight or under the
+      find bar, and then puts it a little above the middle.
+    - The words match text whatever its case, its accents (`cafe` finds
+      `café`), its full-width or half-width forms (`2026` finds `２０２６`),
+      and its curly or straight quotation marks; runs of white space match
+      one space. In a PDF, letters made into one glyph match their letters, a
+      word that a hyphen broke over two lines matches whole (`compile` finds
+      `com-` and `pile`), a phrase matches across a line break, and a line
+      break inside Chinese or Japanese text is nothing.
+    - The count says "3 of 27", or "No results". While a long document is
+      still searched, a thin line at the foot of the bar grows with the part
+      searched, and the count shows once the place of the match shown among
+      all of them is known.
+    - Enter, Next Match, and Cmd+G go to the next match, and Shift+Enter,
+      Previous Match, and Shift+Cmd+G to the one before, round from the last
+      to the first. Cmd+G and Shift+Cmd+G work with the keyboard in the
+      document too, while the bar shows.
     - Emptying the field takes the marks away. Escape in the bar, or Close,
       takes them away and hides the bar; Find again shows the bar with the
       words it held.
-    - A new search ends the one before.
+    - A new search ends the one before. A PDF's text is read once, the first
+      time it is searched, and later searches use it.
+    - Measured before (2026-11-17), on a paper of 14 pages: `performance`
+      found 23 of its 28 places and `alternative` 2 of 3, missing every
+      word a hyphen broke at a line's end; `2026`, `don't`, `naive`, and
+      `cafe` found nothing in a PDF that holds `２０２６`, `don’t`, `naïve`,
+      and `café`; pinyin was searched while the input method still composed
+      it, which showed "No results"; and the count read "? of 60" while
+      pages were searched.
 
 #### At the bottom left
 
@@ -324,7 +351,9 @@ text that flows and a size of text.
 27. A PDF opens at the width of Card Detail, but at most 125 %, as long as
     the user has not zoomed this PDF. The width follows Card Detail when it
     changes. Once the user zooms, the PDF opens at the zoom and the page
-    where the user was, as before.
+    where the user was, as before. The pages keep 30 px from the sides of
+    the reader at its width, the room where the marks of comments stand
+    outside the page ([comments](comments.md#on-the-page), rule 7).
 28. **The PDF shows itself drawn.** The reader shows itself, its controls and
     its pages at once, in the frame in which the page it opens at has its
     picture: until then Card Detail shows its background. No frame shows a
@@ -425,8 +454,13 @@ text that flows and a size of text.
 
 - A cover is 800 pixels wide. On a card zoomed to more than 150 % on a
   retina screen it is less sharp than the page in Card Detail.
-- Find in a long book takes seconds; the count grows as its sections are
-  searched, and a new search ends the one before.
+- Find in a long book takes seconds, and a new search ends the one before.
+  A book's text is searched as the library it is read with searches it:
+  its curly quotation marks are not its straight ones, and a word is not
+  matched across two blocks of text.
+- The first Find in a PDF reads the text of every page. Measured
+  (2026-11-17) in the development window: <FIRST_SEARCH_MEASURE>.
+- A phrase is not found across the end of a PDF's page.
 - Text that a book sets in absolute sizes does not follow Smaller Text and
   Larger Text.
 - A PDF over 512 MB has no cover, so that a cover never needs half a
@@ -505,6 +539,20 @@ text that flows and a size of text.
 25. The book reader has no bar of its own; the place and Aa stand at its
     bottom left, and a chevron shows in the outer fifth of a page while the
     pointer is there.
+26. In the paper of the measure in rule 19, Find finds `performance` 28 times
+    and `alternative` 3 times, the second of them across the line break of
+    `al-ternative`, marked on both lines; in a PDF that holds `２０２６`,
+    `don’t`, `naïve`, `café`, and `规律` broken over two lines, `2026`,
+    `don't`, `naive`, `cafe`, and `规律` each find it.
+27. Composing `xuexi` with an input method searches nothing and leaves the
+    count and the pages as they were; committing `学习` searches it.
+28. Text selected on one line and Cmd+F show the bar with that text and its
+    first match marked strongly; Cmd+G with the keyboard in the document goes
+    to the next match.
+29. While the first Find of a PDF of 700 pages runs, the first match after
+    the page shown is marked within a second, the thin line grows, no frame
+    of the reader takes longer than 50 ms, and the count shows when it is
+    done; the same Find again counts at once.
 
 ## Verification
 
@@ -515,7 +563,10 @@ text that flows and a size of text.
   DRM; FictionBook in windows-1251); the cache key and its entries; the
   `appearance.yaml` grammar with `cover`; the size and resize rule of a
   document card; the record of PDF and book text; the branch note of a
-  book; the skill text.
+  book; the skill text; the text Find matches in (case, accents, widths,
+  quotation marks, glyphs of two letters, hyphens and line breaks of a PDF,
+  line breaks in Chinese text, the places of characters of two units) and
+  the words it looks for.
 - `npm run basehalf:smoke`: the canvas suite checks the covers, the size,
   and Hide Cover and Show Cover (criteria 1 and 3), the book's 3:4 cover
   filling its card and the landscape page whole (criterion 16), and every
@@ -535,3 +586,8 @@ text that flows and a size of text.
   a FictionBook, and a comic book archive; per-frame sampling while a
   folder of twenty documents appears; a capture of every card face and of
   the book reader in the light and the dark theme.
+- Find (criteria 26 to 29) in the real window, typing at a person's speed and
+  composing through the input method over CDP, with every frame of the bar,
+  the marks, and the strong match sampled (`.build/rw-read/findprobe.mjs`):
+  the paper of 14 pages, a Chinese PDF made for it, and a PDF of 700
+  pages.

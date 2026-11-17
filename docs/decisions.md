@@ -6550,3 +6550,26 @@ highlights apart, the margin marks kept, highlights listed with the comments, an
   again.
 - A list of matches with the words around them: going from match to match is what a reader does while reading, and the top
   right is where Find stands in the editor and in a browser.
+
+**Revised 2026-11-17 again: marks beside the text, and Find of BaseHalf's own in a PDF.** A comment's mark stands in the
+blank beside what is read: outside a PDF's page, 8 px right of its edge, with the pages 30 px from the sides of the reader at
+its width; in a book in the middle of the blank to the right of the passage's column. A page comment's mark stays at its place.
+Find in a PDF searches the text of the pages itself, as the comments find their quotes, instead of asking PDFium: case,
+accents, widths, quotation marks, and glyphs of two letters do not matter; a word that a hyphen broke at the end of a line is
+found whole; a line break inside Chinese text is nothing. An input method's composition is not searched, a thin line shows
+the progress of a long search, the count shows once it is known, Cmd+F takes a selected line, and Cmd+G and Shift+Cmd+G go
+from match to match.
+
+**Why.** The owner asked that the mark never stand on the content page but in the blank beside it, and that the PDF's search
+be made good. Measured on a paper of 14 pages, PDFium's search missed every word broken at a line's end (`performance` 23 of
+28), and nothing matched across full-width digits, curly quotes, or accents; pinyin was searched while it was composed; the
+count read "? of 60" while pages were searched. PDFium's text marks a hyphen at a line's end with U+FFFE, which its own search
+does not skip.
+
+**What was set aside.**
+- A gutter at the right of the pages only when the PDF has comments, as some word processors do: the first comment would
+  change the zoom of a PDF at its width and move the passage just marked.
+- A book's mark drawn by the library's overlay of the section: the overlay ends half a gap right of the column, 12 to 19 px
+  in a reader 400 to 628 px wide, too narrow for a mark that covers no letter.
+- Options for case, accents, and whole words: the readers people use for papers have none by default; one rule that finds
+  what a person means needs no choice.

@@ -1,7 +1,8 @@
 # Comments
 
 Status: Active (2026-11-16; highlights and comments apart, a wavy line, and
-the Comments panel at the right, 2026-11-17)
+the Comments panel at the right, 2026-11-17; marks in the blank beside the
+page or the column, 2026-11-17)
 Decision: [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16)
 Related: [PDFs and books](documents-and-books.md) (the readers, their
 selection menu, and their panels), [formats of a note](note-formats.md) (the Rich view),
@@ -214,13 +215,18 @@ moving the page and without closing a comment note the user is writing in.
    yellow, so that it does not read as the red line of a misspelled word. A
    passage highlighted and commented shows both. Where two highlights
    overlap, both tints show.
-7. A comment has a mark: in a PDF at the right edge of the page, on the line
-   its passage begins on; in a book just after the end of its passage, since
-   a book's text flows and its columns move with the size of the text; and
-   in a note in the margin to the right of its text, on the line its passage
-   begins on. A page comment's mark stands at its place. A highlight has no
-   mark. Marks that would cover one another, of passages that begin on the
-   same line or the next, stand one under the other.
+7. A comment has a mark, which stands in the blank beside what is read and
+   never over it, on the line its passage begins on: in a PDF outside the
+   page, 8 px to the right of its edge; in a book in the blank to the right
+   of the column of text its passage begins in, in the middle between the
+   column and the next column or the edge of the reader, and at most 24 px
+   from the column; and in a note in the margin to the right of its text. A
+   page comment's mark stands at its place on the page, which is what it
+   marks. A highlight has no mark. Marks that would cover one another, of
+   passages that begin on the same line or the next, stand one under the
+   other. Measured before (2026-11-17): a PDF's mark stood on the page, 5 px
+   inside its right edge, and a book's just after its passage, over the
+   letters that follow it.
 8. With the pointer on a mark, or on the passage of a comment in a PDF or a
    book, for 300 ms, the comment note shows beside the mark. Nothing else
    moves. It goes 200 ms after the pointer has left both the mark, the
@@ -352,9 +358,9 @@ moving the page and without closing a comment note the user is writing in.
    bytes and its modification time are unchanged.
 2. Comment on a passage draws the wavy line under it and opens a comment
    note with the caret in it. Typing "why?" and waiting a second writes
-   `text: "why?"` and no `color`; a yellow mark stands at the right edge of
-   the passage's first line; the pointer on the mark shows the note; a click
-   elsewhere closes it.
+   `text: "why?"` and no `color`; a yellow mark stands outside the page,
+   right of its edge, beside the passage's first line; the pointer on the
+   mark shows the note; a click elsewhere closes it.
 3. Comment, then Escape without typing, leaves the file as it was and no step
    of undo.
 4. A highlight's colors change its tint, and the next Highlight takes the new
@@ -370,6 +376,10 @@ moving the page and without closing a comment note the user is writing in.
    tints the second.
 9. A book's highlight tints its passage and a book's comment draws its wavy
    line, in pages and in one scroll, and after a change of the text size.
+   The comment's mark stands in the blank to the right of the passage's
+   column, on its first line, covering no letter: in one column, in two,
+   and in one scroll, and it moves with the page when the page turns or
+   scrolls.
 10. In a note in Rich, Comment on a sentence shows a mark in the right margin
     and the wavy line; typing words into the passage keeps the line under
     them, and after the save the file's `quote` holds the new words. Cmd+Z of
@@ -397,6 +407,10 @@ moving the page and without closing a comment note the user is writing in.
     Delete there leaves the comment.
 17. Removing all the words of a comment and closing its note takes it out of
     the file; Cmd+Z brings it back with its words.
+18. A PDF at the width of Card Detail, with a comment on the last word of a
+    line that ends at the page's right edge, shows the comment's mark in the
+    margin outside the page, whole, and no mark of a passage covers the
+    page.
 
 ## Verification
 
