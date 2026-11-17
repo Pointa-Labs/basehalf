@@ -43,7 +43,10 @@ export class ReaderCommentsPanel {
 		this.element = element('aside', 'reader-comments', root);
 		this.element.setAttribute('aria-label', options.labels.comments);
 		this.list = element('div', 'reader-comments-list', this.element);
-		this.show();
+		// The page that makes the panel is still starting: what the panel lists is asked for at the next frame.
+		this.element.hidden = !this.open;
+		this.root.classList.toggle('comments-open', this.open);
+		this.refresh();
 	}
 
 	get isOpen(): boolean {
