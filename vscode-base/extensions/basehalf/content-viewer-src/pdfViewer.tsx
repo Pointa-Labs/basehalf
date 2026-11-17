@@ -219,7 +219,8 @@ window.addEventListener('keydown', event => {
 		return;
 	}
 
-	if (mod && !event.altKey && !isTextField(event.target) && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
+	// The keys of the zoom are the PDF's wherever the keyboard is in the reader; the window does not zoom (PDFs and books, rule 22).
+	if (mod && !event.altKey && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
 		event.preventDefault();
 		lastUserInput = Date.now();
 		if (event.key === '0') {

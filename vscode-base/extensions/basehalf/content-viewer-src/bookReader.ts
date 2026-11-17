@@ -611,7 +611,8 @@ function onKeydown(event: KeyboardEvent): void {
 		return;
 	}
 	const target = event.composedPath()[0] ?? event.target;
-	if (mod && !event.altKey && !isTextField(target) && (event.key === '=' || event.key === '+' || event.key === '-')) {
+	// The keys of the size of the text are the book's wherever the keyboard is in the reader; the window does not zoom (PDFs and books, rule 24).
+	if (mod && !event.altKey && (event.key === '=' || event.key === '+' || event.key === '-')) {
 		event.preventDefault();
 		textSizeBy(event.key === '-' ? -1 : 1);
 		return;

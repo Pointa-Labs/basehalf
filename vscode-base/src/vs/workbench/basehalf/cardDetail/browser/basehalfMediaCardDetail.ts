@@ -435,7 +435,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			onComment: selected => this.onSelectionChange(selected),
 			growBranch: selection => this.growBranch(state.resource, selection),
 			pageHost: this.webviewHost,
-			titleActions: this.editActions
+			titleActions: this.editActions,
+			page: webview
 		}) : undefined;
 		this.readerHost.value?.setVisible(this.visible);
 		store.add(webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));

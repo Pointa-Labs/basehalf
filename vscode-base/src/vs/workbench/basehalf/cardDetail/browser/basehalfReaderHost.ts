@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
+import { Event } from '../../../../base/common/event.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -31,6 +33,13 @@ export function readBaseHalfReaderPanelState(storageService: IStorageService, ki
 	return normalizeBaseHalfReaderPanelState(storageService.getObject(panelStorageKey(kind), StorageScope.PROFILE));
 }
 
+/**
+ * Which reader's page has the keyboard: `pdf`, `book`, or none. While one
+ * has it, the keys that zoom the window are the document's: the page hands
+ * every key to the window too, after it zoomed the PDF or changed the size of
+ * the book's text itself (PDFs and books, rules 22 and 24).
+ */
+export const BaseHalfReaderFocusContext = new RawContextKey<string>('basehalfReaderFocus', '');
 
 export interface IBaseHalfReaderHostOptions {
 	readonly kind: BaseHalfReaderKind;
@@ -49,6 +58,8 @@ export interface IBaseHalfReaderHostOptions {
 	readonly pageHost: HTMLElement;
 	/** Where the header holds, after the name, the title of the chapter a book shows. */
 	readonly titleActions: HTMLElement | undefined;
+	/** The page, which says when it takes the keyboard and when it gives it up. */
+	readonly page: { readonly onDidFocus: Event<void>; readonly onDidBlur: Event<void> };
 }
 
 /**
@@ -69,7 +80,8 @@ export class BaseHalfReaderHost extends Disposable {
 		private readonly options: IBaseHalfReaderHostOptions,
 		@IStorageService private readonly storageService: IStorageService,
 		@IOpenerService private readonly openerService: IOpenerService,
-		@IInstantiationService instantiationService: IInstantiationService
+		@IInstantiationService instantiationService: IInstantiationService,
+		@IContextKeyService contextKeyService: IContextKeyService
 	) {
 		super();
 		const panel = readBaseHalfReaderPanelState(storageService, options.kind);
@@ -91,6 +103,11 @@ export class BaseHalfReaderHost extends Disposable {
 			this.commentsButton = this.button(options.trailingActions, 'codicon-comment', 'toggleComments');
 		}
 		this.showPanelState(panel);
+		// Which reader has the keyboard, for the keys that zoom the document and not the window (PDFs and books, rules 22 and 24).
+		const readerFocus = BaseHalfReaderFocusContext.bindTo(contextKeyService);
+		this._register(options.page.onDidFocus(() => readerFocus.set(options.kind)));
+		this._register(options.page.onDidBlur(() => readerFocus.reset()));
+		this._register(toDisposable(() => readerFocus.reset()));
 		this.comments = this._register(instantiationService.createInstance(BaseHalfCommentsBridge, {
 			target: options.target,
 			post: options.post,
