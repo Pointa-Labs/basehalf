@@ -17,7 +17,7 @@ export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** A whole number that grows whenever the skill text changes. BaseHalf's own
  * copy never takes the text of a lower version (agent skill, "Keeping it
  * current"). */
-export const BASEHALF_AGENT_SKILL_VERSION = '14';
+export const BASEHALF_AGENT_SKILL_VERSION = '15';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -46,7 +46,7 @@ export const BASEHALF_AGENT_SELECTION_SECTION: readonly string[] = [
 	'  - `text`: text in the note at `path`, on lines `first_line` to `last_line` of the file, counted from 1 with the frontmatter. `text` is the selected text as the note shows it, without Markdown marks. `text_is_cut: true` means the selection was longer and the text is cut; the lines are complete.',
 	'  - `text` in a PDF or a book: `path` is the PDF or the book. A PDF\'s text is on pages `first_page` to `last_page`, counted from 1. A book\'s text begins in the chapter of its contents named by `chapter`, which is missing when the book names none there. `text` is the text as BaseHalf\'s reader shows it.',
 	'  - `committed: true` on `text`: the user selected it in the earlier version of the file, while comparing the two. `first_line` and `last_line` are lines of that version in git, not of the file now.',
-	'  - `comment`: the comment whose note the user has open in the PDF, the book, or the note at `path`. `comment` is its id in that file\'s comments, `quote` its passage (missing for a comment on a place of a page), and `text` its words (empty for a highlight).',
+	'  - `comment`: the comment whose note, or the highlight whose tools, the user has open in the PDF, the book, or the note at `path`. `comment` is its id in that file\'s comments, `quote` its passage (missing for a comment on a place of a page), and `text` its words (empty for a highlight).',
 	'- Paths are relative to the workspace folder and use forward slashes. The workspace folder itself is `.`.'
 ];
 
@@ -117,10 +117,14 @@ export const BASEHALF_AGENT_NOTE_FORMATS_SECTION: readonly string[] = [
 export const BASEHALF_AGENT_COMMENTS_SECTION: readonly string[] = [
 	'## Comments',
 	'',
-	'A PDF, a book, or a note can have comments, in `.bh/mirror/<path>/comments.yaml`, where `<path>` is the file\'s path relative to the workspace folder. A comment marks a passage and holds words about it; one without `text` is a highlight. The file is never changed by them. BaseHalf shows a change of `comments.yaml` at once. Keep it YAML:',
+	'A PDF, a book, or a note can have comments, in `.bh/mirror/<path>/comments.yaml`, where `<path>` is the file\'s path relative to the workspace folder. An entry with `text` is a comment: words about a passage, shown under a yellow wavy line. An entry without `text` and `replies` is a highlight of a PDF or a book: a passage in a `color`. A passage can have both, as two entries. The file is never changed by them. BaseHalf shows a change of `comments.yaml` at once. Keep it YAML:',
 	'',
 	'```yaml',
 	'comments:',
+	'  - id: "h3n6s0dx"',
+	'    page: 3',
+	'    quote: "the passage, as the reader shows it"',
+	'    color: "blue"',
 	'  - id: "m4k2p9wq"',
 	'    page: 3',
 	'    quote: "the passage, as the reader shows it"',
@@ -135,9 +139,9 @@ export const BASEHALF_AGENT_COMMENTS_SECTION: readonly string[] = [
 	'- `page`, in a PDF: the page the passage begins on, counted from 1 in the file, not the number printed on the page. `chapter`, in a book: the entry of its contents that the passage begins in, when you know it.',
 	'- `before` and `after`, which you may leave out: a few words just before and after the passage, which tell apart a quote that the text holds more than once.',
 	'- `place: [x, y]` in place of `quote`: a comment on a place of a PDF\'s page, as fractions of the page\'s width and height from its top left corner. A comment with `page` and neither `quote` nor `place` stands at the top right of its page.',
-	'- `color`: `yellow` when it is missing, `green`, `blue`, `pink`, or `purple`.',
+	'- `color`, on a highlight: `yellow` when it is missing, `green`, `blue`, `pink`, or `purple`. A comment has no color.',
 	'- `by`: who wrote a comment or a reply when it is not the user. Set it to your own name on everything you write. `at`: when, in ISO 8601 and UTC.',
-	'- To add a comment, append it to `comments`. To answer one, append to its `replies`. Leave `id` out, or make one of eight lowercase letters and digits that the file does not hold. Change or delete the user\'s comments and replies only when the user asks.'
+	'- To add a comment, append it to `comments`. To answer one, append to its `replies`; to answer about a highlight, add a comment with its `quote`. Leave `id` out, or make one of eight lowercase letters and digits that the file does not hold. Change or delete the user\'s highlights, comments, and replies only when the user asks.'
 ];
 
 /**

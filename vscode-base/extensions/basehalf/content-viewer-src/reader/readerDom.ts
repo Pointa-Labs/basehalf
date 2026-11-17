@@ -29,7 +29,7 @@ export function iconButton(icon: ReaderIcon, label: string, options: { readonly 
 	return button;
 }
 
-export type ReaderIcon = 'search' | 'contents' | 'highlight' | 'comment' | 'branch' | 'copy' | 'delete' | 'check' | 'chevronLeft' | 'chevronRight';
+export type ReaderIcon = 'search' | 'contents' | 'highlight' | 'comment' | 'branch' | 'copy' | 'delete' | 'check' | 'chevronLeft' | 'chevronRight' | 'arrowUp' | 'arrowDown' | 'close';
 
 const ICON_PATHS: Record<ReaderIcon, string> = {
 	search: 'M7 2.75a4.25 4.25 0 1 1 0 8.5a4.25 4.25 0 0 1 0-8.5zM10.2 10.2l3.3 3.3',
@@ -41,7 +41,10 @@ const ICON_PATHS: Record<ReaderIcon, string> = {
 	delete: 'M3 4.5h10M6.5 4.5v-2h3v2M4.5 4.5l.6 9h5.8l.6-9M7 7v4.5M9 7v4.5',
 	check: 'M3.5 8.5l3 3 6-7',
 	chevronLeft: 'M10 3.5L5.5 8l4.5 4.5',
-	chevronRight: 'M6 3.5L10.5 8 6 12.5'
+	chevronRight: 'M6 3.5L10.5 8 6 12.5',
+	arrowUp: 'M8 13V3.5M4 7.5l4-4 4 4',
+	arrowDown: 'M8 3v9.5M4 8.5l4 4 4-4',
+	close: 'M4 4l8 8M12 4l-8 8'
 };
 
 export function readerIcon(icon: ReaderIcon): SVGSVGElement {

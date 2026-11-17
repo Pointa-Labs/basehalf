@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-/* The comment note, the tools of a highlight, the mark, and the Comments list, which the readers and the Rich view of a note share (comments, "How comments show"). */
+/* The comment note, the tools of a highlight, the mark, and the wavy line, which the readers and the Rich view of a note share (comments, "How comments show"). */
 
 :root {
 	--bh-comment-yellow: #e8b923;
@@ -11,6 +11,8 @@
 	--bh-comment-blue: #3b8fe6;
 	--bh-comment-pink: #e2558c;
 	--bh-comment-purple: #8d63da;
+	/* The wavy line under a comment's passage (comments, rule 6): 1.2 px thick, 1.6 px from crest to trough, every 6 px, in a soft yellow. bookComments.ts draws the same wave. */
+	--bh-comment-wave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4' viewBox='0 0 6 4'%3E%3Cpath d='M-3 2Q-1.5 .4 0 2T3 2T6 2T9 2' fill='none' stroke='%23d29b14' stroke-width='1.2'/%3E%3C/svg%3E");
 	--bh-reader-surface: var(--vscode-editorWidget-background, var(--vscode-editor-background));
 	--bh-reader-border: var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
 	--bh-reader-shadow: 0 6px 22px rgb(0 0 0 / 18%);
@@ -18,6 +20,7 @@
 
 body.vscode-dark,
 body.vscode-high-contrast {
+	--bh-comment-wave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4' viewBox='0 0 6 4'%3E%3Cpath d='M-3 2Q-1.5 .4 0 2T3 2T6 2T9 2' fill='none' stroke='%23e3b54a' stroke-width='1.2'/%3E%3C/svg%3E");
 	--bh-reader-shadow: 0 6px 22px rgb(0 0 0 / 45%);
 }
 
@@ -50,12 +53,25 @@ body.vscode-high-contrast {
 	flex: none;
 }
 
-/* Comments (comments, "How comments show"). */
+/* The colors of highlights; a comment is yellow (comments, "How comments show"). */
 [data-color="yellow"] { --bh-comment: var(--bh-comment-yellow); }
 [data-color="green"] { --bh-comment: var(--bh-comment-green); }
 [data-color="blue"] { --bh-comment: var(--bh-comment-blue); }
 [data-color="pink"] { --bh-comment: var(--bh-comment-pink); }
 [data-color="purple"] { --bh-comment: var(--bh-comment-purple); }
+
+.comment-note,
+.comment-mark {
+	--bh-comment: var(--bh-comment-yellow);
+}
+
+/* The wavy line under each line of a comment's passage on a page of a PDF. */
+.comment-wave {
+	position: absolute;
+	height: 4px;
+	background: var(--bh-comment-wave) repeat-x 0 0 / 6px 4px;
+	pointer-events: none;
+}
 
 .comment-note {
 	position: absolute;
@@ -147,10 +163,16 @@ body.vscode-high-contrast .comment-note {
 	border: 1.5px solid var(--bh-comment);
 }
 
-.comment-status {
+.comment-status,
+.comment-tools-status {
 	margin-bottom: 4px;
 	font-size: 11px;
 	opacity: 0.7;
+}
+
+.comment-tools-status {
+	margin: 0 6px;
+	white-space: nowrap;
 }
 
 .comment-author {
@@ -219,81 +241,4 @@ body.vscode-high-contrast .comment-note {
 	background: linear-gradient(135deg, color-mix(in srgb, var(--bh-comment) 60%, #000) 50%, transparent 50%);
 	border-radius: 0 0 2px 0;
 	opacity: 0.55;
-}
-
-.comment-list-empty {
-	margin: 18px 12px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 12px;
-}
-
-.comment-list {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-}
-
-.comment-list-item {
-	display: block;
-	width: 100%;
-	padding: 7px 8px 7px 12px;
-	border: 0;
-	border-radius: 6px;
-	background: transparent;
-	color: inherit;
-	font: inherit;
-	text-align: start;
-	cursor: pointer;
-	position: relative;
-	line-height: 1.4;
-}
-
-.comment-list-item::before {
-	content: '';
-	position: absolute;
-	left: 4px;
-	top: 8px;
-	bottom: 8px;
-	width: 3px;
-	border-radius: 2px;
-	background: var(--bh-comment);
-}
-
-.comment-list-item:hover {
-	background: var(--vscode-list-hoverBackground);
-}
-
-.comment-list-head {
-	display: flex;
-	gap: 8px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
-}
-
-.comment-list-author {
-	margin-inline-start: auto;
-	font-weight: 600;
-}
-
-.comment-list-quote {
-	color: var(--vscode-descriptionForeground);
-	display: -webkit-box;
-	-webkit-line-clamp: 2;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-}
-
-.comment-list-text,
-.comment-list-replies {
-	display: -webkit-box;
-	-webkit-line-clamp: 3;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-	white-space: pre-wrap;
-}
-
-.comment-list-replies {
-	margin-top: 2px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 12px;
 }

@@ -58,7 +58,7 @@
 	outline-offset: -1px;
 }
 
-/* The panel (PDFs and books, "The panel"). */
+/* The panel at the left (PDFs and books, "The panels"); the Comments panel at the right is in readerComments.css. */
 .reader-panel {
 	position: absolute;
 	z-index: 20;
@@ -79,51 +79,10 @@
 	box-shadow: var(--bh-reader-shadow);
 }
 
-.reader-search {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin: 10px 10px 4px;
-	padding: 0 8px;
-	height: 28px;
-	border: 1px solid var(--vscode-input-border, transparent);
-	border-radius: 6px;
-	background: var(--vscode-input-background);
-	color: var(--vscode-input-foreground);
-}
-
-.reader-search:focus-within {
-	border-color: var(--vscode-focusBorder);
-}
-
-.reader-search .reader-icon {
-	opacity: 0.7;
-}
-
-.reader-search input {
-	flex: 1;
-	min-width: 0;
-	border: 0;
-	outline: none;
-	background: transparent;
-	color: inherit;
-	font: inherit;
-}
-
-.reader-search-status {
-	margin: 0 12px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 12px;
-}
-
-.reader-search-status:empty {
-	display: none;
-}
-
 .reader-tabs {
 	display: flex;
 	gap: 2px;
-	margin: 6px 10px 6px;
+	margin: 10px 10px 6px;
 	padding: 2px;
 	border-radius: 6px;
 	background: color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
@@ -147,8 +106,7 @@
 	box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
 }
 
-.reader-section,
-.reader-results {
+.reader-section {
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
@@ -157,20 +115,16 @@
 	list-style: none;
 }
 
-.reader-results ol,
+.reader-tabs[hidden] ~ .reader-section {
+	padding-top: 8px;
+}
+
 .reader-section ol {
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
-.result-group {
-	margin: 10px 6px 4px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 12px;
-}
-
-.result,
 .toc-entry {
 	display: block;
 	width: 100%;
@@ -192,7 +146,6 @@
 	white-space: nowrap;
 }
 
-.result:hover,
 .toc-entry:hover:not(:disabled) {
 	background: var(--vscode-list-hoverBackground);
 }
@@ -205,12 +158,6 @@
 .toc-entry:disabled {
 	opacity: 0.6;
 	cursor: default;
-}
-
-.result mark {
-	background: var(--vscode-editor-findMatchHighlightBackground, rgb(234 92 0 / 33%));
-	color: inherit;
-	border-radius: 2px;
 }
 
 /* The pictures of the pages of a PDF. */

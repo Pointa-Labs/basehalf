@@ -78,10 +78,11 @@ export async function assertPdfCardDetail(page, expectedName = 'textbook.pdf') {
 		throw new Error('A binary PDF exposed the raw Source projection');
 	}
 
-	// The header is the reader's only bar: Sidebar before the name, Search before Close (PDFs and books, criterion 19).
+	// The header is the reader's only bar: Sidebar before the name, Find and Comments before Close (PDFs and books, criterion 19).
 	if (await page.locator('.basehalf-card-detail-leading .basehalf-card-detail-reader-button.codicon-list-unordered').count() !== 1
-		|| await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-search').count() !== 1) {
-		throw new Error('The header of Card Detail does not hold the reader\'s Sidebar and Search');
+		|| await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-search').count() !== 1
+		|| await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-comment').count() !== 1) {
+		throw new Error('The header of Card Detail does not hold the reader\'s Sidebar, Find, and Comments');
 	}
 
 	const started = Date.now();
@@ -116,8 +117,9 @@ export async function assertPdfCardDetail(page, expectedName = 'textbook.pdf') {
 /**
  * Highlight marks a passage beside the PDF, never in it; Cmd+Z and
  * Shift+Cmd+Z in the reader take it away and bring it back; and a comment
- * that an agent writes into the file shows in the open reader (comments,
- * criteria 1, 5, and 6).
+ * that an agent writes into the file shows in the open reader with its wavy
+ * line, its mark, and its entry in the Comments panel (comments, criteria 1,
+ * 5, 6, and 15).
  */
 export async function assertPdfComments(page) {
 	const pdfPath = path.join(workspacePath, 'docs', 'textbook.pdf');
@@ -135,19 +137,42 @@ export async function assertPdfComments(page) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Shift+Z');
 	await waitUntil(() => /quote: "BaseHalf/.test(read()), 'Shift+Cmd+Z in the reader to bring the highlight back', 10_000);
 
-	// What an agent writes shows at once, with its mark.
+	// What an agent writes shows at once, with its wavy line and its mark, and the highlight keeps its tint.
 	fs.writeFileSync(file, `${read()}  - page: 1\n    quote: "smoke"\n    text: "Written by an agent"\n    by: "Smoke Agent"\n`);
-	const deadline = Date.now() + 10_000;
-	let marks = 0;
-	while (marks !== 1 && Date.now() < deadline) {
+	const shown = async () => {
 		for (const frame of page.frames()) {
-			marks = Math.max(marks, await frame.locator('#basehalf-reader .comment-mark').count().catch(() => 0));
+			const found = await frame.evaluate(() => document.querySelector('#basehalf-reader') ? {
+				marks: document.querySelectorAll('#basehalf-reader .comment-mark').length,
+				waves: document.querySelectorAll('#basehalf-reader .comment-wave').length,
+				tints: document.querySelectorAll('#basehalf-reader .comment-tint').length,
+				listed: [...document.querySelectorAll('.reader-comments-item')].map(item => item.classList.contains('highlight') ? 'highlight' : 'comment')
+			} : undefined).catch(() => undefined);
+			if (found) {
+				return found;
+			}
 		}
+		return undefined;
+	};
+	let seen = await shown();
+	const deadline = Date.now() + 10_000;
+	while ((seen?.marks !== 1 || !seen.waves) && Date.now() < deadline) {
 		await page.waitForTimeout(100);
+		seen = await shown();
 	}
-	if (marks !== 1) {
-		throw new Error(`The comment an agent wrote did not show its mark in the reader: ${marks} marks`);
+	if (seen?.marks !== 1 || !seen.waves || !seen.tints) {
+		throw new Error(`The comment an agent wrote did not show its wavy line and its mark beside the highlight's tint: ${JSON.stringify(seen)}`);
 	}
+	// The Comments panel at the right lists both (comments, criterion 15).
+	await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-comment').click();
+	const listedBy = Date.now() + 5_000;
+	while (JSON.stringify(seen?.listed) !== JSON.stringify(['highlight', 'comment']) && Date.now() < listedBy) {
+		await page.waitForTimeout(100);
+		seen = await shown();
+	}
+	if (JSON.stringify(seen?.listed) !== JSON.stringify(['highlight', 'comment'])) {
+		throw new Error(`Comments did not list the highlight and the comment in the panel at the right: ${JSON.stringify(seen)}`);
+	}
+	await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-comment').click();
 	fs.rmSync(file);
 }
 

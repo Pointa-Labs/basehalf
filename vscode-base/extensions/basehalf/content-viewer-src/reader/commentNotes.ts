@@ -4,8 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 // The comment note and the tools of a highlight, which every page that shows
-// comments draws alike (comments, "How comments show"), and the Comments list
-// of the reader's panel.
+// comments draws alike (comments, "How comments show").
 
 import './comments.css';
 import type { BaseHalfCommentStep } from '../../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
@@ -24,14 +23,20 @@ export interface ICommentNotesOptions {
 	readonly labels: IBaseHalfReaderLabels;
 	/** Keeps a change of a comment, or takes one away by its id. */
 	readonly change: (step: BaseHalfCommentStep, comment: IBaseHalfComment | undefined, remove?: string) => void;
-	/** The comment whose note is open, or none: what the record of the selection names. */
+	/** The comment whose note is open, or the highlight whose tools are, or none: what the record of the selection names. */
 	readonly focus: (id: string | undefined) => void;
 	/** Grow branch of a comment; without it, a note offers none. */
 	readonly grow?: (comment: IBaseHalfComment) => void;
-	/** A comment that was made and closed without words: the page takes its tint away. */
+	/** A comment that was made and closed without words: the page takes its wavy line away. */
 	readonly discard: (comment: IBaseHalfComment) => void;
 	/** The note or the tools closed: the page shows what it shows at rest. */
 	readonly closed?: () => void;
+	/**
+	 * Comment in the tools of a highlight: the page opens the note of a comment
+	 * on its passage, or makes one there (comments, rule 10). Without it, the
+	 * tools offer no Comment.
+	 */
+	readonly commentOn?: (highlight: IBaseHalfComment, anchor: DOMRect) => void;
 }
 
 interface IOpenNote {
@@ -97,7 +102,7 @@ export class CommentNotes {
 		return !!this.note?.pinned;
 	}
 
-	/** The pointer came onto a mark or the passage of a comment with words: its note shows after a moment, with `status` under its words. */
+	/** The pointer came onto a mark or the passage of a comment: its note shows after a moment, with `status` under its words. */
 	hoverEnter(comment: IBaseHalfComment, anchor: () => DOMRect | undefined, status?: string): void {
 		if (this.note?.pinned || isBaseHalfHighlight(comment)) {
 			return;
@@ -134,17 +139,21 @@ export class CommentNotes {
 	}
 
 	/** Shows the tools of a highlight beside it: the colors, Comment, and Delete (comments, rule 10). */
-	tools(comment: IBaseHalfComment, anchor: DOMRect): void {
+	tools(highlight: IBaseHalfComment, anchor: DOMRect, options: { readonly status?: string } = {}): void {
 		window.clearTimeout(this.hoverTimer);
 		this.close();
 		const tools = element('div', 'comment-tools floating', this.options.root);
-		this.colorDots(tools, comment, color => this.change('color', { ...this.note!.comment, color }));
-		const commentButton = iconButton('comment', this.options.labels.comment, { parent: tools });
-		commentButton.addEventListener('click', () => {
-			const current = this.note!.comment;
-			this.close();
-			this.open(current, anchor);
-		});
+		tools.setAttribute('role', 'toolbar');
+		this.colorDots(tools, highlight, color => this.change('color', { ...this.note!.comment, color }));
+		const commentOn = this.options.commentOn;
+		if (commentOn) {
+			const commentButton = iconButton('comment', this.options.labels.comment, { parent: tools });
+			commentButton.addEventListener('click', () => {
+				const current = this.note!.comment;
+				this.close();
+				commentOn(current, anchor);
+			});
+		}
 		const remove = iconButton('delete', this.options.labels.delete, { parent: tools });
 		remove.addEventListener('click', () => {
 			const current = this.note!.comment;
@@ -154,9 +163,12 @@ export class CommentNotes {
 			this.options.focus(undefined);
 			this.options.closed?.();
 		});
+		if (options.status) {
+			element('span', 'comment-tools-status', tools).textContent = options.status;
+		}
 		this.place(tools, anchor);
-		this.note = { element: tools, comment, pinned: true, unsaved: false };
-		this.options.focus(comment.id);
+		this.note = { element: tools, comment: highlight, pinned: true, unsaved: false };
+		this.options.focus(highlight.id);
 		this.takeKeyboard();
 	}
 
@@ -172,7 +184,11 @@ export class CommentNotes {
 		}
 	}
 
-	/** Closes the open note or tools; a note's words are saved first. */
+	/**
+	 * Closes the open note or tools. A note's words are saved first; a note
+	 * that closes without words deletes its comment, when it has no replies
+	 * (comments, rule 14).
+	 */
 	close(): void {
 		const note = this.note;
 		if (!note) {
@@ -181,9 +197,19 @@ export class CommentNotes {
 		this.note = undefined;
 		window.clearTimeout(note.saveTimer);
 		if (note.pinned && note.text) {
-			this.saveText(note);
 			if (note.unsaved) {
-				this.options.discard(note.comment);
+				this.saveText(note);
+				if (note.unsaved) {
+					this.options.discard(note.comment);
+				}
+			} else if (!this.words(note).trim()) {
+				if (note.comment.replies.length === 0) {
+					this.options.change('delete', undefined, note.comment.id);
+				} else if (note.comment.text) {
+					this.options.change('edit', { ...note.comment, text: '' });
+				}
+			} else {
+				this.saveText(note);
 			}
 		}
 		note.element.remove();
@@ -216,10 +242,10 @@ export class CommentNotes {
 		}
 		const typing = !!note.text && note.text.contains(document.activeElement);
 		note.comment = typing ? { ...current, text: note.comment.text } : current;
-		note.element.dataset.color = current.color;
 		if (note.text && !typing) {
 			note.text.textContent = current.text;
 		}
+		this.showColor(note);
 		this.renderReplies(note);
 	}
 
@@ -243,11 +269,10 @@ export class CommentNotes {
 		this.removePreview();
 		const labels = this.options.labels;
 		const note = element('div', `comment-note${pinned ? ' open' : ''}`, this.options.root);
-		note.dataset.color = comment.color;
+		note.dataset.comment = comment.id;
 		note.setAttribute('role', pinned ? 'dialog' : 'tooltip');
 		if (pinned) {
 			const tools = element('div', 'comment-tools', note);
-			this.colorDots(tools, comment, color => this.change('color', { ...this.note!.comment, color }));
 			element('span', 'spacer', tools);
 			const growBranch = this.options.grow;
 			if (comment.quote && growBranch) {
@@ -374,17 +399,26 @@ export class CommentNotes {
 		}
 	}
 
-	/** Saves a note's words when they changed; the first words of a comment just made make it. */
+	/** The words of an open note, as they are to be kept. */
+	private words(note: IOpenNote): string {
+		return baseHalfCommentCut((note.text?.innerText ?? '').replace(/\n+$/, ''));
+	}
+
+	/**
+	 * Saves a note's words when they changed; the first words of a comment just
+	 * made make it. While the note holds no words, nothing is saved: closing it
+	 * so deletes the comment (comments, rule 14).
+	 */
 	private saveText(note: IOpenNote): void {
 		window.clearTimeout(note.saveTimer);
 		if (!note.text || !note.pinned) {
 			return;
 		}
-		const words = baseHalfCommentCut((note.text.innerText ?? '').replace(/\n+$/, ''));
+		const words = this.words(note);
+		if (!words.trim()) {
+			return;
+		}
 		if (note.unsaved) {
-			if (!words.trim()) {
-				return;
-			}
 			note.unsaved = false;
 			note.comment = { ...note.comment, text: words, at: baseHalfCommentTime() };
 			this.options.change('comment', note.comment);
@@ -401,14 +435,18 @@ export class CommentNotes {
 		const note = this.note;
 		if (note) {
 			note.comment = comment;
-			note.element.dataset.color = comment.color;
-			note.element.querySelectorAll<HTMLElement>('.comment-color').forEach(dot => dot.classList.toggle('selected', dot.dataset.color === comment.color));
+			this.showColor(note);
 			if (note.unsaved) {
-				// A comment just made is kept with its first words, and its color with them.
+				// A comment just made is kept with its first words.
 				return;
 			}
 		}
 		this.options.change(step, comment);
+	}
+
+	/** The tools of a highlight show its color as chosen. */
+	private showColor(note: IOpenNote): void {
+		note.element.querySelectorAll<HTMLElement>('.comment-color').forEach(dot => dot.classList.toggle('selected', dot.dataset.color === note.comment.color));
 	}
 
 	private colorDots(parent: HTMLElement, comment: IBaseHalfComment, pick: (color: BaseHalfCommentColor) => void): void {
@@ -428,42 +466,5 @@ export class CommentNotes {
 		const { left, top } = besideAnchor(anchor, width, box.offsetHeight, bounds);
 		box.style.left = `${left - bounds.left}px`;
 		box.style.top = `${top - bounds.top}px`;
-	}
-}
-
-export interface ICommentListItem {
-	readonly comment: IBaseHalfComment;
-	/** Where it is: "Page 3", or the chapter. */
-	readonly location?: string;
-	readonly found: boolean;
-}
-
-/** The Comments list of the panel (comments, rule 22). */
-export function renderCommentList(container: HTMLElement, items: readonly ICommentListItem[], labels: IBaseHalfReaderLabels, unreadable: boolean, go: (comment: IBaseHalfComment) => void): void {
-	container.replaceChildren();
-	if (unreadable || items.length === 0) {
-		element('div', 'comment-list-empty', container).textContent = unreadable ? labels.commentsUnreadable : labels.noComments;
-		return;
-	}
-	const list = element('ol', 'comment-list', container);
-	for (const item of [...items.filter(item => item.found), ...items.filter(item => !item.found)]) {
-		const button = element('button', 'comment-list-item', element('li', '', list));
-		button.type = 'button';
-		button.dataset.color = item.comment.color;
-		const head = element('div', 'comment-list-head', button);
-		element('span', 'comment-list-location', head).textContent = item.found ? (item.location ?? '') : labels.passageNotFound;
-		if (item.comment.by) {
-			element('span', 'comment-list-author', head).textContent = item.comment.by;
-		}
-		if (item.comment.quote) {
-			element('div', 'comment-list-quote', button).textContent = item.comment.quote;
-		}
-		if (item.comment.text) {
-			element('div', 'comment-list-text', button).textContent = item.comment.text;
-		}
-		if (item.comment.replies.length) {
-			element('div', 'comment-list-replies', button).textContent = item.comment.replies.map(reply => reply.by ? `${reply.by}: ${reply.text}` : reply.text).join('  ·  ');
-		}
-		button.addEventListener('click', () => go(item.comment));
 	}
 }

@@ -41,6 +41,7 @@ import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocum
 import { baseHalfDocumentVersion } from '../../documents/common/basehalfDocuments.js';
 import { baseHalfBookReaderMessage, IBaseHalfBookViewState, normalizeBaseHalfBookReaderPreferences, normalizeBaseHalfBookViewState } from '../../documents/common/basehalfBookReaderProtocol.js';
 import { baseHalfBookReaderHtml, baseHalfBookReaderLabels } from '../../documents/browser/basehalfBookReaderPage.js';
+import { DEFAULT_BASEHALF_READER_PANEL_STATE } from '../../documents/common/basehalfReaderProtocol.js';
 import { baseHalfPdfReaderHtml, baseHalfReaderLabels } from '../../documents/browser/basehalfReaderPage.js';
 import { BaseHalfReaderHost } from './basehalfReaderHost.js';
 import { IBaseHalfDocumentCoverService } from '../../documents/browser/basehalfDocumentCovers.js';
@@ -744,7 +745,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				locale: baseHalfPdfLocale(language),
 				page: viewState.page,
 				zoom: viewState.zoom === undefined ? '' : String(viewState.zoom),
-				panel: this.readerHost.value?.panelState ?? { open: false, tab: 'contents' },
+				panel: this.readerHost.value?.panelState ?? DEFAULT_BASEHALF_READER_PANEL_STATE,
 				labels: baseHalfReaderLabels()
 			}));
 			return;

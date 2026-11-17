@@ -90,6 +90,11 @@ declare module 'foliate-js/overlayer.js' {
 	}
 }
 
+declare module 'foliate-js/epubcfi.js' {
+	/** Which of two canonical fragments comes first in the book: below 0 when `a` does. */
+	export function compare(a: string, b: string): number;
+}
+
 declare module 'foliate-js/comic-book.js' {
 	import type { IFoliateBook } from 'foliate-js/view.js';
 	export interface IFoliateArchiveEntry {

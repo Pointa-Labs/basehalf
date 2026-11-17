@@ -2157,9 +2157,9 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
- * Comments on a note in its Rich view of Card Detail (comments): a tint under
- * each passage and a mark beside it, passages that follow an edit, and a note
- * whose Markdown and undo know nothing of them.
+ * Comments on a note in its Rich view of Card Detail (comments): a wavy line
+ * under each passage and a mark beside it, no highlights, passages that follow
+ * an edit, and a note whose Markdown and undo know nothing of them.
  */
 async function comments(t: INoteFormatsTest): Promise<void> {
 	if (t.mode === 'baseline') {
@@ -2171,35 +2171,39 @@ async function comments(t: INoteFormatsTest): Promise<void> {
 	await t.frames();
 	const saved = await t.save();
 	const comment = (id: string, quote: string, color: BaseHalfCommentColor, text: string): IBaseHalfComment => ({ id, quote, color, text, replies: [] });
+	// A highlight in a note's file is kept and not shown; a comment just made, without words yet, is shown.
 	setBaseHalfNoteComments(view, [
 		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
-		comment('bbbbbbbb', 'Vanishing gradients', 'green', ''),
-		comment('cccccccc', 'residual connections', 'pink', 'see'),
-	]);
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
+		comment('eeeeeeee', 'first layers', 'green', ''),
+		comment('ffffffff', 'layer by layer', 'yellow', ''),
+	], undefined, new Set(['ffffffff']));
 	await t.frames();
-	const tints = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-tint')].map(tint => tint.textContent);
+	const waves = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-wave')].map(wave => wave.textContent);
 	const marks = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-mark')].map(mark => `${mark.dataset.comment}${mark.classList.contains('missing') ? ' (not found)' : ''}`).sort();
-	t.check('each passage is tinted, a highlight\'s too', tints(), ['the error back', 'Vanishing gradients']);
-	t.check('each comment has a mark, a highlight too, and one whose passage is not found has its own', marks(), ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)']);
+	t.check('each comment\'s passage has the wavy line, the one just made too, and a highlight shows nothing', waves(), ['the error back', 'layer by layer', 'Vanishing gradients']);
+	t.check('each comment has a mark, and one whose passage is not found has its own', marks(), ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)', 'ffffffff']);
+	t.check('the wavy line is the yellow wave under the text', getComputedStyle(view.dom.querySelector<HTMLElement>('.note-comment-wave')!).backgroundImage.includes('svg'), true);
 	// Two comments that begin on the same line: their marks stand one under the other.
 	setBaseHalfNoteComments(view, [
 		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
-		comment('bbbbbbbb', 'Vanishing gradients', 'green', ''),
-		comment('cccccccc', 'residual connections', 'pink', 'see'),
-		comment('dddddddd', 'Backprop sends', 'purple', 'and this?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
+		comment('dddddddd', 'Backprop sends', 'yellow', 'and this?'),
 	]);
 	await t.frames();
-	const tintTop = (id: string) => view.dom.querySelector<HTMLElement>(`.note-comment-tint[data-comment="${id}"]`)!.getBoundingClientRect().top;
+	const waveTop = (id: string) => view.dom.querySelector<HTMLElement>(`.note-comment-wave[data-comment="${id}"]`)!.getBoundingClientRect().top;
 	const markBox = (id: string) => view.dom.querySelector<HTMLElement>(`.note-comment-mark[data-comment="${id}"]`)!.getBoundingClientRect();
 	const [first, second] = [markBox('dddddddd'), markBox('aaaaaaaa')];
 	t.check('the marks of two comments that begin on the same line do not cover each other', {
-		sameLine: tintTop('dddddddd') === tintTop('aaaaaaaa'),
+		sameLine: waveTop('dddddddd') === waveTop('aaaaaaaa'),
 		apart: second.top >= first.bottom || first.top >= second.bottom,
 	}, { sameLine: true, apart: true });
 	setBaseHalfNoteComments(view, [
 		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
-		comment('bbbbbbbb', 'Vanishing gradients', 'green', ''),
-		comment('cccccccc', 'residual connections', 'pink', 'see'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
 	]);
 	await t.frames();
 	t.check('showing comments is no step of undo', t.command('undo'), false);
@@ -2210,26 +2214,26 @@ async function comments(t: INoteFormatsTest): Promise<void> {
 	await t.keyboard.type(' signal');
 	await t.frames();
 	t.check('text typed inside a passage joins it, and the comment quotes it anew', {
-		tints: tints(),
+		waves: waves(),
 		quotes: baseHalfNoteCommentFollowUps(view.state).map(followed => followed.quote),
-	}, { tints: ['the error signal back', 'Vanishing gradients'], quotes: ['the error signal back'] });
+	}, { waves: ['the error signal back', 'Vanishing gradients'], quotes: ['the error signal back'] });
 	t.check('an edit tells the comments, which quote their passages anew a moment later', noteCommentEdits.count > editsBefore, true);
 	// The comments come again before the new words are written, as after a change of another comment.
 	setBaseHalfNoteComments(view, [
 		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
-		comment('bbbbbbbb', 'Vanishing gradients', 'blue', ''),
-		comment('cccccccc', 'residual connections', 'pink', 'see'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve, really?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
 	]);
 	await t.frames();
-	t.check('a passage being edited keeps its comment when the comments come again before its new words are written', tints(), ['the error signal back', 'Vanishing gradients']);
+	t.check('a passage being edited keeps its comment when the comments come again before its new words are written', waves(), ['the error signal back', 'Vanishing gradients']);
 	t.caret('signal back', 'end');
 	await t.keyboard.type('wards');
 	t.caret('sends ', 'end');
 	await t.keyboard.type('all ');
 	await t.frames();
-	t.check('text typed at either end of a passage stays out of it', tints()[0], 'the error signal back');
+	t.check('text typed at either end of a passage stays out of it', waves()[0], 'the error signal back');
 
-	// The highlight's passage deleted whole, then given back by undo.
+	// A comment's passage deleted whole, then given back by undo.
 	const passage = 'Vanishing gradients';
 	let from = -1;
 	view.state.doc.descendants((node, position) => {
@@ -2246,18 +2250,18 @@ async function comments(t: INoteFormatsTest): Promise<void> {
 	t.check('a passage deleted whole leaves its comment not found', marks(), ['aaaaaaaa', 'bbbbbbbb (not found)', 'cccccccc (not found)']);
 	t.command('undo');
 	await t.frames();
-	t.check('undo gives the comment its passage back', { tinted: tints().includes('Vanishing gradients'), marks: marks() }, { tinted: true, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
+	t.check('undo gives the comment its passage back', { underlined: waves().includes('Vanishing gradients'), marks: marks() }, { underlined: true, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
 
 	// The shared document's binding writes an undo as a new document: the passage follows the part that changed.
 	t.history.current?.stopCapturing();
-	const passageBefore = tints()[0];
+	const passageBefore = waves()[0];
 	t.caret('the error', 'end');
 	await t.keyboard.type(' X');
 	await t.frames();
 	t.history.current?.stopCapturing();
 	t.command('undo');
 	await t.frames();
-	t.check('undo of words typed inside a passage keeps its comment there', { tint: tints()[0], marks: marks() }, { tint: passageBefore, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
+	t.check('undo of words typed inside a passage keeps its comment there', { passage: waves()[0], marks: marks() }, { passage: passageBefore, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
 }
 
 /**

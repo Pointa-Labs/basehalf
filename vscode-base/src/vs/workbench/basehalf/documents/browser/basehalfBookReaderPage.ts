@@ -9,28 +9,13 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { IBaseHalfBookReaderLabels, IBaseHalfBookReaderPreferences, IBaseHalfBookViewState } from '../common/basehalfBookReaderProtocol.js';
-import { IBaseHalfReaderLabels, IBaseHalfReaderPanelState } from '../common/basehalfReaderProtocol.js';
+import { DEFAULT_BASEHALF_READER_PANEL_STATE, IBaseHalfReaderLabels, IBaseHalfReaderPanelState } from '../common/basehalfReaderProtocol.js';
 
-/** The words of the book reader, in the workbench's language. */
+/** The words of the book reader's page of its own, in the workbench's language. */
 export function baseHalfBookReaderLabels(): IBaseHalfBookReaderLabels {
 	return {
-		contents: localize('basehalf.book.contents', "Contents"),
-		search: localize('basehalf.book.search', "Search in Book"),
-		searchPlaceholder: localize('basehalf.book.searchPlaceholder', "Search in book"),
-		searching: localize('basehalf.book.searching', "Searching… {0}"),
-		noMatches: localize('basehalf.book.noMatches', "No matches"),
-		oneMatch: localize('basehalf.book.oneMatch', "1 match"),
-		matches: localize('basehalf.book.matches', "{0} matches"),
-		smallerText: localize('basehalf.book.smallerText', "Smaller Text"),
-		largerText: localize('basehalf.book.largerText', "Larger Text"),
-		pages: localize('basehalf.book.pages', "Pages"),
-		scroll: localize('basehalf.book.scroll', "One Scroll"),
-		previousPage: localize('basehalf.book.previousPage', "Previous Page"),
-		nextPage: localize('basehalf.book.nextPage', "Next Page"),
-		place: localize('basehalf.book.place', "Place in the book"),
 		opening: localize('basehalf.book.opening', "Opening book…"),
 		failed: localize('basehalf.book.failed', "BaseHalf could not open this book."),
-		growBranch: localize('basehalf.pdf.branch.action', "Grow branch"),
 		untitledSection: localize('basehalf.book.untitledSection', "Untitled section")
 	};
 }
@@ -87,7 +72,7 @@ export function baseHalfBookReaderHtml(options: IBaseHalfBookReaderPageOptions):
 		data-text-size="${options.preferences.textSize}"
 		data-flow="${options.preferences.flow}"
 		data-locale="${attribute(options.locale)}"
-		data-panel="${attribute(JSON.stringify(options.panel ?? { open: false, tab: 'contents' }))}"
+		data-panel="${attribute(JSON.stringify(options.panel ?? DEFAULT_BASEHALF_READER_PANEL_STATE))}"
 		data-labels="${attribute(JSON.stringify(options.labels))}"
 		data-reader-labels="${attribute(JSON.stringify(options.reader ?? {}))}">
 		<main id="book"></main>

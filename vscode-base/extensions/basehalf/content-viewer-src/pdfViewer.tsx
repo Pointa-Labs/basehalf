@@ -31,15 +31,17 @@ import { baseHalfPagePinchFromMessage, baseHalfZoomFactor, isBaseHalfZoomWheel, 
 import { BASEHALF_PDF_AUTOMATIC_ZOOM_MAX, BASEHALF_PDF_SELECTION_TEXT_LIMIT, type BaseHalfPdfZoom, type IBaseHalfPdfSelection } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
 import { baseHalfCommentContext, normalizeBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
 import { baseHalfCommentsSetMessage, type BaseHalfCommentStep } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
-import { baseHalfCommentCut, baseHalfCommentTime, type IBaseHalfComment, newBaseHalfCommentId } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
-import { baseHalfReaderCommandMessage, normalizeBaseHalfReaderPanelState, type IBaseHalfReaderLabels } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
-import { hasMark, PdfCommentStore } from './pdfComments.js';
-import { CommentNotes, renderCommentList, stackCommentMarks } from './reader/commentNotes.js';
+import { BASEHALF_COMMENT_DEFAULT_COLOR, baseHalfCommentCut, baseHalfCommentTime, type IBaseHalfComment, isBaseHalfHighlight, newBaseHalfCommentId } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
+import { baseHalfReaderCommandMessage, normalizeBaseHalfReaderPanelState, type IBaseHalfReaderLabels, type IBaseHalfReaderPanelState } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
+import { PdfCommentStore } from './pdfComments.js';
+import { CommentNotes, stackCommentMarks } from './reader/commentNotes.js';
 import { ReaderChrome } from './reader/readerChrome.js';
+import { ReaderCommentsPanel, type ICommentsPanelItem } from './reader/readerComments.js';
 import { element, format, isTextField } from './reader/readerDom.js';
+import { ReaderFindBar } from './reader/readerFind.js';
 import { installReaderHover } from './reader/readerHover.js';
 import { closeReaderMenu, isReaderMenuOpen, openReaderMenu } from './reader/readerMenu.js';
-import { ReaderPanel } from './reader/readerPanel.js';
+import { observeReaderWidth, ReaderPanel } from './reader/readerPanel.js';
 import { ReaderSelectionMenu } from './reader/readerSelectionMenu.js';
 
 interface VsCodeApi {
@@ -98,22 +100,39 @@ installReaderHover(root);
 const chrome = new ReaderChrome(root, { location: labels.goToPage, size: labels.zoom });
 chrome.element.hidden = true;
 
+observeReaderWidth(root);
+
+/** How the panels stand, which Card Detail keeps for the next PDF (PDFs and books, rule 18). */
+let panels: IBaseHalfReaderPanelState = normalizeBaseHalfReaderPanelState(safeJson(root.dataset.panel));
+function keepPanels(change: Partial<IBaseHalfReaderPanelState>): void {
+	panels = { ...panels, ...change };
+	vscode.postMessage({ type: 'basehalf.reader.panel', state: panels });
+}
+
 const panel = new ReaderPanel(root, {
-	tabs: ['pages', 'contents', 'comments'],
+	tabs: ['pages', 'contents'],
 	labels,
-	searchPlaceholder: labels.searchInPdf,
-	state: normalizeBaseHalfReaderPanelState(safeJson(root.dataset.panel)),
-	onState: state => vscode.postMessage({ type: 'basehalf.reader.panel', state }),
-	onSearch: (query, results) => void search(query, results),
-	onClearSearch: () => registry?.getPlugin<SearchPlugin>(SearchPlugin.id)?.provides().forDocument(DOCUMENT_ID).stopSearch(),
-	onTab: tab => {
-		if (tab === 'comments') {
-			renderComments();
-		}
-	}
+	state: panels,
+	onState: state => keepPanels(state)
 });
 
 const comments = new PdfCommentStore(index => pageText(index), () => pdfDocument?.pageCount ?? totalPages);
+
+const commentsPanel = new ReaderCommentsPanel(root, {
+	labels,
+	open: panels.comments,
+	items: () => commentItems(),
+	onOpen: open => keepPanels({ comments: open }),
+	go: (comment, anchor, found) => goToComment(comment, anchor, found)
+});
+
+const find = new ReaderFindBar(root, {
+	labels,
+	search: query => void findAll(query),
+	next: () => goToMatch(1),
+	previous: () => goToMatch(-1),
+	closed: () => stopFind()
+});
 
 const notes = new CommentNotes({
 	root,
@@ -126,7 +145,8 @@ const notes = new CommentNotes({
 		}
 	},
 	discard: comment => comments.remove(comment.id),
-	closed: () => renderMarksFocus()
+	closed: () => renderMarksFocus(),
+	commentOn: highlight => commentOn(highlight)
 });
 
 const selectionMenu = new ReaderSelectionMenu(root, labels, {
@@ -136,7 +156,7 @@ const selectionMenu = new ReaderSelectionMenu(root, labels, {
 	copy: () => copySelection()
 });
 
-comments.subscribe(() => renderComments());
+comments.subscribe(() => commentsPanel.refresh());
 
 // #endregion
 
@@ -152,8 +172,10 @@ window.addEventListener('message', event => {
 	const command = baseHalfReaderCommandMessage(event.data);
 	if (command?.command === 'toggleSidebar') {
 		panel.toggle();
-	} else if (command?.command === 'search') {
-		panel.focusSearch();
+	} else if (command?.command === 'find') {
+		find.open();
+	} else if (command?.command === 'toggleComments') {
+		commentsPanel.toggle();
 	}
 	const pinch = baseHalfPagePinchFromMessage(event.data);
 	if (pinch && !locked) {
@@ -180,17 +202,23 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 }
 
 // The keyboard (PDFs and books, rule 26): Escape closes a menu, a comment
-// note, the search, the panel over the document, and then Card Detail.
+// note or the tools of a highlight, the find bar, the selection, a panel over
+// the document, and then Card Detail.
 window.addEventListener('keydown', event => {
-	if (event.defaultPrevented || event.isComposing) {
+	if (event.isComposing) {
 		return;
 	}
 	const mod = isMac ? event.metaKey : event.ctrlKey;
-	if (mod && !event.altKey && (event.key === 'f' || event.key === 'F')) {
+	// Cmd+F shows the find bar. The page that holds the reader prevents its default first, so that the browser's own find does not open.
+	if (mod && !event.altKey && !event.shiftKey && (event.key === 'f' || event.key === 'F')) {
 		event.preventDefault();
-		panel.focusSearch();
+		find.open();
 		return;
 	}
+	if (event.defaultPrevented) {
+		return;
+	}
+
 	if (mod && !event.altKey && !isTextField(event.target) && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
 		event.preventDefault();
 		lastUserInput = Date.now();
@@ -207,11 +235,13 @@ window.addEventListener('keydown', event => {
 	if (isReaderMenuOpen()) {
 		closeReaderMenu();
 	} else if (notes.escape()) {
-		// The comment note closed.
-	} else if (panel.isSearching && root.querySelector('.reader-search')?.contains(document.activeElement)) {
-		panel.endSearch();
+		// The comment note or the tools closed.
+	} else if (find.isOpen) {
+		find.close();
 	} else if (selectionMenu.isShown) {
 		clearSelection();
+	} else if (commentsPanel.isOver) {
+		commentsPanel.close();
 	} else if (panel.isOver) {
 		panel.close();
 	} else if (!locked) {
@@ -389,14 +419,19 @@ function Page({ documentId, layout, scale }: { readonly documentId: string; read
 			live = false;
 		};
 	}, [pageIndex]);
-	const tints = geometry ? comments.rangesOn(pageIndex).map(range => ({ ...range, rects: rectsWithinSlice(geometry, range.start, range.end, true) })) : [];
+	// Highlights are tints under the text, comments wavy lines under it (comments, rule 6).
+	const passages = geometry ? comments.rangesOn(pageIndex).map(range => ({ ...range, rects: rectsWithinSlice(geometry, range.start, range.end, true) })) : [];
+	const tints = passages.filter(passage => !comments.isComment(passage.comment));
+	const waves = passages.filter(passage => comments.isComment(passage.comment));
 	const pins = comments.pinsOn(pageIndex);
 	const box = (rect: Rect) => ({ left: rect.origin.x * scale, top: rect.origin.y * scale, width: rect.size.width * scale, height: rect.size.height * scale });
+	// The wave's middle under the baseline, where an underline stands, a tenth of the line's height above its box's bottom: a paper's lines are close, and lower it would cross the tall letters of the next line.
+	const underline = (rect: Rect) => ({ left: rect.origin.x * scale, top: (rect.origin.y + rect.size.height * 0.9) * scale - 2, width: rect.size.width * scale });
 	return (
 		<div class='pdf-page' data-page={layout.pageNumber} style={{ width: layout.width, height: layout.height }}
-			onPointerMove={event => hoverPage(event, pageIndex, tints, scale)}
+			onPointerMove={event => hoverPage(event, waves, scale)}
 			onPointerLeave={() => notes.hoverLeave()}
-			onClick={event => clickPage(event, pageIndex, tints, scale)}
+			onClick={event => clickPage(event, tints, waves, scale)}
 			onContextMenu={event => offerPageComment(event, pageIndex)}>
 			<PagePointerProvider documentId={documentId} pageIndex={pageIndex} class='pdf-page-content'>
 				<RenderLayer documentId={documentId} pageIndex={pageIndex} scale={1} class='pdf-render' />
@@ -406,21 +441,24 @@ function Page({ documentId, layout, scale }: { readonly documentId: string; read
 				</div>
 				<SearchLayer documentId={documentId} pageIndex={pageIndex} highlightColor='rgb(255 166 0 / 32%)' activeHighlightColor='rgb(255 120 0 / 55%)' />
 				<SelectionLayer documentId={documentId} pageIndex={pageIndex} textStyle={{ background: 'rgb(51 136 255 / 30%)' }} />
+				<div class='pdf-waves'>
+					{waves.flatMap(wave => wave.rects.map((rect, index) => <div key={`${wave.comment.id}-${index}`} class='comment-wave' data-comment={wave.comment.id} style={underline(rect)} />))}
+				</div>
 				{links.map((link, index) => <a key={index} class='pdf-link' style={box(link.rect)} onClick={event => followLink(event, link.target)} />)}
 			</PagePointerProvider>
-			{stackCommentMarks(tints.filter(tint => tint.first && hasMark(tint.comment) && tint.rects.length).map(tint => ({ tint, top: Math.max(2, tint.rects[0].origin.y * scale) }))).map(({ tint, top }) => (
-				<button key={tint.comment.id} type='button' class='comment-mark' data-comment={tint.comment.id} data-color={tint.comment.color}
+			{stackCommentMarks(waves.filter(wave => wave.first && wave.rects.length).map(wave => ({ wave, top: Math.max(2, wave.rects[0].origin.y * scale) }))).map(({ wave, top }) => (
+				<button key={wave.comment.id} type='button' class='comment-mark' data-comment={wave.comment.id}
 					style={{ left: layout.width - 13, top }}
-					onPointerEnter={() => notes.hoverEnter(tint.comment, () => markRect(tint.comment.id))}
+					onPointerEnter={() => notes.hoverEnter(wave.comment, () => markRect(wave.comment.id))}
 					onPointerLeave={() => notes.hoverLeave()}
 					onPointerDown={event => event.stopPropagation()}
 					onClick={event => {
 						event.stopPropagation();
-						notes.open(comments.get(tint.comment.id) ?? tint.comment, (event.currentTarget as HTMLElement).getBoundingClientRect());
+						notes.open(comments.get(wave.comment.id) ?? wave.comment, (event.currentTarget as HTMLElement).getBoundingClientRect(), { unsaved: comments.isDraft(wave.comment.id) });
 					}} />
 			))}
 			{pins.map(pin => (
-				<button key={pin.comment.id} type='button' class='comment-mark pin' data-comment={pin.comment.id} data-color={pin.comment.color}
+				<button key={pin.comment.id} type='button' class='comment-mark pin' data-comment={pin.comment.id}
 					style={{ left: pin.x * layout.width, top: pin.y * layout.height }}
 					onPointerEnter={() => notes.hoverEnter(pin.comment, () => markRect(pin.comment.id))}
 					onPointerLeave={() => notes.hoverLeave()}
@@ -733,10 +771,10 @@ async function renderOutline(): Promise<void> {
 	const section = panel.section('contents');
 	section.replaceChildren();
 	if (outline.length === 0) {
-		panel.setTabs(['pages', 'comments']);
+		panel.setTabs(['pages']);
 		return;
 	}
-	panel.setTabs(['pages', 'contents', 'comments']);
+	panel.setTabs(['pages', 'contents']);
 	const list = element('ol', '', section);
 	const add = (parent: HTMLElement, entries: readonly PdfBookmarkObject[], depth: number) => {
 		for (const entry of entries) {
@@ -986,7 +1024,8 @@ async function markSelection(withWords: boolean): Promise<void> {
 		quote: baseHalfCommentCut(normalizeBaseHalfCommentQuote(selectedText)),
 		...(context.before ? { before: context.before } : {}),
 		...(context.after ? { after: context.after } : {}),
-		color: comments.color,
+		// A highlight takes the color used last; a comment has none (comments, rules 16 and 19).
+		color: withWords ? BASEHALF_COMMENT_DEFAULT_COLOR : comments.color,
 		text: '',
 		at: baseHalfCommentTime(),
 		replies: []
@@ -997,13 +1036,48 @@ async function markSelection(withWords: boolean): Promise<void> {
 		changeComment('highlight', comment);
 		return;
 	}
-	// The note opens at the mark of the new comment, once the page has drawn it.
+	openNewComment(comment);
+}
+
+/** The note of a comment just made opens at its mark, once the page has drawn it. */
+function openNewComment(comment: IBaseHalfComment): void {
 	window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
 		const anchor = markRect(comment.id);
 		if (anchor) {
 			notes.open(comment, anchor, { unsaved: true });
 		}
 	}));
+}
+
+/**
+ * Comment in the tools of a highlight (comments, rule 10): the note of a
+ * comment on its passage, or a comment made on the passage, which keeps its
+ * highlight.
+ */
+function commentOn(highlight: IBaseHalfComment): void {
+	const existing = comments.commentOver(highlight.id);
+	if (existing) {
+		const anchor = markRect(existing.id);
+		if (anchor) {
+			notes.open(existing, anchor, { unsaved: comments.isDraft(existing.id) });
+		}
+		return;
+	}
+	const place = comments.place(highlight.id);
+	if (place?.kind !== 'text') {
+		return;
+	}
+	const { color: _color, at: _at, ...passage } = highlight;
+	const comment: IBaseHalfComment = {
+		...passage,
+		id: newBaseHalfCommentId(new Set(comments.all().map(existing => existing.id))),
+		color: BASEHALF_COMMENT_DEFAULT_COLOR,
+		text: '',
+		at: baseHalfCommentTime(),
+		replies: []
+	};
+	comments.put(comment, place, { draft: true });
+	openNewComment(comment);
 }
 
 /** Add Comment on a place of a page (comments, rule 18). */
@@ -1026,18 +1100,13 @@ function offerPageComment(event: MouseEvent, pageIndex: number): void {
 					id: newBaseHalfCommentId(new Set(comments.all().map(existing => existing.id))),
 					page: pageIndex + 1,
 					place: [x, y],
-					color: comments.color,
+					color: BASEHALF_COMMENT_DEFAULT_COLOR,
 					text: '',
 					at: baseHalfCommentTime(),
 					replies: []
 				};
 				comments.put(comment, { kind: 'place', pageIndex, x, y }, { draft: true });
-				window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-					const rect = markRect(comment.id);
-					if (rect) {
-						notes.open(comment, rect, { unsaved: true });
-					}
-				}));
+				openNewComment(comment);
 			}
 		}],
 		onClose: () => anchor.remove()
@@ -1094,27 +1163,30 @@ function passageRect(id: string): DOMRect | undefined {
 	return new DOMRect(box.left + rect.origin.x * scale, box.top + rect.origin.y * scale, rect.size.width * scale, rect.size.height * scale);
 }
 
-/** The comment whose tint is under the point, in the coordinates of its page. */
-function commentAt(event: MouseEvent, tints: readonly { readonly comment: IBaseHalfComment; readonly rects: readonly Rect[] }[], scale: number): { comment: IBaseHalfComment; rect: Rect } | undefined {
+type PagePassages = readonly { readonly comment: IBaseHalfComment; readonly rects: readonly Rect[] }[];
+
+/** The highlight or the comment whose passage is under the point, in the coordinates of its page. */
+function passageAt(event: MouseEvent, passages: PagePassages, scale: number): { comment: IBaseHalfComment; rect: Rect } | undefined {
 	const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
 	const x = (event.clientX - box.left) / scale;
 	const y = (event.clientY - box.top) / scale;
-	for (const tint of [...tints].reverse()) {
-		const rect = tint.rects.find(candidate => x >= candidate.origin.x && x <= candidate.origin.x + candidate.size.width && y >= candidate.origin.y && y <= candidate.origin.y + candidate.size.height);
+	for (const passage of [...passages].reverse()) {
+		const rect = passage.rects.find(candidate => x >= candidate.origin.x && x <= candidate.origin.x + candidate.size.width && y >= candidate.origin.y && y <= candidate.origin.y + candidate.size.height);
 		if (rect) {
-			return { comment: comments.get(tint.comment.id) ?? tint.comment, rect };
+			return { comment: comments.get(passage.comment.id) ?? passage.comment, rect };
 		}
 	}
 	return undefined;
 }
 
+/** The pointer on the passage of a comment shows its note (comments, rule 8). */
 let hovered: string | undefined;
-function hoverPage(event: PointerEvent, _pageIndex: number, tints: readonly { readonly comment: IBaseHalfComment; readonly rects: readonly Rect[] }[], scale: number): void {
+function hoverPage(event: PointerEvent, waves: PagePassages, scale: number): void {
 	if (event.buttons || (event.target as Element | null)?.closest('.comment-mark')) {
 		return;
 	}
-	const hit = commentAt(event, tints, scale);
-	const id = hit && hasMark(hit.comment) ? hit.comment.id : undefined;
+	const hit = passageAt(event, waves, scale);
+	const id = hit && !comments.isDraft(hit.comment.id) ? hit.comment.id : undefined;
 	if (id === hovered) {
 		return;
 	}
@@ -1126,20 +1198,22 @@ function hoverPage(event: PointerEvent, _pageIndex: number, tints: readonly { re
 	}
 }
 
-function clickPage(event: MouseEvent, _pageIndex: number, tints: readonly { readonly comment: IBaseHalfComment; readonly rects: readonly Rect[] }[], scale: number): void {
+/** A click on a highlight shows its tools; on a comment's passage where no highlight is, its note (comments, rules 9 and 10). */
+function clickPage(event: MouseEvent, tints: PagePassages, waves: PagePassages, scale: number): void {
 	if (selectedText || event.defaultPrevented) {
 		return;
 	}
-	const hit = commentAt(event, tints, scale);
+	const highlight = passageAt(event, tints, scale);
+	const hit = highlight ?? passageAt(event, waves, scale);
 	if (!hit) {
 		return;
 	}
 	const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
 	const anchor = new DOMRect(box.left + hit.rect.origin.x * scale, box.top + hit.rect.origin.y * scale, hit.rect.size.width * scale, hit.rect.size.height * scale);
-	if (hasMark(hit.comment)) {
-		notes.open(hit.comment, markRect(hit.comment.id) ?? anchor);
+	if (highlight) {
+		notes.tools(highlight.comment, anchor);
 	} else {
-		notes.tools(hit.comment, anchor);
+		notes.open(hit.comment, markRect(hit.comment.id) ?? anchor, { unsaved: comments.isDraft(hit.comment.id) });
 	}
 }
 
@@ -1149,76 +1223,177 @@ function renderMarksFocus(): void {
 	}
 }
 
-/** The Comments list, in the order of the document (comments, rule 22). */
-function renderComments(): void {
-	if (panel.tab !== 'comments' || !panel.isOpen) {
+/**
+ * The highlights and comments of the Comments panel, in the order of the
+ * document: by page, and on a page by where the passage begins; page
+ * comments after the passages of their page (comments, rule 22). One whose
+ * passage is still being looked for is not listed yet.
+ */
+function commentItems(): { readonly items: readonly ICommentsPanelItem[]; readonly unreadable: boolean } {
+	const listed: (ICommentsPanelItem & { readonly order: readonly number[] })[] = [];
+	for (const comment of comments.all()) {
+		const place = comments.place(comment.id);
+		if (!place || comments.isDraft(comment.id)) {
+			continue;
+		}
+		const pageIndex = comments.pageOf(comment.id);
+		const order = place.kind === 'text' ? [place.ranges[0].pageIndex, 0, place.ranges[0].start]
+			: place.kind === 'place' ? [place.pageIndex, 1, place.y]
+				: [Number.MAX_SAFE_INTEGER, 0, 0];
+		listed.push({ comment, location: pageIndex !== undefined ? format(labels.page, pageIndex + 1) : undefined, found: place.kind !== 'missing', order });
+	}
+	listed.sort((left, right) => left.order[0] - right.order[0] || left.order[1] - right.order[1] || left.order[2] - right.order[2]);
+	return { items: listed, unreadable: comments.unreadable };
+}
+
+/** A click in the Comments panel: the reader goes to the passage and opens its note or tools; one not found opens beside the panel. */
+function goToComment(comment: IBaseHalfComment, item: DOMRect, found: boolean): void {
+	const current = comments.get(comment.id) ?? comment;
+	const highlight = isBaseHalfHighlight(current);
+	if (!found) {
+		if (highlight) {
+			notes.tools(current, item, { status: labels.passageNotFound });
+		} else {
+			notes.open(current, item, { status: labels.passageNotFound });
+		}
 		return;
 	}
-	const items = comments.all().filter(comment => !comments.isDraft(comment.id)).map(comment => {
-		const pageIndex = comments.pageOf(comment.id);
-		const place = comments.place(comment.id);
-		return { comment, location: pageIndex !== undefined ? format(labels.page, pageIndex + 1) : undefined, found: !!place && place.kind !== 'missing', order: pageIndex ?? Number.MAX_SAFE_INTEGER };
-	}).sort((left, right) => left.order - right.order);
-	renderCommentList(panel.section('comments'), items, labels, comments.unreadable, comment => {
-		const pageIndex = comments.pageOf(comment.id);
-		if (pageIndex === undefined) {
-			return;
-		}
-		panel.closeWhenOver();
-		goToPage(pageIndex + 1);
-		window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-			const current = comments.get(comment.id) ?? comment;
+	const pageIndex = comments.pageOf(comment.id);
+	if (pageIndex === undefined) {
+		return;
+	}
+	const passage = passagePageRect(comment.id);
+	const place = comments.place(comment.id);
+	const scroll = registry?.getPlugin<ScrollPlugin>(ScrollPlugin.id)?.provides().forDocument(DOCUMENT_ID);
+	const target = passage ?? (place?.kind === 'place' ? { x: place.x * (pdfDocument?.pages[pageIndex]?.size.width ?? 0), y: place.y * (pdfDocument?.pages[pageIndex]?.size.height ?? 0) } : undefined);
+	if (!isShown(pageIndex, target)) {
+		scroll?.scrollToPage({ pageNumber: pageIndex + 1, ...(target ? { pageCoordinates: target, alignY: 35 } : { alignY: 0 }), behavior: 'instant' });
+	}
+	window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+		const latest = comments.get(comment.id) ?? current;
+		if (isBaseHalfHighlight(latest)) {
+			const anchor = passageRect(comment.id);
+			if (anchor) {
+				notes.tools(latest, anchor);
+			}
+		} else {
 			const anchor = markRect(comment.id) ?? passageRect(comment.id);
 			if (anchor) {
-				if (hasMark(current)) {
-					notes.open(current, anchor);
-				} else {
-					notes.tools(current, anchor);
-				}
+				notes.open(latest, anchor);
 			}
-		}));
-	});
+		}
+	}));
+}
+
+/** Where a passage begins on its page, in the page's coordinates. */
+function passagePageRect(id: string): { readonly x: number; readonly y: number } | undefined {
+	const pageIndex = comments.pageOf(id);
+	const range = pageIndex === undefined ? undefined : comments.rangesOn(pageIndex).find(entry => entry.comment.id === id);
+	const geometry = pageIndex === undefined ? undefined : readGeometries.get(pageIndex);
+	const rect = range && geometry ? rectsWithinSlice(geometry, range.start, range.end, true)[0] : undefined;
+	return rect ? { x: rect.origin.x, y: rect.origin.y } : undefined;
+}
+
+/** Whether a place of a page, in the page's coordinates, is in sight; without a place, whether the page is. */
+function isShown(pageIndex: number, point: { readonly x: number; readonly y: number } | undefined): boolean {
+	const pageElement = documentHost.querySelector<HTMLElement>(`.pdf-page[data-page="${pageIndex + 1}"]`);
+	if (!pageElement) {
+		return false;
+	}
+	const shown = documentHost.getBoundingClientRect();
+	const box = pageElement.getBoundingClientRect();
+	if (!point) {
+		return box.top >= shown.top && box.top < shown.bottom;
+	}
+	const scale = currentScale();
+	const x = box.left + point.x * scale;
+	const y = box.top + point.y * scale;
+	return y >= shown.top + 40 && y <= shown.bottom - 60 && x >= shown.left && x <= shown.right;
 }
 
 // #endregion
 
-// #region Search
+// #region Find
 
-async function search(query: string, results: import('./reader/readerPanel.js').ReaderSearchResults): Promise<void> {
-	const scope = registry?.getPlugin<SearchPlugin>(SearchPlugin.id)?.provides().forDocument(DOCUMENT_ID);
+let findRun = 0;
+
+function searchScope() {
+	return registry?.getPlugin<SearchPlugin>(SearchPlugin.id)?.provides().forDocument(DOCUMENT_ID);
+}
+
+/**
+ * Searches the whole PDF and goes to the first match at or after the page
+ * shown (PDFs and books, rule 19). The count grows while pages are searched.
+ */
+async function findAll(query: string): Promise<void> {
+	const scope = searchScope();
 	if (!scope) {
 		return;
 	}
-	results.progress(0);
+	const run = ++findRun;
+	if (!query) {
+		scope.stopSearch();
+		find.setCount(undefined, 0, false);
+		return;
+	}
+	find.setCount(undefined, 0, false);
 	try {
 		const task = scope.searchAllPages(query);
-		task.onProgress(progress => results.progress(totalPages ? ((progress as { page?: number }).page ?? 0) / totalPages : 0));
+		task.onProgress(() => {
+			if (run === findRun) {
+				find.setCount(undefined, scope.getState().results.length, false);
+			}
+		});
 		const found = await task.toPromise();
-		if (!results.isCurrent) {
+		if (run !== findRun) {
 			return;
 		}
-		const byPage = new Map<number, { index: number; result: typeof found.results[number] }[]>();
-		found.results.forEach((result, index) => {
-			const list = byPage.get(result.pageIndex) ?? [];
-			list.push({ index, result });
-			byPage.set(result.pageIndex, list);
-		});
-		for (const [pageIndex, matches] of [...byPage].sort((left, right) => left[0] - right[0])) {
-			results.group(format(labels.page, pageIndex + 1), matches.map(({ index, result }) => ({
-				before: `${result.context.truncatedLeft ? '…' : ''}${result.context.before}`,
-				match: result.context.match,
-				after: `${result.context.after}${result.context.truncatedRight ? '…' : ''}`,
-				go: () => {
-					scope.goToResult(index);
-					panel.closeWhenOver();
-				}
-			})));
+		if (found.results.length === 0) {
+			find.setCount(undefined, 0, true);
+			return;
 		}
-		results.done();
+		const first = found.results.findIndex(result => result.pageIndex >= page - 1);
+		showMatch(first === -1 ? 0 : first);
 	} catch (error) {
-		console.warn('[BaseHalf] the search of the PDF failed', error);
-		results.done();
+		if (run === findRun) {
+			console.warn('[BaseHalf] the search of the PDF failed', error);
+			find.setCount(undefined, 0, true);
+		}
 	}
+}
+
+/** Enter and Shift+Enter: the next or the previous match, round from the last to the first. */
+function goToMatch(direction: 1 | -1): void {
+	const state = searchScope()?.getState();
+	const count = state?.results.length ?? 0;
+	if (!state || count === 0) {
+		return;
+	}
+	const current = state.activeResultIndex < 0 ? (direction === 1 ? -1 : 0) : state.activeResultIndex;
+	showMatch((current + direction + count) % count);
+}
+
+/** Marks a match more strongly than the others and brings it into sight when it is not. */
+function showMatch(index: number): void {
+	const scope = searchScope();
+	const state = scope?.getState();
+	const result = state?.results[index];
+	if (!scope || !state || !result) {
+		return;
+	}
+	scope.goToResult(index);
+	const rect = result.rects[0];
+	const point = rect ? { x: rect.origin.x, y: rect.origin.y } : undefined;
+	if (!isShown(result.pageIndex, point)) {
+		registry?.getPlugin<ScrollPlugin>(ScrollPlugin.id)?.provides().forDocument(DOCUMENT_ID).scrollToPage({ pageNumber: result.pageIndex + 1, ...(point ? { pageCoordinates: point, alignY: 40 } : {}), behavior: 'instant' });
+	}
+	find.setCount(index + 1, state.results.length, true);
+}
+
+/** The find bar closed: its marks go. */
+function stopFind(): void {
+	findRun++;
+	searchScope()?.stopSearch();
 }
 
 // #endregion

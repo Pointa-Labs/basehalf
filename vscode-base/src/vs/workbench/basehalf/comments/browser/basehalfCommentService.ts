@@ -24,7 +24,7 @@ import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirr
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource } from '../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfCommentStep } from '../common/basehalfCommentProtocol.js';
-import { BASEHALF_COMMENT_DEFAULT_COLOR, BaseHalfCommentColor, IBaseHalfComment, isBaseHalfCommentColor } from '../common/basehalfComments.js';
+import { BASEHALF_COMMENT_DEFAULT_COLOR, BaseHalfCommentColor, IBaseHalfComment, isBaseHalfCommentColor, isBaseHalfHighlight } from '../common/basehalfComments.js';
 import { applyBaseHalfCommentChange, BASEHALF_COMMENTS_FILE_NAME, BaseHalfCommentChange, baseHalfCommentIndex, baseHalfShownComments, baseHalfStoredComment, EMPTY_BASEHALF_COMMENTS_FILE, IBaseHalfCommentsFile, parseBaseHalfComments, serializeBaseHalfComments } from '../common/basehalfCommentsFile.js';
 
 export const IBaseHalfCommentService = createDecorator<IBaseHalfCommentService>('baseHalfCommentService');
@@ -175,7 +175,7 @@ export class BaseHalfCommentService extends Disposable implements IBaseHalfComme
 			this.lastSteps.set(key, { step: last.step, at: now });
 			return;
 		}
-		const step = new BaseHalfCommentUndoStep(stepLabel(kind, basename(target.resource)), kind, target, id, before, after, index, this);
+		const step = new BaseHalfCommentUndoStep(stepLabel(kind, basename(target.resource), before), kind, target, id, before, after, index, this);
 		this.undoRedoService.pushElement(step, UndoRedoGroup.None, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 		this.lastSteps.set(key, { step, at: now });
 	}
@@ -234,14 +234,17 @@ export class BaseHalfCommentService extends Disposable implements IBaseHalfComme
 	}
 }
 
-function stepLabel(kind: BaseHalfCommentStep, name: string): string {
+/** The name of a step of undo (exact undo, "Comments"): deleting a highlight is Delete Highlight. */
+function stepLabel(kind: BaseHalfCommentStep, name: string, before: IBaseHalfComment | undefined): string {
 	switch (kind) {
 		case 'highlight': return localize('basehalf.comments.step.highlight', "Highlight in {0}", name);
 		case 'comment': return localize('basehalf.comments.step.comment', "Add Comment to {0}", name);
 		case 'edit': return localize('basehalf.comments.step.edit', "Edit Comment in {0}", name);
 		case 'color': return localize('basehalf.comments.step.color', "Change Color in {0}", name);
 		case 'reply': return localize('basehalf.comments.step.reply', "Reply in {0}", name);
-		case 'delete': return localize('basehalf.comments.step.delete', "Delete Comment in {0}", name);
+		case 'delete': return before && isBaseHalfHighlight(before)
+			? localize('basehalf.comments.step.deleteHighlight', "Delete Highlight in {0}", name)
+			: localize('basehalf.comments.step.delete', "Delete Comment in {0}", name);
 		case 'follow': return name;
 	}
 }

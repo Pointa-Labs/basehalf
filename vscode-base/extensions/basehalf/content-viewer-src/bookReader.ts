@@ -14,6 +14,7 @@ import './reader/reader.css';
 import './bookReader.css';
 import { baseHalfZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { makeComicBook } from 'foliate-js/comic-book.js';
+import { compare } from 'foliate-js/epubcfi.js';
 import { Overlayer } from 'foliate-js/overlayer.js';
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from 'foliate-js/vendor/zip.js';
 import { View, type FoliateSearchResult, type IFoliateBookSource, type IFoliateLocation, type IFoliateSearchMatch, type IFoliateTocItem, type IFoliateView } from 'foliate-js/view.js';
@@ -28,14 +29,16 @@ import {
 import { normalizeBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
 import { baseHalfCommentsSetMessage, type BaseHalfCommentStep } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
 import { BASEHALF_COMMENT_DEFAULT_COLOR, baseHalfCommentCut, baseHalfCommentTime, isBaseHalfHighlight, newBaseHalfCommentId, type BaseHalfCommentColor, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
-import { baseHalfReaderCommandMessage, normalizeBaseHalfReaderPanelState, type IBaseHalfReaderLabels } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
-import { contextInSection, drawComment, findInSection, markBox, SectionText } from './bookComments.js';
-import { CommentNotes, renderCommentList } from './reader/commentNotes.js';
+import { baseHalfReaderCommandMessage, normalizeBaseHalfReaderPanelState, type IBaseHalfReaderLabels, type IBaseHalfReaderPanelState } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
+import { contextInSection, drawPassages, findInSection, markBox, SectionText } from './bookComments.js';
+import { CommentNotes } from './reader/commentNotes.js';
 import { ReaderChrome } from './reader/readerChrome.js';
+import { ReaderCommentsPanel, type ICommentsPanelItem } from './reader/readerComments.js';
 import { element, isTextField } from './reader/readerDom.js';
+import { ReaderFindBar } from './reader/readerFind.js';
 import { installReaderHover } from './reader/readerHover.js';
 import { closeReaderMenu, isReaderMenuOpen, openReaderMenu } from './reader/readerMenu.js';
-import { ReaderPanel, type ReaderSearchResults } from './reader/readerPanel.js';
+import { observeReaderWidth, ReaderPanel } from './reader/readerPanel.js';
 import { ReaderSelectionMenu } from './reader/readerSelectionMenu.js';
 
 interface VsCodeApi {
@@ -80,21 +83,37 @@ const chrome = new ReaderChrome(root, { location: labels.place, size: labels.tex
 chrome.element.hidden = true;
 chrome.setSize('Aa');
 
+observeReaderWidth(root);
+
+/** How the panels stand, which Card Detail keeps for the next book (PDFs and books, rule 18). */
+let panels: IBaseHalfReaderPanelState = normalizeBaseHalfReaderPanelState(safeJson(root.dataset.panel));
+function keepPanels(change: Partial<IBaseHalfReaderPanelState>): void {
+	panels = { ...panels, ...change };
+	vscode.postMessage({ type: 'basehalf.reader.panel', state: panels });
+}
+
 const panel = new ReaderPanel(root, {
-	tabs: ['contents', 'comments'],
+	tabs: ['contents'],
 	labels,
-	searchPlaceholder: labels.searchInBook,
-	state: normalizeBaseHalfReaderPanelState(safeJson(root.dataset.panel)),
-	onState: state => vscode.postMessage({ type: 'basehalf.reader.panel', state }),
-	onSearch: (query, results) => void search(query, results),
-	onClearSearch: () => view?.clearSearch(),
-	onTab: tab => {
-		if (tab === 'comments') {
-			renderComments();
-		} else {
-			tocList().querySelector<HTMLButtonElement>('.toc-entry.current')?.scrollIntoView({ block: 'center' });
-		}
-	}
+	state: panels,
+	onState: state => keepPanels(state),
+	onTab: () => tocList().querySelector<HTMLButtonElement>('.toc-entry.current')?.scrollIntoView({ block: 'center' })
+});
+
+const commentsPanel = new ReaderCommentsPanel(root, {
+	labels,
+	open: panels.comments,
+	items: () => commentItems(),
+	onOpen: open => keepPanels({ comments: open }),
+	go: (comment, anchor) => void goToComment(comment, anchor)
+});
+
+const find = new ReaderFindBar(root, {
+	labels,
+	search: query => void findAll(query),
+	next: () => goToMatch(1),
+	previous: () => goToMatch(-1),
+	closed: () => stopFind()
 });
 
 const notes = new CommentNotes({
@@ -103,7 +122,8 @@ const notes = new CommentNotes({
 	change: (step, comment, remove) => changeComment(step, comment, remove),
 	focus: id => vscode.postMessage({ type: 'basehalf.comments.focus', ...(id ? { id } : {}) }),
 	grow: comment => vscode.postMessage({ type: 'basehalf.comments.grow', id: comment.id }),
-	discard: comment => removeComment(comment.id)
+	discard: comment => removeComment(comment.id),
+	commentOn: highlight => commentOn(highlight)
 });
 
 const selectionMenu = new ReaderSelectionMenu(root, labels, {
@@ -142,13 +162,20 @@ async function open(): Promise<void> {
 		const link = (event as CustomEvent<{ a: HTMLAnchorElement; href_: string }>).detail;
 		vscode.postMessage({ type: 'basehalf.book.openLink', href: link.a.href || link.href_ });
 	});
-	// A section's overlay is made when the reader opens the section: its comments are found then.
-	reader.addEventListener('create-overlay', event => findComments((event as CustomEvent<{ index: number }>).detail.index));
+	// A section's overlay is made when the reader opens the section: its comments are found then, and the match of Find shown is drawn again.
+	reader.addEventListener('create-overlay', event => {
+		findComments((event as CustomEvent<{ index: number }>).detail.index);
+		if (activeMatch) {
+			void reader.addAnnotation({ value: activeMatch });
+		}
+	});
 	reader.addEventListener('draw-annotation', event => {
-		const detail = (event as CustomEvent<{ draw: (draw: typeof drawComment, options: object) => void; annotation: { value: string } }>).detail;
-		const comment = commentOfCfi(detail.annotation.value);
-		if (comment) {
-			detail.draw(drawComment, { comment, dark: isDark() });
+		const detail = (event as CustomEvent<{ draw: (draw: typeof drawPassages, options: Parameters<typeof drawPassages>[1]) => void; annotation: { value: string } }>).detail;
+		const value = detail.annotation.value;
+		const shown = commentsAt(value);
+		const match = value === activeMatch ? findColors().active : undefined;
+		if (shown.length || match) {
+			detail.draw(drawPassages, { comments: shown, isComment, dark: isDark(), ...(match ? { match } : {}) });
 		}
 	});
 	await reader.open(book);
@@ -330,48 +357,126 @@ function markCurrentEntry(): void {
 
 // #endregion
 
-// #region Search
+// #region Find
 
-async function search(query: string, results: ReaderSearchResults): Promise<void> {
+let findRun = 0;
+/** The matches found so far, in the order of the book, by their canonical fragments. */
+let matches: string[] = [];
+let matchIndex = -1;
+let findDone = false;
+/** The match shown, marked more strongly than the others. */
+let activeMatch: string | undefined;
+
+/** The colors of the matches of Find, as the editor marks them. */
+function findColors(): { readonly all: string; readonly active: string } {
+	const style = getComputedStyle(document.documentElement);
+	return {
+		all: style.getPropertyValue('--vscode-editor-findMatchHighlightBackground').trim() || 'rgb(234 92 0 / 33%)',
+		active: style.getPropertyValue('--vscode-editor-findMatchBackground').trim() || 'rgb(255 120 0 / 55%)'
+	};
+}
+
+/**
+ * Searches the whole book, a section at a time, and goes to the first match
+ * at or after the place shown as soon as it is found; the count grows as the
+ * sections are searched (PDFs and books, rule 19).
+ */
+async function findAll(query: string): Promise<void> {
 	const reader = view;
 	if (!reader) {
 		return;
 	}
-	results.progress(0);
-	// Matches are marked as the editor marks what Find finds.
-	const style = getComputedStyle(document.documentElement);
-	const color = style.getPropertyValue('--vscode-editor-findMatchHighlightBackground').trim() || 'rgb(234 92 0 / 33%)';
-	for await (const result of reader.search({ query, draw: Overlayer.highlight, drawOptions: { color } })) {
-		if (!results.isCurrent) {
+	const run = ++findRun;
+	reader.clearSearch();
+	setActiveMatch(undefined);
+	matches = [];
+	matchIndex = -1;
+	findDone = false;
+	find.setCount(undefined, 0, false);
+	if (!query) {
+		return;
+	}
+	const here = reader.lastLocation?.cfi;
+	let went = false;
+	for await (const result of reader.search({ query, draw: Overlayer.highlight, drawOptions: { color: findColors().all } })) {
+		if (run !== findRun) {
 			return;
 		}
 		if (result === 'done') {
 			break;
 		}
-		const progressed = searchProgress(result);
-		if (progressed !== undefined) {
-			results.progress(progressed);
+		const section = searchSection(result);
+		if (!section) {
 			continue;
 		}
-		const section = searchSection(result);
-		if (section) {
-			results.group(section.label || bookLabels.untitledSection, section.subitems.map(match => ({
-				before: match.excerpt.pre,
-				match: match.excerpt.match,
-				after: match.excerpt.post,
-				go: () => {
-					void reader.goTo(match.cfi);
-					panel.closeWhenOver();
-				}
-			})));
+		matches.push(...section.subitems.map(match => match.cfi));
+		if (!went) {
+			const at = here ? matches.findIndex(cfi => safeCompare(cfi, here) >= 0) : 0;
+			if (at !== -1) {
+				went = true;
+				showMatch(at);
+			}
 		}
+		find.setCount(matchIndex >= 0 ? matchIndex + 1 : undefined, matches.length, false);
 	}
-	results.done();
+	if (run !== findRun) {
+		return;
+	}
+	findDone = true;
+	if (!went && matches.length) {
+		// None after the place shown: the first of the book.
+		showMatch(0);
+	}
+	find.setCount(matchIndex >= 0 ? matchIndex + 1 : undefined, matches.length, true);
 }
 
-/** How far a search has gone, when a result says so. */
-function searchProgress(result: FoliateSearchResult): number | undefined {
-	return typeof result === 'object' && typeof (result as { readonly progress?: unknown }).progress === 'number' ? (result as { readonly progress: number }).progress : undefined;
+function safeCompare(a: string, b: string): number {
+	try {
+		return compare(a, b);
+	} catch {
+		return 0;
+	}
+}
+
+/** Enter and Shift+Enter: the next or the previous match, round from the last to the first. */
+function goToMatch(direction: 1 | -1): void {
+	if (matches.length === 0) {
+		return;
+	}
+	const current = matchIndex < 0 ? (direction === 1 ? -1 : 0) : matchIndex;
+	showMatch((current + direction + matches.length) % matches.length);
+}
+
+function showMatch(index: number): void {
+	const cfi = matches[index];
+	if (!cfi || !view) {
+		return;
+	}
+	matchIndex = index;
+	setActiveMatch(cfi);
+	void view.goTo(cfi);
+	find.setCount(index + 1, matches.length, findDone);
+}
+
+/** Draws the match shown more strongly, and the one before as the others again. */
+function setActiveMatch(cfi: string | undefined): void {
+	const previous = activeMatch;
+	activeMatch = cfi;
+	if (previous && previous !== cfi) {
+		void (commentsAt(previous).length ? view?.addAnnotation({ value: previous }) : view?.deleteAnnotation({ value: previous }));
+	}
+	if (cfi) {
+		void view?.addAnnotation({ value: cfi });
+	}
+}
+
+/** The find bar closed: its marks go. */
+function stopFind(): void {
+	findRun++;
+	view?.clearSearch();
+	setActiveMatch(undefined);
+	matches = [];
+	matchIndex = -1;
 }
 
 /** The matches of one section of the book, when a result holds them. */
@@ -474,8 +579,10 @@ window.addEventListener('message', event => {
 	const command = baseHalfReaderCommandMessage(event.data);
 	if (command?.command === 'toggleSidebar') {
 		panel.toggle();
-	} else if (command?.command === 'search') {
-		panel.focusSearch();
+	} else if (command?.command === 'find') {
+		find.open();
+	} else if (command?.command === 'toggleComments') {
+		commentsPanel.toggle();
 	}
 	const pinch = baseHalfPagePinchFromMessage(event.data);
 	if (pinch) {
@@ -485,20 +592,25 @@ window.addEventListener('message', event => {
 
 /**
  * The keys of the reader (PDFs and books, rules 26 and 35): Escape closes a
- * menu, a comment note, the search, the panel over the book, and then Card
- * Detail; the arrows, Page Up and Page Down, and Space turn pages.
+ * menu, a comment note or the tools of a highlight, the find bar, the
+ * selection, a panel over the book, and then Card Detail; the arrows, Page Up
+ * and Page Down, and Space turn pages.
  */
 function onKeydown(event: KeyboardEvent): void {
-	if (event.defaultPrevented || event.isComposing) {
+	if (event.isComposing) {
+		return;
+	}
+	const mod = isMac ? event.metaKey : event.ctrlKey;
+	// Cmd+F shows the find bar. The page that holds the reader prevents its default first, so that the browser's own find does not open.
+	if (mod && !event.altKey && !event.shiftKey && (event.key === 'f' || event.key === 'F')) {
+		event.preventDefault();
+		find.open();
+		return;
+	}
+	if (event.defaultPrevented) {
 		return;
 	}
 	const target = event.composedPath()[0] ?? event.target;
-	const mod = isMac ? event.metaKey : event.ctrlKey;
-	if (mod && !event.altKey && (event.key === 'f' || event.key === 'F')) {
-		event.preventDefault();
-		panel.focusSearch();
-		return;
-	}
 	if (mod && !event.altKey && !isTextField(target) && (event.key === '=' || event.key === '+' || event.key === '-')) {
 		event.preventDefault();
 		textSizeBy(event.key === '-' ? -1 : 1);
@@ -512,11 +624,15 @@ function onKeydown(event: KeyboardEvent): void {
 		if (isReaderMenuOpen()) {
 			closeReaderMenu();
 		} else if (notes.escape()) {
-			// The comment note closed.
-		} else if (panel.isSearching && root.querySelector('.reader-search')?.contains(document.activeElement)) {
-			panel.endSearch();
+			// The comment note or the tools closed.
+		} else if (find.isOpen) {
+			find.close();
+			view?.renderer.focus();
 		} else if (selectionMenu.isShown) {
 			clearSelection();
+		} else if (commentsPanel.isOver) {
+			commentsPanel.close();
+			view?.renderer.focus();
 		} else if (panel.isOver) {
 			panel.close();
 			view?.renderer.focus();
@@ -720,11 +836,12 @@ let comments: IBaseHalfComment[] = [];
 const drafts = new Map<string, IBaseHalfComment>();
 let unreadable = false;
 let color: BaseHalfCommentColor = BASEHALF_COMMENT_DEFAULT_COLOR;
-/** Where each comment found its passage, by the canonical fragment that foliate-js names a place of the book by. */
+/** Where each highlight and comment found its passage, by the canonical fragment that foliate-js names a place of the book by. */
 const anchors = new Map<string, { readonly cfi: string; readonly index: number }>();
-const cfis = new Map<string, string>();
 /** The ranges of the places that the reader shows, for the pointer over them. */
 const ranges = new Map<string, Range>();
+/** The title of the contents of a section, as the overlay of the section said it. */
+const sectionLabels = new Map<number, string>();
 
 function allComments(): IBaseHalfComment[] {
 	return [...comments.filter(comment => !drafts.has(comment.id)), ...drafts.values()];
@@ -734,22 +851,59 @@ function commentById(id: string): IBaseHalfComment | undefined {
 	return drafts.get(id) ?? comments.find(comment => comment.id === id);
 }
 
-function commentOfCfi(cfi: string): IBaseHalfComment | undefined {
-	const id = cfis.get(cfi);
-	return id ? commentById(id) : undefined;
+/** Whether an entry is drawn as a comment: one with words or replies, and one just made by Comment (comments, rules 6 and 7). */
+function isComment(comment: IBaseHalfComment): boolean {
+	return drafts.has(comment.id) || !isBaseHalfHighlight(comment);
+}
+
+/** The highlights and comments whose passage is this place of the book: one place draws them all. */
+function commentsAt(cfi: string): IBaseHalfComment[] {
+	const found: IBaseHalfComment[] = [];
+	for (const [id, anchor] of anchors) {
+		const comment = anchor.cfi === cfi ? commentById(id) : undefined;
+		if (comment) {
+			found.push(comment);
+		}
+	}
+	return found;
+}
+
+/** Draws a place again, or takes its drawing away when nothing stands there any more. */
+function redrawPlace(cfi: string): void {
+	if (commentsAt(cfi).length || cfi === activeMatch) {
+		void view?.addAnnotation({ value: cfi });
+	} else {
+		void view?.deleteAnnotation({ value: cfi });
+		ranges.delete(cfi);
+	}
+}
+
+function anchor(id: string, cfi: string, index: number): void {
+	anchors.set(id, { cfi, index });
+	void view?.addAnnotation({ value: cfi }).then(shown => {
+		const label = (shown as { readonly label?: unknown } | undefined)?.label;
+		if (typeof label === 'string' && label) {
+			sectionLabels.set(index, label);
+		}
+	});
+}
+
+function unanchor(id: string): void {
+	const anchored = anchors.get(id);
+	if (anchored) {
+		anchors.delete(id);
+		redrawPlace(anchored.cfi);
+	}
 }
 
 function setComments(next: readonly IBaseHalfComment[], isUnreadable: boolean, nextColor: BaseHalfCommentColor): void {
 	const ids = new Set(next.map(comment => comment.id));
-	for (const [id, anchor] of [...anchors]) {
+	for (const id of [...anchors.keys()]) {
 		const before = commentById(id);
 		const after = next.find(comment => comment.id === id);
 		// A comment that is gone, or whose passage was quoted anew, is found again.
 		if ((!ids.has(id) && !drafts.has(id)) || (after && before && (after.quote !== before.quote || after.before !== before.before || after.after !== before.after))) {
-			void view?.deleteAnnotation({ value: anchor.cfi });
-			anchors.delete(id);
-			cfis.delete(anchor.cfi);
-			ranges.delete(anchor.cfi);
+			unanchor(id);
 		}
 	}
 	comments = [...next];
@@ -762,10 +916,10 @@ function setComments(next: readonly IBaseHalfComment[], isUnreadable: boolean, n
 	for (const index of sections.keys()) {
 		findComments(index);
 	}
-	renderComments();
+	commentsPanel.refresh();
 }
 
-/** The comments whose passage is in a section the reader has opened, found by their quote (comments, rule 1). */
+/** The highlights and comments whose passage is in a section the reader has opened, found by their quote (comments, rule 1). */
 function findComments(index: number): void {
 	const reader = view;
 	const section = sections.get(index);
@@ -774,10 +928,10 @@ function findComments(index: number): void {
 		return;
 	}
 	for (const comment of allComments()) {
-		const anchor = anchors.get(comment.id);
-		if (anchor) {
-			if (anchor.index === index) {
-				void reader.addAnnotation({ value: anchor.cfi });
+		const anchored = anchors.get(comment.id);
+		if (anchored) {
+			if (anchored.index === index) {
+				void reader.addAnnotation({ value: anchored.cfi });
 			}
 			continue;
 		}
@@ -786,18 +940,16 @@ function findComments(index: number): void {
 			continue;
 		}
 		const cfi = reader.getCFI(index, range);
-		anchors.set(comment.id, { cfi, index });
-		cfis.set(cfi, comment.id);
-		ranges.set(cfi, range);
-		void reader.addAnnotation({ value: cfi });
+		ranges.set(cfi, ranges.get(cfi) ?? range);
+		anchor(comment.id, cfi, index);
 	}
-	renderComments();
+	commentsPanel.refresh();
 }
 
-/** Every comment's tint and mark again, as its color or words, or the theme, changed. */
+/** Every passage drawn again, as a color or words, or the theme, changed. */
 function redrawComments(): void {
-	for (const anchor of anchors.values()) {
-		void view?.addAnnotation({ value: anchor.cfi });
+	for (const cfi of new Set([...anchors.values()].map(anchored => anchored.cfi))) {
+		void view?.addAnnotation({ value: cfi });
 	}
 }
 
@@ -817,25 +969,19 @@ function changeComment(step: BaseHalfCommentStep, comment: IBaseHalfComment | un
 	} else {
 		comments[index] = comment;
 	}
-	const anchor = anchors.get(comment.id);
-	if (anchor) {
-		void view?.addAnnotation({ value: anchor.cfi });
+	const anchored = anchors.get(comment.id);
+	if (anchored) {
+		void view?.addAnnotation({ value: anchored.cfi });
 	}
 	vscode.postMessage({ type: 'basehalf.comments.change', step, comment });
-	renderComments();
+	commentsPanel.refresh();
 }
 
 function removeComment(id: string): void {
 	drafts.delete(id);
 	comments = comments.filter(comment => comment.id !== id);
-	const anchor = anchors.get(id);
-	if (anchor) {
-		void view?.deleteAnnotation({ value: anchor.cfi });
-		anchors.delete(id);
-		cfis.delete(anchor.cfi);
-		ranges.delete(anchor.cfi);
-	}
-	renderComments();
+	unanchor(id);
+	commentsPanel.refresh();
 }
 
 /** Highlight, or Comment, on the selected passage (comments, rule 16). */
@@ -857,37 +1003,88 @@ function markSelection(withWords: boolean): void {
 		quote: baseHalfCommentCut(normalizeBaseHalfCommentQuote(current.range.toString())),
 		...(context.before ? { before: context.before } : {}),
 		...(context.after ? { after: context.after } : {}),
-		color,
+		// A highlight takes the color used last; a comment has none (comments, rules 16 and 19).
+		color: withWords ? BASEHALF_COMMENT_DEFAULT_COLOR : color,
 		text: '',
 		at: baseHalfCommentTime(),
 		replies: []
 	};
 	const cfi = reader.getCFI(index, current.range);
 	const mark = markBox(current.range.getClientRects());
-	anchors.set(comment.id, { cfi, index });
-	cfis.set(cfi, comment.id);
-	ranges.set(cfi, current.range);
+	ranges.set(cfi, ranges.get(cfi) ?? current.range);
 	const doc = current.doc;
 	clearSelection();
 	if (withWords) {
 		drafts.set(comment.id, comment);
-		void reader.addAnnotation({ value: cfi });
+		anchor(comment.id, cfi, index);
 		if (mark) {
 			notes.open(comment, toReader(doc, mark), { unsaved: true });
 		}
 		return;
 	}
+	anchor(comment.id, cfi, index);
 	changeComment('highlight', comment);
 }
 
-/** A click on a comment's passage: its note, or the tools of a highlight (comments, rules 9 and 10). */
+/**
+ * Comment in the tools of a highlight (comments, rule 10): the note of a
+ * comment on its passage, or a comment made on the passage, which keeps its
+ * highlight.
+ */
+function commentOn(highlight: IBaseHalfComment): void {
+	const anchored = anchors.get(highlight.id);
+	const range = anchored ? ranges.get(anchored.cfi) : undefined;
+	if (!anchored || !range) {
+		return;
+	}
+	const existing = allComments().find(other => {
+		const otherAnchor = other.id !== highlight.id && isComment(other) ? anchors.get(other.id) : undefined;
+		const otherRange = otherAnchor ? ranges.get(otherAnchor.cfi) : undefined;
+		return !!otherRange && overlaps(range, otherRange);
+	});
+	if (existing) {
+		const existingRange = ranges.get(anchors.get(existing.id)!.cfi)!;
+		showComment(existing, existingRange);
+		return;
+	}
+	const { color: _color, at: _at, ...passage } = highlight;
+	const comment: IBaseHalfComment = {
+		...passage,
+		id: newBaseHalfCommentId(new Set(allComments().map(other => other.id))),
+		color: BASEHALF_COMMENT_DEFAULT_COLOR,
+		text: '',
+		at: baseHalfCommentTime(),
+		replies: []
+	};
+	drafts.set(comment.id, comment);
+	anchor(comment.id, anchored.cfi, anchored.index);
+	const doc = range.startContainer.ownerDocument;
+	const mark = markBox(range.getClientRects());
+	if (doc && mark) {
+		notes.open(comment, toReader(doc, mark), { unsaved: true });
+	}
+}
+
+/** Whether two passages of one section share text. */
+function overlaps(a: Range, b: Range): boolean {
+	if (a.startContainer.ownerDocument !== b.startContainer.ownerDocument) {
+		return false;
+	}
+	try {
+		return a.compareBoundaryPoints(Range.START_TO_END, b) > 0 && a.compareBoundaryPoints(Range.END_TO_START, b) < 0;
+	} catch {
+		return false;
+	}
+}
+
+/** A click on a passage: the tools of its highlight, or the note of its comment (comments, rules 9 and 10). */
 function showComment(comment: IBaseHalfComment, range: Range): void {
 	const doc = range.startContainer.ownerDocument;
 	if (!doc) {
 		return;
 	}
 	const rects = range.getClientRects();
-	if (isBaseHalfHighlight(comment)) {
+	if (!isComment(comment)) {
 		const first = rects[0];
 		if (first) {
 			notes.tools(comment, toReader(doc, first));
@@ -896,45 +1093,54 @@ function showComment(comment: IBaseHalfComment, range: Range): void {
 	}
 	const mark = markBox(rects);
 	if (mark) {
-		notes.open(comment, toReader(doc, mark));
+		notes.open(comment, toReader(doc, mark), { unsaved: drafts.has(comment.id) });
 	}
 }
 
 /**
- * The comment under a point of a section: its passage, or its mark. Only
- * comments with words count for the pointer that hovers, and every comment
- * for a click.
+ * The highlight or the comment under a point of a section: a passage, or the
+ * mark of a comment. With `highlights`, a highlight there comes first, as a
+ * click finds it; without, only comments count, as for the pointer that
+ * hovers.
  */
 function commentAt(doc: Document, x: number, y: number, highlights: boolean): { readonly comment: IBaseHalfComment; readonly range: Range; readonly mark: DOMRect | undefined } | undefined {
 	const index = indexOfDoc(doc);
 	const inside = (box: DOMRect) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
-	for (const [id, anchor] of [...anchors].reverse()) {
+	let commentHit: { readonly comment: IBaseHalfComment; readonly range: Range; readonly mark: DOMRect | undefined } | undefined;
+	for (const [id, anchored] of [...anchors].reverse()) {
 		const comment = commentById(id);
-		const range = ranges.get(anchor.cfi);
-		if (anchor.index !== index || !comment || !range || range.startContainer.ownerDocument !== doc || (!highlights && isBaseHalfHighlight(comment))) {
+		const range = ranges.get(anchored.cfi);
+		if (anchored.index !== index || !comment || !range || range.startContainer.ownerDocument !== doc) {
 			continue;
 		}
 		const rects = [...range.getClientRects()];
-		const mark = isBaseHalfHighlight(comment) ? undefined : markBox(rects);
-		if (rects.some(inside) || (mark && inside(mark))) {
-			return { comment, range, mark };
+		if (!isComment(comment)) {
+			if (highlights && rects.some(inside)) {
+				return { comment, range, mark: undefined };
+			}
+			continue;
+		}
+		const mark = markBox(rects);
+		if (!commentHit && (rects.some(inside) || (mark && inside(mark)))) {
+			commentHit = { comment, range, mark };
 		}
 	}
-	return undefined;
+	return commentHit;
 }
 
-/** The pointer on the passage or the mark of a comment with words shows its note (comments, rule 8). */
+/** The pointer on the passage or the mark of a comment shows its note (comments, rule 8). */
 let hovered: string | undefined;
 function hoverComment(doc: Document, event: PointerEvent): void {
 	if (event.buttons) {
 		return;
 	}
 	const found = commentAt(doc, event.clientX, event.clientY, false);
-	if (found?.comment.id === hovered) {
+	const id = found && !drafts.has(found.comment.id) ? found.comment.id : undefined;
+	if (id === hovered) {
 		return;
 	}
-	hovered = found?.comment.id;
-	if (found?.mark) {
+	hovered = id;
+	if (found?.mark && id) {
 		const { comment, mark } = found;
 		notes.hoverEnter(comment, () => toReader(doc, mark));
 	} else {
@@ -942,25 +1148,42 @@ function hoverComment(doc: Document, event: PointerEvent): void {
 	}
 }
 
-/** The Comments list, in the order of the book (comments, rule 22). */
-function renderComments(): void {
-	if (panel.tab !== 'comments' || !panel.isOpen) {
-		return;
-	}
-	const items = allComments().filter(comment => !drafts.has(comment.id)).map(comment => {
-		const anchor = anchors.get(comment.id);
-		return { comment, location: comment.chapter, found: !!anchor || !!comment.chapter, order: anchor?.index ?? Number.MAX_SAFE_INTEGER };
-	}).sort((left, right) => left.order - right.order);
-	renderCommentList(panel.section('comments'), items, labels, unreadable, comment => void goToComment(comment));
+/**
+ * The highlights and comments of the Comments panel, in the order of the
+ * book (comments, rule 22): by section, and in a section by where the passage
+ * begins. One with a chapter whose section the reader has not opened is
+ * listed under its chapter, after those found.
+ */
+function commentItems(): { readonly items: readonly ICommentsPanelItem[]; readonly unreadable: boolean } {
+	const listed = allComments().filter(comment => !drafts.has(comment.id)).map(comment => {
+		const anchored = anchors.get(comment.id);
+		return {
+			comment,
+			location: comment.chapter ?? (anchored ? sectionLabels.get(anchored.index) : undefined),
+			found: !!anchored || !!comment.chapter,
+			index: anchored?.index ?? Number.MAX_SAFE_INTEGER,
+			range: anchored ? ranges.get(anchored.cfi) : undefined
+		};
+	});
+	listed.sort((left, right) => left.index - right.index || (left.range && right.range && left.range.startContainer.ownerDocument === right.range.startContainer.ownerDocument ? safeBoundary(left.range, right.range) : 0));
+	return { items: listed, unreadable };
 }
 
-/** Goes to a comment's passage and opens its note: where it was found, or where its quote is found in the book. */
-async function goToComment(comment: IBaseHalfComment): Promise<void> {
+function safeBoundary(a: Range, b: Range): number {
+	try {
+		return a.compareBoundaryPoints(Range.START_TO_START, b);
+	} catch {
+		return 0;
+	}
+}
+
+/** Goes to a passage and opens its note or tools: where it was found, or where its quote is found in the book; one not found opens beside the panel. */
+async function goToComment(comment: IBaseHalfComment, item: DOMRect): Promise<void> {
 	const reader = view;
 	if (!reader) {
 		return;
 	}
-	panel.closeWhenOver();
+	const current = commentById(comment.id) ?? comment;
 	let cfi = anchors.get(comment.id)?.cfi;
 	if (!cfi && comment.quote) {
 		for await (const result of reader.search({ query: comment.quote.slice(0, 200) })) {
@@ -976,15 +1199,20 @@ async function goToComment(comment: IBaseHalfComment): Promise<void> {
 		reader.clearSearch();
 	}
 	if (!cfi) {
+		if (isComment(current)) {
+			notes.open(current, item, { status: labels.passageNotFound });
+		} else {
+			notes.tools(current, item, { status: labels.passageNotFound });
+		}
 		return;
 	}
 	await reader.goTo(cfi);
 	window.setTimeout(() => {
-		const anchor = anchors.get(comment.id);
-		const range = anchor ? ranges.get(anchor.cfi) : undefined;
-		const current = commentById(comment.id);
-		if (range && current) {
-			showComment(current, range);
+		const anchored = anchors.get(comment.id);
+		const range = anchored ? ranges.get(anchored.cfi) : undefined;
+		const latest = commentById(comment.id);
+		if (range && latest) {
+			showComment(latest, range);
 		}
 	}, 150);
 }

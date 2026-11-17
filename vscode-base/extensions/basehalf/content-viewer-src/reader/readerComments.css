@@ -1,0 +1,131 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The Comments panel at the right of the reader (comments, rule 22; PDFs and books, "The panels"). */
+:root {
+	--bh-reader-comments-width: 280px;
+}
+
+.reader-comments {
+	position: absolute;
+	z-index: 20;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	width: var(--bh-reader-comments-width);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	background: var(--vscode-sideBar-background, var(--bh-reader-surface));
+	color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
+	border-left: 1px solid var(--bh-reader-border);
+	font-size: 13px;
+}
+
+.reader:not(.wide) .reader-comments {
+	box-shadow: var(--bh-reader-shadow);
+}
+
+.reader-comments-list {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 6px 6px 16px;
+	scrollbar-width: thin;
+}
+
+.reader-comments-list ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.reader-comments-empty {
+	margin: 18px 12px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.reader-comments-location {
+	margin: 10px 8px 4px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.reader-comments-item {
+	display: block;
+	width: 100%;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	line-height: 1.45;
+	text-align: start;
+	cursor: pointer;
+}
+
+.reader-comments-item:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.reader-comments-item:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.reader-comments-quote {
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* A highlight's passage on its tint, as on the page. */
+.reader-comments-item.highlight .passage {
+	background: color-mix(in srgb, var(--bh-comment) 30%, transparent);
+	border-radius: 2px;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+
+/* A comment's passage over its wavy line, quieter than its words. */
+.reader-comments-item.comment .reader-comments-quote {
+	-webkit-line-clamp: 2;
+	color: var(--vscode-descriptionForeground);
+}
+
+.reader-comments-item.comment .passage {
+	padding-bottom: 2px;
+	background: var(--bh-comment-wave) repeat-x 0 100% / 6px 4px;
+}
+
+.reader-comments-author {
+	margin-top: 3px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--vscode-descriptionForeground);
+}
+
+.reader-comments-text,
+.reader-comments-replies {
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.reader-comments-text {
+	margin-top: 3px;
+}
+
+.reader-comments-replies {
+	margin-top: 3px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}

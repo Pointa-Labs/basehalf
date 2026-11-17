@@ -13,7 +13,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { BaseHalfAgentSelectionDetail } from '../../agentArea/common/basehalfAgentSelection.js';
 import { IBaseHalfCommentsTarget } from '../../comments/browser/basehalfCommentService.js';
 import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocumentBranch.js';
-import { baseHalfReaderPageMessage, IBaseHalfReaderCommandMessage, IBaseHalfReaderPanelState, normalizeBaseHalfReaderPanelState } from '../../documents/common/basehalfReaderProtocol.js';
+import { BaseHalfReaderCommand, baseHalfReaderPageMessage, IBaseHalfReaderCommandMessage, IBaseHalfReaderPanelState, normalizeBaseHalfReaderPanelState } from '../../documents/common/basehalfReaderProtocol.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { BaseHalfCommentsBridge } from './basehalfCommentsBridge.js';
 
@@ -31,6 +31,7 @@ export function readBaseHalfReaderPanelState(storageService: IStorageService, ki
 	return normalizeBaseHalfReaderPanelState(storageService.getObject(panelStorageKey(kind), StorageScope.PROFILE));
 }
 
+
 export interface IBaseHalfReaderHostOptions {
 	readonly kind: BaseHalfReaderKind;
 	readonly target: IBaseHalfCommentsTarget;
@@ -38,7 +39,7 @@ export interface IBaseHalfReaderHostOptions {
 	readonly post: (message: unknown) => void;
 	/** Where the header holds Sidebar, before the name. */
 	readonly leadingActions: HTMLElement | undefined;
-	/** Where the header holds Search, before Close. */
+	/** Where the header holds Find and Comments, before Close. */
 	readonly trailingActions: HTMLElement | undefined;
 	/** What agents can see: an open comment, or nothing. */
 	readonly onComment: (selected: BaseHalfAgentSelectionDetail | undefined) => void;
@@ -52,13 +53,14 @@ export interface IBaseHalfReaderHostOptions {
 
 /**
  * What Card Detail does for the reader of a PDF or a book: the reader's
- * Sidebar and Search in its header (PDFs and books, rule 15), the state of
- * its panel, its links to websites, and the comments of the document, which
- * it reads, keeps, and follows (comments).
+ * Sidebar, Find, and Comments in its header (PDFs and books, rule 15), the
+ * state of its panels, its links to websites, and the comments of the
+ * document, which it reads, keeps, and follows (comments).
  */
 export class BaseHalfReaderHost extends Disposable {
 	private readonly sidebarButton: HTMLButtonElement | undefined;
-	private readonly searchButton: HTMLButtonElement | undefined;
+	private readonly findButton: HTMLButtonElement | undefined;
+	private readonly commentsButton: HTMLButtonElement | undefined;
 	private readonly chapter: HTMLElement | undefined;
 	private readonly comments: BaseHalfCommentsBridge;
 	private visible = true;
@@ -75,27 +77,20 @@ export class BaseHalfReaderHost extends Disposable {
 		options.pageHost.classList.add('basehalf-reader-page');
 		this._register(toDisposable(() => options.pageHost.classList.remove('basehalf-reader-page', 'text-focused')));
 		if (options.leadingActions) {
-			const button = this.sidebarButton = append(options.leadingActions, $<HTMLButtonElement>('button.basehalf-card-detail-reader-button.codicon.codicon-list-unordered'));
-			button.type = 'button';
-			this._register(addDisposableListener(button, 'mousedown', event => event.preventDefault()));
-			this._register(addDisposableListener(button, 'click', () => this.command('toggleSidebar')));
-			this._register(toDisposable(() => button.remove()));
-			this.showPanelState(panel);
+			this.sidebarButton = this.button(options.leadingActions, 'codicon-list-unordered', 'toggleSidebar');
 		}
 		if (options.titleActions && options.kind === 'book') {
 			const chapter = this.chapter = append(options.titleActions, $('span.basehalf-card-detail-chapter'));
 			this._register(toDisposable(() => chapter.remove()));
 		}
 		if (options.trailingActions) {
-			const button = this.searchButton = append(options.trailingActions, $<HTMLButtonElement>('button.basehalf-card-detail-reader-button.codicon.codicon-search'));
-			button.type = 'button';
-			const label = localize('basehalf.reader.search', "Search");
-			setBaseHalfHover(button, label);
-			button.setAttribute('aria-label', label);
-			this._register(addDisposableListener(button, 'mousedown', event => event.preventDefault()));
-			this._register(addDisposableListener(button, 'click', () => this.command('search')));
-			this._register(toDisposable(() => button.remove()));
+			const find = this.findButton = this.button(options.trailingActions, 'codicon-search', 'find');
+			const label = localize('basehalf.reader.find', "Find");
+			setBaseHalfHover(find, label);
+			find.setAttribute('aria-label', label);
+			this.commentsButton = this.button(options.trailingActions, 'codicon-comment', 'toggleComments');
 		}
+		this.showPanelState(panel);
 		this.comments = this._register(instantiationService.createInstance(BaseHalfCommentsBridge, {
 			target: options.target,
 			post: options.post,
@@ -111,11 +106,10 @@ export class BaseHalfReaderHost extends Disposable {
 
 	setVisible(visible: boolean): void {
 		this.visible = visible;
-		if (this.sidebarButton) {
-			this.sidebarButton.hidden = !visible;
-		}
-		if (this.searchButton) {
-			this.searchButton.hidden = !visible;
+		for (const button of [this.sidebarButton, this.findButton, this.commentsButton]) {
+			if (button) {
+				button.hidden = !visible;
+			}
 		}
 	}
 
@@ -150,23 +144,40 @@ export class BaseHalfReaderHost extends Disposable {
 		this.comments.setSelectedText(selected);
 	}
 
-	private command(command: IBaseHalfReaderCommandMessage['command']): void {
+	private command(command: BaseHalfReaderCommand): void {
 		const message: IBaseHalfReaderCommandMessage = { type: 'basehalf.reader.command', command };
 		this.options.post(message);
 	}
 
+	/** A button of the header that the page carries out; a press keeps the keyboard where it is. */
+	private button(parent: HTMLElement, icon: string, command: BaseHalfReaderCommand): HTMLButtonElement {
+		const button = append(parent, $<HTMLButtonElement>(`button.basehalf-card-detail-reader-button.codicon.${icon}`));
+		button.type = 'button';
+		this._register(addDisposableListener(button, 'mousedown', event => event.preventDefault()));
+		this._register(addDisposableListener(button, 'click', () => this.command(command)));
+		this._register(toDisposable(() => button.remove()));
+		return button;
+	}
+
+	/** Sidebar and Comments show whether their panel is open (PDFs and books, rule 15). */
 	private showPanelState(state: IBaseHalfReaderPanelState): void {
-		const button = this.sidebarButton;
-		if (!button) {
-			return;
+		if (this.sidebarButton) {
+			this.showToggle(this.sidebarButton, state.open, state.open
+				? localize('basehalf.reader.hideSidebar', "Hide Sidebar")
+				: localize('basehalf.reader.showSidebar', "Show Sidebar"));
 		}
-		const label = state.open
-			? localize('basehalf.reader.hideSidebar', "Hide Sidebar")
-			: localize('basehalf.reader.showSidebar', "Show Sidebar");
+		if (this.commentsButton) {
+			this.showToggle(this.commentsButton, state.comments, state.comments
+				? localize('basehalf.reader.hideComments', "Hide Comments")
+				: localize('basehalf.reader.showComments', "Show Comments"));
+		}
+	}
+
+	private showToggle(button: HTMLButtonElement, checked: boolean, label: string): void {
 		setBaseHalfHover(button, label);
 		button.setAttribute('aria-label', label);
-		button.setAttribute('aria-pressed', String(state.open));
-		button.classList.toggle('checked', state.open);
+		button.setAttribute('aria-pressed', String(checked));
+		button.classList.toggle('checked', checked);
 		button.hidden = !this.visible;
 	}
 

@@ -5,8 +5,9 @@
 
 // The comments of a note in its Rich view of Card Detail (comments): each
 // comment finds its passage by its quote in the note's text, follows it while
-// the note is edited, and shows a tint under it and a mark in the margin to
-// the right of the text. The note's Markdown holds no trace of them.
+// the note is edited, and shows a yellow wavy line under it and a mark in the
+// margin to the right of the text. A note shows no highlights. The note's
+// Markdown holds no trace of them.
 
 import { createExtension } from '@blocknote/core';
 import type { Node as PmNode } from '@tiptap/pm/model';
@@ -15,7 +16,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, ySyncPluginKey } from 'y-prosemirror';
 import type { Doc as YDoc, XmlFragment } from 'yjs';
 import { baseHalfCommentContext, findBaseHalfCommentQuote, normalizeBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
-import type { IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
+import { isBaseHalfHighlight, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 import { stackCommentMarks } from '../content-viewer-src/reader/commentNotes.js';
 
 /** Where a comment's passage is in the document, from `from` to before `to`. */
@@ -216,18 +217,18 @@ function buildDecorations(doc: PmNode, comments: readonly IBaseHalfComment[], an
 	for (const comment of comments) {
 		const anchor = anchors.get(comment.id);
 		if (anchor) {
-			decorations.push(Decoration.inline(anchor.from, anchor.to, { class: 'note-comment-tint', 'data-color': comment.color, 'data-comment': comment.id }));
+			decorations.push(Decoration.inline(anchor.from, anchor.to, { class: 'note-comment-wave', 'data-comment': comment.id }));
 		}
 		// Each comment has a mark in the margin to the right of the text, on the
-		// line its passage begins on, a highlight too, since a click in the text
-		// places the caret; a comment whose passage is gone has its mark at the
-		// top of the margin (comments, rules 7 and 23).
+		// line its passage begins on, the way to its note, since a click in the
+		// text places the caret; a comment whose passage is gone has its mark at
+		// the top of the margin (comments, rules 7 and 23).
 		const at = anchor ? anchor.from : Math.min(1, doc.content.size);
 		const offset = anchor ? 0 : missing++;
 		decorations.push(Decoration.widget(at, () => markElement(comment, handlers, offset, anchor ? labels.comment : labels.passageNotFound, !anchor), {
 			side: -1,
 			ignoreSelection: true,
-			key: `${comment.id}:${comment.color}:${anchor ? 'found' : `missing${offset}`}`,
+			key: `${comment.id}:${anchor ? 'found' : `missing${offset}`}`,
 			stopEvent: () => true
 		}));
 	}
@@ -259,7 +260,6 @@ function markElement(comment: IBaseHalfComment, handlers: INoteCommentMarkHandle
 	mark.type = 'button';
 	mark.className = `note-comment-mark${missing ? ' missing' : ''}`;
 	mark.dataset.comment = comment.id;
-	mark.dataset.color = comment.color;
 	mark.contentEditable = 'false';
 	mark.tabIndex = -1;
 	mark.setAttribute('aria-label', label);
@@ -360,10 +360,14 @@ export function makeBaseHalfNoteCommentsExtension(handlers: INoteCommentMarkHand
 	});
 }
 
-/** Shows these comments in the note; `known` gives the passage of a comment just made. */
-export function setBaseHalfNoteComments(view: EditorView, comments: readonly IBaseHalfComment[], known?: ReadonlyMap<string, INoteCommentAnchor>): void {
+/**
+ * Shows the comments of the note: a highlight is kept in the file and not
+ * shown (comments, "Reading"), except a comment just made, in `drafts`,
+ * which has no words yet. `known` gives the passage of a comment just made.
+ */
+export function setBaseHalfNoteComments(view: EditorView, comments: readonly IBaseHalfComment[], known?: ReadonlyMap<string, INoteCommentAnchor>, drafts?: ReadonlySet<string>): void {
 	try {
-		const meta: INoteCommentsMeta = { comments, ...(known ? { known } : {}) };
+		const meta: INoteCommentsMeta = { comments: comments.filter(comment => !isBaseHalfHighlight(comment) || drafts?.has(comment.id)), ...(known ? { known } : {}) };
 		view.dispatch(view.state.tr.setMeta(key, meta).setMeta('addToHistory', false));
 	} catch {
 		// The webview can dispose the ProseMirror view while comments arrive.

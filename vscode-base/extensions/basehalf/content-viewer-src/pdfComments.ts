@@ -3,8 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// Where the comments of a PDF stand on its pages (comments, "Finding the
-// passage"): each comment's passage found by its quote in the text of its
+// Where the highlights and comments of a PDF stand on its pages (comments,
+// "Finding the passage"): each passage found by its quote in the text of its
 // page, or of the pages around it, as ranges of characters of a page.
 
 import { findBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
@@ -141,6 +141,24 @@ export class PdfCommentStore {
 		return result;
 	}
 
+	/** Whether an entry is drawn as a comment, with its wavy line and its mark: one with words or replies, and one just made by Comment (comments, rules 6 and 7). */
+	isComment(comment: IBaseHalfComment): boolean {
+		return this.drafts.has(comment.id) || !isBaseHalfHighlight(comment);
+	}
+
+	/** A comment whose passage shares text with the passage of `id`, a highlight's (comments, rule 10). */
+	commentOver(id: string): IBaseHalfComment | undefined {
+		const place = this.places.get(id);
+		if (place?.kind !== 'text') {
+			return undefined;
+		}
+		return this.all().find(other => {
+			const otherPlace = this.places.get(other.id);
+			return other.id !== id && this.isComment(other) && otherPlace?.kind === 'text'
+				&& otherPlace.ranges.some(range => place.ranges.some(mine => mine.pageIndex === range.pageIndex && mine.start <= range.end && range.start <= mine.end));
+		});
+	}
+
 	/** The page a comment stands on, from 0, once it was found. */
 	pageOf(id: string): number | undefined {
 		const place = this.places.get(id);
@@ -243,9 +261,4 @@ function* nearbyPages(pageIndex: number, pages: number): Iterable<number> {
 			yield pageIndex - distance;
 		}
 	}
-}
-
-/** Whether a comment has a mark: one with words or replies (comments, rule 7). */
-export function hasMark(comment: IBaseHalfComment): boolean {
-	return !isBaseHalfHighlight(comment);
 }

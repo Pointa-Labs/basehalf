@@ -3,12 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// Where the comments of a book stand in its sections (comments, "Finding the
-// passage"): a comment's quote is found in the text of each section as the
-// reader opens it, and the passage is drawn by the section's overlay.
+// Where the highlights and comments of a book stand in its sections
+// (comments, "Finding the passage"): a quote is found in the text of each
+// section as the reader opens it, and the passage is drawn by the section's
+// overlay.
 
 import { baseHalfCommentContext, findBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
-import { isBaseHalfHighlight, type BaseHalfCommentColor, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
+import { type BaseHalfCommentColor, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 
 const BLOCKS = new Set(['P', 'DIV', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'TR', 'TD', 'TH', 'SECTION', 'ARTICLE', 'DT', 'DD', 'FIGCAPTION', 'BR']);
 const SKIPPED = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
@@ -134,7 +135,7 @@ export function contextInSection(text: SectionText, range: Range): { readonly be
 
 const SVG = 'http://www.w3.org/2000/svg';
 
-/** The colors of comments, as the reader's stylesheet has them: the overlay of a section stands where that stylesheet does not reach. */
+/** The colors of highlights, as the reader's stylesheet has them: the overlay of a section stands where that stylesheet does not reach. */
 const COLORS: Record<BaseHalfCommentColor, string> = {
 	yellow: '#e8b923',
 	green: '#3fae6a',
@@ -143,40 +144,77 @@ const COLORS: Record<BaseHalfCommentColor, string> = {
 	purple: '#8d63da'
 };
 
+/** The wavy line of comments.css, in the light and the dark theme. */
+const WAVE = { light: '#d29b14', dark: '#e3b54a' };
+
+export interface IDrawPassagesOptions {
+	/** The highlights and comments on this passage. */
+	readonly comments: readonly IBaseHalfComment[];
+	/** Whether an entry is drawn as a comment: one with words, and one just made by Comment. */
+	readonly isComment: (comment: IBaseHalfComment) => boolean;
+	readonly dark?: boolean;
+	/** The color of the match of Find shown, when this passage is that match. */
+	readonly match?: string;
+}
+
 /**
- * How the overlay of a section draws a comment: its passage tinted in its
- * color, under its text on a light page and over it on a dark one, and a
- * mark just after its end when it has words (comments, rules 6 and 7).
+ * How the overlay of a section draws a passage (comments, rules 6 and 7): a
+ * highlight's tint, under its text on a light page and over it on a dark one;
+ * a comment's wavy line under each of its lines and its mark just after its
+ * end; and the match of Find shown.
  */
-export function drawComment(rects: DOMRectList | readonly DOMRect[], options: { readonly comment?: IBaseHalfComment; readonly dark?: boolean } = {}): SVGElement {
-	const color = COLORS[options.comment?.color ?? 'yellow'];
+export function drawPassages(rects: DOMRectList | readonly DOMRect[], options: IDrawPassagesOptions): SVGElement {
 	const group = document.createElementNS(SVG, 'g');
-	const tints = document.createElementNS(SVG, 'g');
-	tints.setAttribute('fill', color);
-	tints.style.opacity = options.dark ? '0.34' : '0.42';
-	tints.style.mixBlendMode = options.dark ? 'normal' : 'multiply';
-	group.append(tints);
 	const list = Array.from(rects as ArrayLike<DOMRect>);
-	for (const { left, top, height, width } of list) {
-		const rect = document.createElementNS(SVG, 'rect');
-		rect.setAttribute('x', String(left));
-		rect.setAttribute('y', String(top));
-		rect.setAttribute('height', String(height));
-		rect.setAttribute('width', String(width));
-		tints.append(rect);
+	if (options.match) {
+		const match = document.createElementNS(SVG, 'g');
+		match.setAttribute('fill', options.match);
+		for (const rect of list) {
+			match.append(rectangle(rect.left, rect.top, rect.width, rect.height));
+		}
+		group.append(match);
+	}
+	for (const comment of options.comments.filter(comment => !options.isComment(comment))) {
+		const tints = document.createElementNS(SVG, 'g');
+		tints.setAttribute('fill', COLORS[comment.color]);
+		tints.style.opacity = options.dark ? '0.34' : '0.42';
+		tints.style.mixBlendMode = options.dark ? 'normal' : 'multiply';
+		for (const rect of list) {
+			tints.append(rectangle(rect.left, rect.top, rect.width, rect.height));
+		}
+		group.append(tints);
 	}
 	const last = list[list.length - 1];
-	if (last && options.comment && !isBaseHalfHighlight(options.comment)) {
-		const mark = document.createElementNS(SVG, 'rect');
-		mark.setAttribute('x', String(last.right + 3));
-		mark.setAttribute('y', String(last.top + Math.max(0, (last.height - 12) / 2) - 2));
-		mark.setAttribute('width', '12');
-		mark.setAttribute('height', '12');
-		mark.setAttribute('rx', '2');
-		mark.setAttribute('fill', color);
-		group.append(mark);
+	if (last && options.comments.some(options.isComment)) {
+		const wave = document.createElementNS(SVG, 'path');
+		wave.setAttribute('d', list.map(rect => wavePath(rect.left, rect.right, rect.bottom + 1)).join(' '));
+		wave.setAttribute('fill', 'none');
+		wave.setAttribute('stroke', options.dark ? WAVE.dark : WAVE.light);
+		wave.setAttribute('stroke-width', '1.2');
+		group.append(wave);
+		const mark = markBox(list)!;
+		const square = rectangle(mark.left, mark.top, mark.width, mark.height);
+		square.setAttribute('rx', '2');
+		square.setAttribute('fill', COLORS.yellow);
+		group.append(square);
 	}
 	return group;
+}
+
+function rectangle(x: number, y: number, width: number, height: number): SVGRectElement {
+	const rect = document.createElementNS(SVG, 'rect');
+	rect.setAttribute('x', String(x));
+	rect.setAttribute('y', String(y));
+	rect.setAttribute('width', String(width));
+	rect.setAttribute('height', String(height));
+	return rect;
+}
+
+/** A wave from `left` to `right` around `y`, as the tile of comments.css draws it: down and up 0.8 px from `y`, about every 6 px. */
+export function wavePath(left: number, right: number, y: number): string {
+	const halves = Math.max(1, Math.round((right - left) / 3));
+	const step = (right - left) / halves;
+	return `M${left} ${y}q${step / 2} 1.6 ${step} 0` + ` t${step} 0`.repeat(halves - 1);
 }
 
 /** Where the mark of a comment stands after its passage, in the coordinates of the section's document. */

@@ -49,7 +49,7 @@ import { RiChat3Line, RiExternalLinkFill, RiImageEditFill } from 'react-icons/ri
 import { CommentNotes } from '../content-viewer-src/reader/commentNotes.js';
 import { installReaderHover } from '../content-viewer-src/reader/readerHover.js';
 import { baseHalfCommentsSetMessage, type BaseHalfCommentsPageMessage, type BaseHalfCommentStep } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
-import { BASEHALF_COMMENT_DEFAULT_COLOR, baseHalfCommentTime, isBaseHalfHighlight, newBaseHalfCommentId, type BaseHalfCommentColor, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
+import { BASEHALF_COMMENT_DEFAULT_COLOR, baseHalfCommentTime, newBaseHalfCommentId, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 import type { IBaseHalfReaderLabels } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
 import { baseHalfNoteCommentFollowUps, makeBaseHalfNoteCommentsExtension, notePassage, setBaseHalfNoteComments, type INoteCommentAnchor } from './noteComments.js';
 import { applyUpdate, Doc as YDoc, UndoManager, type Transaction as YTransaction, type XmlFragment, type YMapEvent } from 'yjs';
@@ -623,7 +623,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
 	const noteUndoRef = useRef<IBaseHalfNoteUndo | undefined>(undefined);
 	const noteMediaEditExtension = useMemo(() => makeBaseHalfNoteMediaEditExtension(), []);
-	// The comments of the note in Card Detail (comments): those the window sent, the one being made, and the color of the next.
+	// The comments of the note in Card Detail (comments): those the window sent, and the one being made.
 	const commentLabels = useMemo(() => {
 		try {
 			const labels = document.getElementById('root')?.dataset.commentLabels;
@@ -632,7 +632,7 @@ function MarkdownRichEditor(): JSX.Element {
 			return undefined;
 		}
 	}, []);
-	const noteComments = useRef<{ comments: IBaseHalfComment[]; readonly drafts: Map<string, IBaseHalfComment>; color: BaseHalfCommentColor }>({ comments: [], drafts: new Map(), color: BASEHALF_COMMENT_DEFAULT_COLOR });
+	const noteComments = useRef<{ comments: IBaseHalfComment[]; readonly drafts: Map<string, IBaseHalfComment> }>({ comments: [], drafts: new Map() });
 	const commentNotes = useRef<CommentNotes | undefined>(undefined);
 	const followTimer = useRef<number | undefined>(undefined);
 	const followNoteCommentsRef = useRef<() => void>(() => undefined);
@@ -645,16 +645,15 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 		},
 		leave: () => commentNotes.current?.hoverLeave(),
-		// The mark of a highlight shows its tools, as a click on a highlight does in a reader (comments, rule 10).
+		// A click on a mark opens its comment's note (comments, rule 9).
 		open: (id, mark) => {
 			const comment = noteCommentOf(id);
 			const missing = mark.classList.contains('missing');
-			if (!comment) {
-				return;
-			} else if (isBaseHalfHighlight(comment) && !missing) {
-				commentNotes.current?.tools(comment, mark.getBoundingClientRect());
-			} else {
-				commentNotes.current?.open(comment, mark.getBoundingClientRect(), missing && commentLabels ? { status: commentLabels.passageNotFound } : {});
+			if (comment) {
+				commentNotes.current?.open(comment, mark.getBoundingClientRect(), {
+					...(missing && commentLabels ? { status: commentLabels.passageNotFound } : {}),
+					unsaved: noteComments.current.drafts.has(id)
+				});
 			}
 		},
 		// An edit of the note: the comments whose passage it changed quote it anew a moment later (comments, rule 5).
@@ -817,12 +816,12 @@ function MarkdownRichEditor(): JSX.Element {
 		comments: portalElement,
 	} : undefined, [portalElement]);
 
-	/** The comments of the note, those of its file and the one being made, shown where their passages are. */
+	/** The comments of the note, those of its file and the one being made, shown where their passages are; a note shows no highlights (comments, "Reading"). */
 	const showNoteComments = useCallback((known?: ReadonlyMap<string, INoteCommentAnchor>) => {
 		const view = editor.prosemirrorView;
 		const state = noteComments.current;
 		if (view) {
-			setBaseHalfNoteComments(view, [...state.comments.filter(comment => !state.drafts.has(comment.id)), ...state.drafts.values()], known);
+			setBaseHalfNoteComments(view, [...state.comments.filter(comment => !state.drafts.has(comment.id)), ...state.drafts.values()], known, new Set(state.drafts.keys()));
 		}
 	}, [editor]);
 	const changeNoteComment = useCallback((step: BaseHalfCommentStep, comment: IBaseHalfComment | undefined, remove?: string) => {
@@ -876,7 +875,6 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 			const state = noteComments.current;
 			state.comments = [...set.comments];
-			state.color = set.color;
 			for (const comment of set.comments) {
 				state.drafts.delete(comment.id);
 			}
@@ -904,7 +902,7 @@ function MarkdownRichEditor(): JSX.Element {
 			quote: passage.quote,
 			...(passage.before ? { before: passage.before } : {}),
 			...(passage.after ? { after: passage.after } : {}),
-			color: state.color,
+			color: BASEHALF_COMMENT_DEFAULT_COLOR,
 			text: '',
 			at: baseHalfCommentTime(),
 			replies: []

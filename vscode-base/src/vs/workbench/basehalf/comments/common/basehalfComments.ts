@@ -3,16 +3,17 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// The comments of a PDF, a book, or a note (comments, "The file"). The readers
-// and the Rich editor import this module into their pages, so it imports
-// nothing.
+// The highlights and comments of a PDF, a book, or a note (comments, "The
+// file"): entries of one list, a comment with words or replies and a
+// highlight without either. The readers and the Rich editor import this
+// module into their pages, so it imports nothing.
 
-/** The colors of a comment, in the order its tools show them. */
+/** The colors of a highlight, in the order its tools show them. */
 export const BASEHALF_COMMENT_COLORS = ['yellow', 'green', 'blue', 'pink', 'purple'] as const;
 
 export type BaseHalfCommentColor = typeof BASEHALF_COMMENT_COLORS[number];
 
-/** The color of a comment that names none. */
+/** The color of a highlight that names none, and the one color of every comment. */
 export const BASEHALF_COMMENT_DEFAULT_COLOR: BaseHalfCommentColor = 'yellow';
 
 /** The most characters of a comment's words, of a reply's, and of a passage. */
@@ -30,7 +31,11 @@ export interface IBaseHalfCommentReply {
 	readonly at?: string;
 }
 
-/** A comment: a passage or a place on a page, its color, its words, and its replies. */
+/**
+ * An entry of the file: a comment, a passage or a place on a page with words
+ * and replies, or a highlight, a passage with a color. A comment has no color
+ * of its own: it is yellow.
+ */
 export interface IBaseHalfComment {
 	/** Eight lowercase letters and digits, unique in its file. */
 	readonly id: string;
@@ -44,8 +49,9 @@ export interface IBaseHalfComment {
 	readonly chapter?: string;
 	/** A page comment's place: fractions of the page's width and height from its top left corner. */
 	readonly place?: readonly [number, number];
+	/** A highlight's color; kept, and not shown, on a comment. */
 	readonly color: BaseHalfCommentColor;
-	/** The words; empty for a highlight. */
+	/** A comment's words; empty for a highlight. */
 	readonly text: string;
 	readonly by?: string;
 	readonly at?: string;
@@ -56,7 +62,7 @@ export function isBaseHalfCommentColor(value: unknown): value is BaseHalfComment
 	return typeof value === 'string' && (BASEHALF_COMMENT_COLORS as readonly string[]).includes(value);
 }
 
-/** A comment without words and without replies is a highlight. */
+/** An entry without words and without replies is a highlight; one with either is a comment. */
 export function isBaseHalfHighlight(comment: Pick<IBaseHalfComment, 'text' | 'replies'>): boolean {
 	return !comment.text.trim() && comment.replies.length === 0;
 }

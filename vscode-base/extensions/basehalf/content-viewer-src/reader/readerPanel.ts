@@ -3,109 +3,54 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BaseHalfReaderTab, IBaseHalfReaderLabels, IBaseHalfReaderPanelState } from '../../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
-import { element, format, readerIcon } from './readerDom.js';
+import type { BaseHalfReaderTab, IBaseHalfReaderLabels } from '../../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
+import { element } from './readerDom.js';
 
-/** The reader is wide enough for the panel to stand beside the document. */
-const WIDE_READER = 900;
+/** The reader is wide enough for a panel to stand beside the document (PDFs and books, rule 17). */
+export const WIDE_READER = 900;
 
-export interface IReaderSearchMatch {
-	readonly before: string;
-	readonly match: string;
-	readonly after: string;
-	readonly go: () => void;
+/** Whether the panel at the left is open, and its tab. */
+export interface IReaderPanelState {
+	readonly open: boolean;
+	readonly tab: BaseHalfReaderTab;
 }
 
 export interface IReaderPanelOptions {
 	readonly tabs: readonly BaseHalfReaderTab[];
 	readonly labels: IBaseHalfReaderLabels;
-	readonly searchPlaceholder: string;
-	readonly state: IBaseHalfReaderPanelState;
+	readonly state: IReaderPanelState;
 	/** The panel opened, closed, or showed another tab. */
-	readonly onState: (state: IBaseHalfReaderPanelState) => void;
-	/** Enter in the search field; `run` tells whether this search is still the current one. */
-	readonly onSearch: (query: string, results: ReaderSearchResults) => void;
-	/** The search ended: its marks go. */
-	readonly onClearSearch: () => void;
+	readonly onState: (state: IReaderPanelState) => void;
 	readonly onTab?: (tab: BaseHalfReaderTab) => void;
 }
 
-/** The matches of a search as the panel lists them, under their page or chapter. */
-export class ReaderSearchResults {
-	private count = 0;
-
-	constructor(private readonly list: HTMLElement, private readonly statusLine: HTMLElement, private readonly labels: IBaseHalfReaderLabels, private readonly current: () => boolean) { }
-
-	get isCurrent(): boolean {
-		return this.current();
-	}
-
-	progress(fraction: number): void {
-		if (this.current()) {
-			this.statusLine.textContent = format(this.labels.searching, `${Math.round(fraction * 100)}%`);
-		}
-	}
-
-	group(label: string, matches: readonly IReaderSearchMatch[]): void {
-		if (!this.current() || matches.length === 0) {
-			return;
-		}
-		const item = element('li', '', this.list);
-		element('div', 'result-group', item).textContent = label;
-		const list = element('ol', '', item);
-		for (const match of matches) {
-			this.count++;
-			const button = element('button', 'result', element('li', '', list));
-			button.type = 'button';
-			const mark = document.createElement('mark');
-			mark.textContent = match.match;
-			button.append(match.before, mark, match.after);
-			button.addEventListener('click', () => match.go());
-		}
-	}
-
-	done(): void {
-		if (this.current()) {
-			this.statusLine.textContent = this.count === 0 ? this.labels.noMatches : this.count === 1 ? this.labels.oneMatch : format(this.labels.matches, this.count);
-		}
-	}
+/** Marks the reader wide while it is wide enough for a panel to stand beside the document. */
+export function observeReaderWidth(root: HTMLElement): void {
+	new ResizeObserver(() => root.classList.toggle('wide', root.clientWidth >= WIDE_READER)).observe(root);
 }
 
 /**
- * The reader's panel (PDFs and books, "The panel"): a search field and, under
- * it, the tabs of the document, or the matches of a search in their place.
+ * The reader's panel at the left (PDFs and books, "The panels"): the tabs
+ * that take the reader somewhere, Pages and Contents. A panel with one tab
+ * shows no tabs.
  */
 export class ReaderPanel {
 	readonly element: HTMLElement;
-	private readonly searchField: HTMLInputElement;
-	private readonly searchStatus: HTMLElement;
 	private readonly tabBar: HTMLElement;
 	private readonly tabButtons = new Map<BaseHalfReaderTab, HTMLButtonElement>();
 	private readonly sections = new Map<BaseHalfReaderTab, HTMLElement>();
-	private readonly results: HTMLElement;
 	private tabs: readonly BaseHalfReaderTab[];
-	private state: IBaseHalfReaderPanelState;
-	private searchRun = 0;
+	private state: IReaderPanelState;
 
 	constructor(private readonly root: HTMLElement, private readonly options: IReaderPanelOptions) {
 		this.tabs = options.tabs;
 		this.state = { open: options.state.open, tab: options.tabs.includes(options.state.tab) ? options.state.tab : options.tabs[0] };
 		this.element = element('aside', 'reader-panel', root);
 		this.element.hidden = true;
-		const search = element('div', 'reader-search', this.element);
-		search.append(readerIcon('search'));
-		this.searchField = element('input', '', search);
-		this.searchField.type = 'search';
-		this.searchField.spellcheck = false;
-		this.searchField.placeholder = options.searchPlaceholder;
-		this.searchField.setAttribute('aria-label', options.searchPlaceholder);
-		this.searchStatus = element('div', 'reader-search-status', this.element);
-		this.searchStatus.setAttribute('role', 'status');
-		this.searchStatus.setAttribute('aria-live', 'polite');
 		this.tabBar = element('div', 'reader-tabs', this.element);
 		this.tabBar.setAttribute('role', 'tablist');
-		const label: Record<BaseHalfReaderTab, string> = { pages: options.labels.pages, contents: options.labels.contents, comments: options.labels.comments };
-		for (const tab of ['pages', 'contents', 'comments'] as const) {
+		const label: Record<BaseHalfReaderTab, string> = { pages: options.labels.pages, contents: options.labels.contents };
+		for (const tab of ['pages', 'contents'] as const) {
 			const button = element('button', 'reader-tab', this.tabBar);
 			button.type = 'button';
 			button.setAttribute('role', 'tab');
@@ -114,28 +59,9 @@ export class ReaderPanel {
 			this.tabButtons.set(tab, button);
 			const section = element('div', `reader-section ${tab}`, this.element);
 			section.setAttribute('role', 'tabpanel');
+			section.setAttribute('aria-label', label[tab]);
 			this.sections.set(tab, section);
 		}
-		this.results = element('ol', 'reader-results', this.element);
-		this.results.hidden = true;
-
-		this.searchField.addEventListener('keydown', event => {
-			if (event.key === 'Enter' && !event.isComposing) {
-				event.preventDefault();
-				this.search(this.searchField.value.trim());
-			} else if (event.key === 'Escape' && this.searchField.value) {
-				event.preventDefault();
-				event.stopPropagation();
-				this.searchField.value = '';
-				this.endSearch();
-			}
-		});
-		this.searchField.addEventListener('input', () => {
-			if (!this.searchField.value.trim()) {
-				this.endSearch();
-			}
-		});
-		new ResizeObserver(() => root.classList.toggle('wide', root.clientWidth >= WIDE_READER)).observe(root);
 		this.render();
 	}
 
@@ -146,10 +72,6 @@ export class ReaderPanel {
 	/** The panel stands over the document, in a reader too narrow for it to stand beside. */
 	get isOver(): boolean {
 		return this.state.open && !this.root.classList.contains('wide');
-	}
-
-	get isSearching(): boolean {
-		return !this.results.hidden;
 	}
 
 	section(tab: BaseHalfReaderTab): HTMLElement {
@@ -188,36 +110,7 @@ export class ReaderPanel {
 		}
 	}
 
-	focusSearch(): void {
-		if (!this.state.open) {
-			this.setState({ ...this.state, open: true });
-		}
-		this.searchField.focus();
-		this.searchField.select();
-	}
-
-	endSearch(): void {
-		this.searchRun++;
-		this.results.replaceChildren();
-		this.results.hidden = true;
-		this.searchStatus.textContent = '';
-		this.render();
-		this.options.onClearSearch();
-	}
-
-	private search(query: string): void {
-		const run = ++this.searchRun;
-		this.results.replaceChildren();
-		if (!query) {
-			this.endSearch();
-			return;
-		}
-		this.results.hidden = false;
-		this.render();
-		this.options.onSearch(query, new ReaderSearchResults(this.results, this.searchStatus, this.options.labels, () => run === this.searchRun));
-	}
-
-	private setState(state: IBaseHalfReaderPanelState): void {
+	private setState(state: IReaderPanelState): void {
 		this.state = state;
 		this.render();
 		this.options.onState(state);
@@ -229,13 +122,13 @@ export class ReaderPanel {
 	private render(): void {
 		this.element.hidden = !this.state.open;
 		this.root.classList.toggle('panel-open', this.state.open);
-		this.tabBar.hidden = this.isSearching;
+		this.tabBar.hidden = this.tabs.length < 2;
 		for (const [tab, button] of this.tabButtons) {
 			button.hidden = !this.tabs.includes(tab);
 			const selected = tab === this.state.tab;
 			button.classList.toggle('selected', selected);
 			button.setAttribute('aria-selected', String(selected));
-			this.sections.get(tab)!.hidden = !selected || this.isSearching || !this.tabs.includes(tab);
+			this.sections.get(tab)!.hidden = !selected || !this.tabs.includes(tab);
 		}
 	}
 }

@@ -38,25 +38,10 @@ export type BaseHalfBookReaderMessage =
 	| { readonly type: 'basehalf.book.userInteraction' }
 	| { readonly type: 'basehalf.media.escape' };
 
-/** The words of the reader's page, in the workbench's language. `{0}` stands for a number. */
+/** The words of the book reader's page of its own, in the workbench's language; the reader's shared words are `IBaseHalfReaderLabels`. */
 export interface IBaseHalfBookReaderLabels {
-	readonly contents: string;
-	readonly search: string;
-	readonly searchPlaceholder: string;
-	readonly searching: string;
-	readonly noMatches: string;
-	readonly oneMatch: string;
-	readonly matches: string;
-	readonly smallerText: string;
-	readonly largerText: string;
-	readonly pages: string;
-	readonly scroll: string;
-	readonly previousPage: string;
-	readonly nextPage: string;
-	readonly place: string;
 	readonly opening: string;
 	readonly failed: string;
-	readonly growBranch: string;
 	readonly untitledSection: string;
 }
 
