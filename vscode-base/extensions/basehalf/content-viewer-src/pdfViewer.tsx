@@ -26,8 +26,8 @@ import { rectsWithinSlice, SelectionLayer, SelectionPlugin, SelectionPluginPacka
 import { ThumbImg, ThumbnailPluginPackage, ThumbnailsPane } from '@embedpdf/plugin-thumbnail/preact';
 import { TilingLayer, TilingPluginPackage } from '@embedpdf/plugin-tiling/preact';
 import { Viewport, ViewportPluginPackage } from '@embedpdf/plugin-viewport/preact';
-import { ZoomMode, ZoomPlugin, ZoomPluginPackage, type ZoomLevel } from '@embedpdf/plugin-zoom/preact';
-import { baseHalfZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
+import { ZoomGestureWrapper, ZoomMode, ZoomPlugin, ZoomPluginPackage, type ZoomLevel } from '@embedpdf/plugin-zoom/preact';
+import { baseHalfPagePinchFromMessage, baseHalfZoomFactor, isBaseHalfZoomWheel, type IBaseHalfZoomDelta } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { BASEHALF_PDF_AUTOMATIC_ZOOM_MAX, BASEHALF_PDF_SELECTION_TEXT_LIMIT, type BaseHalfPdfZoom, type IBaseHalfPdfSelection } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
 import { baseHalfCommentContext, normalizeBaseHalfCommentQuote } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentAnchor.js';
 import { baseHalfCommentsSetMessage, type BaseHalfCommentStep } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
@@ -157,10 +157,18 @@ window.addEventListener('message', event => {
 	}
 	const pinch = baseHalfPagePinchFromMessage(event.data);
 	if (pinch && !locked) {
-		lastUserInput = Date.now();
-		pinchBy(baseHalfZoomFactor(pinch), pinch.x, pinch.y);
+		zoomGesture(pinch, pinch.x, pinch.y);
 	}
 });
+
+// The wheel with Ctrl held inside the page zooms as a pinch does, one step of Card Detail's zoom an event.
+window.addEventListener('wheel', event => {
+	if (event.isTrusted && !locked && isBaseHalfZoomWheel(event, isMac)) {
+		event.preventDefault();
+		event.stopPropagation();
+		zoomGesture(event, event.clientX, event.clientY);
+	}
+}, { capture: true, passive: false });
 
 for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 	window.addEventListener(type, () => {
@@ -331,7 +339,9 @@ function Document({ documentId }: { readonly documentId: string }) {
 	return (
 		<>
 			<Viewport documentId={documentId} class='pdf-viewport'>
-				<Scroller documentId={documentId} renderPage={layout => <Page documentId={documentId} layout={layout} scale={scale} />} />
+				<ZoomGestureWrapper documentId={documentId} enablePinch={false}>
+					<Scroller documentId={documentId} renderPage={layout => <Page documentId={documentId} layout={layout} scale={scale} />} />
+				</ZoomGestureWrapper>
 			</Viewport>
 			{createPortal(<Thumbnails documentId={documentId} />, panel.section('pages'))}
 		</>
@@ -688,21 +698,24 @@ function zoomBy(direction: 1 | -1): void {
 	scope.requestZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((shown + direction * ZOOM_STEP) * 100) / 100)));
 }
 
-let pinch: { factor: number; x: number; y: number } | undefined;
-/** A pinch that the window took over the page zooms the PDF around the fingers, once a frame (PDFs and books, rule 29). */
-function pinchBy(factor: number, x: number, y: number): void {
-	if (!pinch) {
-		const viewport = documentHost.querySelector('.pdf-viewport')?.getBoundingClientRect();
-		pinch = { factor: 1, x: x - (viewport?.left ?? 0), y: y - (viewport?.top ?? 0) };
-		window.requestAnimationFrame(() => {
-			const next = pinch!;
-			pinch = undefined;
-			const scope = registry?.getPlugin<ZoomPlugin>(ZoomPlugin.id)?.provides().forDocument(DOCUMENT_ID);
-			const shown = scope?.getState().currentZoomLevel ?? 1;
-			scope?.requestZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, shown * next.factor)), { vx: next.x, vy: next.y });
-		});
+/**
+ * A pinch zooms the PDF around the fingers (PDFs and books, rule 29): the
+ * pages are magnified while the fingers move and take the new zoom once they
+ * rest. The zoom library's gesture does both; it gets every pinch as a wheel
+ * with Ctrl held, one step of Card Detail's zoom each, whether the window took
+ * the pinch over the page or the wheel turned inside it. A zoom asked once a
+ * frame instead lost the place under the fingers: each asked from a scroll
+ * that the one before had not reached yet.
+ */
+function zoomGesture(delta: IBaseHalfZoomDelta, clientX: number, clientY: number): void {
+	const viewport = documentHost.querySelector<HTMLElement>('.pdf-viewport');
+	if (!viewport) {
+		return;
 	}
-	pinch.factor *= factor;
+	lastUserInput = Date.now();
+	// The library zooms a wheel by 1 - deltaY / 100.
+	const deltaY = (1 - baseHalfZoomFactor(delta)) * 100;
+	viewport.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY, deltaMode: 0, clientX, clientY, bubbles: true, cancelable: true }));
 }
 
 function goToPage(target: number): void {

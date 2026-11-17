@@ -314,7 +314,13 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
     with Ctrl held does inside it, and the zoom is the user's. The browser
     gives a pinch to the window, never to the page of the PDF, so the window
     takes it and hands it to the page
-    ([zoom and outline of a note](note-zoom-and-outline.md), D87).
+    ([zoom and outline of a note](note-zoom-and-outline.md), D87). The
+    pages are magnified while the fingers move and take the new zoom when
+    they rest, as a pinch of a note does, so what is under the fingers stays
+    under them in every frame. A notch of the wheel with Ctrl held is one
+    step of Card Detail's zoom. Measured before (2026-11-17): a zoom asked
+    once a frame started from a scroll that the step before had not reached,
+    and a pinch over page 9 ended on page 7.
 30. **Links.** A link to a place in the PDF goes there. A link to the web
     opens in the browser, after the question that every link to a website
     asks. Other links do nothing.
