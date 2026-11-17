@@ -290,13 +290,17 @@ text that flows and a size of text.
     canvas's: a field with the percentage, from 25 % to 500 %; **Zoom In**
     (Cmd+=), **Zoom Out** (Cmd+-), **Fit Width**, and **Fit Page**; then
     **Zoom to 50%**, **Zoom to 100%** (Cmd+0), and **Zoom to 200%**. The keys
-    zoom the PDF with the menu closed too.
+    zoom the PDF with the menu closed too, wherever the keyboard is in the
+    reader, and never the window. Measured before (2026-11-17): Cmd+= zoomed
+    the PDF from 190 % to 205 % and the window to 120 %, since the page hands
+    every key to the window too.
 23. **The place.** A click opens a slider above the control, from the start
     of the book to its end, at the place shown; moving it shows the
     percentage, and letting go goes there.
 24. **Aa.** A click opens a menu above the control: **Larger Text** (Cmd+=),
     **Smaller Text** (Cmd+-), **Pages**, and **One Scroll**, the one in use
-    checked. A comic book and a book with a fixed layout have no Aa.
+    checked. The keys change the text and never zoom the window. A comic book
+    and a book with a fixed layout have no Aa.
 
 #### The selection menu
 
@@ -484,8 +488,8 @@ text that flows and a size of text.
     the reader has no hand, pointer, menu, or page settings.
 20. The page and the zoom stand at the bottom left, 14 px from the left and
     16 px from the bottom of the reader. Zoom In from the zoom menu and
-    Cmd+= zoom the PDF by the same step; typing 7 into the page goes to page
-    7.
+    Cmd+= zoom the PDF by the same step, and the window keeps its zoom;
+    typing 7 into the page goes to page 7.
 21. Sidebar opens the panel with Pages and Contents for a PDF with an
     outline, and with Contents and no tabs for a book; a click on a page's
     picture goes to it; after Card Detail closes and another PDF opens, the
