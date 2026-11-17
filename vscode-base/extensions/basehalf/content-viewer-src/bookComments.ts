@@ -158,10 +158,11 @@ export interface IDrawPassagesOptions {
 }
 
 /**
- * How the overlay of a section draws a passage (comments, rules 6 and 7): a
+ * How the overlay of a section draws a passage (comments, rule 6): a
  * highlight's tint, under its text on a light page and over it on a dark one;
- * a comment's wavy line under each of its lines and its mark just after its
- * end; and the match of Find shown.
+ * a comment's wavy line under each of its lines; and the match of Find shown.
+ * A comment's mark stands outside the section, in the blank beside its
+ * column, in a layer of the reader (comments, rule 7).
  */
 export function drawPassages(rects: DOMRectList | readonly DOMRect[], options: IDrawPassagesOptions): SVGElement {
 	const group = document.createElementNS(SVG, 'g');
@@ -184,19 +185,13 @@ export function drawPassages(rects: DOMRectList | readonly DOMRect[], options: I
 		}
 		group.append(tints);
 	}
-	const last = list[list.length - 1];
-	if (last && options.comments.some(options.isComment)) {
+	if (list.length && options.comments.some(options.isComment)) {
 		const wave = document.createElementNS(SVG, 'path');
 		wave.setAttribute('d', list.map(rect => wavePath(rect.left, rect.right, rect.bottom + 1)).join(' '));
 		wave.setAttribute('fill', 'none');
 		wave.setAttribute('stroke', options.dark ? WAVE.dark : WAVE.light);
 		wave.setAttribute('stroke-width', '1.2');
 		group.append(wave);
-		const mark = markBox(list)!;
-		const square = rectangle(mark.left, mark.top, mark.width, mark.height);
-		square.setAttribute('rx', '2');
-		square.setAttribute('fill', COLORS.yellow);
-		group.append(square);
 	}
 	return group;
 }
@@ -217,9 +212,3 @@ export function wavePath(left: number, right: number, y: number): string {
 	return `M${left} ${y}q${step / 2} 1.6 ${step} 0` + ` t${step} 0`.repeat(halves - 1);
 }
 
-/** Where the mark of a comment stands after its passage, in the coordinates of the section's document. */
-export function markBox(rects: DOMRectList | readonly DOMRect[]): DOMRect | undefined {
-	const list = Array.from(rects as ArrayLike<DOMRect>);
-	const last = list[list.length - 1];
-	return last ? new DOMRect(last.right + 3, last.top + Math.max(0, (last.height - 12) / 2) - 2, 12, 12) : undefined;
-}

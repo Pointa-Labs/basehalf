@@ -57,6 +57,12 @@ const FIRST_PAGE_WAIT_MS = 3_000;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.15;
+/** The room the pages keep from the sides of the reader, where the marks of comments stand outside a page (comments, rule 7). */
+const VIEWPORT_GAP = 30;
+/** How far a mark of a comment stands from the right edge of its page. */
+const MARK_GAP = 8;
+/** The width of a mark, as comments.css draws it. */
+const MARK_SIZE = 14;
 
 function required<T extends HTMLElement>(id: string): T {
 	const found = document.getElementById(id);
@@ -331,7 +337,8 @@ const plugins = [
 		initialDocuments: [{ url: requiredData('source'), documentId: DOCUMENT_ID, name: root.dataset.name || 'Document.pdf', mode: 'auto', autoActivate: true }],
 		maxDocuments: 1
 	}),
-	createPluginRegistration(ViewportPluginPackage, { viewportGap: 16 }),
+	// The pages keep 30 px from the sides, the room where the marks of comments stand outside the page (PDFs and books, rule 27).
+	createPluginRegistration(ViewportPluginPackage, { viewportGap: VIEWPORT_GAP }),
 	createPluginRegistration(ScrollPluginPackage, { defaultPageGap: 14, defaultBufferSize: 2 }),
 	createPluginRegistration(RenderPluginPackage, { withAnnotations: true }),
 	createPluginRegistration(TilingPluginPackage, { tileSize: 768, overlapPx: 2.5, extraRings: 0 }),
@@ -449,7 +456,7 @@ function Page({ documentId, layout, scale }: { readonly documentId: string; read
 			</PagePointerProvider>
 			{stackCommentMarks(waves.filter(wave => wave.first && wave.rects.length).map(wave => ({ wave, top: Math.max(2, wave.rects[0].origin.y * scale) }))).map(({ wave, top }) => (
 				<button key={wave.comment.id} type='button' class='comment-mark' data-comment={wave.comment.id}
-					style={{ left: layout.width - 13, top }}
+					style={{ left: layout.width + MARK_GAP + MARK_SIZE / 2, top }}
 					onPointerEnter={() => notes.hoverEnter(wave.comment, () => markRect(wave.comment.id))}
 					onPointerLeave={() => notes.hoverLeave()}
 					onPointerDown={event => event.stopPropagation()}

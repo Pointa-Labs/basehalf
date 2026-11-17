@@ -53,8 +53,9 @@ export function colorLabel(labels: IBaseHalfReaderLabels, color: BaseHalfComment
 	return labels[color];
 }
 
-/** The size of a comment's mark (comments.css), and the room between two marks one under the other. */
-const MARK_SIZE = 14;
+/** The width and the height of a comment's mark, as comments.css draws it. */
+export const COMMENT_MARK_SIZE = 14;
+/** The room between two marks, one under the other. */
 const MARK_GAP = 3;
 
 /**
@@ -66,7 +67,7 @@ export function stackCommentMarks<T extends { readonly top: number }>(marks: rea
 	let next = -Infinity;
 	return [...marks].sort((a, b) => a.top - b.top).map(mark => {
 		const top = Math.max(mark.top, next);
-		next = top + MARK_SIZE + MARK_GAP;
+		next = top + COMMENT_MARK_SIZE + MARK_GAP;
 		return top === mark.top ? mark : { ...mark, top };
 	});
 }

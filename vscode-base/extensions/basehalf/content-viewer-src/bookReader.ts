@@ -30,8 +30,8 @@ import { normalizeBaseHalfCommentQuote } from '../../../src/vs/workbench/basehal
 import { baseHalfCommentsSetMessage, type BaseHalfCommentStep } from '../../../src/vs/workbench/basehalf/comments/common/basehalfCommentProtocol.js';
 import { BASEHALF_COMMENT_DEFAULT_COLOR, baseHalfCommentCut, baseHalfCommentTime, isBaseHalfHighlight, newBaseHalfCommentId, type BaseHalfCommentColor, type IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 import { baseHalfReaderCommandMessage, normalizeBaseHalfReaderPanelState, type IBaseHalfReaderLabels, type IBaseHalfReaderPanelState } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
-import { contextInSection, drawPassages, findInSection, markBox, SectionText } from './bookComments.js';
-import { CommentNotes } from './reader/commentNotes.js';
+import { contextInSection, drawPassages, findInSection, SectionText } from './bookComments.js';
+import { CommentNotes, COMMENT_MARK_SIZE, stackCommentMarks } from './reader/commentNotes.js';
 import { ReaderChrome } from './reader/readerChrome.js';
 import { ReaderCommentsPanel, type ICommentsPanelItem } from './reader/readerComments.js';
 import { element, isTextField } from './reader/readerDom.js';
@@ -123,6 +123,7 @@ const notes = new CommentNotes({
 	focus: id => vscode.postMessage({ type: 'basehalf.comments.focus', ...(id ? { id } : {}) }),
 	grow: comment => vscode.postMessage({ type: 'basehalf.comments.grow', id: comment.id }),
 	discard: comment => removeComment(comment.id),
+	closed: () => scheduleMarks(),
 	commentOn: highlight => commentOn(highlight)
 });
 
@@ -170,8 +171,14 @@ async function open(): Promise<void> {
 		}
 	});
 	reader.addEventListener('draw-annotation', event => {
-		const detail = (event as CustomEvent<{ draw: (draw: typeof drawPassages, options: Parameters<typeof drawPassages>[1]) => void; annotation: { value: string } }>).detail;
+		const detail = (event as CustomEvent<{ draw: (draw: typeof drawPassages, options: Parameters<typeof drawPassages>[1]) => void; annotation: { value: string }; range?: unknown }>).detail;
 		const value = detail.annotation.value;
+		// A section opened again is a new document: its passages are ranges of that one, made by its own window.
+		const range = detail.range as Range | undefined;
+		if (typeof range?.getClientRects === 'function' && commentsAt(value).length) {
+			ranges.set(value, range);
+			scheduleMarks();
+		}
 		const shown = commentsAt(value);
 		const match = value === activeMatch ? findColors().active : undefined;
 		if (shown.length || match) {
@@ -179,6 +186,8 @@ async function open(): Promise<void> {
 		}
 	});
 	await reader.open(book);
+	// The marks of comments move with the text: the page turns, or the text scrolls (comments, rule 7).
+	reader.renderer.addEventListener('scroll', () => scheduleMarks());
 	// A script of the book is not even loaded; the page's policy would not run it.
 	reader.book.transformTarget?.addEventListener('load', event => {
 		const detail = (event as CustomEvent<{ isScript?: boolean; allow: unknown }>).detail;
@@ -560,6 +569,7 @@ function onRelocate(location: IFoliateLocation): void {
 	currentHref = location.tocItem?.href;
 	markCurrentEntry();
 	selectionMenu.hide();
+	scheduleMarks();
 	if (location.cfi) {
 		vscode.postMessage({ type: 'basehalf.book.viewState', state: { location: location.cfi, fraction } });
 	}
@@ -894,6 +904,7 @@ function unanchor(id: string): void {
 	if (anchored) {
 		anchors.delete(id);
 		redrawPlace(anchored.cfi);
+		scheduleMarks();
 	}
 }
 
@@ -1011,15 +1022,16 @@ function markSelection(withWords: boolean): void {
 		replies: []
 	};
 	const cfi = reader.getCFI(index, current.range);
-	const mark = markBox(current.range.getClientRects());
+	const first = current.range.getClientRects()[0];
 	ranges.set(cfi, ranges.get(cfi) ?? current.range);
 	const doc = current.doc;
 	clearSelection();
 	if (withWords) {
 		drafts.set(comment.id, comment);
 		anchor(comment.id, cfi, index);
+		const mark = markRect(comment.id) ?? (first ? toReader(doc, first) : undefined);
 		if (mark) {
-			notes.open(comment, toReader(doc, mark), { unsaved: true });
+			notes.open(comment, mark, { unsaved: true });
 		}
 		return;
 	}
@@ -1060,9 +1072,10 @@ function commentOn(highlight: IBaseHalfComment): void {
 	drafts.set(comment.id, comment);
 	anchor(comment.id, anchored.cfi, anchored.index);
 	const doc = range.startContainer.ownerDocument;
-	const mark = markBox(range.getClientRects());
-	if (doc && mark) {
-		notes.open(comment, toReader(doc, mark), { unsaved: true });
+	const first = range.getClientRects()[0];
+	const mark = markRect(comment.id) ?? (doc && first ? toReader(doc, first) : undefined);
+	if (mark) {
+		notes.open(comment, mark, { unsaved: true });
 	}
 }
 
@@ -1092,22 +1105,22 @@ function showComment(comment: IBaseHalfComment, range: Range): void {
 		}
 		return;
 	}
-	const mark = markBox(rects);
+	const mark = markRect(comment.id) ?? (rects[0] ? toReader(doc, rects[0]) : undefined);
 	if (mark) {
-		notes.open(comment, toReader(doc, mark), { unsaved: drafts.has(comment.id) });
+		notes.open(comment, mark, { unsaved: drafts.has(comment.id) });
 	}
 }
 
 /**
- * The highlight or the comment under a point of a section: a passage, or the
- * mark of a comment. With `highlights`, a highlight there comes first, as a
- * click finds it; without, only comments count, as for the pointer that
- * hovers.
+ * The highlight or the comment whose passage is under a point of a section.
+ * With `highlights`, a highlight there comes first, as a click finds it;
+ * without, only comments count, as for the pointer that hovers. A comment's
+ * mark stands outside the section, in the reader's own layer.
  */
-function commentAt(doc: Document, x: number, y: number, highlights: boolean): { readonly comment: IBaseHalfComment; readonly range: Range; readonly mark: DOMRect | undefined } | undefined {
+function commentAt(doc: Document, x: number, y: number, highlights: boolean): { readonly comment: IBaseHalfComment; readonly range: Range } | undefined {
 	const index = indexOfDoc(doc);
 	const inside = (box: DOMRect) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
-	let commentHit: { readonly comment: IBaseHalfComment; readonly range: Range; readonly mark: DOMRect | undefined } | undefined;
+	let commentHit: { readonly comment: IBaseHalfComment; readonly range: Range } | undefined;
 	for (const [id, anchored] of [...anchors].reverse()) {
 		const comment = commentById(id);
 		const range = ranges.get(anchored.cfi);
@@ -1117,13 +1130,12 @@ function commentAt(doc: Document, x: number, y: number, highlights: boolean): { 
 		const rects = [...range.getClientRects()];
 		if (!isComment(comment)) {
 			if (highlights && rects.some(inside)) {
-				return { comment, range, mark: undefined };
+				return { comment, range };
 			}
 			continue;
 		}
-		const mark = markBox(rects);
-		if (!commentHit && (rects.some(inside) || (mark && inside(mark)))) {
-			commentHit = { comment, range, mark };
+		if (!commentHit && rects.some(inside)) {
+			commentHit = { comment, range };
 		}
 	}
 	return commentHit;
@@ -1141,9 +1153,9 @@ function hoverComment(doc: Document, event: PointerEvent): void {
 		return;
 	}
 	hovered = id;
-	if (found?.mark && id) {
-		const { comment, mark } = found;
-		notes.hoverEnter(comment, () => toReader(doc, mark));
+	if (found && id) {
+		const { comment, range } = found;
+		notes.hoverEnter(comment, () => markRect(id) ?? (range.getClientRects()[0] ? toReader(doc, range.getClientRects()[0]) : undefined));
 	} else {
 		notes.hoverLeave();
 	}
@@ -1216,6 +1228,155 @@ async function goToComment(comment: IBaseHalfComment, item: DOMRect): Promise<vo
 			showComment(latest, range);
 		}
 	}, 150);
+}
+
+
+/** The marks of comments, over the book, each in the blank to the right of the column its passage begins in (comments, rule 7). */
+const marksLayer = element('div', 'book-marks', bookHost);
+const markElements = new Map<string, HTMLButtonElement>();
+let marksFrame: number | undefined;
+new ResizeObserver(() => scheduleMarks()).observe(bookHost);
+
+/** The marks stand anew at the next frame: the page turned or scrolled, the text was laid out again, or a comment changed. */
+function scheduleMarks(): void {
+	if (marksFrame === undefined) {
+		marksFrame = window.requestAnimationFrame(() => {
+			marksFrame = undefined;
+			renderMarks();
+		});
+	}
+}
+
+function renderMarks(): void {
+	const reader = view;
+	const area = bookHost.getBoundingClientRect();
+	const placed: { readonly id: string; readonly left: number; readonly top: number }[] = [];
+	for (const [id, anchored] of reader ? anchors : []) {
+		const comment = commentById(id);
+		const range = ranges.get(anchored.cfi);
+		const place = comment && range && isComment(comment) ? markPlace(reader!, range, area) : undefined;
+		if (place) {
+			placed.push({ id, ...place });
+		}
+	}
+	// Marks of one column that would cover one another stand one under the other.
+	const columns = new Map<number, typeof placed>();
+	for (const mark of placed) {
+		const column = Math.round(mark.left);
+		columns.set(column, [...columns.get(column) ?? [], mark]);
+	}
+	const shown = new Set<string>();
+	for (const mark of [...columns.values()].flatMap(column => stackCommentMarks(column))) {
+		shown.add(mark.id);
+		let button = markElements.get(mark.id);
+		if (!button) {
+			button = makeMark(mark.id);
+			markElements.set(mark.id, button);
+		}
+		button.style.left = `${mark.left}px`;
+		button.style.top = `${mark.top}px`;
+		button.classList.toggle('open', notes.openId === mark.id);
+	}
+	for (const [id, button] of markElements) {
+		if (!shown.has(id)) {
+			button.remove();
+			markElements.delete(id);
+		}
+	}
+}
+
+/**
+ * Where a comment's mark stands in the layer, its middle and its top: in
+ * the middle of the blank between the column its passage begins in and the
+ * next column or the edge of the reader, at most 24 px from the column, on
+ * the passage's first line; nowhere while that line is on another page.
+ */
+function markPlace(reader: IFoliateView, range: Range, area: DOMRect): { readonly left: number; readonly top: number } | undefined {
+	const doc = range.startContainer.ownerDocument;
+	const frameElement = doc?.defaultView?.frameElement;
+	const first = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0);
+	if (!doc || !frameElement?.isConnected || !first) {
+		return undefined;
+	}
+	const frame = frameElement.getBoundingClientRect();
+	const column = columnOf(reader, doc, first);
+	if (!column) {
+		return undefined;
+	}
+	const right = frame.left + column.right - area.left;
+	const blank = Math.min(column.next === undefined ? Infinity : frame.left + column.next - area.left, area.width) - right;
+	const distance = Math.max(4, Math.min(24, (blank - COMMENT_MARK_SIZE) / 2));
+	return {
+		left: right + distance + COMMENT_MARK_SIZE / 2,
+		top: frame.top + first.top - area.top + Math.max(0, (first.height - COMMENT_MARK_SIZE) / 2)
+	};
+}
+
+/**
+ * The right edge of the column of text that a line of a section is in, and
+ * where the next column begins, in the coordinates of the section's
+ * document; undefined while the line is on a page not shown.
+ */
+function columnOf(reader: IFoliateView, doc: Document, line: DOMRect): { readonly right: number; readonly next?: number } | undefined {
+	if (reader.isFixedLayout) {
+		return { right: doc.documentElement.getBoundingClientRect().right };
+	}
+	if (preferences.flow === 'scrolled') {
+		return { right: doc.body.getBoundingClientRect().right };
+	}
+	const renderer = reader.renderer;
+	const style = doc.defaultView!.getComputedStyle(doc.documentElement);
+	const size = renderer.size;
+	const start = renderer.start;
+	if (size === undefined || start === undefined || style.writingMode.startsWith('vertical')) {
+		return { right: line.right };
+	}
+	// The section's columns stand side by side, one page of them before the first, the page shown from `start`.
+	const shownLeft = start - size;
+	const middle = line.left + line.width / 2;
+	if (middle < shownLeft || middle > shownLeft + size) {
+		return undefined;
+	}
+	const gap = parseFloat(style.columnGap) || 0;
+	const padding = parseFloat(style.paddingLeft) || 0;
+	const width = parseFloat(style.columnWidth) || size;
+	const pitch = size / Math.max(1, Math.round(size / (width + gap)));
+	const index = Math.floor((middle - padding + gap / 2) / pitch);
+	const right = padding + index * pitch + pitch - gap;
+	return { right, next: right + gap };
+}
+
+function makeMark(id: string): HTMLButtonElement {
+	const button = element('button', 'comment-mark', marksLayer);
+	button.type = 'button';
+	button.dataset.comment = id;
+	button.addEventListener('pointerenter', () => {
+		const comment = commentById(id);
+		if (comment && !drafts.has(id)) {
+			notes.hoverEnter(comment, () => markRect(id));
+		}
+	});
+	button.addEventListener('pointerleave', () => notes.hoverLeave());
+	// The selection and the caret stay where they are.
+	button.addEventListener('mousedown', event => event.preventDefault());
+	button.addEventListener('click', () => {
+		const comment = commentById(id);
+		if (comment) {
+			notes.open(comment, button.getBoundingClientRect(), { unsaved: drafts.has(id) });
+			scheduleMarks();
+		}
+	});
+	return button;
+}
+
+/** Where the mark of a comment stands, laid out now, for its note. */
+function markRect(id: string): DOMRect | undefined {
+	if (marksFrame !== undefined) {
+		window.cancelAnimationFrame(marksFrame);
+		marksFrame = undefined;
+	}
+	renderMarks();
+	return markElements.get(id)?.getBoundingClientRect();
 }
 
 // #endregion

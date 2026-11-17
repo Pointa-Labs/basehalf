@@ -34,6 +34,10 @@ declare module 'foliate-js/view.js' {
 	export interface IFoliateRenderer extends HTMLElement {
 		setStyles?(css: string): void;
 		getContents(): readonly { readonly doc: Document; readonly index: number }[];
+		/** In pages: the width of a page, and where the page shown starts and ends in the pages laid side by side, one page before the section's first. */
+		readonly size?: number;
+		readonly start?: number;
+		readonly end?: number;
 	}
 
 	export interface IFoliateSearchMatch {

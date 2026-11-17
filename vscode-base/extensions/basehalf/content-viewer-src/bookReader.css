@@ -47,6 +47,19 @@ foliate-view {
 	height: 100%;
 }
 
+/* The marks of comments, each in the blank to the right of the column of its passage (comments, rule 7). */
+.book-marks {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.book-marks .comment-mark {
+	pointer-events: auto;
+}
+
 /* The chevron at a side of the page while the pointer is in its outer fifth (PDFs and books, rule 35). */
 .turn {
 	position: absolute;

@@ -39,6 +39,8 @@ body {
 }
 
 .pdf-viewport {
+	/* The library pads the pages inside this element: the padding is part of its width, or its right part and its scroll bar stand out of sight. */
+	box-sizing: border-box;
 	width: 100%;
 	height: 100%;
 	overflow: auto;
@@ -91,11 +93,6 @@ body.vscode-high-contrast .pdf-page {
 
 .comment-mark.pin {
 	transform: translate(-50%, -50%);
-}
-
-.comment-mark.open {
-	outline: 2px solid color-mix(in srgb, var(--bh-comment) 50%, transparent);
-	outline-offset: 2px;
 }
 
 .pdf-waves {

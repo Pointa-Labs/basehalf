@@ -143,6 +143,8 @@ export async function assertPdfComments(page) {
 		for (const frame of page.frames()) {
 			const found = await frame.evaluate(() => document.querySelector('#basehalf-reader') ? {
 				marks: document.querySelectorAll('#basehalf-reader .comment-mark').length,
+				markLeft: document.querySelector('#basehalf-reader .comment-mark:not(.pin)')?.getBoundingClientRect().left,
+				pageRight: document.querySelector('#basehalf-reader .pdf-page')?.getBoundingClientRect().right,
 				waves: document.querySelectorAll('#basehalf-reader .comment-wave').length,
 				tints: document.querySelectorAll('#basehalf-reader .comment-tint').length,
 				listed: [...document.querySelectorAll('.reader-comments-item')].map(item => item.classList.contains('highlight') ? 'highlight' : 'comment')
@@ -161,6 +163,10 @@ export async function assertPdfComments(page) {
 	}
 	if (seen?.marks !== 1 || !seen.waves || !seen.tints) {
 		throw new Error(`The comment an agent wrote did not show its wavy line and its mark beside the highlight's tint: ${JSON.stringify(seen)}`);
+	}
+	// The mark stands in the blank outside the page, never on it (comments, rule 7 and criterion 18).
+	if (!(seen.markLeft >= seen.pageRight)) {
+		throw new Error(`The comment's mark stands on the page instead of beside it: ${JSON.stringify(seen)}`);
 	}
 	// The Comments panel at the right lists both (comments, criterion 15).
 	await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-comment').click();
