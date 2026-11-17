@@ -330,10 +330,12 @@ Not in scope, and unchanged:
 
 ### Comments
 
-- Each change of a comment that the user makes is one step of the canvas
-  undo, named for what it did: Highlight, Add Comment, Edit Comment, Change
-  Color, Reply, and Delete Comment ([comments](comments.md#undo)). Words saved
-  within 0.6 s of each other in one comment are one step.
+- Each change of a highlight or a comment that the user makes is one step of
+  the canvas undo, named for what it did: Highlight, Add Comment, Edit
+  Comment, Change Color, Reply, Delete Highlight, and Delete Comment
+  ([comments](comments.md#undo)); a comment note closed without words is
+  Delete Comment. Words saved within 0.6 s of each other in one comment are
+  one step.
 - The step holds the comment as it was before and after, by its `id`. Undo
   and redo put that comment back into `comments.yaml` as it is now, and leave
   the other comments as they are, also those an agent wrote since.

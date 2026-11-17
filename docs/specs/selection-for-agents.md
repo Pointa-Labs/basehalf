@@ -153,9 +153,9 @@ text: "核心概念\nIR（原始需求）：用户想要什么（业务导向、
 - `comment` has `path`, the PDF, the book, or the note; `comment`, the
   comment's `id` in its `comments.yaml`; `quote`, its passage, missing for a
   comment on a place of a page; and `text`, its words, empty for a
-  highlight. It is recorded while the comment's note is open, and the
-  record goes back to the document's card, or to the note's text, when it
-  closes ([comments](comments.md#agents)).
+  highlight. It is recorded while the comment's note or the highlight's
+  tools are open, and the record goes back to the document's card, or to
+  the note's text, when they close ([comments](comments.md#agents)).
 - `path` names the folder, the card, or the note of the text, relative to the
   workspace folder, with forward slashes, as the entries of an upstream list
   do. The workspace folder itself is `.`.

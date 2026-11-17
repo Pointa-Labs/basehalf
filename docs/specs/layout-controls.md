@@ -111,7 +111,7 @@ Not in scope, and unchanged:
    of the header ([editing media](media-editing.md#revert-to-original), D120).
    For a PDF or a book the header is the reader's only bar: **Sidebar**, which
    opens and closes the reader's own panel, stands at its left end before the
-   name, and **Search** stands before Close
+   name, and **Find** and **Comments** stand before Close
    ([PDFs and books](documents-and-books.md#the-reader), D135). Sidebar is no
    layout control: the panel is the reader's, and the window's sidebar keeps
    its control in the title bar.

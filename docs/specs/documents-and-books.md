@@ -1,6 +1,6 @@
 # PDFs and books
 
-Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27; the cover is the card, 2026-11-13; one reader of BaseHalf's own with comments, 2026-11-16)
+Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27; the cover is the card, 2026-11-13; one reader of BaseHalf's own with comments, 2026-11-16; Find at the top right and the Comments panel at the right, 2026-11-17)
 Decision: [D81](../decisions.md), [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16), [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27), [D133](../decisions.md#d133--the-cover-of-a-pdf-or-a-book-is-its-card-new-2026-11-13)
 Related: [canvas card placement](canvas-card-placement.md) (the size of a
 card), [canvas card resize](canvas-card-resize.md#which-cards-resize),
@@ -24,8 +24,8 @@ shows the grey face of a file card. A book opens in Card Detail as a PDF
 does: to read it, to grow a note from a passage, and to let an agent see the
 passage the user selected. Both open in one reader of BaseHalf's own, whose
 only bar is the header of Card Detail, with its zoom at the bottom left as
-the canvas has it, and whose selection menu marks a passage with a
-[comment](comments.md).
+the canvas has it, Find at the top right, and the
+[highlights and comments](comments.md) at the right.
 
 ## Problem
 
@@ -49,6 +49,12 @@ nothing a scroll and a press do not, page settings, and the zoom between
 them. The book reader had bars of its own at its top and its bottom, with
 the same words in other places. Selecting text offered Copy and Grow branch
 in a PDF, and Grow branch alone in a book.
+
+Measured on 2026-11-17 on the branch of D135: the search field stood at the
+top of the panel at the left, and its matches in a list in place of the
+tabs, so that going from one match to the next took the panel and a click
+on each; and the Comments list was a tab of that panel, beside the pictures
+of the pages.
 
 People learn from material that is mostly PDF, and a hard book is often an
 e-book file. They import it into a folder and read it there, with the notes
@@ -208,51 +214,65 @@ show the same files ([architecture invariants](../harness/architecture-invariant
 ### The reader
 
 The PDF reader and the book reader are one reader: the same bar, the same
-panel, the same controls at the bottom left, the same selection menu, and
-the same [comments](comments.md). What differs is what a PDF and a book are:
-a PDF has pages and a zoom, a book has text that flows and a size of text.
+panels, the same Find, the same controls at the bottom left, the same
+selection menu, and the same [highlights and comments](comments.md). What
+differs is what a PDF and a book are: a PDF has pages and a zoom, a book has
+text that flows and a size of text.
 
 15. **One bar.** The header of Card Detail is the reader's only bar
     ([layout controls](layout-controls.md#card-detail)). At its left end,
-    before the name, **Sidebar** opens and closes the panel; its hover says
-    "Show Sidebar" or "Hide Sidebar". In its right group, before Close,
-    **Search** opens the panel with the cursor in its search field. For a
-    book, the header shows the title of the chapter after the name, in the
-    color of the header's other words. The reader draws no bar of its own.
+    before the name, **Sidebar** opens and closes the panel at the left; its
+    hover says "Show Sidebar" or "Hide Sidebar". In its right group, before
+    Close, **Find** shows the find bar, and **Comments** opens and closes the
+    Comments panel at the right; its hover says "Show Comments" or "Hide
+    Comments". For a book, the header shows the title of the chapter after
+    the name, in the color of the header's other words. The reader draws no
+    bar of its own.
 16. **What is not there.** No hand and no pointer: a two-finger scroll or the
     wheel moves the pages, and a press in text selects. No menu of the
     library the reader is built on, no page settings, no two pages side by
     side, no turned pages, and no scrolling to the side page by page: a PDF
     is one column of pages, top to bottom.
 
-#### The panel
+#### The panels
 
-17. The panel stands at the left of the reader, 260 px wide: beside the
-    document when the reader is at least 900 px wide, and over it otherwise,
-    where it closes once it took the reader somewhere. It holds a search
-    field at its top and, under it, tabs: **Pages**, **Contents**, and
-    **Comments** for a PDF; **Contents** and **Comments** for a book. A PDF
-    without an outline has no Contents.
-    - **Pages**: a picture of each page, the page shown marked. A click goes
-      to the page.
-    - **Contents**: the outline of a PDF or the table of contents of a book,
-      the entry shown marked; a click goes there. A book without a table of
-      contents shows its sections by their order. A comic book's pages are its
-      pictures in natural name order, each listed by its file name without
-      the extension, and the hidden files of the system that packed it are no
-      pages.
-    - **Comments**: the [Comments list](comments.md#the-comments-list).
-18. Whether the panel is open, and its tab, are kept on this computer for
-    PDFs and for books apart, and a document opens with the panel as it was
-    when the last one of its kind closed.
-19. **Search.** Enter in the search field searches the whole document and
-    lists each match with the words around it, in the order of the
-    document, under its page or its chapter, as they are found; the field
-    says how many. The matches are marked in the pages in the color of a
-    match of Find. A click on a match goes there. While the field holds
-    words the list stands in place of the tabs; emptying the field, or
-    Escape in it, shows the tabs again and takes the marks away. A new search
-    ends the one before.
+17. The panel at the left takes the reader somewhere; the Comments panel at
+    the right shows what the user marked in what the reader shows. Each
+    stands beside the document when the reader is at least 900 px wide, and
+    over it otherwise, where it closes once it took the reader somewhere.
+    - **The panel** stands at the left, 260 px wide. It has the tabs
+      **Pages** and **Contents** for a PDF, and **Contents** for a book; a
+      PDF without an outline has Pages alone. A panel with one tab shows no
+      tabs.
+      - **Pages**: a picture of each page, the page shown marked. A click
+        goes to the page.
+      - **Contents**: the outline of a PDF or the table of contents of a
+        book, the entry shown marked; a click goes there. A book without a
+        table of contents shows its sections by their order. A comic book's
+        pages are its pictures in natural name order, each listed by its file
+        name without the extension, and the hidden files of the system that
+        packed it are no pages.
+    - **The Comments panel** stands at the right, 280 px wide, and lists the
+      document's highlights and comments
+      ([comments](comments.md#the-comments-panel)).
+18. Whether each panel is open, and the tab of the panel at the left, are
+    kept on this computer for PDFs and for books apart, and a document opens
+    with the panels as they were when the last one of its kind closed.
+19. **Find.** Find in the header, or Cmd+F, shows the find bar at the top
+    right of the document, under the header and left of the Comments panel,
+    with the cursor in its field and all of it selected. The bar holds the
+    field, the count, **Previous Match**, **Next Match**, and **Close**.
+    - Typing searches the whole document 250 ms after the last key. Every
+      match is marked in the pages in the color of a match of Find, and the
+      reader goes to the first match at or after the page or the place it
+      shows, which is marked more strongly. The count says "3 of 27", or "No
+      results"; a book's matches are counted as its sections are searched.
+    - Enter and Next Match go to the next match, and Shift+Enter and Previous
+      Match to the one before, round from the last to the first.
+    - Emptying the field takes the marks away. Escape in the bar, or Close,
+      takes them away and hides the bar; Find again shows the bar with the
+      words it held.
+    - A new search ends the one before.
 
 #### At the bottom left
 
@@ -291,9 +311,9 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
 #### The keyboard
 
 26. The reader takes the keyboard when Card Detail is drawn. Escape closes,
-    one at a time and in this order: a menu, a comment note, the search, the
-    panel while it stands over the document, and then Card Detail. Cmd+F
-    opens the search.
+    one at a time and in this order: a menu, a comment note or the tools of
+    a highlight, the find bar, the selection, a panel while it stands over
+    the document, and then Card Detail. Cmd+F shows the find bar.
 
 ### The PDF reader
 
@@ -341,8 +361,8 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
     does. Card Detail fades in first and the book draws itself after the
     transition ([opening and closing Card Detail](card-detail-opening.md)).
 34. **Layout.** The book in the middle, in one column, or in two when the
-    reader is wide enough, with the [panel](#the-panel) at its left and the
-    place and Aa at its bottom left.
+    reader is wide enough, with the [panels](#the-panels) at its left and
+    its right and the place and Aa at its bottom left.
 35. **Turning pages.** The Left and Right arrow keys, Page Up and Page Down,
     Space and Shift+Space, and a click in the outer fifth of the page at
     either side, where a chevron shows while the pointer is there. A book
@@ -401,8 +421,8 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
 
 - A cover is 800 pixels wide. On a card zoomed to more than 150 % on a
   retina screen it is less sharp than the page in Card Detail.
-- The search of a long book takes seconds; matches appear as they are
-  found, and a new search ends the one before.
+- Find in a long book takes seconds; the count grows as its sections are
+  searched, and a new search ends the one before.
 - Text that a book sets in absolute sizes does not follow Smaller Text and
   Larger Text.
 - A PDF over 512 MB has no cover, so that a cover never needs half a
@@ -430,9 +450,9 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
 7. A password-locked PDF, a damaged PDF, an EPUB without a cover, and a
    MOBI with DRM show the grey face, and the EPUB its title.
 8. Each book opens in Card Detail: pages turn with the keys and the side of
-   the page; Contents in the panel goes to a chapter; Search lists matches
-   and goes to one; Larger Text in the Aa menu makes the text larger; Escape
-   closes Card Detail.
+   the page; Contents in the panel goes to a chapter; Find goes to a match
+   and Enter to the next; Larger Text in the Aa menu makes the text larger;
+   Escape closes Card Detail.
 9. Closing a book on page N and opening it again shows page N.
 10. A book whose page holds a script and an image from the web runs no
     script and requests nothing from the network.
@@ -460,18 +480,20 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
     within a second: the reader shows its controls and the page it opens at
     in the same frame.
 19. With a PDF open, Card Detail shows one bar, its header, with Sidebar
-    before the name and Search before Close, and no other bar; the reader
-    has no hand, pointer, menu, or page settings.
+    before the name and Find and Comments before Close, and no other bar;
+    the reader has no hand, pointer, menu, or page settings.
 20. The page and the zoom stand at the bottom left, 14 px from the left and
     16 px from the bottom of the reader. Zoom In from the zoom menu and
     Cmd+= zoom the PDF by the same step; typing 7 into the page goes to page
     7.
-21. Sidebar opens the panel with Pages, Contents, and Comments for a PDF with
-    an outline, and Contents and Comments for a book; a click on a page's
+21. Sidebar opens the panel with Pages and Contents for a PDF with an
+    outline, and with Contents and no tabs for a book; a click on a page's
     picture goes to it; after Card Detail closes and another PDF opens, the
-    panel is open at the same tab.
-22. Search for a word of a PDF lists its matches under their pages and marks
-    them; Escape in the field shows the tabs again and takes the marks away.
+    panel is open at the same tab. Comments opens the Comments panel at the
+    right, and it is open again in the next PDF.
+22. Find with a word of a PDF marks its matches, says "1 of N", and shows the
+    first at or after the page shown; Enter goes to the next and Shift+Enter
+    back; Escape takes the marks away and hides the bar.
 23. Selecting text in a PDF and in a book shows Highlight, Comment, Grow
     branch, and Copy above it; Copy puts the text on the clipboard.
 24. A link to a page in a PDF goes to that page; a link to a website asks
@@ -483,7 +505,7 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
 ## Verification
 
 - Unit tests: the formats and their glyphs; the reader's zoom steps, the
-  page field, and the kept state of the panel; the cover readers of EPUB,
+  page field, and the kept state of both panels; the cover readers of EPUB,
   Kindle, FictionBook, and comic book archives against small files made in
   the test (covers by property, by `meta`, by guide; a Kindle file with
   DRM; FictionBook in windows-1251); the cache key and its entries; the
@@ -494,8 +516,9 @@ a PDF has pages and a zoom, a book has text that flows and a size of text.
   and Hide Cover and Show Cover (criteria 1 and 3), the book's 3:4 cover
   filling its card and the landscape page whole (criterion 16), and every
   frame while the PDF's card is selected (criterion 17); the cardDetail suite
-  opens an EPUB, turns a page, and grows a branch (criteria 8 and 11). A unit
-  test holds the rule of which covers fill the card.
+  checks the header of a PDF (criterion 19), opens an EPUB, turns a page,
+  and grows a branch (criteria 8 and 11). A unit test holds the rule of
+  which covers fill the card.
 - Criterion 18 was measured in a development window (2026-11-13), recording
   the screen at about 120 frames a second while the course PDF of the launch
   film opened four times: each time Card Detail showed its background until

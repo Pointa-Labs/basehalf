@@ -6527,3 +6527,26 @@ it to the reader's design, which leaves both out.
 - Revises D57's record: `selected: "comment"`. The skill's version grows.
 - The header of Card Detail holds the reader's Sidebar and Search for a PDF or a book.
 - The book reader loses its own top and bottom bars, its Previous and Next Page buttons, and the button above a selection.
+
+**Revised 2026-11-17: highlights and comments apart, the Comments panel at the right, and Find at the top right.** A
+highlight colors a passage of a PDF or a book; a comment has no color and draws a thin yellow wavy line under its passage, with
+its words on a yellow sticky note and its mark beside it. One passage can carry both, as two entries of `comments.yaml`: one
+with `text` is a comment, one without a highlight. A note closed without words deletes its comment, as a step of undo, and no
+longer leaves a highlight. Comments, a button of the header after Find, opens a panel at the right of the reader that lists the
+highlights and the comments; the panel at the left keeps Pages and Contents. Search becomes Find: a bar at the top right of the
+document with the count, Previous Match, Next Match, and Close, and no list of matches. A note shows comments only. The skill's
+version becomes 15.
+
+**Why.** Using the reader, the owner asked whether a highlight and a comment should be apart, whether comments belong beside the
+pages at the left, and whether search should stand at the top right; a click on a comment, they suggested, should draw a yellow
+wavy line, and highlights should be the colorful ones. Offered these answers point by point, they took all four: comments and
+highlights apart, the margin marks kept, highlights listed with the comments, and Find with no list.
+
+**What was set aside.**
+- A comment as a highlight with words, the first design: Comment painted a passage in the last highlight's color before a word
+  was written, and removing the words left a highlight the user never made.
+- A color for comments: the wavy line and the note are yellow, so that a color always means a highlight.
+- One entry that is both a highlight and a comment: deleting either would have to keep half of it, which is the first design
+  again.
+- A list of matches with the words around them: going from match to match is what a reader does while reading, and the top
+  right is where Find stands in the editor and in a browser.

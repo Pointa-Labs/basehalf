@@ -15,7 +15,9 @@ follows every release, and offered until the user answers, 2026-10-26, D83;
 version 11, 2026-11-02, D110: the formats a note keeps; version 12,
 2026-11-03, D111: the files inside a note; version 13, 2026-11-04, D119: text
 selected in the earlier version of a file; version 14, 2026-11-16, D135:
-comments, and a comment in the record of what the user selected)
+comments, and a comment in the record of what the user selected; version 15,
+2026-11-17, D135: highlights and comments are entries apart, and a comment
+has no color)
 Decisions: [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16),
 [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
@@ -181,13 +183,16 @@ its own, which the agents' folders link to
    each field means; that a comment finds its passage by `quote`, copied
    from the text as the reader shows it (a note's text without its Markdown
    marks), with `page` counted from 1 in the file for a PDF and `chapter`
-   for a book when the agent knows it; that a comment without `text` is a
-   highlight; that an agent adds a comment or a reply at the end of its list
-   with `by` set to its own name and `at` to the time, leaves `id` out or
-   makes one of eight lowercase letters and digits, and changes or deletes
-   the user's comments and replies only when the user asks; that the file
-   stays YAML; and that BaseHalf shows a change at once. The record of what
-   the user selected can name a comment (`selected: "comment"`).
+   for a book when the agent knows it; that an entry with `text` is a
+   comment, which has no color, and an entry without `text` and replies is
+   a highlight of a PDF or a book with a `color`; that an agent adds a
+   comment or a reply at the end of its list with `by` set to its own name
+   and `at` to the time, leaves `id` out or makes one of eight lowercase
+   letters and digits, answers the user about a highlight with a comment on
+   its passage, and changes or deletes the user's highlights, comments, and
+   replies only when the user asks; that the file stays YAML; and that
+   BaseHalf shows a change at once. The record of what the user selected can
+   name a comment or a highlight (`selected: "comment"`).
 
 The body describes where things are and what they mean. Following D36, it
 does not tell an agent what to read or in what order. It stays under 500
@@ -402,7 +407,7 @@ the user's home folder.
    contains every line of the launch instruction's shared sections, and has
    fewer than 500 lines. It names no `.bhnode` and no `--run-node`. It gives
    the forms of section 6, each spelled as the writer of formats of a note
-   writes it, and section 8 on comments, last. Its version is `14`. Unit
+   writes it, and section 8 on comments, last. Its version is `15`. Unit
    test.
 2. Installing writes BaseHalf's own copy with exactly the bundled bytes and
    links both entries to its folder, creating missing folders. The states
