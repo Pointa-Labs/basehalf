@@ -182,6 +182,58 @@ export async function assertPdfComments(page) {
 	fs.rmSync(file);
 }
 
+/**
+ * Find in the header shows the find bar with the keyboard in its field;
+ * typing a word of the PDF in another case marks its match strongly and
+ * counts it; Escape takes the marks away and hides the bar (PDFs and books,
+ * rule 19 and criterion 22).
+ */
+export async function assertPdfFind(page) {
+	await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-search').click();
+	const state = async () => {
+		for (const frame of page.frames()) {
+			const found = await frame.evaluate(() => document.querySelector('#basehalf-reader.pdf') ? {
+				open: !(document.querySelector('.reader-find') as HTMLElement | null)?.hidden,
+				focused: document.activeElement?.classList.contains('reader-find-field') ?? false,
+				count: document.querySelector('.reader-find-count')?.textContent ?? '',
+				matches: document.querySelectorAll('.find-match').length,
+				active: document.querySelectorAll('.find-match.active').length
+			} : undefined).catch(() => undefined);
+			if (found) {
+				return found;
+			}
+		}
+		return undefined;
+	};
+	let seen = await state();
+	const openBy = Date.now() + 5_000;
+	while (!(seen?.open && seen.focused) && Date.now() < openBy) {
+		await page.waitForTimeout(100);
+		seen = await state();
+	}
+	if (!seen?.open || !seen.focused) {
+		throw new Error(`Find did not show the find bar with the keyboard in its field: ${JSON.stringify(seen)}`);
+	}
+	await page.keyboard.type('pdf', { delay: 60 });
+	const countBy = Date.now() + 5_000;
+	while (!(seen?.count === '1 of 1' && seen.active) && Date.now() < countBy) {
+		await page.waitForTimeout(100);
+		seen = await state();
+	}
+	if (seen?.count !== '1 of 1' || !seen.active) {
+		throw new Error(`Find did not mark and count the word of the PDF: ${JSON.stringify(seen)}`);
+	}
+	await page.keyboard.press('Escape');
+	const closeBy = Date.now() + 5_000;
+	while ((seen?.open || seen?.matches) && Date.now() < closeBy) {
+		await page.waitForTimeout(100);
+		seen = await state();
+	}
+	if (seen?.open || seen?.matches) {
+		throw new Error(`Escape did not hide the find bar and take its marks away: ${JSON.stringify(seen)}`);
+	}
+}
+
 // Each branch note is created with the PDF in its `upstream` frontmatter, in
 // its first saved bytes (D37): the PDF → note edge appears and nothing else is
 // written for the connection.

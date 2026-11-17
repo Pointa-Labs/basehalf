@@ -101,6 +101,25 @@ body.vscode-high-contrast .pdf-page {
 	pointer-events: none;
 }
 
+/* The matches of Find on a page, under the text as a marker's ink, and the one shown more strongly, with a ring (PDFs and books, rule 19). */
+.pdf-find-matches {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.find-match {
+	position: absolute;
+	border-radius: 2px;
+	background: rgb(255 170 0 / 32%);
+	mix-blend-mode: multiply;
+}
+
+.find-match.active {
+	background: rgb(255 128 0 / 55%);
+	box-shadow: 0 0 0 1.5px rgb(240 118 0 / 90%);
+}
+
 .thumbnails {
 	position: relative;
 	overflow: auto;

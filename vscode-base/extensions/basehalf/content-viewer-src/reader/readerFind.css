@@ -60,3 +60,17 @@
 	min-width: 24px;
 	padding: 0 4px;
 }
+
+/* While a long document is searched, a thin line at the foot of the bar grows with the part searched. */
+.reader-find-progress {
+	position: absolute;
+	left: 8px;
+	right: 8px;
+	bottom: 1px;
+	height: 2px;
+	border-radius: 1px;
+	background: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+	transform-origin: left center;
+	transition: transform 120ms linear;
+	pointer-events: none;
+}

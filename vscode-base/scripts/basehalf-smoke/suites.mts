@@ -42,6 +42,7 @@ import {
 	assertMediaCardDetail,
 	assertPdfCardDetail,
 	assertPdfComments,
+	assertPdfFind,
 	assertPdfGrowsThreeBranches,
 	assertSourceCardFlushesBeforeNavigation,
 	assertSourceCardSaveActionHidden,
@@ -310,6 +311,7 @@ async function runCardDetailSuite(page) {
 	await step('pdf-card-detail-projection', () => assertPdfCardDetail(page));
 	await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
 	await step('pdf-comments', () => assertPdfComments(page));
+	await step('pdf-find', () => assertPdfFind(page));
 	await step('pdf-grow-three-branches', () => assertPdfGrowsThreeBranches(page));
 	await step('quick-open-book', () => quickOpen(page, 'primer.epub'));
 	await step('book-card-detail', () => assertBookCardDetail(page));

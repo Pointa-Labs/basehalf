@@ -11,7 +11,7 @@ import './reader/reader.css';
 import './pdfViewer.css';
 import { render } from 'preact';
 import { createPortal } from 'preact/compat';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { createPluginRegistration, type PluginRegistry } from '@embedpdf/core';
 import { EmbedPDF, useDocumentState } from '@embedpdf/core/preact';
 import { usePdfiumEngine } from '@embedpdf/engines/preact';
@@ -21,7 +21,6 @@ import { DocumentContent, DocumentManagerPlugin, DocumentManagerPluginPackage } 
 import { InteractionManagerPluginPackage, PagePointerProvider } from '@embedpdf/plugin-interaction-manager/preact';
 import { RenderLayer, RenderPluginPackage } from '@embedpdf/plugin-render/preact';
 import { Scroller, ScrollPlugin, ScrollPluginPackage, type PageLayout } from '@embedpdf/plugin-scroll/preact';
-import { SearchLayer, SearchPlugin, SearchPluginPackage } from '@embedpdf/plugin-search/preact';
 import { rectsWithinSlice, SelectionLayer, SelectionPlugin, SelectionPluginPackage, type SelectionCapability } from '@embedpdf/plugin-selection/preact';
 import { ThumbImg, ThumbnailPluginPackage, ThumbnailsPane } from '@embedpdf/plugin-thumbnail/preact';
 import { TilingLayer, TilingPluginPackage } from '@embedpdf/plugin-tiling/preact';
@@ -34,6 +33,7 @@ import { baseHalfCommentsSetMessage, type BaseHalfCommentStep } from '../../../s
 import { BASEHALF_COMMENT_DEFAULT_COLOR, baseHalfCommentCut, baseHalfCommentTime, type IBaseHalfComment, isBaseHalfHighlight, newBaseHalfCommentId } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 import { baseHalfReaderCommandMessage, normalizeBaseHalfReaderPanelState, type IBaseHalfReaderLabels, type IBaseHalfReaderPanelState } from '../../../src/vs/workbench/basehalf/documents/common/basehalfReaderProtocol.js';
 import { PdfCommentStore } from './pdfComments.js';
+import { PdfFind, type IPdfFindMatch, type IPdfFindPlace } from './pdfFind.js';
 import { CommentNotes, stackCommentMarks } from './reader/commentNotes.js';
 import { ReaderChrome } from './reader/readerChrome.js';
 import { ReaderCommentsPanel, type ICommentsPanelItem } from './reader/readerComments.js';
@@ -134,10 +134,25 @@ const commentsPanel = new ReaderCommentsPanel(root, {
 
 const find = new ReaderFindBar(root, {
 	labels,
-	search: query => void findAll(query),
+	search: query => findAll(query),
 	next: () => goToMatch(1),
 	previous: () => goToMatch(-1),
 	closed: () => stopFind()
+});
+
+/** The pages that draw the marks of Find, told when the matches or the match shown change. */
+const findListeners = new Set<() => void>();
+const pdfFind = new PdfFind({
+	pageCount: () => pdfDocument?.pageCount ?? totalPages,
+	pageText: index => pageText(index),
+	matchTop: match => matchRects(match)?.[0]?.origin.y,
+	onShow: match => showMatch(match),
+	onChange: () => {
+		for (const listener of findListeners) {
+			listener();
+		}
+		showFindCount();
+	}
 });
 
 const notes = new CommentNotes({
@@ -179,7 +194,7 @@ window.addEventListener('message', event => {
 	if (command?.command === 'toggleSidebar') {
 		panel.toggle();
 	} else if (command?.command === 'find') {
-		find.open();
+		find.open(selectedText);
 	} else if (command?.command === 'toggleComments') {
 		commentsPanel.toggle();
 	}
@@ -218,7 +233,13 @@ window.addEventListener('keydown', event => {
 	// Cmd+F shows the find bar. The page that holds the reader prevents its default first, so that the browser's own find does not open.
 	if (mod && !event.altKey && !event.shiftKey && (event.key === 'f' || event.key === 'F')) {
 		event.preventDefault();
-		find.open();
+		find.open(selectedText);
+		return;
+	}
+	// Cmd+G and Shift+Cmd+G go from match to match while the find bar shows, wherever the keyboard is in the reader (PDFs and books, rule 19).
+	if (mod && !event.altKey && (event.key === 'g' || event.key === 'G') && find.hasQuery) {
+		event.preventDefault();
+		find.go(event.shiftKey ? -1 : 1);
 		return;
 	}
 	if (event.defaultPrevented) {
@@ -345,7 +366,6 @@ const plugins = [
 	createPluginRegistration(ZoomPluginPackage, { defaultZoomLevel: zoom === 'fit-page' ? ZoomMode.FitPage : ZoomMode.FitWidth, minZoom: MIN_ZOOM, maxZoom: MAX_ZOOM, zoomStep: ZOOM_STEP }),
 	createPluginRegistration(InteractionManagerPluginPackage),
 	createPluginRegistration(SelectionPluginPackage, { marquee: { enabled: false }, minSelectionDragDistance: 3 }),
-	createPluginRegistration(SearchPluginPackage),
 	createPluginRegistration(ThumbnailPluginPackage, { width: 150, gap: 10, labelHeight: 18, autoScroll: true, scrollBehavior: 'auto', paddingY: 8 }),
 	createPluginRegistration(BookmarkPluginPackage)
 ];
@@ -415,10 +435,23 @@ function Thumbnails({ documentId }: { readonly documentId: string }) {
 
 function Page({ documentId, layout, scale }: { readonly documentId: string; readonly layout: PageLayout; readonly scale: number }) {
 	const pageIndex = layout.pageIndex;
-	const [, setVersion] = useState(comments.version);
+	const [commentsVersion, setVersion] = useState(comments.version);
+	const [found, setFound] = useState(() => findOnPage(pageIndex));
 	const [geometry, setGeometry] = useState<PdfPageGeometry | undefined>(undefined);
 	const [links, setLinks] = useState<readonly PdfLinkAnnoObject[]>([]);
 	useEffect(() => comments.subscribe(() => setVersion(comments.version)), []);
+	// A page draws again only when its own matches or its match shown change, not at each step of a long search.
+	useEffect(() => {
+		const listener = () => setFound(previous => {
+			const next = findOnPage(pageIndex);
+			return next.matches === previous.matches && next.active === previous.active ? previous : next;
+		});
+		listener();
+		findListeners.add(listener);
+		return () => {
+			findListeners.delete(listener);
+		};
+	}, [pageIndex]);
 	useEffect(() => {
 		let live = true;
 		void pageGeometry(pageIndex).then(found => live && setGeometry(found));
@@ -428,10 +461,12 @@ function Page({ documentId, layout, scale }: { readonly documentId: string; read
 		};
 	}, [pageIndex]);
 	// Highlights are tints under the text, comments wavy lines under it (comments, rule 6).
-	const passages = geometry ? comments.rangesOn(pageIndex).map(range => ({ ...range, rects: rectsWithinSlice(geometry, range.start, range.end, true) })) : [];
+	const passages = useMemo(() => geometry ? comments.rangesOn(pageIndex).map(range => ({ ...range, rects: rectsWithinSlice(geometry, range.start, range.end, true) })) : [], [geometry, commentsVersion, pageIndex]);
 	const tints = passages.filter(passage => !comments.isComment(passage.comment));
 	const waves = passages.filter(passage => comments.isComment(passage.comment));
 	const pins = comments.pinsOn(pageIndex);
+	// The matches of Find, the one shown marked more strongly (PDFs and books, rule 19).
+	const matches = useMemo(() => geometry ? found.matches.map(match => ({ match, rects: rectsWithinSlice(geometry, match.start, match.end - 1, true) })) : [], [geometry, found.matches]);
 	const box = (rect: Rect) => ({ left: rect.origin.x * scale, top: rect.origin.y * scale, width: rect.size.width * scale, height: rect.size.height * scale });
 	// The wave's middle under the baseline, where an underline stands, a tenth of the line's height above its box's bottom: a paper's lines are close, and lower it would cross the tall letters of the next line.
 	const underline = (rect: Rect) => ({ left: rect.origin.x * scale, top: (rect.origin.y + rect.size.height * 0.9) * scale - 2, width: rect.size.width * scale });
@@ -447,7 +482,9 @@ function Page({ documentId, layout, scale }: { readonly documentId: string; read
 				<div class='pdf-tints'>
 					{tints.flatMap(tint => tint.rects.map((rect, index) => <div key={`${tint.comment.id}-${index}`} class='comment-tint' data-color={tint.comment.color} style={box(rect)} />))}
 				</div>
-				<SearchLayer documentId={documentId} pageIndex={pageIndex} highlightColor='rgb(255 166 0 / 32%)' activeHighlightColor='rgb(255 120 0 / 55%)' />
+				<div class='pdf-find-matches'>
+					{matches.flatMap(({ match, rects }) => rects.map((rect, index) => <div key={`${match.start}-${index}`} class={`find-match${match === found.active ? ' active' : ''}`} style={box(rect)} />))}
+				</div>
 				<SelectionLayer documentId={documentId} pageIndex={pageIndex} textStyle={{ background: 'rgb(51 136 255 / 30%)' }} />
 				<div class='pdf-waves'>
 					{waves.flatMap(wave => wave.rects.map((rect, index) => <div key={`${wave.comment.id}-${index}`} class='comment-wave' data-comment={wave.comment.id} style={underline(rect)} />))}
@@ -861,24 +898,19 @@ function pageGeometry(pageIndex: number): Promise<PdfPageGeometry | undefined> {
 	return found;
 }
 
-/** The text of a page, one character of the string for each character the engine counts on it. */
+/**
+ * The text of a page, one character of the string for each character the
+ * engine counts on it, read once for the comments and for Find: the text
+ * alone, without the boxes of its characters, which only a page drawn needs.
+ */
 function pageText(pageIndex: number): Promise<string | undefined> {
 	let found = texts.get(pageIndex);
 	if (!found) {
-		found = (async () => {
-			const geometry = await pageGeometry(pageIndex);
-			const last = geometry?.runs[geometry.runs.length - 1];
-			const count = last ? last.charStart + last.glyphs.length : 0;
-			if (!pdfDocument || count === 0) {
-				return '';
-			}
-			try {
-				const [text] = await engine()!.getTextSlices(pdfDocument, [{ pageIndex, charIndex: 0, charCount: count }]).toPromise();
-				return text ?? '';
-			} catch {
-				return undefined;
-			}
-		})();
+		const pdf = pdfDocument;
+		if (!pdf) {
+			return Promise.resolve(undefined);
+		}
+		found = engine()!.extractText(pdf, [pageIndex]).toPromise().then(text => text ?? '', () => undefined);
 		texts.set(pageIndex, found);
 	}
 	return found;
@@ -1323,85 +1355,114 @@ function isShown(pageIndex: number, point: { readonly x: number; readonly y: num
 
 // #region Find
 
-let findRun = 0;
-
-function searchScope() {
-	return registry?.getPlugin<SearchPlugin>(SearchPlugin.id)?.provides().forDocument(DOCUMENT_ID);
+/** Searches the whole PDF from the top of what the reader shows (PDFs and books, rule 19); an empty query takes the marks away. */
+function findAll(query: string): void {
+	if (!query) {
+		pdfFind.clear(false);
+		return;
+	}
+	void pdfFind.search(query, selectionPlace(query) ?? topOfView());
 }
+
+/** Where the selected text starts, when Find took it as its words. */
+function selectionPlace(query: string): IPdfFindPlace | undefined {
+	const range = registry?.getPlugin<SelectionPlugin>(SelectionPlugin.id)?.provides().forDocument(DOCUMENT_ID).getState().selection;
+	if (!range || selectedText.trim() !== query) {
+		return undefined;
+	}
+	const start = range.start.page < range.end.page || (range.start.page === range.end.page && range.start.index <= range.end.index) ? range.start : range.end;
+	return { pageIndex: start.page, top: 0, char: start.index };
+}
+
+/** Enter, Shift+Enter, Cmd+G, and Shift+Cmd+G: the next or the previous match, round from the last to the first. */
+function goToMatch(direction: 1 | -1): void {
+	pdfFind.step(direction);
+}
+
+let showRun = 0;
 
 /**
- * Searches the whole PDF and goes to the first match at or after the page
- * shown (PDFs and books, rule 19). The count grows while pages are searched.
+ * The match marked more strongly: brought into sight, a little above the
+ * middle, only when it is out of sight or under the find bar.
  */
-async function findAll(query: string): Promise<void> {
-	const scope = searchScope();
-	if (!scope) {
+async function showMatch(match: IPdfFindMatch): Promise<void> {
+	const run = ++showRun;
+	await pageGeometry(match.pageIndex);
+	if (run !== showRun) {
 		return;
 	}
-	const run = ++findRun;
-	if (!query) {
-		scope.stopSearch();
-		find.setCount(undefined, 0, false);
+	const first = matchRects(match)?.[0];
+	if (isMatchShown(match.pageIndex, first)) {
 		return;
 	}
-	find.setCount(undefined, 0, false);
-	try {
-		const task = scope.searchAllPages(query);
-		task.onProgress(() => {
-			if (run === findRun) {
-				find.setCount(undefined, scope.getState().results.length, false);
-			}
-		});
-		const found = await task.toPromise();
-		if (run !== findRun) {
-			return;
-		}
-		if (found.results.length === 0) {
-			find.setCount(undefined, 0, true);
-			return;
-		}
-		const first = found.results.findIndex(result => result.pageIndex >= page - 1);
-		showMatch(first === -1 ? 0 : first);
-	} catch (error) {
-		if (run === findRun) {
-			console.warn('[BaseHalf] the search of the PDF failed', error);
-			find.setCount(undefined, 0, true);
-		}
-	}
+	const point = first ? { x: first.origin.x, y: first.origin.y } : undefined;
+	registry?.getPlugin<ScrollPlugin>(ScrollPlugin.id)?.provides().forDocument(DOCUMENT_ID).scrollToPage({
+		pageNumber: match.pageIndex + 1,
+		...(point ? { pageCoordinates: point, alignX: 50, alignY: 40 } : {}),
+		behavior: 'instant'
+	});
 }
 
-/** Enter and Shift+Enter: the next or the previous match, round from the last to the first. */
-function goToMatch(direction: 1 | -1): void {
-	const state = searchScope()?.getState();
-	const count = state?.results.length ?? 0;
-	if (!state || count === 0) {
-		return;
+/** Whether a match stands in sight, clear of the edges and of the find bar. */
+function isMatchShown(pageIndex: number, rect: Rect | undefined): boolean {
+	const pageElement = documentHost.querySelector<HTMLElement>(`.pdf-page[data-page="${pageIndex + 1}"]`);
+	if (!pageElement || !rect) {
+		return false;
 	}
-	const current = state.activeResultIndex < 0 ? (direction === 1 ? -1 : 0) : state.activeResultIndex;
-	showMatch((current + direction + count) % count);
+	const shown = documentHost.getBoundingClientRect();
+	const page = pageElement.getBoundingClientRect();
+	const scale = currentScale();
+	const left = page.left + rect.origin.x * scale;
+	const top = page.top + rect.origin.y * scale;
+	const right = left + rect.size.width * scale;
+	const bottom = top + rect.size.height * scale;
+	if (top < shown.top + 8 || bottom > shown.bottom - 60 || left < shown.left || right > shown.right) {
+		return false;
+	}
+	const bar = find.element.getBoundingClientRect();
+	return !(find.isOpen && right > bar.left - 8 && left < bar.right + 8 && top < bar.bottom + 8 && bottom > bar.top - 8);
 }
 
-/** Marks a match more strongly than the others and brings it into sight when it is not. */
-function showMatch(index: number): void {
-	const scope = searchScope();
-	const state = scope?.getState();
-	const result = state?.results[index];
-	if (!scope || !state || !result) {
+/** The count, once the place of the match shown is known, and the thin line of a search that runs. */
+function showFindCount(): void {
+	if (!find.isOpen) {
 		return;
 	}
-	scope.goToResult(index);
-	const rect = result.rects[0];
-	const point = rect ? { x: rect.origin.x, y: rect.origin.y } : undefined;
-	if (!isShown(result.pageIndex, point)) {
-		registry?.getPlugin<ScrollPlugin>(ScrollPlugin.id)?.provides().forDocument(DOCUMENT_ID).scrollToPage({ pageNumber: result.pageIndex + 1, ...(point ? { pageCoordinates: point, alignY: 40 } : {}), behavior: 'instant' });
-	}
-	find.setCount(index + 1, state.results.length, true);
+	find.setCount(pdfFind.activeIndex, pdfFind.all.length, pdfFind.done);
+	find.setProgress(pdfFind.done ? undefined : pdfFind.progress);
 }
 
-/** The find bar closed: its marks go. */
+/** The find bar closed: its marks go, and the texts made for it. */
 function stopFind(): void {
-	findRun++;
-	searchScope()?.stopSearch();
+	showRun++;
+	pdfFind.clear(true);
+}
+
+/** The matches of Find on a page, and its match shown when it has it. */
+function findOnPage(pageIndex: number): { readonly matches: readonly IPdfFindMatch[]; readonly active: IPdfFindMatch | undefined } {
+	const active = pdfFind.active;
+	return { matches: pdfFind.matchesOn(pageIndex), active: active?.pageIndex === pageIndex ? active : undefined };
+}
+
+/** The boxes of a match on its page, once the boxes of the page were read. */
+function matchRects(match: IPdfFindMatch): Rect[] | undefined {
+	const geometry = readGeometries.get(match.pageIndex);
+	return geometry ? rectsWithinSlice(geometry, match.start, match.end - 1, true) : undefined;
+}
+
+/** The top of what the reader shows: the first page in sight and the height on it, in the units of the page. */
+function topOfView(): IPdfFindPlace {
+	const shown = documentHost.getBoundingClientRect();
+	const scale = currentScale();
+	let found: IPdfFindPlace | undefined;
+	for (const pageElement of documentHost.querySelectorAll<HTMLElement>('.pdf-page')) {
+		const box = pageElement.getBoundingClientRect();
+		const pageIndex = Number(pageElement.dataset.page) - 1;
+		if (box.bottom > shown.top + 1 && box.top < shown.bottom && (!found || pageIndex < found.pageIndex)) {
+			found = { pageIndex, top: Math.max(0, (shown.top - box.top) / scale) };
+		}
+	}
+	return found ?? { pageIndex: page - 1, top: 0 };
 }
 
 // #endregion

@@ -402,10 +402,12 @@ async function findAll(query: string): Promise<void> {
 	matchIndex = -1;
 	findDone = false;
 	find.setCount(undefined, 0, false);
+	find.setProgress(undefined);
 	if (!query) {
 		return;
 	}
-	const here = reader.lastLocation?.cfi;
+	find.setProgress(0);
+	const here = selectionCfi(reader, query) ?? reader.lastLocation?.cfi;
 	let went = false;
 	for await (const result of reader.search({ query, draw: Overlayer.highlight, drawOptions: { color: findColors().all } })) {
 		if (run !== findRun) {
@@ -413,6 +415,10 @@ async function findAll(query: string): Promise<void> {
 		}
 		if (result === 'done') {
 			break;
+		}
+		const progress = (result as { readonly progress?: unknown }).progress;
+		if (typeof progress === 'number') {
+			find.setProgress(progress);
 		}
 		const section = searchSection(result);
 		if (!section) {
@@ -432,11 +438,24 @@ async function findAll(query: string): Promise<void> {
 		return;
 	}
 	findDone = true;
+	find.setProgress(undefined);
 	if (!went && matches.length) {
 		// None after the place shown: the first of the book.
 		showMatch(0);
 	}
 	find.setCount(matchIndex >= 0 ? matchIndex + 1 : undefined, matches.length, true);
+}
+
+/** Where the selected text starts, when Find took it as its words: the match marked first is the one selected. */
+function selectionCfi(reader: IFoliateView, query: string): string | undefined {
+	const current = selected;
+	const index = current ? indexOfDoc(current.doc) : undefined;
+	if (!current || index === undefined || selection?.text.trim() !== query) {
+		return undefined;
+	}
+	const start = current.range.cloneRange();
+	start.collapse(true);
+	return reader.getCFI(index, start);
 }
 
 function safeCompare(a: string, b: string): number {
@@ -590,7 +609,7 @@ window.addEventListener('message', event => {
 	if (command?.command === 'toggleSidebar') {
 		panel.toggle();
 	} else if (command?.command === 'find') {
-		find.open();
+		find.open(selection?.text);
 	} else if (command?.command === 'toggleComments') {
 		commentsPanel.toggle();
 	}
@@ -614,7 +633,13 @@ function onKeydown(event: KeyboardEvent): void {
 	// Cmd+F shows the find bar. The page that holds the reader prevents its default first, so that the browser's own find does not open.
 	if (mod && !event.altKey && !event.shiftKey && (event.key === 'f' || event.key === 'F')) {
 		event.preventDefault();
-		find.open();
+		find.open(selection?.text);
+		return;
+	}
+	// Cmd+G and Shift+Cmd+G go from match to match while the find bar shows, wherever the keyboard is in the reader (PDFs and books, rule 19).
+	if (mod && !event.altKey && (event.key === 'g' || event.key === 'G') && find.hasQuery) {
+		event.preventDefault();
+		find.go(event.shiftKey ? -1 : 1);
 		return;
 	}
 	if (event.defaultPrevented) {

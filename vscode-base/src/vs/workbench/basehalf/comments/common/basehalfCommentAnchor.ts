@@ -31,9 +31,10 @@ const SPACE = /\s/u;
 /**
  * A character as a quote counts it: letters made into one glyph are their
  * letters, and curly quotation marks and dashes are the plain ones, which is
- * what an agent that copied the text with a tool of its own may have.
+ * what an agent that copied the text with a tool of its own may have. Find
+ * in a PDF counts characters the same way.
  */
-function plainCharacter(character: string): string {
+export function baseHalfPlainCharacter(character: string): string {
 	switch (character) {
 		case '‘': case '’': case '‚': case '‛': case '′':
 			return '\'';
@@ -95,7 +96,7 @@ function searchText(original: string, compact: boolean): ISearchText {
 			index += width;
 			continue;
 		}
-		const normalized = plainCharacter(character);
+		const normalized = baseHalfPlainCharacter(character);
 		const plain = SPACE.test(normalized) ? ' ' : normalized;
 		for (let unit = 0; unit < plain.length; unit++) {
 			starts.push(index);
