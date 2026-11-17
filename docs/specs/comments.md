@@ -422,8 +422,8 @@ moving the page and without closing a comment note the user is writing in.
   comment; the skill's text and version.
 - `npm run basehalf:smoke`: the cardDetail suite makes a highlight in a PDF,
   reads the file, undoes and redoes, and checks that an agent's comment
-  written into the file appears with its wavy line, its mark, and its entry
-  in the Comments panel.
+  written into the file appears with its wavy line, its mark outside the
+  page, and its entry in the Comments panel.
 - The Rich bundle test, part t: the wavy lines and marks of a note's
   comments, a highlight that a note does not show, passages that follow
   typing and undo, comments sent again while a passage is edited, and a

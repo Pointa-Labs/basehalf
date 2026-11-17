@@ -6552,8 +6552,8 @@ highlights apart, the margin marks kept, highlights listed with the comments, an
   right is where Find stands in the editor and in a browser.
 
 **Revised 2026-11-17 again: marks beside the text, and Find of BaseHalf's own in a PDF.** A comment's mark stands in the
-blank beside what is read: outside a PDF's page, 8 px right of its edge, with the pages 30 px from the sides of the reader at
-its width; in a book in the middle of the blank to the right of the passage's column. A page comment's mark stays at its place.
+blank beside what is read: outside a PDF's page, 8 px right of its edge, in the 30 px that the pages keep from the sides of
+the reader at its width; in a book in the middle of the blank to the right of the passage's column. A page comment's mark stays at its place.
 Find in a PDF searches the text of the pages itself, as the comments find their quotes, instead of asking PDFium: case,
 accents, widths, quotation marks, and glyphs of two letters do not matter; a word that a hyphen broke at the end of a line is
 found whole; a line break inside Chinese text is nothing. An input method's composition is not searched, a thin line shows

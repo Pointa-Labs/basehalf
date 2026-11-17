@@ -261,9 +261,9 @@ text that flows and a size of text.
 19. **Find.** Find in the header, or Cmd+F, shows the find bar at the top
     right of the document, under the header and left of the Comments panel,
     with the cursor in its field and all of it selected. With text selected
-    in the document, on one line and at most 200 characters, Cmd+F puts that
-    text into the field and searches for it at once, as the editor's Find
-    does. The bar holds the field, the count, **Previous Match**, **Next
+    in the document, on one line and at most 200 characters, Find and Cmd+F
+    put that text into the field and search for it at once, as the editor's
+    Find does. The bar holds the field, the count, **Previous Match**, **Next
     Match**, and **Close**.
     - Typing searches the whole document 250 ms after the last key. While an
       input method composes, as for Chinese, nothing is searched: the search
@@ -353,7 +353,11 @@ text that flows and a size of text.
     changes. Once the user zooms, the PDF opens at the zoom and the page
     where the user was, as before. The pages keep 30 px from the sides of
     the reader at its width, the room where the marks of comments stand
-    outside the page ([comments](comments.md#on-the-page), rule 7).
+    outside the page ([comments](comments.md#on-the-page), rule 7), and
+    the reader's scroll bar stands at its right edge. Measured before
+    (2026-11-17): the scrolling area was 32 px wider than the reader, so
+    that a page at the width of Card Detail ran 16 px past its right edge,
+    under the edge with the scroll bar.
 28. **The PDF shows itself drawn.** The reader shows itself, its controls and
     its pages at once, in the frame in which the page it opens at has its
     picture: until then Card Detail shows its background. No frame shows a
@@ -459,7 +463,10 @@ text that flows and a size of text.
   its curly quotation marks are not its straight ones, and a word is not
   matched across two blocks of text.
 - The first Find in a PDF reads the text of every page. Measured
-  (2026-11-17) in the development window: <FIRST_SEARCH_MEASURE>.
+  (2026-11-18) in the development window, on a PDF of 700 pages at a load
+  of about 5: from page 300, `compile` marked its first match on that page
+  0.2 s after the last key and counted 4,050 matches 2.5 s after it, with
+  no frame over 50 ms; `trace` then counted its 20,800 within 0.2 s.
 - A phrase is not found across the end of a PDF's page.
 - Text that a book sets in absolute sizes does not follow Smaller Text and
   Larger Text.
@@ -571,8 +578,9 @@ text that flows and a size of text.
   and Hide Cover and Show Cover (criteria 1 and 3), the book's 3:4 cover
   filling its card and the landscape page whole (criterion 16), and every
   frame while the PDF's card is selected (criterion 17); the cardDetail suite
-  checks the header of a PDF (criterion 19), opens an EPUB, turns a page,
-  and grows a branch (criteria 8 and 11). A unit test holds the rule of
+  checks the header of a PDF (criterion 19), finds a word of a PDF in
+  another case and takes the marks away with Escape (criterion 22), opens an
+  EPUB, turns a page, and grows a branch (criteria 8 and 11). A unit test holds the rule of
   which covers fill the card.
 - Criterion 18 was measured in a development window (2026-11-13), recording
   the screen at about 120 frames a second while the course PDF of the launch
