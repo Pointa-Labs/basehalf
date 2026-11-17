@@ -248,9 +248,9 @@ moving the page and without closing a comment note the user is writing in.
     it and moves nothing.
 14. Words are saved 1 s after the typing stops and when the note closes;
     while the note holds no words, nothing is saved. A note that closes
-    without words deletes its comment, when it has no replies, as one step
-    of undo that brings the comment back with its words. Removing all of a
-    reply's words removes the reply.
+    without words deletes its comment, as one step of undo that brings the
+    comment back with its words; a comment with replies keeps them, under no
+    words. Removing all of a reply's words removes the reply.
 15. The colors of highlights, the yellow of comments, and the wavy line are
     a light and a dark set, taken from the theme of the workbench, so that a
     tint keeps the text readable and a note stands out from the page in
