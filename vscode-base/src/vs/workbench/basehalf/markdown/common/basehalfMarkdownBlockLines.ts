@@ -14,10 +14,24 @@ export interface IBaseHalfMarkdownBlockNode {
 	readonly id: string;
 	readonly type?: string;
 	readonly props?: { readonly raw?: string };
+	readonly content?: unknown;
 	readonly children?: readonly IBaseHalfMarkdownBlockNode[];
 }
 
 const LIST_ITEM_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem']);
+
+/**
+ * A block that the file does not hold and that writes nothing: an empty
+ * paragraph, or a heading without a character, as a note's empty title line
+ * (note formats, rule 23). It stands on no line of the file.
+ */
+function writesNothing(block: IBaseHalfMarkdownBlockNode, entry: IBaseHalfMarkdownReuseEntry | undefined): boolean {
+	if (entry || (block.type !== 'paragraph' && block.type !== 'heading') || (block.children?.length ?? 0) > 0) {
+		return false;
+	}
+	const content = block.content;
+	return Array.isArray(content) && content.every(node => typeof node === 'object' && node !== null && (node as { readonly type?: unknown }).type === 'text' && !(node as { readonly text?: unknown }).text);
+}
 
 export function countBaseHalfMarkdownNewlines(source: string): number {
 	let count = 0;
@@ -181,6 +195,9 @@ function collectBlockIdsOfLines(
 	let before = 0;
 	for (const block of blocks) {
 		const entry = block.type === BASEHALF_RAW_PASSTHROUGH_BLOCK ? undefined : byId.get(block.id);
+		if (writesNothing(block, entry)) {
+			continue;
+		}
 		const prefixNewlines = entry ? countBaseHalfMarkdownNewlines(entry.prefix) : 0;
 		const start = offset + before + prefixNewlines + 1;
 		const end = entry ? start + baseHalfMarkdownTileSourceNewlines(entry) : start;
@@ -211,6 +228,9 @@ function baseHalfMarkdownTileNewlines(
 	const entry = byId.get(block.id);
 	if (entry) {
 		return countBaseHalfMarkdownNewlines(entry.raw);
+	}
+	if (writesNothing(block, entry)) {
+		return 0;
 	}
 	return LIST_ITEM_TYPES.has(block.type ?? '') ? 1 : 2;
 }

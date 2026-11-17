@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfNoteTitle, baseHalfNoteTitleName, baseHalfNoteTitleNameNumbered } from '../../common/basehalfNoteTitle.js';
+import { baseHalfNoteStartsAtTitleLine, baseHalfNoteTitle, baseHalfNoteTitleName, baseHalfNoteTitleNameNumbered } from '../../common/basehalfNoteTitle.js';
 
 suite('BaseHalfNoteTitle', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -89,6 +89,30 @@ suite('BaseHalfNoteTitle', () => {
 			long: 200,
 			longWide: 66,
 			cutAtSpace: 'x'.repeat(199),
+		});
+	});
+
+	test('the editor on a card starts a note without text, or one that begins with a heading, at its title line', () => {
+		assert.deepStrictEqual({
+			empty: baseHalfNoteStartsAtTitleLine(''),
+			blank: baseHalfNoteStartsAtTitleLine('\n\n  \n'),
+			frontmatterOnly: baseHalfNoteStartsAtTitleLine('---\nupstream:\n  - a.md\n---\n'),
+			titled: baseHalfNoteStartsAtTitleLine('# Anatomy\n\nText.\n'),
+			secondLevel: baseHalfNoteStartsAtTitleLine('---\nupstream:\n  - a.md\n---\n## How they form\n'),
+			emptyHeading: baseHalfNoteStartsAtTitleLine('#\n\nText.\n'),
+			paragraphFirst: baseHalfNoteStartsAtTitleLine('A note that begins with a paragraph.\n\n# Later\n'),
+			listFirst: baseHalfNoteStartsAtTitleLine('- a list\n'),
+			toggleFirst: baseHalfNoteStartsAtTitleLine('<details>\n<summary><h2>T</h2></summary>\n</details>\n'),
+		}, {
+			empty: true,
+			blank: true,
+			frontmatterOnly: true,
+			titled: true,
+			secondLevel: true,
+			emptyHeading: true,
+			paragraphFirst: false,
+			listFirst: false,
+			toggleFirst: false,
 		});
 	});
 

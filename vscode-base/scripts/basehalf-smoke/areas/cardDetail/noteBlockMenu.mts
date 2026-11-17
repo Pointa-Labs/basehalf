@@ -136,8 +136,8 @@ export async function assertNoteBlockMenuLooks(page) {
 
 /**
  * The menu of blocks, criterion 5: a block chosen from the add button's menu is
- * one step of undo, after any wait and any letters, and that undo puts the file
- * back byte for byte.
+ * one step of undo, after any wait and any letters, and that undo gives the
+ * note's blocks back with its file byte for byte as it was.
  */
 export async function assertNoteBlockMenuChoiceIsOneUndo(page) {
 	const lines = ['First line.', '', 'Second line.', ''];
@@ -149,17 +149,20 @@ export async function assertNoteBlockMenuChoiceIsOneUndo(page) {
 	await page.waitForTimeout(700);
 	await page.keyboard.press('Enter');
 	await theMenu(frame).waitFor({ state: 'hidden', timeout: 5_000 });
-	const stored = 'First line.\n\n##\n\nSecond line.\n';
-	await waitUntil(() => readFormatsNote() === stored, 'the chosen heading to be stored where the line was', 10_000).catch(() => {
-		throw new Error(`The chosen heading was stored as ${JSON.stringify(readFormatsNote())}`);
-	});
+	// The chosen heading stands where the line was. Without a character it writes nothing (note formats, rule 23).
+	await frame.waitForFunction(() => [...document.querySelectorAll('.bn-editor .bn-block-content')]
+		.some(block => block.getAttribute('data-content-type') === 'heading' && block.getAttribute('data-level') === '2' && block.textContent === ''), null, { timeout: 10_000 });
+	const chosen = await blockTexts(frame);
+	await page.waitForTimeout(1_200);
+	if (JSON.stringify(chosen) !== JSON.stringify(['', 'First line.', '', 'Second line.']) || readFormatsNote() !== bytes) {
+		throw new Error(`The chosen heading must stand where the line was and write nothing: ${JSON.stringify({ chosen, file: readFormatsNote() })}`);
+	}
 	await page.keyboard.press(UNDO);
-	await waitUntil(() => readFormatsNote() === bytes, 'one undo to put the file back', 10_000).catch(() => {
-		throw new Error(`One undo left ${JSON.stringify(readFormatsNote())}`);
-	});
+	await frame.waitForFunction(() => document.querySelectorAll('.bn-editor .bn-block-content[data-content-type="heading"][data-level="2"]').length === 0, null, { timeout: 10_000 }).catch(() => undefined);
+	// The note's blocks as before: its empty title line, then its two lines (note title).
 	const blocks = await blockTexts(frame);
-	if (JSON.stringify(blocks) !== JSON.stringify(['First line.', 'Second line.'])) {
-		throw new Error(`One undo left the blocks ${JSON.stringify(blocks)}`);
+	if (JSON.stringify(blocks) !== JSON.stringify(['', 'First line.', 'Second line.']) || readFormatsNote() !== bytes) {
+		throw new Error(`One undo left ${JSON.stringify({ blocks, file: readFormatsNote() })}`);
 	}
 }
 
@@ -178,7 +181,8 @@ export async function assertNoteBlockMenuFiles(page) {
 	await page.keyboard.type('image', { delay: 30 });
 	await page.keyboard.press('Enter');
 	await (await chooser).setFiles([]);
-	await frame.waitForFunction(() => document.querySelectorAll('.bn-editor .bn-block-content').length === 2, undefined, { timeout: 8_000 }).catch(async () => {
+	// The note's empty title line and its two lines (note title).
+	await frame.waitForFunction(() => document.querySelectorAll('.bn-editor .bn-block-content').length === 3, undefined, { timeout: 8_000 }).catch(async () => {
 		throw new Error(`Cancel in the chooser left ${JSON.stringify(await blockTexts(frame))}`);
 	});
 
@@ -194,7 +198,7 @@ export async function assertNoteBlockMenuFiles(page) {
 		throw new Error(`One undo of a chosen picture left ${JSON.stringify(readFormatsNote())}`);
 	});
 	const blocks = await blockTexts(frame);
-	if (JSON.stringify(blocks) !== JSON.stringify(['First line.', 'Second line.'])) {
+	if (JSON.stringify(blocks) !== JSON.stringify(['', 'First line.', 'Second line.'])) {
 		throw new Error(`One undo of a chosen picture left the blocks ${JSON.stringify(blocks)}`);
 	}
 }

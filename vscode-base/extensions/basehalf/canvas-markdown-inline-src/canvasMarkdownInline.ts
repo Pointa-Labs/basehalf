@@ -22,6 +22,7 @@ import { Decoration, DecorationSet, EditorView } from '@tiptap/pm/view';
 import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownFormatting.js';
 import { writeBaseHalfNoteInline, type BaseHalfNoteInlinePlace, type IBaseHalfNoteLink, type IBaseHalfNoteStyledText, type IBaseHalfNoteTextStyles } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteInline.js';
 import { baseHalfNotePaletteAlias, baseHalfNoteSpanStyle, isBaseHalfNotePaletteColor, parseBaseHalfNoteSpanStyle, type BaseHalfNotePaletteRole } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
+import { canvasTitleLineBackspace, canvasTitleLineEnter, canvasTitleLineOpening, canvasTitleLinePlugin, canvasTitleLinePress, canvasTitleLineRange, withCanvasTitleLine, type ICanvasTitleLineOptions, type ICanvasTitleLineSchema } from './canvasMarkdownTitleLine.js';
 
 export interface CanvasMarkdownInlineSelection {
 	readonly anchor: number;
@@ -89,9 +90,12 @@ export interface CanvasMarkdownInlineEditorOptions {
 	/** Draw the selection as not active from the start: focus is elsewhere in the window. */
 	readonly inactive?: boolean;
 	/**
-	 * The pale text of the title line. With it, a note without text is shown
-	 * as one empty heading of level 1, which writes nothing until it holds a
-	 * character (note title, "A note without text starts at its title").
+	 * The pale text of an empty title line. With it, the editor starts with
+	 * the note's title line and keeps one first, with a line to type in under
+	 * it (note title, "The title line and the text under it"): the note's
+	 * first heading, or an empty heading of level 1 that writes nothing until
+	 * it holds a character. The owner gives it for an edit of a note without
+	 * text or one that begins with a heading, and keeps it for the edit.
 	 */
 	readonly titleLine?: string;
 	/** The note's Markdown changed; `ownStep` when the change added or removed a fixed block, which is one step of undo (note formats, rule 82). */
@@ -646,16 +650,16 @@ function canvasMarkdownProjectionIsEquivalent(renderedDocument: ProseMirrorNode,
 	return sameNode(renderedDocument, sourceDocument);
 }
 
-function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[], titleLine: boolean): {
+function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[], titlePlaceholder: string | undefined): {
 	readonly document: ProseMirrorNode;
 	readonly records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>;
 	readonly editableUnitIds: ReadonlySet<string>;
+	/** The title line of an editor that starts with one, and where the empty title line that it added stands. */
+	readonly titleLine: { readonly options: ICanvasTitleLineOptions; readonly added: number | undefined } | undefined;
 } {
 	const records = new Map<string, CanvasMarkdownRuntimeUnit>();
 	const nodes: ProseMirrorNode[] = [];
 	const editableUnitIds = new Set<string>();
-	// A note without text is shown as one title line (note title).
-	const startsAtTitle = titleLine && units.length === 1 && units[0].editable && units[0].markdown.trim() === '';
 	for (const unit of units) {
 		if (records.has(unit.id)) {
 			throw new RangeError(`Duplicate Canvas Markdown unit id: ${unit.id}`);
@@ -674,9 +678,7 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[], titleLi
 				// allowing presentation-only state into the editable source model.
 				node = canvasSchema.nodes.unsupported_markdown.create({ unitId: unit.id });
 			} else {
-				const content = startsAtTitle
-					? canvasSchema.nodes.heading.create({ level: 1 })
-					: sourceDocument.childCount > 0 ? sourceDocument.content : canvasSchema.nodes.paragraph.create();
+				const content = sourceDocument.childCount > 0 ? sourceDocument.content : canvasSchema.nodes.paragraph.create();
 				node = canvasSchema.nodes.markdown_unit.create({ unitId: unit.id }, content);
 				editableUnitIds.add(unit.id);
 			}
@@ -686,14 +688,52 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[], titleLi
 		records.set(unit.id, { input: unit, initialNode: node, staticElement, text: staticElement.textContent ?? '' });
 		nodes.push(node);
 	}
-	return {
-		document: canvasSchema.nodes.doc.create(null, nodes),
-		records,
-		editableUnitIds,
+	const document = canvasSchema.nodes.doc.create(null, nodes);
+	if (titlePlaceholder === undefined) {
+		return { document, records, editableUnitIds, titleLine: undefined };
+	}
+	const options: ICanvasTitleLineOptions = {
+		schema: canvasTitleLineSchema,
+		placeholder: titlePlaceholder,
+		isHeadingUnit: unit => isHeadingUnit(records, unit),
+		newUnitId: nextAddedUnitId,
 	};
+	// The editor's first document is what an unchanged unit is: a title line or
+	// a line under it added to a unit is part of it, and the unit still writes
+	// what the file holds of it (note title).
+	const started = withCanvasTitleLine(document, options);
+	started.document.forEach(node => {
+		const record = records.get(String(node.attrs.unitId));
+		if (record) {
+			records.set(record.input.id, { ...record, initialNode: node });
+		}
+	});
+	return { document: started.document, records, editableUnitIds, titleLine: { options, added: started.added } };
 }
 
-function serializeCanvasMarkdownUnit(document: ProseMirrorNode): string {
+/**
+ * Blocks that write nothing and would leave a line where they stand: a
+ * heading without a character, anywhere, and an empty paragraph at the end
+ * (note title, note formats rule 23).
+ */
+function writtenBlocksOf(document: ProseMirrorNode): ProseMirrorNode {
+	const blocks: ProseMirrorNode[] = [];
+	document.forEach(node => {
+		if (node.type !== canvasSchema.nodes.heading || node.content.size > 0) {
+			blocks.push(node);
+		}
+	});
+	while (blocks.length > 0 && blocks[blocks.length - 1].type === canvasSchema.nodes.paragraph && blocks[blocks.length - 1].content.size === 0) {
+		blocks.pop();
+	}
+	return blocks.length === document.childCount ? document : document.type.create(document.attrs, blocks);
+}
+
+function serializeCanvasMarkdownUnit(unit: ProseMirrorNode): string {
+	const document = writtenBlocksOf(unit);
+	if (document.childCount === 0) {
+		return '';
+	}
 	let markdown = canvasSerializer.serialize(document);
 	// Segment separators belong to the workbench projection. The serializer
 	// may close a document with one LF; never leak that byte into the unit.
@@ -731,7 +771,17 @@ function canvasMarkdownDocumentSource(
 		units.push({ start, end: start + source.length });
 		markdown += `${gap}${source}${trailing}`;
 	};
-	document.forEach(node => {
+	// Whether the last thing written is a block that the file does not hold yet.
+	let afterAdded = false;
+	// Whether anything but white space is written yet: kept as written, as reading it back would cost each unit the whole note.
+	let wroteText = false;
+	// A note's empty title line with a heading right under it writes `#`, so that
+	// the note keeps no title and the heading stays a heading of its text (note title).
+	const titleMark = emptyTitleMark(document, records);
+	const withTitleMark = (source: string, index: number): string => index === 0 && titleMark !== undefined
+		? source.trim() === '' ? titleMark : `${titleMark}${documentLineEnding.repeat(2)}${source.replace(/^(?:[ \t]*\r?\n)+/, '')}`
+		: source;
+	document.forEach((node, _offset, index) => {
 		const unitId = typeof node.attrs.unitId === 'string' ? node.attrs.unitId : undefined;
 		const record = unitId ? records.get(unitId) : undefined;
 		if (record?.input.appended) {
@@ -740,34 +790,93 @@ function canvasMarkdownDocumentSource(
 				units.push({ start: markdown.length, end: markdown.length });
 			} else {
 				addBlock(documentLineEnding === '\r\n' ? source.replace(/\n/g, '\r\n') : source);
+				afterAdded = true;
+				wroteText = true;
 			}
 			return;
 		}
 		if (record) {
 			let source = record.input.markdown;
 			if (node.type === canvasSchema.nodes.markdown_unit && !node.content.eq(record.initialNode.content)) {
-				source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node.content));
+				source = withTitleMark(serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node.content)), index);
 				if (record.input.markdown.includes('\r\n') || documentLineEnding === '\r\n') {
 					source = source.replace(/\n/g, '\r\n');
 				}
 			}
-			const start = markdown.length + record.input.prefix.length;
+			let prefix = record.input.prefix;
+			if (index > 0 && !wroteText) {
+				// Nothing is written before this unit, as when the title above it was
+				// emptied: the note does not begin with the lines that stood between them.
+				prefix = prefix.replace(/^(?:[ \t]*\r?\n)+/, '');
+			} else if (afterAdded && countLineBreaks(/\s*$/.exec(markdown)?.[0] ?? '') + countLineBreaks(prefix) < 2) {
+				// A unit after a block the editor added, as a title typed above the
+				// note's first unit, stands a blank line after it.
+				prefix = documentLineEnding.repeat(2 - countLineBreaks(/\s*$/.exec(markdown)?.[0] ?? '') - countLineBreaks(prefix)) + prefix;
+			}
+			afterAdded = false;
+			wroteText ||= source.trim() !== '';
+			const start = markdown.length + prefix.length;
 			units.push({ start, end: start + source.length });
-			markdown += `${record.input.prefix}${source}${record.input.separator}`;
+			markdown += `${prefix}${source}${record.input.separator}`;
 			return;
 		}
 		// A unit the editor added, as a paragraph started after a fixed block,
 		// or a bare top-level block, which no command makes today.
 		const content = node.type === canvasSchema.nodes.markdown_unit ? node.content : Fragment.from(node);
-		const source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, content));
+		const source = withTitleMark(serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, content)), index);
 		// An empty paragraph started after a fixed block writes nothing until it holds something.
 		if (source.trim() === '') {
 			units.push({ start: markdown.length, end: markdown.length });
 			return;
 		}
 		addBlock(documentLineEnding === '\r\n' ? source.replace(/\n/g, '\r\n') : source);
+		afterAdded = true;
+		wroteText = true;
 	});
 	return { markdown, units };
+}
+
+/**
+ * The `#` that the note's empty title line writes when a heading stands right
+ * under it (note title, note formats rule 23): the title line is the first
+ * block of the first unit, and the hashes are those of its level. Lines that
+ * write nothing between the two do not count. `undefined` when the title line
+ * holds text or no heading stands under it.
+ */
+function emptyTitleMark(document: ProseMirrorNode, records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>): string | undefined {
+	const title = document.firstChild?.type === canvasSchema.nodes.markdown_unit ? document.firstChild.firstChild : undefined;
+	if (title?.type !== canvasSchema.nodes.heading || title.content.size > 0) {
+		return undefined;
+	}
+	const under = firstWrittenBlockUnderTitle(document);
+	const headingUnder = !!under && (under.type === canvasSchema.nodes.heading
+		|| (under.type === canvasSchema.nodes.unsupported_markdown && isHeadingUnit(records, under)));
+	return headingUnder ? '#'.repeat(Number(title.attrs.level) || 1) : undefined;
+}
+
+/** The first block under the title line that writes something: not an empty heading or paragraph. It looks from the top and stops at the first. */
+function firstWrittenBlockUnderTitle(document: ProseMirrorNode): ProseMirrorNode | undefined {
+	const writesNothing = (block: ProseMirrorNode) => (block.type === canvasSchema.nodes.heading || block.type === canvasSchema.nodes.paragraph) && block.content.size === 0;
+	for (let index = 0; index < document.childCount; index++) {
+		const unit = document.child(index);
+		if (unit.type !== canvasSchema.nodes.markdown_unit) {
+			if (!writesNothing(unit)) {
+				return unit;
+			}
+			continue;
+		}
+		for (let blockIndex = index === 0 ? 1 : 0; blockIndex < unit.childCount; blockIndex++) {
+			const block = unit.child(blockIndex);
+			if (!writesNothing(block)) {
+				return block;
+			}
+		}
+	}
+	return undefined;
+}
+
+function countLineBreaks(text: string): number {
+	return text.match(/\r?\n/g)?.length ?? 0;
 }
 
 function serializeCanvasMarkdownDocument(
@@ -1700,6 +1809,24 @@ function runCanvasFormatCommand(
 	return handled;
 }
 
+/** The nodes of the editor's document that its title line is made of (note title). */
+const canvasTitleLineSchema: ICanvasTitleLineSchema = {
+	unit: canvasSchema.nodes.markdown_unit,
+	fixed: canvasSchema.nodes.unsupported_markdown,
+	heading: canvasSchema.nodes.heading,
+	paragraph: canvasSchema.nodes.paragraph,
+};
+
+/** A unit kept as it is that is a heading: a heading whose text the card's editor cannot edit. */
+function isHeadingUnit(records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>, unit: ProseMirrorNode): boolean {
+	const markdown = records.get(String(unit.attrs.unitId))?.input.markdown;
+	try {
+		return markdown !== undefined && (canvasTokenizer.parse(normalizeLineEndings(markdown), {}) as readonly MarkdownToken[])[0]?.type === 'heading_open';
+	} catch {
+		return false;
+	}
+}
+
 /**
  * A source tile adds one transparent document level around ordinary Markdown
  * blocks. ProseMirror's standard join command correctly removes that level on
@@ -1707,47 +1834,6 @@ function runCanvasFormatCommand(
  * both passes in one user command so Backspace/Delete behaves exactly like a
  * normal editor while all selection and join semantics remain upstream-owned.
  */
-/**
- * The title line of a document: its first block when that is a heading
- * without a character and the document shows nothing else. Its position is
- * the heading's.
- */
-function emptyTitleLine(document: ProseMirrorNode): { readonly pos: number; readonly node: ProseMirrorNode } | undefined {
-	if (document.childCount !== 1 || document.textContent.length > 0 || fixedUnitCount(document) > 0) {
-		return undefined;
-	}
-	const unit = document.child(0);
-	const first = unit.type === canvasSchema.nodes.markdown_unit ? unit.firstChild : unit;
-	if (!first || first.type !== canvasSchema.nodes.heading || first.content.size > 0 || unit.childCount > 1) {
-		return undefined;
-	}
-	return { pos: unit.type === canvasSchema.nodes.markdown_unit ? 1 : 0, node: first };
-}
-
-/** Shows `text` in the pale color in the title line while it holds no character (note title). */
-function titleLinePlugin(text: string): Plugin {
-	return new Plugin({
-		props: {
-			decorations(state) {
-				const line = emptyTitleLine(state.doc);
-				return line
-					? DecorationSet.create(state.doc, [Decoration.node(line.pos, line.pos + line.node.nodeSize, { class: 'basehalf-canvas-markdown-inline-title-line', 'data-placeholder': text })])
-					: null;
-			},
-		},
-	});
-}
-
-/** Backspace or Enter in the empty title line makes it a paragraph, for a note that is to begin without a title (note title). */
-function titleLineToParagraph(state: EditorState, dispatch?: (transaction: Transaction) => void): boolean {
-	const cursor = (state.selection as TextSelection).$cursor;
-	const line = emptyTitleLine(state.doc);
-	if (!cursor || !line || cursor.parent !== line.node) {
-		return false;
-	}
-	return setBlockType(canvasSchema.nodes.paragraph)(state, dispatch);
-}
-
 function joinAcrossMarkdownUnit(direction: -1 | 1): Command {
 	const join = direction < 0 ? joinBackward : joinForward;
 	return (state, dispatch, view) => {
@@ -1795,6 +1881,11 @@ function selectedFixedUnit(state: EditorState): NodeSelection | undefined {
 
 let addedUnits = 0;
 
+/** The id of a unit that the editor adds, which the note's file does not hold yet. */
+function nextAddedUnitId(): string {
+	return `added-${++addedUnits}`;
+}
+
 /**
  * A letter or Enter typed while a fixed block is selected starts a paragraph
  * after it, holding `text` (note formats, rule 82): the block stays, where
@@ -1810,7 +1901,7 @@ function startParagraphAfterFixedUnit(text?: string): Command {
 			return true;
 		}
 		const paragraph = canvasSchema.nodes.paragraph.create(null, text ? canvasSchema.text(text) : undefined);
-		const unit = canvasSchema.nodes.markdown_unit.create({ unitId: `added-${++addedUnits}` }, paragraph);
+		const unit = canvasSchema.nodes.markdown_unit.create({ unitId: nextAddedUnitId() }, paragraph);
 		const transaction = state.tr.insert(fixed.to, unit);
 		// Into the unit and its paragraph, after the text.
 		transaction.setSelection(TextSelection.create(transaction.doc, fixed.to + 2 + (text?.length ?? 0)));
@@ -1831,15 +1922,22 @@ function fixedUnitCount(document: ProseMirrorNode): number {
 /**
  * The place to type nearest to the fixed block at `index` of the document
  * (note formats, rule 82a): the end of the nearest unit the editor edits
- * before it, or else the start of the nearest one after it.
+ * before it, or else the start of the nearest one after it. The title line
+ * is no place for a press on a block under it (note title): the place
+ * before it is taken only when it is under the title line.
  */
-function editablePlaceNear(document: ProseMirrorNode, index: number): Selection | undefined {
+function editablePlaceNear(document: ProseMirrorNode, index: number, titleLine = false): Selection | undefined {
 	const offsets: number[] = [];
 	document.forEach((_node, offset) => offsets.push(offset));
+	const title = titleLine ? canvasTitleLineRange(document, canvasTitleLineSchema) : undefined;
 	for (let at = index - 1; at >= 0; at--) {
 		const node = document.child(at);
 		if (node.type === canvasSchema.nodes.markdown_unit) {
-			return Selection.findFrom(document.resolve(offsets[at] + node.nodeSize - 1), -1, true) ?? undefined;
+			const place = Selection.findFrom(document.resolve(offsets[at] + node.nodeSize - 1), -1, true) ?? undefined;
+			if (place && title && place.from >= title.from && place.to <= title.to) {
+				break;
+			}
+			return place;
 		}
 	}
 	for (let at = index + 1; at < document.childCount; at++) {
@@ -1889,25 +1987,6 @@ export function createCanvasMarkdownInlineEditor(
 		Object.entries(baseKeymap).map(([shortcut, command]) => [shortcut, whenEditable(command)]),
 	);
 	const listItem = canvasSchema.nodes.list_item;
-	const plugins = [
-		keymap({
-			'Mod-b': whenEditable(toggleTextMark(canvasSchema.marks.strong)),
-			'Mod-i': whenEditable(toggleTextMark(canvasSchema.marks.em)),
-		}),
-		keymap({
-			Backspace: whenEditable(chainCommands(titleLineToParagraph, joinAcrossMarkdownUnit(-1))),
-			Delete: whenEditable(joinAcrossMarkdownUnit(1)),
-		}),
-		keymap({
-			Enter: whenEditable(chainCommands(startParagraphAfterFixedUnit(), titleLineToParagraph, splitListItem(listItem))),
-			Tab: whenEditable(sinkListItem(listItem)),
-			'Shift-Tab': whenEditable(liftListItem(listItem)),
-			'Shift-Enter': whenEditable(insertSoftBreak),
-		}),
-		keymap(guardedBaseKeymap),
-		inactiveSelectionPlugin(options.inactive ?? false),
-		...(options.titleLine !== undefined ? [titleLinePlugin(options.titleLine)] : []),
-	];
 
 	if (options.units.map(unit => `${unit.prefix}${unit.markdown}${unit.separator}`).join('') !== options.markdown) {
 		throw new RangeError('Canvas Markdown units do not tile the document body.');
@@ -1915,14 +1994,39 @@ export function createCanvasMarkdownInlineEditor(
 	if (!options.units.some(unit => unit.editable)) {
 		throw new RangeError('This Markdown document needs the full editor.');
 	}
-	const { document: initialDocument, records, editableUnitIds } = createDocumentUnits(options.units, options.titleLine !== undefined);
+	const { document: initialDocument, records, editableUnitIds, titleLine } = createDocumentUnits(options.units, options.titleLine);
 	if (editableUnitIds.size === 0
 		|| (options.requiredEditableUnitId !== undefined && !editableUnitIds.has(options.requiredEditableUnitId))) {
 		throw new RangeError('This Markdown document needs the full editor.');
 	}
+	// The title line's keys come before every other key of a line (note title).
+	const titleEnter: Command = titleLine ? canvasTitleLineEnter(canvasTitleLineSchema) : () => false;
+	const titleBackspace: Command = titleLine ? canvasTitleLineBackspace(canvasTitleLineSchema) : () => false;
+	const plugins = [
+		keymap({
+			'Mod-b': whenEditable(toggleTextMark(canvasSchema.marks.strong)),
+			'Mod-i': whenEditable(toggleTextMark(canvasSchema.marks.em)),
+		}),
+		keymap({
+			Backspace: whenEditable(chainCommands(titleBackspace, joinAcrossMarkdownUnit(-1))),
+			Delete: whenEditable(joinAcrossMarkdownUnit(1)),
+		}),
+		keymap({
+			Enter: whenEditable(chainCommands(startParagraphAfterFixedUnit(), titleEnter, splitListItem(listItem))),
+			Tab: whenEditable(sinkListItem(listItem)),
+			'Shift-Tab': whenEditable(liftListItem(listItem)),
+			'Shift-Enter': whenEditable(insertSoftBreak),
+		}),
+		keymap(guardedBaseKeymap),
+		inactiveSelectionPlugin(options.inactive ?? false),
+		...(titleLine ? [canvasTitleLinePlugin(titleLine.options, titleLine.added)] : []),
+	];
+	const requestedSelection = mapSelectionAcrossDocuments(options.selection, options.selectionDocument, initialDocument);
+	// A note without text starts with the caret in its title line, and a note of only a title at its end (note title).
+	const opening = !requestedSelection && titleLine ? canvasTitleLineOpening(initialDocument, canvasTitleLineSchema) : undefined;
 	const initialState = EditorState.create({
 		doc: initialDocument,
-		selection: selectionForDocument(initialDocument, mapSelectionAcrossDocuments(options.selection, options.selectionDocument, initialDocument)),
+		selection: opening ?? selectionForDocument(initialDocument, requestedSelection),
 		plugins,
 	});
 
@@ -2118,10 +2222,16 @@ export function createCanvasMarkdownInlineEditor(
 			// On a fixed block there is no place to type: the nearest one beside it (note formats, rule 82a).
 			const inside = result.inside >= 0 ? view.state.doc.nodeAt(result.inside) : null;
 			const beside = inside?.type === canvasSchema.nodes.unsupported_markdown
-				? editablePlaceNear(view.state.doc, view.state.doc.resolve(result.inside).index(0))
+				? editablePlaceNear(view.state.doc, view.state.doc.resolve(result.inside).index(0), titleLine !== undefined)
 				: undefined;
 			const position = Math.max(0, Math.min(view.state.doc.content.size, result.pos));
-			const selection = beside ?? TextSelection.between(view.state.doc.resolve(position), view.state.doc.resolve(position));
+			let selection: Selection = beside ?? TextSelection.between(view.state.doc.resolve(position), view.state.doc.resolve(position));
+			if (titleLine) {
+				// A press below the title line puts the caret in the text under it, never in the title (note title).
+				const titleElement = view.nodeDOM(1);
+				const belowTitle = titleElement instanceof HTMLElement && clientY > titleElement.getBoundingClientRect().bottom;
+				selection = canvasTitleLinePress(view.state, selection, belowTitle, canvasTitleLineSchema);
+			}
 			view.dispatch(view.state.tr.setSelection(selection));
 			view.focus();
 			emitFormatState();

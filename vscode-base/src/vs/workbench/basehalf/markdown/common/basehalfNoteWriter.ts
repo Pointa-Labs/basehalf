@@ -348,10 +348,10 @@ function headingLevel(props: Readonly<Record<string, unknown>>): number {
 	return Number.isInteger(level) && level >= 1 && level <= 6 ? level : 1;
 }
 
+/** A heading without a character writes nothing, as the card's editor writes it, a note's empty title line among them (rule 23). */
 function writeHeading(block: unknown, writing: IWriting): string {
 	const text = inline(contentOf(block), 'heading', writing);
-	const hashes = '#'.repeat(headingLevel(baseHalfNoteBlockProps(block)));
-	return text ? `${hashes} ${text}` : hashes;
+	return text ? `${'#'.repeat(headingLevel(baseHalfNoteBlockProps(block)))} ${text}` : '';
 }
 
 function writeQuote(block: unknown, writing: IWriting): string {
@@ -641,8 +641,8 @@ function writeSequence(blocks: readonly unknown[], writing: IWriting, previous: 
  * A block as the note stores it (note formats, rules 10 to 24 and 38 to 39),
  * with the blocks it holds, its lines ended by `hints.eol` and without a
  * line break at its end; `''` for a block that stores nothing: a picture, a
- * video, a sound, or a file without an address, and an empty paragraph
- * (rule 23). A block that may hold no blocks (rule 62) is followed by those
+ * video, a sound, or a file without an address, an empty paragraph, and a
+ * heading without a character (rule 23). A block that may hold no blocks (rule 62) is followed by those
  * it holds. A fixed block is its bytes.
  */
 export function writeBaseHalfNoteBlock(block: unknown, hints: IBaseHalfNoteWriteHints = {}): string {

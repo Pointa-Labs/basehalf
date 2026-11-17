@@ -89,6 +89,11 @@ suite('BaseHalfMarkdownMerge', () => {
 		test('accepts empty inputs', () => {
 			assert.deepStrictEqual(groupBaseHalfMarkdownContributions([], []), []);
 		});
+
+		test('blocks that write nothing go with a segment: an empty title line with the first, an empty line at the end with the last', () => {
+			assert.deepStrictEqual(groupBaseHalfMarkdownContributions(['', 'text\n\n', 'more\n', ''], ['text\n\n', 'more\n']), [[0, 1], [2, 3]]);
+			assert.strictEqual(groupBaseHalfMarkdownContributions(['a\n', '', 'b\n'], ['a\n']), null);
+		});
 	});
 
 	suite('merge alignment invariants', () => {

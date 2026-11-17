@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import type { Token } from '../../../../base/common/marked/marked.js';
 import { baseHalfMarkdownBlocks, baseHalfMarkdownInlineAtoms } from './basehalfNoteInline.js';
 import { splitBaseHalfMarkdownFrontmatter } from './basehalfMarkdownProjection.js';
 
@@ -15,6 +16,20 @@ const TITLE_READ_LENGTH = 8192;
 /** The longest name a title gives, in bytes of UTF-8, before the extension and a number. */
 const TITLE_NAME_MAX_BYTES = 200;
 
+/** The body of a note, without a byte order mark, its frontmatter, or the white space before its first block. */
+function bodyOf(content: string): string {
+	const text = content.charCodeAt(0) === 0xFEFF ? content.slice(1) : content;
+	return splitBaseHalfMarkdownFrontmatter(text).body.trimStart();
+}
+
+/** The first block of a note's body, read from the body's start alone. */
+function firstBlockOf(body: string): Token | undefined {
+	// A heading that the cut leaves whole: the first block ends at the first empty line.
+	const end = body.search(/\r?\n[ \t]*\r?\n/);
+	const head = end === -1 || end > TITLE_READ_LENGTH ? body.slice(0, TITLE_READ_LENGTH) : body.slice(0, end);
+	return baseHalfMarkdownBlocks(head)[0];
+}
+
 /**
  * The title of a note: the first block of its body when that block is a
  * heading, read as the card shows it, without the marks of formats and with
@@ -22,12 +37,7 @@ const TITLE_NAME_MAX_BYTES = 200;
  * else, and for a first heading that shows no character.
  */
 export function baseHalfNoteTitle(content: string): string | undefined {
-	const text = content.charCodeAt(0) === 0xFEFF ? content.slice(1) : content;
-	const body = splitBaseHalfMarkdownFrontmatter(text).body.trimStart();
-	// A heading that the cut leaves whole: the first block ends at the first empty line.
-	const end = body.search(/\r?\n[ \t]*\r?\n/);
-	const head = end === -1 || end > TITLE_READ_LENGTH ? body.slice(0, TITLE_READ_LENGTH) : body.slice(0, end);
-	const first = baseHalfMarkdownBlocks(head)[0];
+	const first = firstBlockOf(bodyOf(content));
 	if (!first || first.type !== 'heading') {
 		return undefined;
 	}
@@ -35,6 +45,18 @@ export function baseHalfNoteTitle(content: string): string | undefined {
 	const shown = atoms ? atoms.map(atom => atom.text).join('') : first.text;
 	const title = shown.replace(/\s+/g, ' ').trim();
 	return title.length > 0 ? title : undefined;
+}
+
+/**
+ * Whether the editor on a note's card starts with the title line (note
+ * title, "The title line and the text under it"): for a note without text,
+ * and for a note whose body begins with a heading. Any other note is edited
+ * on its card as the card shows it at rest, so that nothing on the card
+ * moves when the edit begins.
+ */
+export function baseHalfNoteStartsAtTitleLine(content: string): boolean {
+	const body = bodyOf(content);
+	return body.trim() === '' || firstBlockOf(body)?.type === 'heading';
 }
 
 /**

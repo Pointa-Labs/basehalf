@@ -156,25 +156,106 @@ export function exerciseSelectedSource(units: readonly { readonly markdown: stri
 }
 
 type FixedTestUnit = { readonly markdown: string; readonly prefix: string; readonly separator: string; readonly editable: boolean; readonly appended?: boolean };
-export function exerciseTitleLine(steps: readonly string[], titleLine = true) {
-	const element = { childNodes: [], cloneNode: () => ({ textContent: '' }) } as unknown as HTMLElement;
-	const { document, records } = createDocumentUnits([{ id: '0', markdown: '', prefix: '', separator: '', editable: true, element }], titleLine);
-	let state = EditorState.create({ doc: document, selection: selectionForDocument(document) });
+
+/**
+ * The editor of a note on its card with its title line, driven by steps: a
+ * text is typed at the caret, '<enter>' and '<backspace>' are the keys,
+ * '<clear>' empties the line of the caret, '<title>' puts the caret at the end
+ * of the title line, '<line n>' at the end of the n-th line, '<below>' is a
+ * press below the title line that ProseMirror would place in it, '<fixed n>'
+ * a press on the n-th unit kept as it is, and other steps in angle brackets
+ * are format commands. Each source is a unit of the note, '<html>' one kept
+ * as it is.
+ */
+export function exerciseTitleLine(sources: readonly string[], steps: readonly string[], titleLine = true) {
+	const units = sources.map((source, index) => ({
+		id: String(index),
+		markdown: source === '<html>' ? '![](a.png)' : source,
+		prefix: index === 0 ? '' : '\\n\\n',
+		separator: index === sources.length - 1 && source !== '' ? '\\n' : '',
+		editable: source !== '<html>',
+		element: { childNodes: [], cloneNode: () => ({ textContent: source }) } as unknown as HTMLElement,
+	}));
+	const created = createDocumentUnits(units, titleLine ? 'Title' : undefined);
+	const plugins = created.titleLine ? [canvasTitleLinePlugin(created.titleLine.options, created.titleLine.added)] : [];
+	// As the editor opens without a place asked for.
+	let state = EditorState.create({
+		doc: created.document,
+		selection: (created.titleLine ? canvasTitleLineOpening(created.document, canvasTitleLineSchema) : undefined) ?? selectionForDocument(created.document),
+		plugins,
+	});
 	const dispatch = (transaction: Transaction) => { state = state.apply(transaction); };
-	const shown = [emptyTitleLine(state.doc) !== undefined];
+	// A view that knows where the caret stands in its line, as joinBackward asks.
+	const commandView = {
+		focus: () => undefined,
+		endOfTextblock: (direction: string, at?: EditorState) => {
+			const cursor = (at ?? state).selection.$from;
+			return direction === 'backward' || direction === 'left' ? cursor.parentOffset === 0 : cursor.parentOffset === cursor.parent.content.size;
+		},
+	} as unknown as EditorView;
+	// The lines the editor shows, those of blocks that stand outside the units among them.
+	const lines = () => {
+		const shown: string[] = [];
+		let caret = -1;
+		state.doc.descendants((block, position) => {
+			if (block.type === canvasSchema.nodes.unsupported_markdown) {
+				shown.push('fixed');
+				return false;
+			}
+			if (!block.isTextblock) {
+				return true;
+			}
+			const from = position + 1;
+			if (state.selection.from >= from && state.selection.from <= from + block.content.size) {
+				caret = shown.length;
+			}
+			shown.push((block.type === canvasSchema.nodes.heading ? 'h' + block.attrs.level : 'p') + ':' + block.textContent);
+			return false;
+		});
+		return { shown, caret };
+	};
+	const placeholders = () => {
+		const decorations = plugins[0]?.props.decorations?.call(plugins[0], state) as DecorationSet | undefined;
+		return decorations ? decorations.find().length : 0;
+	};
 	for (const step of steps) {
-		if (step === '<backspace>') {
-			chainCommands(titleLineToParagraph, joinAcrossMarkdownUnit(-1))(state, dispatch);
-		} else if (step === '<enter>') {
-			chainCommands(titleLineToParagraph, baseKeymap.Enter)(state, dispatch);
+		if (step === '<enter>') {
+			chainCommands(startParagraphAfterFixedUnit(), created.titleLine ? canvasTitleLineEnter(canvasTitleLineSchema) : () => false, baseKeymap.Enter)(state, dispatch);
+		} else if (step === '<backspace>') {
+			chainCommands(created.titleLine ? canvasTitleLineBackspace(canvasTitleLineSchema) : () => false, joinAcrossMarkdownUnit(-1), baseKeymap.Backspace)(state, dispatch, commandView);
 		} else if (step === '<clear>') {
 			dispatch(state.tr.delete(state.selection.$from.start(), state.selection.$from.end()));
+		} else if (step === '<title>') {
+			dispatch(state.tr.setSelection(TextSelection.create(state.doc, canvasTitleLineRange(state.doc, canvasTitleLineSchema)!.to)));
+		} else if (step.startsWith('<at ')) {
+			dispatch(state.tr.setSelection(TextSelection.create(state.doc, canvasTitleLineRange(state.doc, canvasTitleLineSchema)!.from + Number(step.slice(4, -1)))));
+		} else if (step.startsWith('<line ') || step.startsWith('<start ')) {
+			const end = step.startsWith('<line ');
+			const wanted = Number(step.slice(end ? 6 : 7, -1));
+			let seen = 0;
+			let at: number | undefined;
+			state.doc.descendants((node, position) => {
+				if (node.isTextblock) {
+					if (seen++ === wanted) {
+						at = position + 1 + (end ? node.content.size : 0);
+					}
+					return false;
+				}
+				return true;
+			});
+			dispatch(state.tr.setSelection(TextSelection.create(state.doc, at!)));
+		} else if (step === '<below>') {
+			const inTitle = TextSelection.create(state.doc, canvasTitleLineRange(state.doc, canvasTitleLineSchema)!.to);
+			dispatch(state.tr.setSelection(canvasTitleLinePress(state, inTitle, true, canvasTitleLineSchema)));
+		} else if (step.startsWith('<fixed ')) {
+			dispatch(state.tr.setSelection(editablePlaceNear(state.doc, Number(step.slice(7, -1)), created.titleLine !== undefined)!));
+		} else if (step.startsWith('<')) {
+			runCanvasFormatCommand(step.slice(1, -1) as BaseHalfMarkdownFormatCommand, state, dispatch, commandView, () => undefined);
 		} else {
 			dispatch(state.tr.insertText(step));
 		}
-		shown.push(emptyTitleLine(state.doc) !== undefined);
 	}
-	return { block: blockTypeForState(state), shown, markdown: serializeCanvasMarkdownDocument(state.doc, records, '\\n') };
+	return { ...lines(), placeholder: placeholders(), markdown: serializeCanvasMarkdownDocument(state.doc, created.records, '\\n') };
 }
 
 export function exerciseFixedUnits(units: readonly FixedTestUnit[], action: { readonly select: number; readonly letter?: string; readonly enter?: boolean; readonly remove?: boolean; readonly typeIn?: { readonly unit: number; readonly text: string } }) {
@@ -243,7 +324,7 @@ const testModule = await import(`data:text/javascript;base64,${Buffer.from(modul
 	readonly exerciseTypedText: (source: string, afterText: string, typed: string) => string;
 	readonly exerciseFixedUnits: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string; readonly editable: boolean; readonly appended?: boolean }[], action: { readonly select: number; readonly letter?: string; readonly enter?: boolean; readonly remove?: boolean; readonly typeIn?: { readonly unit: number; readonly text: string } }) => { readonly markdown: string; readonly copied: string | undefined; readonly near: readonly (number | undefined)[]; readonly offsets: readonly number[] };
 	readonly canEditCanvasMarkdownUnit: (markdown: string) => boolean;
-	readonly exerciseTitleLine: (steps: readonly string[], titleLine?: boolean) => { readonly block: string; readonly shown: readonly boolean[]; readonly markdown: string };
+	readonly exerciseTitleLine: (sources: readonly string[], steps: readonly string[], titleLine?: boolean) => { readonly shown: readonly string[]; readonly caret: number; readonly placeholder: number; readonly markdown: string };
 	readonly exerciseSelectedSource: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string }[], anchorText: string, headText: string) => { readonly text: string; readonly start: number; readonly end: number; readonly firstEnd: number; readonly lastStart: number } | undefined;
 	readonly exerciseCanvasProjectionPersistence: (
 		source: string,
@@ -450,25 +531,57 @@ assert.deepEqual({
 	nearAfter: true,
 }, 'a fixed block is one unit: a letter after it starts a paragraph, Delete removes it, Copy takes its Markdown, and the line after a note of fixed blocks writes nothing until it holds text');
 
-// A note's title names its file: a note without text starts at its title line.
+// A note's title names its file, and its editor starts with the title line (note title, D136).
+const title = testModule.exerciseTitleLine;
 assert.deepEqual({
-	opened: testModule.exerciseTitleLine([]),
-	typed: testModule.exerciseTitleLine(['Anatomy']),
-	withText: testModule.exerciseTitleLine(['Anatomy', '<enter>', 'What it is made of.']),
-	cleared: testModule.exerciseTitleLine(['A', '<clear>']),
-	backspace: testModule.exerciseTitleLine(['<backspace>']),
-	plain: testModule.exerciseTitleLine(['<backspace>', 'No title here.']),
-	skipped: testModule.exerciseTitleLine(['<enter>', 'Text below an empty title.']),
-	without: testModule.exerciseTitleLine([], false),
+	opened: title([''], []),
+	typed: title([''], ['Anatomy']),
+	withText: title([''], ['Anatomy', '<enter>', 'What it is made of.']),
+	cleared: title([''], ['A', '<clear>']),
+	backspace: title([''], ['<backspace>']),
+	bodyFirst: title([''], ['<below>', 'Body first']),
+	enterSkips: title([''], ['<enter>', 'Text below an empty title.']),
+	split: title([''], ['AnatomyBody', '<at 7>', '<enter>']),
+	joined: title([''], ['Anatomy', '<enter>', 'Body', '<start 1>', '<backspace>']),
+	without: title([''], [], false),
 }, {
-	opened: { block: 'heading1', shown: [true], markdown: '' },
-	typed: { block: 'heading1', shown: [true, false], markdown: '# Anatomy' },
-	withText: { block: 'paragraph', shown: [true, false, false, false], markdown: '# Anatomy\n\nWhat it is made of.' },
-	cleared: { block: 'heading1', shown: [true, false, true], markdown: '' },
-	backspace: { block: 'paragraph', shown: [true, false], markdown: '' },
-	plain: { block: 'paragraph', shown: [true, false, false], markdown: 'No title here.' },
-	skipped: { block: 'paragraph', shown: [true, false, false], markdown: 'Text below an empty title.' },
-	without: { block: 'paragraph', shown: [false], markdown: '' },
-}, 'a note without text is one title line: what is typed is a heading of level 1, an empty heading writes nothing, and Backspace or Enter makes the empty line a paragraph');
+	opened: { shown: ['h1:', 'p:'], caret: 0, placeholder: 1, markdown: '' },
+	typed: { shown: ['h1:Anatomy', 'p:'], caret: 0, placeholder: 0, markdown: '# Anatomy' },
+	withText: { shown: ['h1:Anatomy', 'p:What it is made of.'], caret: 1, placeholder: 0, markdown: '# Anatomy\n\nWhat it is made of.' },
+	cleared: { shown: ['h1:', 'p:'], caret: 0, placeholder: 1, markdown: '' },
+	backspace: { shown: ['h1:', 'p:'], caret: 0, placeholder: 1, markdown: '' },
+	bodyFirst: { shown: ['h1:', 'p:Body first'], caret: 1, placeholder: 1, markdown: 'Body first' },
+	enterSkips: { shown: ['h1:', 'p:Text below an empty title.'], caret: 1, placeholder: 1, markdown: 'Text below an empty title.' },
+	split: { shown: ['h1:Anatomy', 'p:Body'], caret: 1, placeholder: 0, markdown: '# Anatomy\n\nBody' },
+	joined: { shown: ['h1:AnatomyBody', 'p:'], caret: 0, placeholder: 0, markdown: '# AnatomyBody' },
+	without: { shown: ['p:'], caret: 0, placeholder: 0, markdown: '' },
+}, 'a new note is a title line with a line under it: the title is typed there, a press below or Enter goes to the line under it, Backspace keeps the title line, and an empty title writes nothing');
+assert.deepEqual({
+	openedOnlyTitle: title(['# Anatomy'], ['s']),
+	onlyTitle: title(['# Anatomy'], ['<below>', 'Body line']),
+	enterAtEnd: title(['# A', 'Text.'], ['<title>', '<enter>']),
+	textOnly: title(['## How they form', 'Stars form.'], ['<line 1>', ' More.']),
+	madeText: title(['# Anatomy', 'Text.'], ['<title>', '<setParagraph>']),
+	headingUnder: title([''], ['<below>', 'Ingredients', '<setHeading2>']),
+	emptiedOverHeading: title(['# Foo', '## Bar'], ['<title>', '<clear>']),
+	emptiedAfterHeading: title([''], ['Plan', '<enter>', 'Goals', '<setHeading2>', '<title>', '<clear>']),
+	emptiedOverEmptyLine: title([''], ['Plan', '<enter>', '<enter>', '<enter>', 'Goals', '<setHeading2>', '<title>', '<clear>']),
+	enterTwice: title([''], ['Plan', '<enter>', '<enter>', 'Text']),
+	headingUnderEmptied: title([''], ['Plan', '<enter>', 'Goals', '<title>', '<clear>', '<line 1>', '<setHeading2>']),
+	onFixed: title(['# Anatomy', '<html>'], ['<fixed 1>', 'x']),
+}, {
+	openedOnlyTitle: { shown: ['h1:Anatomys', 'p:'], caret: 0, placeholder: 0, markdown: '# Anatomys\n' },
+	onlyTitle: { shown: ['h1:Anatomy', 'p:Body line'], caret: 1, placeholder: 0, markdown: '# Anatomy\n\nBody line\n' },
+	enterAtEnd: { shown: ['h1:A', 'p:', 'p:Text.'], caret: 1, placeholder: 0, markdown: '# A\n\nText.\n' },
+	textOnly: { shown: ['h2:How they form', 'p:Stars form. More.'], caret: 1, placeholder: 0, markdown: '## How they form\n\nStars form. More.\n' },
+	madeText: { shown: ['h1:', 'p:Anatomy', 'p:Text.'], caret: 1, placeholder: 1, markdown: 'Anatomy\n\nText.\n' },
+	headingUnder: { shown: ['h2:Ingredients', 'p:'], caret: 0, placeholder: 0, markdown: '## Ingredients' },
+	emptiedOverHeading: { shown: ['h1:', 'h2:Bar'], caret: 0, placeholder: 1, markdown: '#\n\n## Bar\n' },
+	emptiedAfterHeading: { shown: ['h1:', 'h2:Goals'], caret: 0, placeholder: 1, markdown: '#\n\n## Goals' },
+	emptiedOverEmptyLine: { shown: ['h1:', 'p:', 'h2:Goals'], caret: 0, placeholder: 1, markdown: '#\n\n## Goals' },
+	enterTwice: { shown: ['h1:Plan', 'p:Text'], caret: 1, placeholder: 0, markdown: '# Plan\n\nText' },
+	headingUnderEmptied: { shown: ['h2:Goals', 'p:'], caret: 0, placeholder: 0, markdown: '## Goals' },
+	onFixed: { shown: ['h1:Anatomy', 'fixed', 'p:x'], caret: 2, placeholder: 0, markdown: '# Anatomy\n\n![](a.png)\n\nx\n' },
+}, 'a note of only a title opens at the end of its title and gets a line under it, text under the title is never the title, a title made text is followed by an empty title line, an empty title line the editor added gives way to a heading made under it, and a title emptied above a heading stays and writes `#`');
 
 console.log('Canvas Markdown inline command tests passed.');

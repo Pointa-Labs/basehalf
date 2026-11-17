@@ -1,13 +1,16 @@
 # A note's title names its file
 
-Status: Active (2026-11-12)
-Decision: [D129](../decisions.md#d129--a-notes-title-names-its-file-and-its-card-shows-no-name-above-it-new-2026-11-12)
+Status: Active (2026-11-12; the title line of every editor, 2026-11-17)
+Decision: [D129](../decisions.md#d129--a-notes-title-names-its-file-and-its-card-shows-no-name-above-it-new-2026-11-12),
+[D136](../decisions.md#d136--a-notes-editor-starts-with-its-title-line-and-the-text-under-it-is-never-the-title-new-2026-11-17)
 Related: [canvas card name](canvas-card-name.md) (the name BaseHalf shows and
 the rename editor), [formats of a note](note-formats.md) (the editor on the
 card and what it writes), [canvas Create menu](canvas-create-menu.md) (New
 Note), [reference graph](reference-graph.md#rename-refactor) (what a rename
 rewrites), [exact undo](exact-undo.md) (the steps of the canvas),
-[the changes of a file](changes-of-a-file.md) (the mark of a changed card)
+[the changes of a file](changes-of-a-file.md) (the mark of a changed card),
+[opening and closing Card Detail](card-detail-opening.md) (where the
+keyboard is)
 
 ## The rule
 
@@ -15,6 +18,10 @@ The heading at the top of a note is its title. A note that the user gives a
 title, or whose title the user changes, takes the title as the name of its
 file. The title is written once, and it is shown once: a note's card shows
 no name above it.
+
+An editor of a note starts with the title line, and the note's text stands
+under it. The user writes the two in either order; what is typed under the
+title line is never part of the title.
 
 ## Problem
 
@@ -33,10 +40,38 @@ caption and in the note, and a note named by hand said two different ones
 (`by-hand` above `Hand`). The user: the row above should not be shown at
 all, and the badge button should stand in the card's upper right corner.
 
+On 2026-11-17 the user reported that editing a note on its card and
+changing its title did not work well: after New Note the title had to be
+typed and Enter pressed before any text could be; the note should save by
+itself and take its text first; and a new note opened large in Card Detail
+should start at its title, the top line of the document, which should be
+the title line in any case. Measured in a development window that day:
+
+- After New Note the note was one line, the title line. A press anywhere
+  on the card put the caret there, so `Body first`, meant as the text,
+  became the title and named the file `Body first.md`.
+- On a note that held only its title, a double click below the title put
+  the caret at the title's end: `Body line` typed there was added to the
+  title, and the file was renamed `Body firstBody line.md`.
+- Enter or Backspace in the empty title line made it a paragraph: a note
+  could begin with its text only by giving up its title line.
+- Card Detail showed a new note as one empty paragraph, without a title
+  line. After New Note and Expand, what was typed was text, and named
+  nothing.
+- The editors wrote an empty heading in two ways: the card's wrote nothing,
+  Card Detail's `#`.
+
+The cause was one: neither editor held a note as a title line with text
+under it. The card's editor showed a title line only in a note without
+text, as the note's only line, and Card Detail's showed none.
+
 ## Goals
 
 - The user writes a note's title once, in the note, and reads it once.
-- A new note asks for its title first.
+- A new note asks for its title first, and takes its text first as well.
+- Both editors of a note start with its title line, and a press, a key, or
+  a click below the title never writes into the title.
+- Nothing is confirmed: what is typed is saved as it is typed.
 - A note that agents or other programs write keeps the name they gave it.
 - No file is renamed while it is being edited, or while the user does
   something else with its card.
@@ -46,7 +81,9 @@ all, and the badge button should stand in the card's upper right corner.
 In scope:
 
 - What the title of a note is.
-- How the editor on a card starts in a note without text.
+- The title line and the text under it in the editor on a card and in Card
+  Detail: how each starts, what a press, Enter, and Backspace do there, and
+  where the keyboard is when a note opens.
 - When a note's file takes the name of its title, and which name.
 - What a note's card shows in place of its caption.
 
@@ -59,8 +96,6 @@ Not in scope, and unchanged:
   text as it is.
 - The default file name of a new note: `untitled.md`, `untitled-1.md`, and
   so on. A file has a name before it has a title.
-- The rich editor of Card Detail in a note without text. It starts with an
-  empty paragraph ([open questions](#open-questions)).
 - The captions of all other cards: a file that is no note, a picture, a
   video, a sound, a PDF, a book, a folder, a draft.
 - Notes that an agent or another program writes or changes.
@@ -73,8 +108,13 @@ Not in scope, and unchanged:
   formats, links by their text, a line break as a space, white space at its
   ends left out. A note whose body begins with anything else, or whose first
   heading shows no character, has no title.
-- **Title line**: an empty heading of level 1 that the editor on a card shows
-  as the first line of a note without text.
+- **Title line**: the first line of a note's editor, where its title is
+  written: the note's first block when that block is a heading that is no
+  toggle, and otherwise an empty heading of level 1 that the editor shows
+  above the note's first block. An empty title line writes nothing, or `#`
+  when a heading stands right under it
+  ([below](#the-title-line-and-the-text-under-it)).
+- **Text under the title**: the blocks of the body after the title line.
 - **An edit of a note**: the time an editor of BaseHalf holds the note. For
   the editor on a card that is from its opening to its closing. For Card
   Detail it is from the moment Card Detail shows the note to the moment it
@@ -83,20 +123,88 @@ Not in scope, and unchanged:
 
 ## Required behavior
 
-### A note without text starts at its title
+### The title line and the text under it
 
-- The editor on a card shows a note whose body holds no text as one title
-  line, with the caret in it. That is so after New Note, for a note made from
-  a connection, and for any empty note that is opened on its card later.
-- The title line shows a pale `Title` until it holds a character.
-- What is typed there is the title: the file gets `# ` and the typed text.
-  Enter ends the title and starts a paragraph below it.
-- **An empty heading writes nothing.** A heading without a character, the
-  title line among them, adds nothing to the file. A note that was opened
-  and left without typing is the file it was: an empty note stays empty, and
-  a note with only frontmatter keeps only that.
-- Backspace or Enter in an empty title line makes it a paragraph, for a note
-  that is to begin without a title. The toolbar's text button does the same.
+- **Card Detail starts every note with its title line.** A note whose body
+  begins with a heading shows that heading there. Any other note, one
+  without text among them, shows an empty title line above its first
+  block.
+- **The editor on a card starts with the title line** when the note
+  begins with a heading or holds no text: after New Note, for a note made
+  from a connection, and for any such note opened on its card later. A
+  note that begins with anything else is edited on its card as the card
+  shows it at rest, so that nothing moves when the edit begins; its title
+  line is in Card Detail, and a first line made a heading on the card is
+  its title as well. An edit keeps the title line it began with, also when
+  the editor is drawn again for an undo or for a change made elsewhere.
+- **The title line shows a pale `Title`** while it holds no character, in
+  each editor, with the caret in it or not.
+- **What is typed in the title line is the title**: the file gets `# ` and
+  the typed text above the text under it, at the level the title line has.
+- **An empty title line writes nothing.** Nor does any heading without a
+  character ([formats of a note](note-formats.md), rule 23). A note that
+  was opened and left without typing is the file it was: an empty note
+  stays empty, and a note with only frontmatter keeps only that. It stands
+  on no line of the file either: Card Detail opened at a line of the note,
+  as from a link to a heading or a result of Search, shows that line, and
+  the lines of a selection that agents are told of are the file's
+  ([the selection agents can see](selection-for-agents.md)).
+- **An empty title line with a heading right under it writes `#`**, with
+  the hashes of its level, and a blank line under it. Written as nothing,
+  it would leave the note beginning with that heading, which would be its
+  title. So a title emptied above a heading leaves the note without a
+  title, and the heading stays a heading of the text: `# Plan` above
+  `## Goals`, emptied, is `#` above `## Goals`. Blocks that write nothing
+  between the two, as an empty line, do not count.
+- **There is always a line to type under the title.** When the text under
+  the title holds no line to type in, as in a new note or a note of only a
+  title, the editor shows an empty line under the title line. It writes
+  nothing until something is typed into it.
+- **A press goes to the line it is on.** A press on the title line puts the
+  caret in the title. A press anywhere else on the note, below the title
+  line, on a block that the editor cannot edit, or on the empty part of a
+  card or of Card Detail's page, puts it in the text under the title, by
+  the rules that place a press there
+  ([formats of a note](note-formats.md), rule 82a), and never in the title
+  line.
+- **Enter in the title line ends the title.** The text after the caret goes
+  to a new line under the title line, a paragraph, and the caret goes to
+  its start. At the end of the title the caret goes into the line under it
+  when that line is empty, and otherwise into a new empty line before it.
+  The title line stays, empty or not. So the text of a note can come
+  first: Enter in the empty title line, or a press under it, and the title
+  is written later, or never.
+- **The title line stays first.** Backspace at the start of the title line
+  does nothing, and Card Detail shows no handle to drag the title line or
+  to add a block beside it. A title line that the user makes another kind
+  of block, as with the toolbar's text button, or deletes with the text
+  around it, is followed at once by an empty title line in its place, in the
+  same step of undo; the text it held stays under it. Backspace at the
+  start of the line under the title joins that line to the title, as it
+  joins any two lines.
+- **An empty title line that the editor added stands only where the note
+  has no title.** When a heading comes to stand right under it while it is
+  empty, or above it, the note begins with that heading: it is the title
+  line, and the empty line goes. That happens when the user makes the line
+  under an empty title line a heading, and when another program writes a
+  heading at the top of a note that Card Detail shows. A title emptied
+  above a heading is no such case, in one step or in two: the title line
+  stays, and writes `#`. An undo or a redo in Card Detail brings back the
+  note as it was, its title line among it, and takes no line away.
+- **Nothing is confirmed.** Each editor saves what is typed as it is typed,
+  the title as the rest; no key ends the title for the file. The file takes
+  the name of the title once the note is let go
+  ([below](#the-file-takes-the-name-of-the-title)).
+- **Where the keyboard is.** After New Note and for a note made from a
+  connection, the editor on the card has the caret in the title line. Card
+  Detail opened on a note without text, as from the card of a new note with
+  Expand, has the caret in the title line, and on any other note at the end
+  of the note
+  ([opening and closing Card Detail](card-detail-opening.md#the-keyboard)).
+  The end of a note of only a title is the end of its title, so that a title
+  begun on the card and opened large with Expand goes on where it stopped;
+  the empty line under it is the editor's. The editor on a card opened
+  without a press, as from the keyboard, starts at the same places.
 - **From the card's first frame.** The card of a new note shows the title
   line from the first frame it is drawn in: the pale `Title` where the
   editor shows it, and nothing else before the editor is ready. The card is
@@ -233,8 +341,9 @@ above the card would say it a second time, or say the file's other name.
 ## Acceptance criteria
 
 1. After New Note, the editor on the new card has the keyboard, its first
-   and only block is an empty heading of level 1 that shows `Title` in the
-   pale color, and the file holds no text.
+   block is an empty heading of level 1 that shows `Title` in the pale
+   color, with the caret in it, the only other block is an empty paragraph
+   under it, and the file holds no text.
 2. Typing `Anatomy` and pressing outside the card gives a file `Anatomy.md`
    that holds `# Anatomy`, and no `untitled.md`. The card is at the place
    and has the size it had.
@@ -244,9 +353,11 @@ above the card would say it a second time, or say the file's other name.
 4. A new note that is left without typing is an empty `untitled.md`.
 5. A title, Enter, a line of text, and a press outside give
    `# <title>`, an empty line, and the text.
-6. Backspace in the empty title line makes it a paragraph. Text typed then
-   and a press outside leave the file named `untitled.md`. The same note
-   opened again while it was empty showed the title line again.
+6. Enter in the empty title line of a new note puts the caret in the line
+   under it, and the title line stays, showing `Title`. Text typed then and
+   a press outside leave the file named `untitled.md`, holding the text
+   alone. The same note opened again while it was empty showed the title
+   line again.
 7. `how-they-form.md` with the body `## How they form` and a paragraph:
    changing the paragraph on the card and pressing outside renames nothing.
 8. Changing that note's heading to `How they form now` and pressing outside
@@ -284,14 +395,72 @@ above the card would say it a second time, or say the file's other name.
     every frame shows the card at its place with its title, and the note
     made from a connection with its line.
 
+The title line and the text under it (D136)
+
+21. After New Note, a press on the card below the title line puts the
+    caret in the line under it. `Body first` typed there and a press
+    outside leave `untitled.md` holding `Body first`, and nothing is
+    renamed.
+22. On the card of a note that holds only its title `Anatomy`, a double
+    click below the title puts the caret in an empty line under it. Text
+    typed there is a paragraph of the note under `# Anatomy`, and the file
+    keeps the name `Anatomy.md`.
+23. Backspace at the start of the title line changes nothing. The
+    toolbar's text button in the title line makes its text a paragraph
+    under a new, empty title line, and one undo gives the title back.
+24. Enter in the middle of a title moves the text after the caret to a
+    paragraph under the title line, with the caret at its start.
+25. After New Note, Expand: Card Detail shows the empty title line with the
+    caret in it, `Title` in the pale color, and an empty line under it.
+    `Anatomy` typed there and Escape give `Anatomy.md` holding `# Anatomy`.
+26. Card Detail on `plain.md`, which begins with a paragraph, shows an
+    empty title line above the paragraph with the caret at the end of the
+    note. A line typed at the end leaves the file without a title.
+    `Plain` typed into the title line gives `# Plain` above the paragraph,
+    and `Plain.md` once Card Detail has closed.
+27. In Card Detail, the line under an empty title line that the editor
+    added, made a heading: the empty line goes, and that heading is the
+    title line.
+28. A press on Card Detail's page below a note of only a title puts the
+    caret in the line under the title, and the first block shows no
+    handles under the pointer.
+29. An empty heading writes nothing in either editor, and a note that
+    holds `#` written elsewhere keeps it until that block is changed: given
+    text, or made another kind of block.
+30. `Nebu` typed into the title line of a new note's card, then Expand:
+    Card Detail has the caret at the end of `Nebu`, and `la` typed there
+    and Escape give `Nebula.md` holding `# Nebula`.
+31. In either editor, a new note with the title `Plan` and the line under
+    it made the heading `## Goals`, and then the title emptied: the title
+    line stays, with the pale `Title`, and the file holds `#` above
+    `## Goals` and keeps its name. In Card Detail an undo gives `Plan`
+    back and a redo empties it again, the same with the two changes made
+    in one step, and an undo of the heading's deletion gives back the empty
+    title line above it.
+
 ## Verification
 
 - Unit: `basehalfNoteTitle.test.ts` covers the title of a note and the name
-  of a title (criterion 10 and the Terms). The editor's commands test
-  (`test.canvasMarkdownInlineCommands.mts`) covers the title line, the empty
-  heading that writes nothing, and Backspace and Enter (criteria 1, 5, and 6
-  as rules). `basehalfCanvasReactScene.test.ts` covers the place of a note's
-  toolbar (criterion 17).
+  of a title (criterion 10 and the Terms), and which notes the editor on a
+  card starts with a title line. The editor's commands test
+  (`test.canvasMarkdownInlineCommands.mts`) covers the title line and the
+  line under it, the empty heading that writes nothing, Backspace and Enter,
+  a press below the title and on a fixed block, and the title line that
+  follows a change of its kind (criteria 1, 5, 6, 21 to 24, 29, and 31 as
+  rules). Rich's bundle test (`test.markdownRichFormats.mts`, part t) covers
+  the same rules in Card Detail's editor: the title line of a note without
+  text and of a note that begins with a paragraph, what they write, Enter,
+  Backspace, the empty line that goes under a heading, a title emptied
+  above one, a press below, and the undo of each (criteria 23 to 29 and 31
+  as rules). The writer's tests
+  (`basehalfNoteWriter.test.ts`, `basehalfMarkdownProjection.test.ts`)
+  cover the empty heading, the `#` that a note keeps, and the `#` of an
+  empty title line above a heading (criteria 29 and 31); the
+  line mapping's (`basehalfMarkdownBlockLines.test.ts`) that an empty title
+  line stands on no line, and the merge's (`basehalfMarkdownMerge.test.ts`)
+  that blocks that write nothing stay with a part of the note.
+  `basehalfCanvasReactScene.test.ts` covers the place of a note's toolbar
+  (criterion 17).
 - Smoke, canvas suite: `canvas-note-title-names-file` covers criteria 1, 2,
   4, 7 to 9, 11, 12, 15, and 16 in the real window, and
   `canvas-create-from-connection` covers criterion 3: the note it makes from
@@ -312,6 +481,14 @@ above the card would say it a second time, or say the file's other name.
   handles of a card that appears (`basehalfCanvasReactScene.test.ts`).
 - Criteria 13, 14, 17, and 18 were measured in a development window on a
   disposable workspace: see below.
+- Smoke, D136: the canvas suite's `canvas-note-title-line` covers criteria
+  21 to 23 on the card, and `canvas-note-title-names-file` the line under
+  the title of criterion 1. The Card Detail suite's `note-title-line` covers
+  criteria 25 to 28, 30, and 31 in the real window: New Note and Expand, at
+  once and after a title begun on the card, a title emptied above a heading,
+  a note that begins with a paragraph, a heading made under an empty title
+  line, and a press below a note of only a title, with no handles beside
+  it.
 
 ### Seen in the real window (2026-11-12)
 
@@ -350,10 +527,29 @@ film.
 | F2 on the middle note of three, a name, Enter; undo; redo | the line to the note below gone for 98 to 107 ms each time | both lines, and the counts of its badge, in every frame |
 | The picture of the card under the editor and the editor | | the same: the word `Title` at the same place, in the same color |
 
+### Seen in the real window (2026-11-17)
+
+A development window of 1440 × 900 on a disposable folder of three notes
+(`# Anatomy` with a paragraph, `## How they form` with a paragraph, and
+`plain.md` of two paragraphs), driven with the pointer and the keyboard as a
+user's are, a double click at a person's speed.
+
+| What was done | Before | After |
+| --- | --- | --- |
+| New Note, a press on the card below the title line, `Body first`, a press outside | the caret in the title line, the note's only line; `Body first.md` holding `# Body first` | the caret in the line under the pale `Title`; `untitled.md` holding `Body first`, not renamed |
+| A note of only a title, a double click below the title, a few words, a press outside | the caret at the end of the title; the words added to it, and the file renamed to them (`Body firstBody line.md`) | the caret in an empty line under the title; `Comet.md` holding `# Comet`, a blank line, and the words |
+| New Note, a title, Enter, a line of text, a press outside | | `Nebula.md` holding `# Nebula`, a blank line, and the text |
+| New Note, Expand | Card Detail showing one empty paragraph and its hint; what was typed was text, and named nothing | the title line with the caret in it and the pale `Title`, an empty line under it; `Galaxy` typed and Escape gave `Galaxy.md` holding `# Galaxy` |
+| `plain.md` opened in Card Detail, the pointer over its first line and over its second, Escape | | an empty title line above the two paragraphs, the caret at the end of the note; no handles beside the title line and the handles beside the paragraph; the file byte for byte as it was |
+| Typing in a note of 1,920 blocks (Rich's bundle test, part p) | 4.8 ms for 95 of 100 letters | 4.8 to 5.7 ms in three runs, the title line's rules included |
+
 ## Open questions
 
-- **The rich editor of Card Detail** shows a note without text as an empty
-  paragraph. Whether it starts at a title line too is open.
+- **The name in Card Detail's header.** While a title is typed in Card
+  Detail, the header and the path in the title bar still show the file's
+  name, which follows the title when Card Detail closes. Whether the name
+  should follow the title while Card Detail stays open is open: the file
+  would be renamed under the editor that holds it, which D129 avoids.
 - **A title changed by a rename.** A rename by name leaves the title, so
   name and title can differ until the title is changed again. Whether a
   rename by name should rewrite the title is open.

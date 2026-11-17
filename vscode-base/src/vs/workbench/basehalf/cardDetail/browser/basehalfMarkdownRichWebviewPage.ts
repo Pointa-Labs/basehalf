@@ -12,6 +12,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { baseHalfReaderLabels } from '../../documents/browser/basehalfReaderPage.js';
 import { escape } from '../../../../base/common/strings.js';
+import { localize } from '../../../../nls.js';
 
 // The page of the Rich editor: its webview and the HTML it loads, the states of its first frame, and the guard that
 // keeps an open quick input while a webview takes the keyboard.
@@ -144,7 +145,7 @@ export function baseHalfMarkdownRichWebviewHtml(key: string, locale = language):
 	<link nonce="${nonce}" rel="stylesheet" href="${styles}">
 </head>
 <body>
-	<div id="root" data-basehalf-key="${escapeAttribute(encodeURIComponent(key))}" data-comment-labels="${escapeAttribute(encodeURIComponent(JSON.stringify(baseHalfReaderLabels())))}"></div>
+	<div id="root" data-basehalf-key="${escapeAttribute(encodeURIComponent(key))}" data-comment-labels="${escapeAttribute(encodeURIComponent(JSON.stringify(baseHalfReaderLabels())))}" data-basehalf-title-placeholder="${escapeAttribute(localize('basehalf.note.titleLine', "Title"))}"></div>
 	<script nonce="${nonce}" type="module" src="${script}"></script>
 </body>
 </html>`;

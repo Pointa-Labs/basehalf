@@ -6573,3 +6573,45 @@ does not skip.
   in a reader 400 to 628 px wide, too narrow for a mark that covers no letter.
 - Options for case, accents, and whole words: the readers people use for papers have none by default; one rule that finds
   what a person means needs no choice.
+
+## D136 — A note's editor starts with its title line, and the text under it is never the title (NEW, 2026-11-17)
+
+**Decision.** Both editors of a note hold it as a title line with text under it. Card Detail shows the title line first in
+every note: the note's first heading, or an empty title line above a note that begins with anything else. The editor on a
+card shows it for a note that begins with a heading or holds no text, and edits any other note as the card shows it at rest.
+An empty title line shows a pale `Title` and writes nothing; there is always a line to type in under the title; a press
+below the title line, Enter in it, and Backspace at its start never put the text under the title into the title, nor the
+title into the text. Revises D129, whose new note was one title line that Enter or Backspace made a paragraph, and whose
+Card Detail started a note without text at an empty paragraph. See
+[a note's title names its file](specs/note-title.md#the-title-line-and-the-text-under-it).
+
+**Why.** On 2026-11-17 the owner reported that editing a note on its card and changing its title did not work well: after
+New Note the title had to be typed and Enter pressed before any text could be; the note should save by itself and take its
+text first; and a new note opened large should start at its title, the top line of the document, which should be there in
+any case. Measured that day: a press anywhere on a new note's card put the caret in its only line, so the text became the
+title and named the file; on a note of only a title, a double click below it added the words typed there to the title, and
+the file was renamed to them; Card Detail showed a new note without a title line; and the two editors wrote an empty
+heading in two ways. The cause was one: the title was a rule of the file (the first heading) that neither editor held as a
+line of its own, and the card's editor showed a title line only as the single line of an empty note.
+
+**Alternatives.**
+- A title line above every note on its card too. A note that begins with a paragraph would move down by a line when its
+  card's editor opens, and the caret of a double click would land a line off. The card edits a note in place, so it shows
+  the title line only where the note has one or has nothing yet.
+- A title kept apart from the text, as a field or in the frontmatter. The title would no longer be the first heading that
+  agents, git, and every other reader of the Markdown see (D129).
+- A title line that writes `#` whenever it is empty, so that a heading under it stays a heading of the text. Every note
+  without a title would hold an empty heading at its top, for agents, git, and every card. An empty title line writes
+  nothing, and `#` only where a heading stands right under it: there, writing nothing would make that heading the title.
+- An empty title line that gives way to any heading under it. A title emptied above a heading would hand the title to the
+  heading and rename the file. It gives way only to a heading that comes under it while it is empty, the line under it
+  made a heading or a heading written there, and never to what an undo or a redo brings back.
+
+**Consequences.**
+- A note can begin with its text: a press under the title line, or Enter in it, and the title comes later or never.
+- After New Note and Expand, Card Detail has the caret in the title line.
+- An empty heading writes nothing in either editor, but for an empty title line with a heading right under it, which
+  writes `#`; a `#` that a note was written with stays until its block is changed.
+- Card Detail shows no handles beside the title line.
+- The name in Card Detail's header still follows the title only when Card Detail closes (open, named in the
+  specification).

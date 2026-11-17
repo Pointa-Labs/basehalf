@@ -48,6 +48,7 @@ import { normalizeBaseHalfNote } from '../markdown-rich-src/noteNormalizer.js';
 import { installBaseHalfNoteBlockIndex } from '../markdown-rich-src/noteBlockIndex.js';
 import { baseHalfNotePasteHandler, installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from '../markdown-rich-src/notePaste.js';
 import { makeBaseHalfNoteShapeExtension } from '../markdown-rich-src/noteShape.js';
+import { baseHalfNoteTitleLineStart, baseHalfNoteTitleOnlyEnd, makeBaseHalfNoteTitleLineExtension } from '../markdown-rich-src/noteTitleLine.js';
 import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchema.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from '../markdown-rich-src/noteUndo.js';
@@ -185,7 +186,8 @@ const noteCommentEdits = { count: 0 };
 const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 	basehalf: {
 		editorApi: editor => createBaseHalfNoteEditorApi(editor),
-		extensions: () => [makeBaseHalfNoteShapeExtension({
+		// As editor.tsx's: every note starts with its title line (note title, D136).
+		extensions: () => [makeBaseHalfNoteTitleLineExtension({ placeholder: 'Title' }), makeBaseHalfNoteShapeExtension({
 			openLink: href => openedLinks.push(href),
 			undoManager: () => openNow.history?.ensure(),
 			reading: () => openNow.reading,
@@ -240,7 +242,9 @@ export interface INoteFormatsTest {
 	save(): Promise<string>;
 	/** Runs Undo or Redo as Card Detail's command (and Mod+Z) runs it. */
 	command(command: 'undo' | 'redo'): boolean;
-	/** The document in short. */
+	/** The blocks of the note, without the empty title line that Rich adds above a note that does not begin with a heading. */
+	document(): NoteEditor['document'];
+	/** The blocks of the note in short, as `document` gives them. */
 	blocks(): IShortBlock[];
 	/**
 	 * Puts the caret at the start or the end of the first text that matches,
@@ -394,6 +398,17 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult, b
 	] : undefined));
 
 	let mountedAgain = false;
+	/**
+	 * The blocks of the note: without the empty title line that Rich adds above
+	 * a note that does not begin with a heading, which the file does not hold
+	 * (note title). Part t tests the title line itself.
+	 */
+	const ownBlocks = () => {
+		const blocks = editor.document;
+		const first = blocks[0] as { readonly id: string; readonly type: string; readonly props: { readonly isToggleable?: boolean }; readonly content?: unknown } | undefined;
+		const addedTitleLine = first?.type === 'heading' && !first.props.isToggleable && Array.isArray(first.content) && first.content.length === 0 && !note.byId.has(first.id);
+		return addedTitleLine ? blocks.slice(1) : blocks;
+	};
 	const test: INoteFormatsTest = {
 		mode,
 		editor,
@@ -423,6 +438,11 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult, b
 			note.frontmatter = frontmatter;
 			note.byId = byId;
 			note.note = projected;
+			// A note without text starts at its title line, and a note of only a title at its end (note title).
+			const opening = mode !== 'basehalf' ? undefined : !body.trim() ? baseHalfNoteTitleLineStart(view.state.doc) : baseHalfNoteTitleOnlyEnd(view.state.doc);
+			if (opening) {
+				view.dispatch(view.state.tr.setSelection(opening));
+			}
 		},
 		// As serializeAndRequestSave in editor.tsx: the body from the blocks, under the note's front matter.
 		save: async () => joinBaseHalfMarkdownRichFrontmatter(note.frontmatter, await spliceBaseHalfMarkdownSave(api, editor.document, '', note.byId, note.note)),
@@ -432,10 +452,11 @@ async function openNote(mode: NoteFormatsMode, result: INoteFormatsPartResult, b
 			editor.focus();
 			return command === 'undo' ? history.undo() : history.redo();
 		},
-		blocks: () => shortBlocks(editor.document),
+		document: () => ownBlocks(),
+		blocks: () => shortBlocks(ownBlocks()),
 		caret: (target, edge = 'end') => {
 			if (typeof target === 'number') {
-				editor.setTextCursorPosition(editor.document[target], edge);
+				editor.setTextCursorPosition(ownBlocks()[target], edge);
 			} else {
 				const view = editor.prosemirrorView;
 				let at: number | undefined;
@@ -899,7 +920,7 @@ async function pastes(t: INoteFormatsTest): Promise<void> {
 	// A fixed block copied within Rich: the editor's own HTML of it.
 	await t.load('Start.\n\n<div>raw</div>\n');
 	await t.frames();
-	const fixedHtml = t.editor.blocksToFullHTML([t.editor.document[1]]);
+	const fixedHtml = t.editor.blocksToFullHTML([t.document()[1]]);
 	await t.load('Start.\n');
 	await t.frames();
 	t.caret('Start.');
@@ -1320,7 +1341,7 @@ async function magnifiedResize(t: INoteFormatsTest): Promise<void> {
 	for (const [level, width] of [[2.0000008, 220], [4, 210]]) {
 		await t.load('Resize below.\n');
 		await t.frames();
-		const [first] = t.editor.document;
+		const [first] = t.document();
 		t.editor.insertBlocks([{ type: 'image', props: { url: WIDE_PICTURE } }] as Parameters<typeof t.editor.insertBlocks>[0], first, 'after');
 		await until('the picture loads', () => (t.editor.domElement?.querySelector('img') as HTMLImageElement | null)?.naturalWidth === 200);
 		// As Card Detail magnifies a note (zoom and outline of a note): the page drawn larger, nothing laid out anew.
@@ -1538,13 +1559,13 @@ async function shape(t: INoteFormatsTest): Promise<void> {
 
 	await t.load('Before.\n');
 	await t.frames();
-	const [before] = t.editor.document;
+	const [before] = t.document();
 	t.editor.insertBlocks([
 		{ type: 'table', content: { type: 'tableContent', rows: [{ cells: ['a', 'b'] }, { cells: ['c', 'd'] }] } },
 		{ type: 'image', props: { url: 'clip.mp4', previewWidth: 300.6 } },
 	] as Parameters<typeof t.editor.insertBlocks>[0], before, 'after');
 	await t.frames();
-	const [, table, video] = t.editor.document as unknown as readonly { readonly type: string; readonly props: Record<string, unknown>; readonly content?: { readonly headerRows?: number } }[];
+	const [, table, video] = t.document() as unknown as readonly { readonly type: string; readonly props: Record<string, unknown>; readonly content?: { readonly headerRows?: number } }[];
 	t.check('a table\'s first row is its header, and a picture of a video is a video at a whole width', {
 		headerRows: table?.content?.headerRows,
 		media: { type: video?.type, previewWidth: video?.props.previewWidth },
@@ -1552,7 +1573,7 @@ async function shape(t: INoteFormatsTest): Promise<void> {
 
 	t.editor.insertBlocks([{ type: 'table', content: { type: 'tableContent', rows: [{ cells: [{ type: 'tableCell', props: { colspan: 2 }, content: ['wide'] }] }, { cells: ['x', 'y'] }] } }] as Parameters<typeof t.editor.insertBlocks>[0], before, 'after');
 	await t.frames();
-	const merged = t.editor.document[1] as unknown as { readonly content: { readonly rows: readonly { readonly cells: readonly { readonly props: { readonly colspan?: number } }[] }[] } };
+	const merged = t.document()[1] as unknown as { readonly content: { readonly rows: readonly { readonly cells: readonly { readonly props: { readonly colspan?: number } }[] }[] } };
 	t.check('a merged cell is split, its content in its first cell', merged.content.rows.map(row => row.cells.map(cell => cell.props.colspan)), [[1, 1], [1, 1]]);
 
 	// Steps of undo by kind.
@@ -1599,18 +1620,18 @@ async function shape(t: INoteFormatsTest): Promise<void> {
 
 	await t.load('![](pic.png)\n');
 	await t.frames();
-	const [picture] = t.editor.document;
+	const [picture] = t.document();
 	for (const caption of ['a', 'ab', 'abc']) {
 		const update: Parameters<typeof t.editor.updateBlock>[1] = { props: { caption } };
 		t.editor.updateBlock(picture, update);
 	}
 	await t.frames();
-	const captioned = (t.editor.document[0] as unknown as { readonly props: { readonly caption: string } }).props.caption;
+	const captioned = (t.document()[0] as unknown as { readonly props: { readonly caption: string } }).props.caption;
 	t.command('undo');
 	await t.frames();
 	t.check('the letters of one caption, one change after another, are one step', {
 		captioned,
-		undone: (t.editor.document[0] as unknown as { readonly props: { readonly caption: string } }).props.caption,
+		undone: (t.document()[0] as unknown as { readonly props: { readonly caption: string } }).props.caption,
 	}, { captioned: 'abc', undone: '' });
 }
 
@@ -1852,7 +1873,7 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 	});
 	t.check('it is 280 px wide and at most 428 px tall, and each of its rows is one line of 30 px', { width: box.width, tall: box.height <= 428, rows: [...new Set(rowBoxes)] }, { width: 280, tall: true, rows: [30] });
 	const line = t.blocks();
-	t.check('the new line is under the line of the button, with the caret in it', { line, caret: caretBlock().id === t.editor.document[1].id }, { line: [twoBlocks[0], { type: 'paragraph', text: '' }, twoBlocks[1]], caret: true });
+	t.check('the new line is under the line of the button, with the caret in it', { line, caret: caretBlock().id === t.document()[1].id }, { line: [twoBlocks[0], { type: 'paragraph', text: '' }, twoBlocks[1]], caret: true });
 
 	// Escape: the line goes, and the note, undo, redo, and the caret are as they were.
 	await t.keyboard.press('Escape');
@@ -1975,7 +1996,7 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 
 	await t.load(twoLines);
 	await add('One');
-	const newLine = document.querySelector<HTMLElement>(`[data-id="${t.editor.document[1].id}"] .bn-inline-content`)!.getBoundingClientRect();
+	const newLine = document.querySelector<HTMLElement>(`[data-id="${t.document()[1].id}"] .bn-inline-content`)!.getBoundingClientRect();
 	await t.mouse.click(newLine.x + 10, newLine.y + newLine.height / 2);
 	await closed();
 	await t.frames(4);
@@ -2008,17 +2029,17 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 	await add('After.');
 	await t.keyboard.press('Escape');
 	await closed();
-	t.addedLine.add(t.editor.document[0].id);
+	t.addedLine.add(t.document()[0].id);
 	await shown('the menu opens under an empty code block', () => menu() !== null);
 	t.check('beside an empty code block the button makes a line after it, as `/` does not work in code', t.blocks().map(block => block.type), ['codeBlock', 'paragraph', 'paragraph']);
 	await t.keyboard.press('Escape');
 	await closed();
 
 	await t.load('One\n\n\n\nTwo\n');
-	t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+	t.editor.insertBlocks([{ type: 'paragraph' }], t.document()[0], 'after');
 	await t.frames();
 	const emptyBefore = t.blocks();
-	t.addedLine.add(t.editor.document[1].id);
+	t.addedLine.add(t.document()[1].id);
 	await shown('the menu opens on the empty line', () => menu() !== null);
 	t.check('beside an empty line the button makes no line', t.blocks(), emptyBefore);
 	await t.keyboard.press('Escape');
@@ -2101,22 +2122,22 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 	];
 	for (const [form, type, level] of forms) {
 		await t.load('Start\n');
-		t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+		t.editor.insertBlocks([{ type: 'paragraph' }], t.document()[0], 'after');
 		t.caret(1);
 		await t.keyboard.type(form);
 		await t.frames();
-		const made = t.editor.document[1];
+		const made = t.document()[1];
 		t.check(`\`${form.trim()}\` makes its block`, { type: made.type, level: (made.props as { readonly level?: number }).level }, { type, level });
 	}
 	await t.load('Start\n');
-	t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+	t.editor.insertBlocks([{ type: 'paragraph' }], t.document()[0], 'after');
 	t.caret(1);
 	await t.keyboard.type('[[');
 	await shown('`[[` opens the list of files', () => menu()?.classList.contains('wide') === true);
 	await t.keyboard.press('Escape');
 	await closed();
 	await t.load('Start\n');
-	t.editor.insertBlocks([{ type: 'paragraph' }], t.editor.document[0], 'after');
+	t.editor.insertBlocks([{ type: 'paragraph' }], t.document()[0], 'after');
 	t.caret(1);
 	await t.keyboard.type(':sm');
 	await shown('`:` and letters open the list of emoji', () => document.querySelector('.bn-grid-suggestion-menu') !== null);
@@ -2157,7 +2178,7 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
- * Comments on a note in its Rich view of Card Detail (comments): a wavy line
+ * Part u, comments on a note in its Rich view of Card Detail (comments): a wavy line
  * under each passage and a mark beside it, no highlights, passages that follow
  * an edit, and a note whose Markdown and undo know nothing of them.
  */
@@ -2265,6 +2286,244 @@ async function comments(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
+ * Part t, the title line (note title, "The title line and the text under it";
+ * D136): every note starts with its title line, the note's first heading or
+ * an empty one that shows a pale `Title` and writes nothing; there is a line
+ * to type in under it; Enter in the title line ends the title, Backspace at
+ * its start does nothing, and a press below it goes to the text under it; a
+ * title line made text is followed by an empty one in the same step of undo;
+ * an empty title line that Rich added gives way to a heading made under it;
+ * and a title emptied above a heading stays, and writes `#`.
+ */
+async function titleLine(t: INoteFormatsTest): Promise<void> {
+	const raw = () => shortBlocks(t.editor.document);
+	const caretText = () => {
+		const { $from } = t.editor.prosemirrorView.state.selection;
+		return { type: $from.parent.type.name, text: $from.parent.textContent, offset: $from.parentOffset };
+	};
+	const placeholder = () => {
+		const first = t.editor.domElement?.querySelector<HTMLElement>('.bn-block-content');
+		return first?.hasAttribute('data-basehalf-title-line') ? { word: first.dataset.placeholder, shown: getComputedStyle(first, '::after').content } : undefined;
+	};
+
+	// A note without text: the title line with the caret in it, a line under it, and nothing written.
+	await t.load('');
+	await t.frames();
+	t.editor.focus();
+	t.check('a note without text starts at an empty title line that shows Title, with a line under it, and writes nothing', {
+		blocks: raw(),
+		caret: caretText(),
+		placeholder: placeholder(),
+		saved: await t.save(),
+	}, {
+		blocks: [{ type: 'heading', text: '' }, { type: 'paragraph', text: '' }],
+		caret: { type: 'heading', text: '', offset: 0 },
+		placeholder: { word: 'Title', shown: '"Title"' },
+		saved: '',
+	});
+	await t.keyboard.type('Anatomy');
+	await t.frames();
+	t.check('what is typed there is the title', { blocks: raw(), placeholder: placeholder(), saved: await t.save() }, {
+		blocks: [{ type: 'heading', text: 'Anatomy' }, { type: 'paragraph', text: '' }],
+		placeholder: undefined,
+		saved: '# Anatomy\n',
+	});
+	await t.keyboard.press('Enter');
+	await t.frames();
+	const afterEnter = { blocks: raw(), caret: caretText() };
+	await t.keyboard.type('Body.');
+	await t.frames();
+	t.check('Enter at the end of the title goes into the line under it, and the text typed there is under the title', { ...afterEnter, saved: await t.save() }, {
+		blocks: [{ type: 'heading', text: 'Anatomy' }, { type: 'paragraph', text: '' }],
+		caret: { type: 'paragraph', text: '', offset: 0 },
+		saved: '# Anatomy\n\nBody.\n',
+	});
+
+	// The text first: Enter in the empty title line, and the title stays.
+	await t.load('');
+	await t.frames();
+	t.editor.focus();
+	await t.keyboard.press('Enter');
+	await t.keyboard.type('Text first.');
+	await t.frames();
+	t.check('Enter in the empty title line goes to the line under it, and the title line stays, empty and writing nothing', { blocks: raw(), placeholder: placeholder()?.word, saved: await t.save() }, {
+		blocks: [{ type: 'heading', text: '' }, { type: 'paragraph', text: 'Text first.' }],
+		placeholder: 'Title',
+		saved: 'Text first.\n',
+	});
+
+	// Enter in the middle of a title.
+	await t.load('');
+	await t.frames();
+	t.editor.focus();
+	await t.keyboard.type('AnatomyBody');
+	t.caret('AnatomyBody', 'start');
+	for (let step = 0; step < 'Anatomy'.length; step++) {
+		await t.keyboard.press('ArrowRight');
+	}
+	await t.keyboard.press('Enter');
+	await t.frames();
+	t.check('Enter in the middle of the title moves the text after the caret to the line under it', { blocks: raw(), caret: caretText() }, {
+		blocks: [{ type: 'heading', text: 'Anatomy' }, { type: 'paragraph', text: 'Body' }],
+		caret: { type: 'paragraph', text: 'Body', offset: 0 },
+	});
+
+	// Backspace at the start of the title line, and the title made text.
+	await t.load('# Plan\n\nText.\n');
+	await t.frames();
+	t.caret('Plan', 'start');
+	await t.keyboard.press('Backspace');
+	await t.frames();
+	t.check('Backspace at the start of the title line changes nothing', { blocks: raw(), saved: await t.save() }, {
+		blocks: [{ type: 'heading', text: 'Plan' }, { type: 'paragraph', text: 'Text.' }],
+		saved: '# Plan\n\nText.\n',
+	});
+	const toText: Parameters<typeof t.editor.updateBlock>[1] = { type: 'paragraph', props: {} };
+	t.editor.updateBlock(t.editor.document[0], toText);
+	await t.frames();
+	const madeText = { blocks: raw(), saved: await t.save() };
+	t.command('undo');
+	await t.frames();
+	t.check('the title made text stands under a new empty title line, and one undo gives the title back', { madeText, undone: raw() }, {
+		madeText: { blocks: [{ type: 'heading', text: '' }, { type: 'paragraph', text: 'Plan' }, { type: 'paragraph', text: 'Text.' }], saved: 'Plan\n\nText.\n' },
+		undone: [{ type: 'heading', text: 'Plan' }, { type: 'paragraph', text: 'Text.' }],
+	});
+
+	// A note that begins with a paragraph, as an agent may write it.
+	await t.load('Text first.\n\nMore.\n');
+	await t.frames();
+	const opened = { blocks: raw(), placeholder: placeholder()?.word };
+	t.caret('More.');
+	await t.keyboard.type(' Again.');
+	await t.frames();
+	const typedBelow = await t.save();
+	t.editor.setTextCursorPosition(t.editor.document[0], 'start');
+	t.editor.focus();
+	await t.keyboard.type('Plain');
+	await t.frames();
+	t.check('a note that begins with a paragraph shows an empty title line above it; text typed below leaves it without a title, and a title typed into it goes above the text', { opened, typedBelow, titled: await t.save() }, {
+		opened: { blocks: [{ type: 'heading', text: '' }, { type: 'paragraph', text: 'Text first.' }, { type: 'paragraph', text: 'More.' }], placeholder: 'Title' },
+		typedBelow: 'Text first.\n\nMore. Again.\n',
+		titled: '# Plain\n\nText first.\n\nMore. Again.\n',
+	});
+
+	// A heading under an empty title line that Rich added, made by the user or written by another program.
+	await t.load('One\n\nTwo\n');
+	await t.frames();
+	const toHeading: Parameters<typeof t.editor.updateBlock>[1] = { type: 'heading', props: { level: 2 } };
+	t.editor.updateBlock(t.editor.document[1], toHeading);
+	await t.frames();
+	const madeHeading = { blocks: raw(), saved: await t.save() };
+	await t.load('Body.\n');
+	await t.frames();
+	t.editor.insertBlocks([{ type: 'heading', props: { level: 1 }, content: 'Written' }] as Parameters<typeof t.editor.insertBlocks>[0], t.editor.document[0], 'before');
+	await t.frames();
+	t.check('an empty title line that Rich added gives way to a heading that comes to stand under it or above it', { madeHeading, written: raw() }, {
+		madeHeading: { blocks: [{ type: 'heading', text: 'One' }, { type: 'paragraph', text: 'Two' }], saved: '## One\n\nTwo\n' },
+		written: [{ type: 'heading', text: 'Written' }, { type: 'paragraph', text: 'Body.' }],
+	});
+
+	// A title emptied above a heading: the title line stays, empty, and writes `#`, so that the heading under it is no
+	// title. An undo and a redo bring back what was, the heading made and the title emptied in steps of their own or in one.
+	const titleAboveGoals = async (): Promise<void> => {
+		await t.load('');
+		await t.frames();
+		t.editor.focus();
+		await t.keyboard.type('Plan');
+		await t.keyboard.press('Enter');
+		await t.keyboard.type('Goals');
+		await t.frames();
+		t.history.ensure()?.stopCapturing();
+	};
+	await titleAboveGoals();
+	t.editor.updateBlock(t.editor.document[1], toHeading);
+	await t.frames();
+	t.history.ensure()?.stopCapturing();
+	t.caret('Plan', 'end');
+	for (let step = 0; step < 'Plan'.length; step++) {
+		await t.keyboard.press('Backspace');
+	}
+	await t.frames();
+	const emptied = { blocks: raw(), saved: await t.save() };
+	t.command('undo');
+	await t.frames();
+	const titleBack = raw();
+	t.command('redo');
+	await t.frames();
+	const emptiedAgain = raw();
+	t.editor.removeBlocks([t.editor.document[1]]);
+	await t.frames();
+	t.command('undo');
+	await t.frames();
+	const headingBack = { blocks: raw(), saved: await t.save() };
+	await titleAboveGoals();
+	const toEmpty: Parameters<typeof t.editor.updateBlock>[1] = { content: [] };
+	t.editor.transact(() => {
+		t.editor.updateBlock(t.editor.document[1], toHeading);
+		t.editor.updateBlock(t.editor.document[0], toEmpty);
+	});
+	await t.frames();
+	const inOneStep = raw();
+	t.command('undo');
+	await t.frames();
+	t.command('redo');
+	await t.frames();
+	const oneStepAgain = { blocks: raw(), saved: await t.save() };
+	const titleAndGoals = [{ type: 'heading', text: '' }, { type: 'heading', text: 'Goals' }];
+	t.check('a title emptied above a heading stays an empty title line that writes `#`, and an undo or a redo brings back what was', { emptied, titleBack, emptiedAgain, headingBack, inOneStep, oneStepAgain }, {
+		emptied: { blocks: titleAndGoals, saved: '#\n\n## Goals\n' },
+		titleBack: [{ type: 'heading', text: 'Plan' }, { type: 'heading', text: 'Goals' }],
+		emptiedAgain: titleAndGoals,
+		headingBack: { blocks: titleAndGoals, saved: '#\n\n## Goals\n' },
+		inOneStep: titleAndGoals,
+		oneStepAgain: { blocks: titleAndGoals, saved: '#\n\n## Goals\n' },
+	});
+
+	// A note of only a title: the line under it takes a press below the title.
+	await t.load('# Anatomy\n');
+	await t.frames();
+	const titleOnly = raw();
+	// It opens at its end, the end of its title: a title begun on the card goes on there.
+	const openedAt = caretText();
+	const under = t.editor.domElement?.querySelectorAll<HTMLElement>('.bn-block-content')[1]?.getBoundingClientRect();
+	if (!under) {
+		throw new Error('The note has no line under its title.');
+	}
+	await t.mouse.click(under.left + 40, under.bottom - 2);
+	await t.frames();
+	const pressed = caretText();
+	await t.keyboard.type('Body line');
+	await t.frames();
+	t.check('a note of only a title opens at the end of its title and has a line under it, where a press below the title puts the caret and the text goes under the title', { titleOnly, openedAt, pressed, saved: await t.save() }, {
+		titleOnly: [{ type: 'heading', text: 'Anatomy' }, { type: 'paragraph', text: '' }],
+		openedAt: { type: 'heading', text: 'Anatomy', offset: 7 },
+		pressed: { type: 'paragraph', text: '', offset: 0 },
+		saved: '# Anatomy\n\nBody line\n',
+	});
+
+	// A `#` of the file is the title line, kept as it is until it is changed.
+	await t.load('#\n\nBody\n');
+	await t.frames();
+	const kept = { blocks: raw(), saved: await t.save() };
+	t.editor.setTextCursorPosition(t.editor.document[0], 'start');
+	t.editor.focus();
+	await t.keyboard.type('T');
+	await t.frames();
+	t.check('a `#` of the file is the title line, which keeps its bytes until a title is typed into it', { kept, titled: await t.save() }, {
+		kept: { blocks: [{ type: 'heading', text: '' }, { type: 'paragraph', text: 'Body' }], saved: '#\n\nBody\n' },
+		titled: '# T\n\nBody\n',
+	});
+
+	// An empty heading of HTML is no `#`: it may hold what Rich cannot write, so it stays as it is.
+	await t.load('<h2 id="intro"></h2>\n\nBody\n');
+	await t.frames();
+	t.check('an empty heading of HTML stays as it is, under an empty title line', { blocks: raw(), saved: await t.save() }, {
+		blocks: [{ type: 'heading', text: '' }, { type: 'rawPassthrough' }, { type: 'paragraph', text: 'Body' }],
+		saved: '<h2 id="intro"></h2>\n\nBody\n',
+	});
+}
+
+/**
  * The parts of the test, by name. Each runs on a note of its own and records
  * its checks with `t.check`. Parts a to i of D110 join here.
  */
@@ -2284,7 +2543,8 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	n: shape,
 	r: fileBlocks,
 	s: blockMenu,
-	t: comments,
+	t: titleLine,
+	u: comments,
 };
 
 // As editor.tsx does before the first note is drawn.

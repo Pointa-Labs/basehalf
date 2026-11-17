@@ -129,6 +129,22 @@ suite('BaseHalfMarkdownBlockLines', () => {
 			assert.deepStrictEqual(baseHalfMarkdownLinesToBlockIds(blocks, projection.byId, 0, [[8, 8]]), [blocks[1].id]);
 		});
 
+		test('an empty title line that the file does not hold stands on no line, and the lines under it keep theirs (note title)', async () => {
+			const editor = new BaseHalfNoteTestEditor();
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, 'Intro\n\n<details>\n<summary>T</summary>\n\none\n\ntwo\n\n</details>\n');
+			const titleLine: IBaseHalfMarkdownBlockNode = { id: 'title-line', type: 'heading', content: [] };
+			const blocks = [titleLine, ...projection.blocks as unknown as IBaseHalfMarkdownBlockNode[]];
+			const [, second] = blocks[2].children!;
+			const shown = (start: number, end: number) => baseHalfMarkdownLinesToShownBlockIds(blocks, projection.byId, 0, [[start, end]]);
+
+			assert.deepStrictEqual({
+				intro: baseHalfMarkdownBlockFileLine(blocks, blocks[1].id, projection.byId, 0),
+				child: baseHalfMarkdownBlockFileLine(blocks, second.id, projection.byId, 0),
+				firstLine: shown(1, 1),
+				childLine: shown(8, 8),
+			}, { intro: 1, child: 8, firstLine: [blocks[1].id], childLine: [second.id] });
+		});
+
 		test('returns null when the id is absent', () => {
 			const { blocks, byId } = indexBody('only.\n');
 

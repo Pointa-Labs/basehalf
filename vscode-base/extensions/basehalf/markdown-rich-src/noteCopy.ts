@@ -57,7 +57,11 @@ function selectionFiles(editor: NoteEditor, note: string | undefined): string[] 
 		return undefined;
 	}
 	const files: string[] = [];
-	for (const block of editor.getSelectionCutBlocks().blocks as readonly { readonly type?: string; readonly props?: { readonly url?: unknown }; readonly children?: readonly unknown[] }[]) {
+	for (const block of editor.getSelectionCutBlocks().blocks as readonly { readonly type?: string; readonly props?: { readonly url?: unknown }; readonly content?: unknown; readonly children?: readonly unknown[] }[]) {
+		// A line without text, as the empty title line and the line under it, holds no text to copy (note title).
+		if ((block.type === 'heading' || block.type === 'paragraph') && Array.isArray(block.content) && block.content.length === 0 && (block.children?.length ?? 0) === 0) {
+			continue;
+		}
 		const url = block.props?.url;
 		if (!FILE_BLOCKS.has(block.type ?? '') || typeof url !== 'string' || url === '' || (block.children?.length ?? 0) > 0) {
 			return undefined;

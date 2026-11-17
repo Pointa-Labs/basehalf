@@ -283,8 +283,16 @@ start).
     picture as the start of a width or a height. The name of a video or a
     sound is not stored, and Rich offers no Rename for them.
 23. **Nothing for nothing.** A picture, a video, a sound, or a file block
-    without an address writes nothing, and so do an empty paragraph and a
-    block whose text is white space alone. An empty check item is
+    without an address writes nothing, and so do an empty paragraph, a
+    heading without a character, among them a note's empty title line
+    ([a note's title names its file](note-title.md)), and a block whose
+    text is white space alone, in Rich and in the card's editor alike. A
+    heading without a character that the note held as it was read, such as
+    a `#` written elsewhere, keeps its bytes until that block is changed
+    (rule 87). A note's empty title line with a heading right under it
+    writes `#` of its level, so that the heading is no title
+    ([a note's title names its file](note-title.md#the-title-line-and-the-text-under-it)).
+    An empty check item is
     `- [ ] &#32;`: the space after its box is a reference, which neither the
     card's reader nor a tool that trims lines takes away. A list item without
     text that holds blocks is its marker alone when its first child starts a
@@ -760,8 +768,13 @@ start).
     block it can edit before it, or, with none before it, to the start of
     the nearest one after it. A note without a block that the card's editor
     can edit gets an empty line after its last block, which the file keeps
-    only once something is typed into it. Card Detail opens from the card's
-    Expand, and for a note above 128 KiB.
+    only once something is typed into it. A press below the title line or
+    on a block under it never puts the caret in the title line: the nearest
+    block before it is taken only when it is under the title, and a note
+    whose text under the title holds no block to type in gets the empty
+    line under the title
+    ([a note's title names its file](note-title.md#the-title-line-and-the-text-under-it)).
+    Card Detail opens from the card's Expand, and for a note above 128 KiB.
 83. A heading inside a closed toggle is not in the outline, and is again when
     the toggle opens ([zoom and outline of a note](note-zoom-and-outline.md),
     rule 9).

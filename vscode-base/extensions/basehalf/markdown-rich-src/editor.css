@@ -908,3 +908,10 @@ body,
 	top: 6px;
 	opacity: 0.55;
 }
+
+/* The title line of a note shows a pale word while it holds no character, with the caret in it or not, as on the card (note title). */
+.basehalf-markdown-rich .bn-block-content[data-basehalf-title-line]:has(.ProseMirror-trailingBreak:only-child)::after {
+	content: attr(data-placeholder) !important;
+	color: var(--vscode-input-placeholderForeground) !important;
+	font-style: normal !important;
+}

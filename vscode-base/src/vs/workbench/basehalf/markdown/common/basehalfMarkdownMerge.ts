@@ -61,9 +61,11 @@ export function diffBaseHalfMarkdownSegments(
 /**
  * Groups per-block save contributions under the disk segmentation they
  * serialize to: group `i` lists the contribution indices whose concatenated
- * text equals `segmentRaws[i]`. Returns `null` when the contributions do not
- * reproduce the segmentation exactly — the caller must fall back to a full
- * rebuild instead of merging against a misaligned view.
+ * text equals `segmentRaws[i]`. Blocks that write nothing, as an empty title
+ * line or an empty line at the end, go with the segment before them, or the
+ * first one. Returns `null` when the contributions do not reproduce the
+ * segmentation exactly — the caller must fall back to a full rebuild instead
+ * of merging against a misaligned view.
  */
 export function groupBaseHalfMarkdownContributions(
 	contributionTexts: readonly string[],
@@ -84,6 +86,11 @@ export function groupBaseHalfMarkdownContributions(
 			return null;
 		}
 		groups.push(group);
+	}
+	const last = groups.at(-1);
+	while (last && index < contributionTexts.length && contributionTexts[index] === '') {
+		last.push(index);
+		index++;
 	}
 
 	return index === contributionTexts.length ? groups : null;
