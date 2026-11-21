@@ -6962,3 +6962,73 @@ an agent may read, and why none of them tunes a mechanism.
 - Settings gains Keyboard Shortcuts… under its pages; the keys of the canvas become commands that Keyboard Shortcuts
   lists (D146).
 - `basehalf.agent.defaultSession` says what it does: the session a new tab starts with.
+
+## D144 — The canvas follows the four settings of its page (NEW, 2026-11-21)
+
+**Decision.** The canvas does what its four settings of D143 say, each followed at once on an open canvas:
+
+- **The wheel** (`basehalf.canvas.wheel`). Which gesture the canvas owns stays as it was: a scroll that starts on a card
+  that scrolls its own content scrolls that card. A gesture the canvas owns moves the canvas or zooms it about the
+  pointer, as the setting says, and the zoom key held at its first event makes it the other. A gesture does one thing
+  from its first event to its last; the zoom key pressed or released starts a new one. A pinch zooms either way, and
+  a drag with the middle or the right button moves the canvas either way. Zooming has the rate the wheel with the zoom
+  key had, `2^(−deltaY × 0.002)`, with no event above a factor of √2, and a sideways event, as the wheel with Shift
+  sends, moves the canvas sideways ([canvas wheel gestures](specs/canvas-wheel-gestures.md#a-gesture-the-canvas-owns)).
+- **The magnet** (`basehalf.canvas.snap`). The magnet of the view controls shows the setting and writes it, as a row of
+  Settings does; on and off differ to the eye
+  ([canvas selection and arrangement](specs/canvas-selection-and-arrangement.md#snap-to-cards)).
+- **The background** (`basehalf.canvas.background`). Lines as before, nothing for Plain, and for Dots a grid of dots
+  2 screen pixels across that are between 40 and 80 screen pixels apart at every zoom, each drawn on whole pixels, the
+  ones between fading in and out as the canvas zooms
+  ([workbench appearance](specs/workbench-appearance.md#the-background-of-the-canvas)).
+- **Videos under the pointer** (`basehalf.canvas.playVideosOnHover`). Off, the pointer plays nothing and a video card
+  plays as a sound's card does: by Play, going on while its card is selected or under the pointer
+  ([generation cards](specs/generation-cards.md#the-player)).
+
+**Why.** The owner's request of D143: a setting is there so that a user makes the product their own, and the product is
+to be polished along the way. D143 named the four; this decision is what each does. Measured in the real window on
+2026-11-21, at a zoom of 100% unless said, with the wheel events of a driver:
+
+- 100 pixels of the wheel moved the canvas 100 pixels. With the zoom key they made the zoom 0.8706 times what it was,
+  about the pointer (the place under it moved 0 pixels), and a pinch of 5 units 0.933 times. A wheel on a long note and
+  on a code card scrolled the card 100 pixels and left the canvas; a gesture begun on empty canvas went on over both.
+- One event of 1,200 pixels with the zoom key took the canvas from 100% to 20% in one frame.
+- The magnet kept its state in the window's memory, and its two looks were one: the colors it changed between,
+  the icon color and the color of a description, are both `#8c8c8c` in the product's theme. A user could not see
+  whether cards snap.
+- The field of the zoom menu drew two frames, its own and the workbench's ring for a focused field inside it.
+- The library's dots scale with the zoom: 0.4 pixels across at 20%, 8 at 400%. Its lines stay 1 pixel wide.
+
+**What was set aside.**
+- *Handing the choice to the canvas library* (its pan-on-scroll and zoom-on-scroll options, and its zoom key). A change
+  of the option replaces the library's wheel handler in the middle of a gesture, and with zoom-on-scroll the zoom key
+  does nothing: one of the two would not be within reach. BaseHalf already decides the owner of every gesture, so it
+  decides what the gesture does in the same place and the library's zoom key is off.
+- *A fixed step per notch of the wheel*, as the zoom menu's 10%. A wheel event says how far and not what was turned;
+  a trackpad's two fingers send the same events in steps of a pixel. A rate by distance is even for both and is the
+  rate the product had with the key.
+- *The key read at each event*, as before. A gesture that changes what it does in the middle is what the specification
+  of the wheel forbids for its owner. The key pressed or released starts a new gesture instead, so it acts on the next
+  event as it did.
+- *Zooming and moving sideways in one event.* An event is one or the other, by its larger part: two fingers that drift
+  a pixel sideways while they zoom do not push the canvas aside.
+- *The library's dots.* They are no dots at 20% and blots at 400%, and a dot drawn between pixels is soft beside a sharp
+  one. Dots of one size on whole pixels, thinned out by fading, look the same at every zoom.
+- *The dots' levels for the lines too.* The lines are what the canvas had and were not asked to change; at 20% they are
+  8 pixels apart and still faint.
+- *The magnet's state per folder or per window.* It is the user's hand, not the folder's: one value, in the user's
+  settings, or the folder's when the folder sets it.
+- *Stopping every playing video when the setting goes off.* A video that Play started is the user's; only what the
+  pointer started stops.
+
+**Consequences.**
+- The canvas view reads `basehalf.canvas.wheel` and `basehalf.canvas.background` and tells its scene; the magnet's
+  feature reads and writes `basehalf.canvas.snap`; the card renderer hands the player whether the pointer plays.
+- A gesture of the canvas that zooms goes through the library's viewport, as a pinch does, so the zoom control, the
+  cards, and the saved view follow it in the same way.
+- The dots are drawn on a canvas element of the scene's size, redrawn when the view changes: about 1,200 dots at most
+  on a scene of 1,130 by 831 pixels.
+- The view controls: the magnet on has the look of a toggle that is on; its name is Snap to Cards, as its row; the field
+  of the zoom menu has one frame.
+- How a mouse wheel feels was not measured, no mouse being at hand: a wheel that the system reports in small steps when
+  turned slowly zooms slowly. The rate is one constant.

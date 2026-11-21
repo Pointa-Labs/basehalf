@@ -3,7 +3,8 @@
 Status: Active (2026-10-12). Implemented. Revised 2026-10-25: a marquee that
 touches no card selects the connections it crosses. Revised 2026-10-27: a set
 let go on a folder goes into it. Revised 2026-11-12 for D130: a tidy forgets
-the sides the layout remembers for the lines.
+the sides the layout remembers for the lines. Revised 2026-11-21 for
+[D144](../decisions.md#d144--the-canvas-follows-the-four-settings-of-its-page-new-2026-11-21): Snap to Cards is a setting, and the magnet shows and changes it.
 Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12),
 revised by [D80](../decisions.md#d80--a-connection-pulled-off-a-card-and-let-go-on-empty-canvas-is-removed-and-a-marquee-over-connections-alone-selects-them-new-2026-10-25)
 and [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
@@ -387,6 +388,40 @@ is selected by a click on its line, as before.
 - The move is saved as one change and is one step of undo. Undo puts every
   card back and leaves the selection as it is.
 
+### Snap to Cards
+
+A card that is moved or resized lines up with the cards near it: an edge or
+the middle of the card takes the line of an edge or the middle of another
+card once it is within 5 screen pixels of it, and the canvas draws that line
+while it holds. The box of a set does as one card does.
+
+Measured on 2026-11-21: the magnet among the view controls kept whether
+cards snap in the window's memory, so snapping was on again after every
+start; and the magnet looked the same on and off, since the two colors it
+changed between are one color in the product's theme.
+
+- **One value.** Whether cards snap is the setting `basehalf.canvas.snap`,
+  the row Snap to Cards of Settings > Canvas, on by default. The magnet, the
+  button after Tidy Canvas at the lower left of the canvas, is the same
+  value: it shows the setting, and a click on it changes the setting.
+- **A click writes the setting** where a row of Settings writes it
+  ([BaseHalf's Settings](settings-pages.md#how-a-setting-is-changed)): in the
+  user's settings, or in the folder's when the folder sets it; a value equal
+  to the default is written as no value.
+- **At once.** The magnet shows its new state in the frame of the click, and
+  the next movement of the pointer follows it, also in a drag that is under
+  way; turned off, the lines that are drawn go. A change made in the row, in
+  a settings file, or in another window shows on the magnet and holds on the
+  canvas as it is made.
+- **Kept.** The state is there after a restart.
+- **A write that fails** leaves the setting as it was: the magnet shows the
+  setting again, and the canvas says that it could not be changed.
+- **What the magnet shows.** On, the button has the ground and the color of
+  a toggle that is on, as the toggles of the base's fields have; off, it is
+  a plain button of the view controls. It says which to assistive
+  technology (`aria-pressed`), and its name, in its tooltip too, is Snap to
+  Cards.
+
 ### Arranging a set
 
 Arrange puts the cards of a set in order. It moves only the cards of the
@@ -709,6 +744,20 @@ Connections
     cover: a line through the marquee, a line with only its end in it, a
     line that curves around the marquee, and a marquee inside the band of a
     line that it does not cross.
+
+Snap to Cards
+
+39. A click on the magnet turns it off in the same frame, writes
+    `"basehalf.canvas.snap": false` to the user's settings file within a
+    second, and the switch of the row Snap to Cards is off; a card dragged
+    beside another one then moves exactly as the pointer does and no line is
+    drawn. A second click turns it on, and the line is gone from the file.
+40. The switch of the row turned off turns the magnet off at once, and a
+    value written into the settings file does too.
+41. After a restart with the setting off, the magnet is off and cards do not
+    snap.
+42. The magnet on and the magnet off differ to the eye: the ground and the
+    color of the button, read from the window.
 
 ## Verification
 

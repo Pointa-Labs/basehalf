@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes; 2026-10-31, D106: every panel's footer begins with the two buttons that add an input and ends with the model beside Generate, and the panel of a card with its file ends with its model's name beside New Version; D107: Set Up and Providers… open Providers at the card's type; 2026-11-02, D110: a note's text in a prompt drops the tags of the elements a note shows, and a video or a sound inside a note plays in its own controls; 2026-11-12: a draft's panel goes from its generation straight to the panel of its file, and the tooltips of the player's controls follow them)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes; 2026-10-31, D106: every panel's footer begins with the two buttons that add an input and ends with the model beside Generate, and the panel of a card with its file ends with its model's name beside New Version; D107: Set Up and Providers… open Providers at the card's type; 2026-11-02, D110: a note's text in a prompt drops the tags of the elements a note shows, and a video or a sound inside a note plays in its own controls; 2026-11-12: a draft's panel goes from its generation straight to the panel of its file, and the tooltips of the player's controls follow them; 2026-11-21, D144: the pointer plays a card's video unless the user turned that off)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -1449,6 +1449,17 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   again. One video or sound on the canvas plays at a time: one that starts
   pauses the others, a video or a sound in a note too. Opening the card, by a double
   click or **Open**, pauses its video.
+- **Unless the user turned that off**
+  ([D144](../decisions.md#d144--the-canvas-follows-the-four-settings-of-its-page-new-2026-11-21)): with `basehalf.canvas.playVideosOnHover` off, the row Play
+  Videos Under the Pointer of Settings > Canvas, the pointer plays nothing.
+  The card then plays as the card of a sound does: the controls show while
+  the pointer is on the card or the card is selected, Play plays the video,
+  without sound until its sound is turned on, and the video goes on while
+  its card is selected or the pointer is on it and pauses when its card is
+  neither. The setting is followed at once: turned off, a video that the
+  pointer started pauses, and one that Play started goes on; turned on, a
+  video with the pointer on its card plays. Card Detail and notes, where the
+  pointer plays nothing, do not read the setting.
 - **Controls drawn by BaseHalf**, not the system's, over the picture while the
   pointer is on the card or the card is selected: a sound button at the top
   left, and at the bottom a bar with play and pause, the time played, a
@@ -2643,6 +2654,15 @@ The panel while a file lands, and the player's tooltips (2026-11-12)
      and the button becomes Play. In no frame does a tooltip of the player
      say another name than its control has, or stay longer than 200 ms
      after the pointer left the control.
+106. With Play Videos Under the Pointer off, the pointer on a video card
+     plays nothing, and its controls show. Play on the card plays the
+     video; with the card selected it goes on when the pointer leaves, and
+     pauses when the card is deselected; on a card that is not selected it
+     pauses when the pointer leaves. With the setting on, a video that
+     plays under the pointer pauses within a second of the setting turned
+     off in a settings file, without a reload; one that Play started on a
+     selected card goes on. Turned on again with the pointer on the card,
+     the video plays.
 
 ## Verification
 
@@ -2758,7 +2778,9 @@ The panel while a file lands, and the player's tooltips (2026-11-12)
   (`hoverService.test.ts`); a hover of BaseHalf whose text changes
   (`basehalfHover.test.ts`); and the tooltips of the player's controls when
   their names change under the pointer (`basehalfVideoPlayer.test.ts`,
-  criterion 105).
+  criterion 105); and a card's player with the pointer playing nothing, and
+  the setting turned off and on while a video plays (the same file,
+  criterion 106).
 - Unit tests for D106: the footer of each kind's panel from left to right,
   a speech model's with its two buttons and no row, where its parts begin
   and end, the summary of the settings that gives way before the voice's
