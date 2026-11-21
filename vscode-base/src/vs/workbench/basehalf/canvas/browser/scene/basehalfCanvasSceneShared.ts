@@ -13,6 +13,7 @@ import {
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneFitOptions,
 	IBaseHalfCanvasSceneSelection,
+	IBaseHalfCanvasSceneSettings,
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneVideoPanelSurface,
 	IBaseHalfCanvasSceneViewport
@@ -133,7 +134,7 @@ export interface IBaseHalfCanvasSceneRuntime {
 	update(snapshot: IBaseHalfCanvasSceneSnapshot): void;
 	setVideoPanelSurface(surface: IBaseHalfCanvasSceneVideoPanelSurface): void;
 	clearVideoPanelSurface(element: HTMLElement): void;
-	setSnapEnabled(enabled: boolean): void;
+	setSettings(settings: IBaseHalfCanvasSceneSettings): void;
 	setZoom(zoom: number): Promise<void>;
 	zoomBy(factor: number): Promise<void>;
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;

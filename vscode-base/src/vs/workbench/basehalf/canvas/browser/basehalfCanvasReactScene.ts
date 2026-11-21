@@ -6,10 +6,12 @@
 import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import {
+	BASEHALF_CANVAS_SCENE_DEFAULT_SETTINGS,
 	IBaseHalfCanvasSceneDelegate,
 	IBaseHalfCanvasSceneFitOptions,
 	IBaseHalfCanvasSceneRenderer,
 	IBaseHalfCanvasSceneSelection,
+	IBaseHalfCanvasSceneSettings,
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneVideoPanelSurface,
 	IBaseHalfCanvasSceneViewport
@@ -34,7 +36,7 @@ const stylePromises = new WeakMap<Document, Promise<void>>();
 export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 	private readonly whenReady: Promise<IBaseHalfCanvasSceneRuntime>;
 	private runtime: IBaseHalfCanvasSceneRuntime | undefined;
-	private snapEnabled = true;
+	private settings = BASEHALF_CANVAS_SCENE_DEFAULT_SETTINGS;
 	private latestSnapshot: IBaseHalfCanvasSceneSnapshot | undefined;
 	private videoPanelSurface: IBaseHalfCanvasSceneVideoPanelSurface | undefined;
 	private latestViewport: IBaseHalfCanvasSceneViewport = { x: 0, y: 0, zoom: 1 };
@@ -82,9 +84,9 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 		this.runtime?.clearVideoPanelSurface(element);
 	}
 
-	setSnapEnabled(enabled: boolean): void {
-		this.snapEnabled = enabled;
-		this.runtime?.setSnapEnabled(enabled);
+	setSettings(settings: Partial<IBaseHalfCanvasSceneSettings>): void {
+		this.settings = { ...this.settings, ...settings };
+		this.runtime?.setSettings(this.settings);
 	}
 
 	setZoom(zoom: number): Promise<void> {
@@ -196,13 +198,15 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 				});
 				root.render(vendor.createElement(mount.Component, {
 					initialSnapshot: this.latestSnapshot ?? emptySceneSnapshot(),
+					// The first drawing has the background the user chose, not the default before it.
+					initialSettings: this.settings,
 					onReady: runtime => {
 						if (this.disposed) {
 							rejectReady(new Error('BaseHalf canvas scene was disposed while its renderer mounted.'));
 							return;
 						}
 						this.runtime = runtime;
-						runtime.setSnapEnabled(this.snapEnabled);
+						runtime.setSettings(this.settings);
 						if (this.latestSnapshot) {
 							runtime.update(this.latestSnapshot);
 						}
@@ -299,6 +303,7 @@ function createCanvasSceneMount(
 ): {
 	readonly Component: (props: {
 		readonly initialSnapshot: IBaseHalfCanvasSceneSnapshot;
+		readonly initialSettings: IBaseHalfCanvasSceneSettings;
 		readonly onReady: (runtime: IBaseHalfCanvasSceneRuntime) => void;
 	}) => ReactElement;
 } {

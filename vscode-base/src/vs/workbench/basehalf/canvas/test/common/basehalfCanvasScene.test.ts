@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfCanvasConnectHandleReachLimit, baseHalfCanvasConnectionTargetOrigin, baseHalfCanvasSceneConnectionRefusal, baseHalfCanvasSceneSelectionActions, baseHalfCanvasSceneSelectionSurface, baseHalfCanvasSceneVideoSelectionActions, resolveBaseHalfCanvasSceneConnectionDrop } from '../../common/basehalfCanvasScene.js';
+import { BASEHALF_CANVAS_SCENE_DEFAULT_SETTINGS, baseHalfCanvasConnectHandleReachLimit, baseHalfCanvasConnectionTargetOrigin, baseHalfCanvasSceneConnectionRefusal, baseHalfCanvasSceneSelectionActions, baseHalfCanvasSceneSelectionSurface, baseHalfCanvasSceneSettingsFor, baseHalfCanvasSceneVideoSelectionActions, resolveBaseHalfCanvasSceneConnectionDrop } from '../../common/basehalfCanvasScene.js';
 
 suite('BaseHalfCanvasScene', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -92,6 +92,24 @@ suite('BaseHalfCanvasScene', () => {
 			none: [],
 			ordered: ['captureFrame', 'revealVideo', 'openFullPreview'],
 			once: ['revealVideo', 'openFullPreview']
+		});
+	});
+
+	test('the scene follows what the settings say the wheel does and what is drawn behind the cards, and a value that is none of a setting\'s is its default', () => {
+		assert.deepStrictEqual({
+			defaults: BASEHALF_CANVAS_SCENE_DEFAULT_SETTINGS,
+			asRegistered: baseHalfCanvasSceneSettingsFor('pan', 'lines'),
+			zoomAndDots: baseHalfCanvasSceneSettingsFor('zoom', 'dots'),
+			plain: baseHalfCanvasSceneSettingsFor('pan', 'plain'),
+			unknown: baseHalfCanvasSceneSettingsFor('spin', 'stars'),
+			unset: baseHalfCanvasSceneSettingsFor(undefined, undefined)
+		}, {
+			defaults: { snap: true, wheelZooms: false, background: 'lines' },
+			asRegistered: { wheelZooms: false, background: 'lines' },
+			zoomAndDots: { wheelZooms: true, background: 'dots' },
+			plain: { wheelZooms: false, background: 'plain' },
+			unknown: { wheelZooms: false, background: 'lines' },
+			unset: { wheelZooms: false, background: 'lines' }
 		});
 	});
 });

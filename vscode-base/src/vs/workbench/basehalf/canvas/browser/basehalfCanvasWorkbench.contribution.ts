@@ -8,7 +8,7 @@ import './media/basehalfCanvasWorkbench.css';
 import * as DOM from '../../../../base/browser/dom.js';
 import { $, append, isHTMLElement, isSVGElement } from '../../../../base/browser/dom.js';
 import { onUnexpectedError } from '../../../../base/common/errors.js';
-import { Emitter } from '../../../../base/common/event.js';
+import { Emitter, Event as BaseEvent } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { dirname, isEqualOrParent, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -86,9 +86,11 @@ import {
 	IBaseHalfCanvasNoteFormatState,
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneCardPresentation,
-	IBaseHalfCanvasSceneEdge
+	IBaseHalfCanvasSceneEdge,
+	baseHalfCanvasSceneSettingsFor
 } from '../common/basehalfCanvasScene.js';
-import { layoutBaseHalfVideoPlayers } from '../../playback/browser/basehalfVideoPlayer.js';
+import { IBaseHalfVideoPointerPlays, layoutBaseHalfVideoPlayers } from '../../playback/browser/basehalfVideoPlayer.js';
+import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { playBaseHalfMediaOneAtATime } from '../../playback/browser/basehalfMediaElements.js';
 import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfCanvasCodeCards, BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
@@ -255,6 +257,10 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly onDidChangeSceneEmitter = this._register(new Emitter<IBaseHalfCanvasViewSceneChange>());
 	readonly onDidChangeSelectionEmitter = this._register(new Emitter<IBaseHalfCanvasViewSelection>());
 	private readonly onKeyDownEmitter = this._register(new Emitter<KeyboardEvent>());
+	// Each video card that is drawn listens: a canvas draws 300 cards at most.
+	private readonly onDidChangeVideoPointerPlaysEmitter = this._register(new Emitter<void>({ leakWarningThreshold: 400 }));
+	/** Whether the pointer on a card plays the card's video, as the setting says (generation cards, "The pointer plays it"). */
+	readonly videoPointerPlays = videoPointerPlaysFor(this.configurationService, this.onDidChangeVideoPointerPlaysEmitter.event);
 	private chosenCanvasPlacesInstance: BaseHalfCanvasChosenPlaces | undefined;
 	/** The places BaseHalf chose for cards that appeared, until the layout holds them (canvas card placement). */
 	get chosenCanvasPlaces(): BaseHalfCanvasChosenPlaces {
@@ -476,6 +482,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				this.requestRender();
 			}
 		}));
+		// The scene's first drawing has what the user chose for the canvas.
+		this.followCanvasSettings();
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_ENTER, event => this.creation.onCanvasFileDragEnter(event)));
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_OVER, event => this.creation.onCanvasFileDragOver(event)));
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_LEAVE, event => this.creation.onCanvasFileDragLeave(event)));
@@ -580,6 +588,13 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.itemRules.onDidChangeFollowed(() => this.renderer.scheduleBackgroundRender()));
 		// A file is read in another encoding: the cards read their text again (note rendering, rule 32a).
 		this._register(this.configurationService.onDidChangeConfiguration(event => {
+			// What the user chose for the canvas is followed as it changes (D144).
+			if (event.affectsConfiguration(BaseHalfSetting.CanvasWheel) || event.affectsConfiguration(BaseHalfSetting.CanvasBackground)) {
+				this.followCanvasSettings();
+			}
+			if (event.affectsConfiguration(BaseHalfSetting.CanvasPlayVideosOnHover)) {
+				this.onDidChangeVideoPointerPlaysEmitter.fire();
+			}
 			if (event.affectsConfiguration('files.encoding') || event.affectsConfiguration('files.autoGuessEncoding') || event.affectsConfiguration('files.candidateGuessEncodings')) {
 				this.renderedCardPreviewsByPath = new Map([...this.renderedCardPreviewsByPath].filter(([, entry]) => entry.preview.kind === 'media' || entry.preview.kind === 'folder'));
 				this.renderer.scheduleBackgroundRender();
@@ -846,7 +861,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			fitToScreen: () => this.geometry.fitCanvasToScreen(),
 			getViewport: () => this.canvasScene.getViewport(),
 			setViewport: (sceneKey, viewport) => this.geometry.showCanvasViewport(sceneKey, viewport),
-			setSnapEnabled: enabled => this.canvasScene.setSnapEnabled(enabled),
+			setSnapEnabled: enabled => this.canvasScene.setSettings({ snap: enabled }),
 			get scene() { return scene(); },
 			onDidChangeScene: this.onDidChangeSceneEmitter.event,
 			isCurrentScene: sceneKey => this.isCurrentSceneKey(sceneKey),
@@ -1282,6 +1297,14 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.canvasNavigationService.setSurfaceActive(active);
 	}
 
+	/** Tells the scene what the settings say the wheel does and what the canvas draws behind its cards. */
+	private followCanvasSettings(): void {
+		this.canvasScene.setSettings(baseHalfCanvasSceneSettingsFor(
+			this.configurationService.getValue(BaseHalfSetting.CanvasWheel),
+			this.configurationService.getValue(BaseHalfSetting.CanvasBackground)
+		));
+	}
+
 	queueCanvasWarning(message: string): void {
 		if (!this.pendingCanvasWarnings.includes(message)) {
 			this.pendingCanvasWarnings.push(message);
@@ -1293,6 +1316,16 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.queueCanvasWarning(baseHalfUserFacingErrorMessage(error));
 		this.requestRender();
 	}
+}
+
+/** Whether the pointer on a card plays the card's video, read from the setting each time it is asked. */
+function videoPointerPlaysFor(configurationService: IConfigurationService, onDidChange: BaseEvent<void>): IBaseHalfVideoPointerPlays {
+	return {
+		get value() {
+			return configurationService.getValue(BaseHalfSetting.CanvasPlayVideosOnHover) !== false;
+		},
+		onDidChange
+	};
 }
 
 registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfCanvasWorkbenchContribution, WorkbenchPhase.AfterRestored);

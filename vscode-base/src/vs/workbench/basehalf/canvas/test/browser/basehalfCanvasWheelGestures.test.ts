@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { mainWindow } from '../../../../../base/browser/window.js';
-import { toDisposable } from '../../../../../base/common/lifecycle.js';
+import { IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { installBaseHalfCanvasWheelGestures } from '../../browser/basehalfCanvasWheelGestures.js';
 
@@ -29,9 +29,14 @@ suite('BaseHalfCanvasWheelGestures', () => {
 	let notes: Map<HTMLElement, HTMLElement>;
 	/** What reached the canvas, which listens above its pane as the events bubble: `[target, deltaX, deltaY]`. */
 	let panned: [string, number, number][];
+	/** What the canvas was asked to zoom by, and about which point of the window: `[factor, clientX, clientY]`. */
+	let zoomed: [string, number, number][];
 	/** Ends the running gesture, as the quiet time does. */
 	let quietTimePasses: () => void;
 	let zoom: number;
+	/** The setting says that the wheel zooms the canvas. */
+	let wheelZooms: boolean;
+	let installed: IDisposable | undefined;
 
 	function element(parent: HTMLElement, className: string): HTMLElement {
 		const child = mainWindow.document.createElement('div');
@@ -62,6 +67,24 @@ suite('BaseHalfCanvasWheelGestures', () => {
 		return event.defaultPrevented;
 	}
 
+	/** Installs the gestures on the scene, with the Command key or with Ctrl as the zoom key. */
+	function install(zoomKeyIsControl: boolean): void {
+		// The store disposes it again when the test ends, which does nothing.
+		installed?.dispose();
+		installed = disposables.add(installBaseHalfCanvasWheelGestures(host, {
+			zoom: () => zoom,
+			card: path => cards.get(path),
+			scrollableContent: cardElement => notes.get(cardElement),
+			wheelZooms: () => wheelZooms,
+			zoomCanvas: (factor, clientX, clientY) => zoomed.push([factor.toFixed(4), clientX, clientY]),
+			zoomKeyIsControl,
+			afterQuietTime: callback => {
+				quietTimePasses = callback;
+				return toDisposable(() => { });
+			}
+		}));
+	}
+
 	setup(() => {
 		host = element(mainWindow.document.body, 'host');
 		renderer = element(host, 'react-flow__renderer');
@@ -70,18 +93,13 @@ suite('BaseHalfCanvasWheelGestures', () => {
 		cards = new Map();
 		notes = new Map();
 		panned = [];
+		zoomed = [];
 		quietTimePasses = () => { };
 		zoom = 1;
+		wheelZooms = false;
+		installed = undefined;
 		renderer.addEventListener('wheel', event => panned.push([(event.target as HTMLElement).className, event.deltaX, event.deltaY]));
-		disposables.add(installBaseHalfCanvasWheelGestures(host, {
-			zoom: () => zoom,
-			card: path => cards.get(path),
-			scrollableContent: cardElement => notes.get(cardElement),
-			afterQuietTime: callback => {
-				quietTimePasses = callback;
-				return toDisposable(() => { });
-			}
-		}));
+		install(false);
 	});
 
 	teardown(() => host.remove());
@@ -243,5 +261,103 @@ suite('BaseHalfCanvasWheelGestures', () => {
 		const taken = wheel(pane, { deltaY: 30 });
 
 		assert.deepStrictEqual({ beforeTheSwap, redrawn: redrawn.note.scrollTop, taken, panned }, { beforeTheSwap: 60, redrawn: 230, taken: true, panned: [] });
+	});
+
+	test('with the wheel that moves the canvas, the Command key zooms it about the pointer, also on a long note, and a pinch is left to the canvas', () => {
+		const long = card('long.md', 1000);
+
+		const taken = [
+			wheel(pane, { deltaY: 100, metaKey: true, clientX: 40, clientY: 30 }),
+			wheel(long.text, { deltaY: -100, metaKey: true, clientX: 41, clientY: 31 }),
+			// The key came up: a new gesture, which the note under the pointer owns.
+			wheel(long.text, { deltaY: 30 }),
+			// A pinch says that Ctrl is held.
+			wheel(long.text, { deltaY: 5, ctrlKey: true })
+		];
+
+		assert.deepStrictEqual({ taken, zoomed, scrollTop: long.note.scrollTop, panned }, {
+			taken: [true, true, true, false],
+			zoomed: [['0.8706', 40, 30], ['1.1487', 41, 31]],
+			scrollTop: 30,
+			panned: [['text', 0, 5]]
+		});
+	});
+
+	test('with the wheel that zooms, the wheel zooms the canvas, a long note is still read, and the Command key moves the canvas', () => {
+		const long = card('long.md', 1000);
+		wheelZooms = true;
+
+		const taken = [
+			wheel(pane, { deltaY: 100, clientX: 40, clientY: 30 }),
+			// The gesture goes on over a note and over a surface that takes the wheel: neither scrolls.
+			wheel(long.text, { deltaY: 100, clientX: 50, clientY: 30 }),
+			wheel(editor, { deltaY: 100, clientX: 60, clientY: 30 })
+		];
+		quietTimePasses();
+		taken.push(wheel(long.text, { deltaY: 30 }));
+		quietTimePasses();
+		// With the key the event itself moves the canvas: the canvas reads it as it is.
+		taken.push(wheel(pane, { deltaY: 100, metaKey: true }));
+		quietTimePasses();
+		// Sideways, as the wheel with Shift sends: a copy without the vertical part moves the canvas.
+		taken.push(wheel(pane, { deltaX: 100, deltaY: 4 }), wheel(pane, { deltaX: 100 }));
+
+		assert.deepStrictEqual({ taken, zoomed, scrollTop: long.note.scrollTop, panned }, {
+			taken: [true, true, true, true, false, true, false],
+			zoomed: [['0.8706', 40, 30], ['0.8706', 50, 30], ['0.8706', 60, 30]],
+			scrollTop: 30,
+			panned: [['react-flow__pane', 0, 100], ['react-flow__pane', 100, 0], ['react-flow__pane', 100, 0]]
+		});
+	});
+
+	test('a change of the setting cuts no gesture in two: the one that runs goes on, and the next follows it', () => {
+		wheel(pane, { deltaY: 30 });
+		wheelZooms = true;
+		wheel(pane, { deltaY: 30 });
+		quietTimePasses();
+		wheel(pane, { deltaY: 30, clientX: 7, clientY: 8 });
+		wheelZooms = false;
+		wheel(pane, { deltaY: 30, clientX: 7, clientY: 8 });
+		quietTimePasses();
+		wheel(pane, { deltaY: 30 });
+
+		assert.deepStrictEqual({ zoomed, panned }, {
+			zoomed: [['0.9593', 7, 8], ['0.9593', 7, 8]],
+			panned: [['react-flow__pane', 0, 30], ['react-flow__pane', 0, 30], ['react-flow__pane', 0, 30]]
+		});
+	});
+
+	test('where Ctrl is the zoom key, the key that is down tells the wheel with the key from a pinch, which says Ctrl too', () => {
+		install(true);
+		const key = (type: 'keydown' | 'keyup', ctrlKey: boolean) => mainWindow.dispatchEvent(new KeyboardEvent(type, { key: 'Control', ctrlKey }));
+
+		// A pinch: Ctrl is said, and the key is not down. It is left to the canvas, which zooms on it.
+		const pinch = wheel(pane, { deltaY: 5, ctrlKey: true });
+		key('keydown', true);
+		const withTheKey = wheel(pane, { deltaY: 100, ctrlKey: true, clientX: 40, clientY: 30 });
+		quietTimePasses();
+		wheelZooms = true;
+		// The wheel zooms, so with the key it moves the canvas: by a copy that does not say Ctrl, which the canvas would take for a pinch.
+		const movesWithTheKey = wheel(pane, { deltaY: 100, ctrlKey: true });
+		key('keyup', false);
+		const pinchAgain = wheel(pane, { deltaY: 5, ctrlKey: true });
+		// The window lost the keyboard while the key was down: the key is not down any more.
+		key('keydown', true);
+		mainWindow.dispatchEvent(new Event('blur'));
+		const afterBlur = wheel(pane, { deltaY: 5, ctrlKey: true });
+
+		assert.deepStrictEqual({ taken: [pinch, withTheKey, movesWithTheKey, pinchAgain, afterBlur], zoomed, panned }, {
+			taken: [false, true, true, false, false],
+			zoomed: [['0.8706', 40, 30]],
+			panned: [['react-flow__pane', 0, 5], ['react-flow__pane', 0, 100], ['react-flow__pane', 0, 5], ['react-flow__pane', 0, 5]]
+		});
+	});
+
+	test('a wheel that counts in lines zooms as 20 pixels a line', () => {
+		wheelZooms = true;
+		wheel(pane, { deltaY: 3, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: 1, clientY: 2 });
+
+		// 60 pixels.
+		assert.deepStrictEqual(zoomed, [['0.9202', 1, 2]]);
 	});
 });

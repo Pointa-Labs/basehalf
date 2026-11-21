@@ -12,7 +12,9 @@ import {
 	IBaseHalfCanvasWheelExtent,
 	baseHalfCanvasWheelAfterQuietTime,
 	baseHalfCanvasWheelContentPosition,
-	baseHalfCanvasWheelMovesContent
+	baseHalfCanvasWheelMovesContent,
+	baseHalfCanvasWheelZoomFactor,
+	baseHalfCanvasWheelZooms
 } from '../../common/basehalfCanvasWheelGesture.js';
 
 suite('BaseHalfCanvasWheelGesture', () => {
@@ -29,6 +31,10 @@ suite('BaseHalfCanvasWheelGesture', () => {
 		readonly deltaX?: number;
 		readonly deltaY?: number;
 		readonly buttonHeld?: boolean;
+		/** The zoom key is held. */
+		readonly zoomKey?: boolean;
+		/** The setting says that the wheel zooms, when this event is asked for it: at the first event of a gesture. */
+		readonly wheelZooms?: boolean;
 	}
 
 	/**
@@ -43,8 +49,8 @@ suite('BaseHalfCanvasWheelGesture', () => {
 				gestures.end();
 			}
 			const step = gestures.step(
-				{ deltaX: event.deltaX ?? 0, deltaY: event.deltaY ?? 0 },
-				() => ({ ownScroll: event.on === 'editor', card: event.on === 'editor' ? undefined : event.on, buttonHeld: event.buttonHeld === true }),
+				{ deltaX: event.deltaX ?? 0, deltaY: event.deltaY ?? 0, zoomKey: event.zoomKey },
+				() => ({ ownScroll: event.on === 'editor', card: event.on === 'editor' ? undefined : event.on, buttonHeld: event.buttonHeld === true, wheelZooms: event.wheelZooms }),
 				card => notes[card],
 				card => tables[card]
 			);
@@ -52,6 +58,7 @@ suite('BaseHalfCanvasWheelGesture', () => {
 				case 'scroll': return `${step.card} ${step.deltaY}`;
 				case 'scrollSideways': return `table of ${step.card} ${step.deltaX}`;
 				case 'pan': return `canvas ${step.deltaX},${step.deltaY}${step.held ? ' held' : ''}`;
+				case 'zoom': return `zoom ${step.factor.toFixed(4)}`;
 				default: return step.kind;
 			}
 		});
@@ -158,6 +165,96 @@ suite('BaseHalfCanvasWheelGesture', () => {
 		notes['a.md'] = undefined;
 
 		assert.deepStrictEqual([shown, step(), step()], ['scroll', 'hold', 'hold']);
+	});
+
+	test('a gesture of the canvas moves it or zooms it as the setting says, and the zoom key makes it the other', () => {
+		assert.deepStrictEqual({
+			rule: [baseHalfCanvasWheelZooms(false, false), baseHalfCanvasWheelZooms(false, true), baseHalfCanvasWheelZooms(true, false), baseHalfCanvasWheelZooms(true, true)],
+			moves: run({}, [{ deltaY: 100 }, { deltaY: -100 }]),
+			movesWithTheKey: run({}, [{ deltaY: 100, zoomKey: true }, { deltaY: -100, zoomKey: true }]),
+			zooms: run({}, [{ deltaY: 100, wheelZooms: true }, { deltaY: -100 }]),
+			zoomsWithTheKey: run({}, [{ deltaY: 100, wheelZooms: true, zoomKey: true }, { deltaY: -100, zoomKey: true }])
+		}, {
+			rule: [false, true, true, false],
+			moves: ['canvas 0,100', 'canvas 0,-100'],
+			// 100 pixels down make the canvas 13% smaller, 100 up 15% larger: the rate the wheel with the key had.
+			movesWithTheKey: ['zoom 0.8706', 'zoom 1.1487'],
+			zooms: ['zoom 0.8706', 'zoom 1.1487'],
+			zoomsWithTheKey: ['canvas 0,100', 'canvas 0,-100']
+		});
+	});
+
+	test('an event that zooms: small ones add up to a large one, none zooms by more than the square root of two, and a sideways one moves the canvas sideways', () => {
+		const thirtySmall = Array.from({ length: 30 }, () => baseHalfCanvasWheelZoomFactor(4)).reduce((zoom, factor) => zoom * factor, 1);
+		assert.deepStrictEqual({
+			thirtySmall: thirtySmall.toFixed(6),
+			oneLarge: baseHalfCanvasWheelZoomFactor(120).toFixed(6),
+			noMovement: baseHalfCanvasWheelZoomFactor(0),
+			largest: [baseHalfCanvasWheelZoomFactor(250), baseHalfCanvasWheelZoomFactor(1200), baseHalfCanvasWheelZoomFactor(-1200)].map(factor => factor.toFixed(4)),
+			// What Shift with a wheel sends, a wheel that tilts, and two fingers that drift while they zoom.
+			sideways: run({}, [{ deltaX: 100, wheelZooms: true }, { deltaX: -30, deltaY: 10 }, { deltaX: 3, deltaY: 40 }, { deltaX: 40, deltaY: 40 }]),
+			sidewaysWithTheKey: run({}, [{ deltaX: 100, zoomKey: true }])
+		}, {
+			thirtySmall: '0.846745',
+			oneLarge: '0.846745',
+			noMovement: 1,
+			largest: ['0.7071', '0.7071', '1.4142'],
+			sideways: ['canvas 100,0', 'canvas -30,0', 'zoom 0.9461', 'zoom 0.9461'],
+			sidewaysWithTheKey: ['canvas 100,0']
+		});
+	});
+
+	test('with the wheel that zooms, a gesture belongs to what the pointer was on as ever: a note is read, and the canvas zooms where it would have moved', () => {
+		assert.deepStrictEqual({
+			onANote: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 30, wheelZooms: true }, { deltaY: 30 }, { on: 'editor', deltaY: 30 }]),
+			fromTheCanvasOverANote: run({ 'a.md': middle }, [{ deltaY: 30, wheelZooms: true }, { on: 'a.md', deltaY: 30 }, { on: 'editor', deltaY: 30 }]),
+			onASurface: run({}, [{ on: 'editor', deltaY: 30, wheelZooms: true }]),
+			downAtTheBottom: run({ 'a.md': { position: 1000, max: 1000 } }, [{ on: 'a.md', deltaY: 30, wheelZooms: true }]),
+			aNoteThatFits: run({ 'a.md': { position: 0, max: 0 } }, [{ on: 'a.md', deltaY: 30, wheelZooms: true }]),
+			// The small first events on a note are held, and the canvas zooms by their sum.
+			heldThenBeyondTheEnd: run({ 'a.md': { position: 1000, max: 1000 } }, [{ on: 'a.md', deltaY: 1, wheelZooms: true }, { deltaY: 2 }, { deltaY: 3 }, { deltaY: 4 }]),
+			heldThenSideways: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 1, wheelZooms: true }, { deltaX: 2 }, { deltaX: 6 }]),
+			aButtonIsHeld: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 30, buttonHeld: true, wheelZooms: true }])
+		}, {
+			onANote: ['a.md 30', 'a.md 30', 'a.md 30'],
+			fromTheCanvasOverANote: ['zoom 0.9593', 'zoom 0.9593', 'zoom 0.9593'],
+			onASurface: ['leave'],
+			downAtTheBottom: ['zoom 0.9593'],
+			aNoteThatFits: ['zoom 0.9593'],
+			heldThenBeyondTheEnd: ['hold', 'hold', 'zoom 0.9917', 'zoom 0.9945'],
+			heldThenSideways: ['hold', 'hold', 'canvas 8,0 held'],
+			aButtonIsHeld: ['zoom 0.9593']
+		});
+	});
+
+	test('with the zoom key the gesture is the canvas\'s also on a long note, and a surface that takes the wheel keeps its own', () => {
+		assert.deepStrictEqual({
+			onANote: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 100, zoomKey: true }]),
+			onANoteWithTheWheelThatZooms: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 100, zoomKey: true, wheelZooms: true }]),
+			onASurface: run({}, [{ on: 'editor', deltaY: 100, zoomKey: true }])
+		}, {
+			onANote: ['zoom 0.8706'],
+			onANoteWithTheWheelThatZooms: ['canvas 0,100'],
+			onASurface: ['leave']
+		});
+	});
+
+	test('the zoom key pressed or released starts a new gesture, and a change of the setting does not', () => {
+		assert.deepStrictEqual({
+			// The key acts on the next event, and the new gesture belongs to what the pointer is on then.
+			keyDownInAMove: run({ 'a.md': middle }, [{ deltaY: 30 }, { on: 'a.md', deltaY: 30, zoomKey: true }, { on: 'a.md', deltaY: 30, zoomKey: true }]),
+			keyUpInAZoom: run({ 'a.md': middle }, [{ deltaY: 30, zoomKey: true }, { deltaY: 30 }, { on: 'a.md', deltaY: 30 }]),
+			keyUpOverANote: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 30, zoomKey: true }, { on: 'a.md', deltaY: 30 }]),
+			// The setting is asked at the first event only: the gesture that runs goes on as it began.
+			settingChangedInAMove: run({}, [{ deltaY: 30 }, { deltaY: 30, wheelZooms: true }, { afterQuietTime: true, deltaY: 30, wheelZooms: true }]),
+			settingChangedInAZoom: run({}, [{ deltaY: 30, wheelZooms: true }, { deltaY: 30, wheelZooms: false }, { afterQuietTime: true, deltaY: 30, wheelZooms: false }])
+		}, {
+			keyDownInAMove: ['canvas 0,30', 'zoom 0.9593', 'zoom 0.9593'],
+			keyUpInAZoom: ['zoom 0.9593', 'canvas 0,30', 'canvas 0,30'],
+			keyUpOverANote: ['zoom 0.9593', 'a.md 30'],
+			settingChangedInAMove: ['canvas 0,30', 'canvas 0,30', 'zoom 0.9593'],
+			settingChangedInAZoom: ['zoom 0.9593', 'zoom 0.9593', 'canvas 0,30']
+		});
 	});
 
 	test('a gesture ends by a timer that fires on time, and not by one that a busy window held up', () => {

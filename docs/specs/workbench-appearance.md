@@ -140,12 +140,13 @@ Canvas, with Lines (`lines`, the default), Dots (`dots`), and Plain
   and zooms, in the ink of the lines:
   - A dot is the same size on screen at every zoom, 2 screen pixels across.
     It does not shrink to nothing at 20% and is no blot at 400%.
-  - The dots are 40 flow pixels apart at 100%, where the lines cross. On
-    screen they are never nearer than 40 pixels and never farther than 80:
-    as the canvas zooms out, every second dot fades and is gone when its
-    neighbors are 40 screen pixels from it, and as it zooms in, a dot grows
-    between two that are 80 apart. So no dot appears or goes at once, and
-    the dots are as many on a screen at 20% as at 400%.
+  - The dots are 40 flow pixels apart at 100%, where the lines cross. The
+    dots that show whole are never nearer than 40 screen pixels and never
+    farther than 80: as the canvas zooms out, every second dot fades and is
+    gone when the dots beside it are 40 screen pixels from it, and as it
+    zooms in, a dot grows halfway between two that are more than 40 apart
+    and is whole when they are 80 apart. So no dot appears or goes at once,
+    and the dots are about as many on a screen at 20% as at 400%.
   - Every dot is drawn on whole pixels of the screen, so that it looks the
     same wherever the canvas stands: no dot is sharp beside a soft one, and
     none flickers while the canvas moves. A dot is so at most half a pixel
@@ -165,12 +166,14 @@ Canvas, with Lines (`lines`, the default), Dots (`dots`), and Plain
 Acceptance criteria of the background:
 
 - B1. With Dots, at 20%, 37%, 100%, and 400% the canvas shows dots 2 screen
-  pixels across, the nearest two between 40 and 80 screen pixels apart, and
-  each dot of one brightness looks the same as every other of it, compared
-  pixel by pixel in a screenshot.
+  pixels across; the dots that show whole are between 40 and 80 screen
+  pixels apart (64, 59, 40, and 40), with a fainter dot halfway where they
+  are more than 40 apart; and every whole dot has the same pixels as every
+  other, and every fainter one as every other, read off the drawing.
 - B2. With Dots, while the canvas zooms from 20% to 400%, sampled in every
-  frame, the opacity of the dots that fade changes by small steps: no dot
-  appears or goes in one frame.
+  frame, the dots drawn are those of the zoom shown in that frame, and a dot
+  that fades changes by less than a twentieth of a whole dot from one frame
+  to the next: no dot appears or goes in one frame.
 - B3. With Dots, the canvas moved by a part of a pixel shows every dot as
   before or one whole pixel on, never between.
 - B4. With Plain, the canvas draws no background element; with Lines, what
