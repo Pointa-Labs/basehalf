@@ -253,6 +253,16 @@ closing ends.
   the page itself: the editor of a note that was just made
   (`keyboardHome.gave`).
 
+### A part that is drawn anew
+
+A part that takes its controls away to draw them anew, and gives the
+keyboard to one of the new ones a turn later, holds the keyboard itself
+meanwhile. Card Detail's Badge zone does: a press on its toggle draws the
+zone open and puts the keyboard into the description. Without this the
+keyboard was on the page for that turn, Card Detail's view took it by the
+rule above, and a view that takes the keyboard closes the Badge zone: the
+press opened nothing.
+
 ## Acceptance criteria
 
 1. **A window that opens.** With a folder open, the keyboard is on the
