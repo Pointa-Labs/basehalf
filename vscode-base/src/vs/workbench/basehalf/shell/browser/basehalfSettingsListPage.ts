@@ -15,10 +15,11 @@ import { baseHalfShownSettings, IBaseHalfSettingOption, IBaseHalfShownSetting } 
 let pageCount = 0;
 
 /**
- * One setting on a page: its name, a line about it where its name does not say enough, and its
- * control. The control shows the value in effect and writes where that value comes from, as the
- * base writes a setting it is given no place for: the settings file of the folder when the folder
- * sets it, and the user's otherwise, where a value equal to the default is written as no value.
+ * One setting on a page, a block as the base's Settings draws one (Settings, "How Settings looks"): its name, a
+ * line about it where its name does not say enough, and its control under them; a setting that is on or off is a
+ * check box with that line beside it. The control shows the value in effect and writes where that value comes
+ * from, as the base writes a setting it is given no place for: the settings file of the folder when the folder sets
+ * it, and the user's otherwise, where a value equal to the default is written as no value.
  */
 export class BaseHalfSettingRow extends Disposable {
 	readonly element: HTMLElement;
@@ -33,19 +34,36 @@ export class BaseHalfSettingRow extends Disposable {
 		super();
 		this.element = append(parent, $('.basehalf-settings-row'));
 		this.element.dataset.setting = setting.key;
-		const text = append(this.element, $('.basehalf-settings-row-text'));
-		const label = append(text, $('label.basehalf-settings-row-label')) as HTMLLabelElement;
+		const check = setting.control.kind === 'switch';
+		// The name of a check box is no label of it: a press on the name changes nothing, as in the base.
+		const label = append(this.element, $(check ? '.basehalf-settings-row-label' : 'label.basehalf-settings-row-label'));
 		label.textContent = setting.label;
-		label.htmlFor = id;
 		label.id = `${id}-label`;
-		let descriptionId: string | undefined;
-		if (setting.description) {
-			const description = append(text, $('.basehalf-settings-row-description'));
-			description.textContent = setting.description;
-			description.id = descriptionId = `${id}-description`;
+		if (!check) {
+			(label as HTMLLabelElement).htmlFor = id;
 		}
-
-		this.control = this.createControl(append(this.element, $('.basehalf-settings-row-control')));
+		let descriptionId: string | undefined;
+		let value: HTMLElement;
+		if (check) {
+			value = append(this.element, $('.basehalf-settings-row-value.check'));
+			this.control = this.createControl(value);
+			if (setting.description) {
+				// The line beside a check box is its label: a press on it changes the setting too.
+				const description = append(value, $('label.basehalf-settings-row-description')) as HTMLLabelElement;
+				description.textContent = setting.description;
+				description.htmlFor = id;
+				description.id = descriptionId = `${id}-description`;
+			}
+			this.control.setAttribute('aria-labelledby', label.id);
+		} else {
+			if (setting.description) {
+				const description = append(this.element, $('.basehalf-settings-row-description'));
+				description.textContent = setting.description;
+				description.id = descriptionId = `${id}-description`;
+			}
+			value = append(this.element, $('.basehalf-settings-row-value'));
+			this.control = this.createControl(value);
+		}
 		this.control.id = id;
 		if (descriptionId) {
 			this.control.setAttribute('aria-describedby', descriptionId);
@@ -53,11 +71,13 @@ export class BaseHalfSettingRow extends Disposable {
 		this.refresh();
 	}
 
-	/** Shows the value in effect, unless the user is typing it. */
+	/** Shows the value in effect, unless the user is typing it, and whether a settings file sets it. */
 	refresh(): void {
 		const value = this.configurationService.getValue(this.setting.key);
 		const control = this.control;
 		const kind = this.setting.control.kind;
+		const inspected = this.configurationService.inspect(this.setting.key);
+		this.element.classList.toggle('is-configured', inspected.userValue !== undefined || inspected.workspaceValue !== undefined || inspected.workspaceFolderValue !== undefined);
 		if (kind === 'switch') {
 			control.setAttribute('aria-checked', String(value === true));
 		} else if (kind === 'choice') {
@@ -75,12 +95,12 @@ export class BaseHalfSettingRow extends Disposable {
 		const control = this.setting.control;
 		switch (control.kind) {
 			case 'switch': {
-				const button = append(parent, $('button.basehalf-settings-switch')) as HTMLButtonElement;
+				const button = append(parent, $('button.basehalf-settings-check')) as HTMLButtonElement;
 				button.type = 'button';
-				button.setAttribute('role', 'switch');
-				append(button, $('span.basehalf-settings-switch-thumb')).setAttribute('aria-hidden', 'true');
+				button.setAttribute('role', 'checkbox');
+				append(button, $('span.codicon.codicon-check')).setAttribute('aria-hidden', 'true');
 				this._register(addDisposableListener(button, EventType.CLICK, () => {
-					// The switch moves as it is clicked, so that a second click is its way back and not the same change again.
+					// The box changes as it is clicked, so that a second click is its way back and not the same change again.
 					const next = button.getAttribute('aria-checked') !== 'true';
 					button.setAttribute('aria-checked', String(next));
 					this.write(next);
@@ -168,8 +188,8 @@ export class BaseHalfSettingRow extends Disposable {
 }
 
 /**
- * A group of settings: rows in one box, a line between them, under a heading when the group has
- * a name of its own. A group without one is named by `labelledBy`, the page's title.
+ * A group of settings: their blocks, under a heading when the group has a name of its own. A group
+ * without one is named by `labelledBy`, the page's title.
  */
 export function renderBaseHalfSettingsSection(parent: HTMLElement, id: string, title: string | undefined, labelledBy?: string): HTMLElement {
 	const section = append(parent, $('section.basehalf-settings-section'));

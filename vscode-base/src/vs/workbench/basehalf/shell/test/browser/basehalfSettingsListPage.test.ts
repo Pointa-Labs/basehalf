@@ -73,9 +73,9 @@ suite('BaseHalf settings list pages', () => {
 		}, { standard: 'Default', own: 'Avenir Next', listed: ['Default', 'Serif', 'Monospace', 'Avenir Next'] });
 	});
 
-	test('a switch shows the value in effect and writes the other one', () => {
+	test('a check box shows the value in effect and writes the other one', () => {
 		const { element, service } = row({ key: 'a.switch', label: 'A Switch', control: { kind: 'switch' } }, true);
-		const control = element.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+		const control = element.querySelector<HTMLButtonElement>('button[role="checkbox"]')!;
 		const before = control.getAttribute('aria-checked');
 		control.click();
 		assert.deepStrictEqual({ before, written: service.written }, { before: 'true', written: [['a.switch', false]] });
@@ -118,21 +118,39 @@ suite('BaseHalf settings list pages', () => {
 		assert.deepStrictEqual(service.written, [['a.text', undefined]]);
 	});
 
-	test('a switch moves as it is clicked, so a second click is its way back', () => {
+	test('a check box changes as it is clicked, so a second click is its way back', () => {
 		const { element, service } = row({ key: 'a.switch', label: 'A Switch', control: { kind: 'switch' } }, false);
-		const control = element.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+		const control = element.querySelector<HTMLButtonElement>('button[role="checkbox"]')!;
 		control.click();
 		control.click();
 		assert.deepStrictEqual(service.written, [['a.switch', true], ['a.switch', false]]);
 	});
 
-	test('a row names its control, and its line describes it', () => {
-		const { element } = row({ key: 'a.switch', label: 'A Switch', description: 'One line.', control: { kind: 'switch' } }, false);
-		const control = element.querySelector<HTMLButtonElement>('button[role="switch"]')!;
-		const label = element.querySelector('label')!;
+	test('a check box is named by the setting\'s name and described by its line, and a press on the line changes it', () => {
+		const { element, service } = row({ key: 'a.switch', label: 'A Switch', description: 'One line.', control: { kind: 'switch' } }, false);
+		const control = element.querySelector<HTMLButtonElement>('button[role="checkbox"]')!;
+		const line = element.querySelector<HTMLLabelElement>('label.basehalf-settings-row-description')!;
+		const named = element.ownerDocument.getElementById(control.getAttribute('aria-labelledby')!)?.textContent;
+		const described = element.ownerDocument.getElementById(control.getAttribute('aria-describedby')!)?.textContent;
+		line.click();
+		assert.deepStrictEqual({ named, described, lineFor: line.htmlFor === control.id, written: service.written }, { named: 'A Switch', described: 'One line.', lineFor: true, written: [['a.switch', true]] });
+	});
+
+	test('a field is labelled by the setting\'s name, and its line, above it, describes it', () => {
+		const { element } = row({ key: 'a.text', label: 'A Text', description: 'One line.', control: { kind: 'text' } }, 'Menlo');
+		const input = element.querySelector('input')!;
+		const label = element.querySelector<HTMLLabelElement>('label.basehalf-settings-row-label')!;
+		const order = Array.from(element.querySelector('.basehalf-settings-row')!.children).map(child => child.className.split(' ')[0]);
 		assert.deepStrictEqual({
-			labelFor: label.htmlFor === control.id,
-			described: element.ownerDocument.getElementById(control.getAttribute('aria-describedby')!)?.textContent
-		}, { labelFor: true, described: 'One line.' });
+			labelFor: label.htmlFor === input.id,
+			described: element.ownerDocument.getElementById(input.getAttribute('aria-describedby')!)?.textContent,
+			order
+		}, { labelFor: true, described: 'One line.', order: ['basehalf-settings-row-label', 'basehalf-settings-row-description', 'basehalf-settings-row-value'] });
+	});
+
+	test('a setting that a settings file sets has the mark of a changed setting, and one with no value has none', () => {
+		const set = row({ key: 'a.text', label: 'A Text', control: { kind: 'text' } }, 'Menlo').element.querySelector('.basehalf-settings-row')!;
+		const unset = row({ key: 'b.text', label: 'B Text', control: { kind: 'text' } }, undefined).element.querySelector('.basehalf-settings-row')!;
+		assert.deepStrictEqual({ set: set.classList.contains('is-configured'), unset: unset.classList.contains('is-configured') }, { set: true, unset: false });
 	});
 });

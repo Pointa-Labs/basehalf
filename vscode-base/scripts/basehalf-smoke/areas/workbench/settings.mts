@@ -93,11 +93,11 @@ export async function assertBaseHalfSettings(page) {
 	}
 
 	await settings.locator('.basehalf-settings-page-tab[data-page="notes"]').click();
-	const readingAids = settings.locator('[data-setting="basehalf.editor.readingMode"] [role="switch"]');
+	const readingAids = settings.locator('[data-setting="basehalf.editor.readingMode"] [role="checkbox"]');
 	const before = await readingAids.getAttribute('aria-checked');
 	await readingAids.click();
 	await waitUntil(() => written()['basehalf.editor.readingMode'] === (before !== 'true'), 'the switch of Reading Aids to be written to the user\'s settings', 10_000);
-	await waitForReading(() => readingAids.getAttribute('aria-checked'), checked => checked === String(before !== 'true'), 'the switch of Reading Aids to show what was written');
+	await waitForReading(() => readingAids.getAttribute('aria-checked'), checked => checked === String(before !== 'true'), 'the check box of Reading Aids to show what was written');
 	await readingAids.click();
 	await waitUntil(() => !('basehalf.editor.readingMode' in written()), 'Reading Aids at its default to leave the user\'s settings', 10_000);
 

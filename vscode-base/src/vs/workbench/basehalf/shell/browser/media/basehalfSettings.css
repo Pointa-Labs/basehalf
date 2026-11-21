@@ -3,7 +3,11 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-/* BaseHalf's Settings: the list of pages at the left, the page beside it. */
+/*
+ * BaseHalf's Settings: the list of pages at the left, the page beside it. Drawn as the base's Settings editor is,
+ * without boxes (Settings, "How Settings looks"; D152): its sizes, paddings, and colors are those read from VS Code
+ * 1.147's.
+ */
 .basehalf-settings {
 	display: flex;
 	height: 100%;
@@ -25,51 +29,62 @@
 .monaco-workbench .basehalf-settings button:focus-visible,
 .monaco-workbench .basehalf-settings select:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
-	outline-offset: 2px;
+	outline-offset: -1px;
 }
 
+/* The list of pages: names, 22 px a line, the page shown in bold, as the table of contents of the base's Settings. */
 .basehalf-settings-navigation {
 	display: flex;
 	flex: none;
 	flex-direction: column;
 	box-sizing: border-box;
-	padding: 14px 10px 12px;
-	border-right: 1px solid var(--vscode-widget-border, transparent);
+	padding: 16px 8px 12px 16px;
+	border-right: 1px solid var(--vscode-settings-sashBorder, var(--vscode-widget-border, transparent));
 }
 
 .basehalf-settings-pages {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
 }
 
 .basehalf-settings-page-tab,
 .basehalf-settings-keyboard,
 .basehalf-settings-advanced {
-	padding: 6px 10px;
+	height: 22px;
+	padding: 0 8px;
 	border: 0;
-	border-radius: 6px;
+	border-radius: var(--vscode-cornerRadius-small, 4px);
 	background: transparent;
 	color: inherit;
 	font: inherit;
+	font-size: 13px;
+	line-height: 22px;
 	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	cursor: pointer;
 }
 
+.basehalf-settings-page-tab {
+	opacity: 0.9;
+}
+
 .basehalf-settings-page-tab:hover {
-	background: var(--vscode-list-hoverBackground);
+	background: var(--vscode-settings-rowHoverBackground);
+	opacity: 1;
 }
 
 .basehalf-settings-page-tab[aria-selected='true'] {
-	background: var(--vscode-list-inactiveSelectionBackground);
-	font-weight: 600;
+	color: var(--vscode-settings-headerForeground);
+	font-weight: 700;
+	opacity: 1;
 }
 
 /* What is elsewhere, under the pages: Keyboard Shortcuts and the advanced list. */
 .basehalf-settings-elsewhere {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
 	margin-top: auto;
 }
 
@@ -89,10 +104,10 @@
 	min-width: 0;
 }
 
-/* A page of settings: General, and the part of About that is a setting. */
+/* A page of settings: General and the other pages that list settings, and the part of About that is a setting. */
 .basehalf-settings-page {
 	box-sizing: border-box;
-	padding: 26px 36px 36px;
+	padding: 14px 24px 24px;
 	overflow: auto;
 }
 
@@ -100,80 +115,126 @@
 	display: none;
 }
 
+/* The title of a page, as the base's title of a first level: 26 px at weight 600. */
 .basehalf-settings-page h1 {
-	margin: 0 0 4px;
-	font-size: 20px;
+	margin: 0;
+	padding: 10px 14px;
+	color: var(--vscode-settings-headerForeground);
+	font-size: 26px;
 	font-weight: 600;
+	line-height: 1.4;
 }
 
 .basehalf-settings-section {
-	max-width: 620px;
+	max-width: 1000px;
 }
 
-/* A page whose settings are one group: the group stands under the page's title. */
-.basehalf-settings-section.untitled {
-	margin-top: 18px;
-}
-
+/* A section, as the base's title of a second level: 22 px at weight 600. */
 .basehalf-settings-section h2 {
-	margin: 22px 0 8px;
-	font-size: 13px;
+	margin: 12px 0 0;
+	padding: 10px 14px 4px;
+	color: var(--vscode-settings-headerForeground);
+	font-size: 22px;
 	font-weight: 600;
+	line-height: 1.4;
 }
 
-/* The settings of a section stand in one box, a line between them. */
-.basehalf-settings-group {
-	border: 1px solid var(--vscode-widget-border, transparent);
-	border-radius: 8px;
-	background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
-}
-
+/* A setting: its name, the line about it, and its control under them, in a block with no frame. */
 .basehalf-settings-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 24px;
-	min-height: 28px;
-	padding: 8px 14px;
+	position: relative;
+	padding: 12px 14px 18px;
+	border-radius: var(--vscode-cornerRadius-medium, 6px);
 }
 
-.basehalf-settings-row + .basehalf-settings-row {
-	border-top: 1px solid var(--vscode-widget-border, transparent);
+.basehalf-settings-row:hover {
+	background: var(--vscode-settings-rowHoverBackground);
 }
 
-.basehalf-settings-row-text {
-	min-width: 0;
+.basehalf-settings-row:has(:focus-visible) {
+	background: var(--vscode-settings-focusedRowBackground);
+	outline: 1px solid var(--vscode-settings-focusedRowBorder, transparent);
+	outline-offset: -1px;
+}
+
+/* The base's mark of a setting that a settings file sets: a line at the left of its block. */
+.basehalf-settings-row.is-configured::before {
+	content: '';
+	position: absolute;
+	top: 15px;
+	bottom: 18px;
+	left: 5px;
+	border-left: 2px solid var(--vscode-settings-modifiedItemIndicator);
+}
+
+.basehalf-settings-row-label {
+	display: block;
+	padding-bottom: 2px;
+	color: var(--vscode-settings-headerForeground);
+	font-weight: 600;
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 .basehalf-settings-row-description {
-	margin-top: 2px;
-	font-size: 12px;
-	line-height: 1.35;
-	color: var(--vscode-descriptionForeground);
+	margin-top: -1px;
+	color: var(--vscode-foreground);
+	line-height: 1.4;
+	opacity: 0.9;
+	user-select: text;
+	-webkit-user-select: text;
 }
 
-.basehalf-settings-row-control {
+.basehalf-settings-row-value {
+	display: flex;
+	margin-top: 9px;
+}
+
+/* A setting that is on or off: the base's check box, with the line about the setting beside it as its label. */
+.basehalf-settings-row-value.check {
+	align-items: flex-start;
+	margin-top: 1px;
+}
+
+.basehalf-settings-row-value.check .basehalf-settings-row-description {
+	margin-top: 0;
+	cursor: pointer;
+}
+
+.basehalf-settings-check {
 	display: flex;
 	flex: none;
 	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	width: 18px;
+	height: 18px;
+	margin: 0 9px 0 0;
+	padding: 0;
+	border: 1px solid var(--vscode-settings-checkboxBorder, transparent);
+	border-radius: 3px;
+	background: var(--vscode-settings-checkboxBackground);
+	color: var(--vscode-settings-checkboxForeground);
+	cursor: pointer;
+}
+
+.basehalf-settings-check > .codicon {
+	font-size: 16px;
+	visibility: hidden;
+}
+
+.basehalf-settings-check[aria-checked='true'] > .codicon {
+	visibility: visible;
 }
 
 .basehalf-settings-select,
 .basehalf-settings-input {
 	box-sizing: border-box;
 	height: 26px;
-	padding: 2px 8px;
-	border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent));
-	border-radius: 6px;
+	padding: 2px 6px;
+	border-radius: var(--vscode-cornerRadius-small, 4px);
 	outline: 0;
-	background: var(--vscode-input-background);
-	color: var(--vscode-input-foreground);
 	font: inherit;
-}
-
-/* The workbench gives every select a border of its own color: the choice keeps the border of a field. */
-.monaco-workbench .basehalf-settings .basehalf-settings-select {
-	border-color: var(--vscode-input-border, var(--vscode-widget-border, transparent));
+	font-size: 13px;
 }
 
 .basehalf-settings-choice {
@@ -181,9 +242,13 @@
 	display: flex;
 }
 
-.basehalf-settings-select {
-	min-width: 132px;
+/* A choice: a field 320 px wide; the system draws its list. The workbench gives every select a border of its own color. */
+.monaco-workbench .basehalf-settings .basehalf-settings-select {
+	width: 320px;
 	padding-right: 26px;
+	border: 1px solid var(--vscode-settings-dropdownBorder, transparent);
+	background: var(--vscode-settings-dropdownBackground);
+	color: var(--vscode-settings-dropdownForeground);
 	appearance: none;
 	cursor: pointer;
 }
@@ -192,16 +257,22 @@
 	position: absolute;
 	top: 5px;
 	right: 7px;
-	color: var(--vscode-descriptionForeground);
+	color: var(--vscode-settings-dropdownForeground);
 	pointer-events: none;
 }
 
 .basehalf-settings-input {
-	width: 220px;
+	width: 420px;
+	border: 1px solid var(--vscode-settings-textInputBorder, transparent);
+	background: var(--vscode-settings-textInputBackground);
+	color: var(--vscode-settings-textInputForeground);
 }
 
 .basehalf-settings-input.number {
-	width: 72px;
+	width: 200px;
+	border-color: var(--vscode-settings-numberInputBorder, transparent);
+	background: var(--vscode-settings-numberInputBackground);
+	color: var(--vscode-settings-numberInputForeground);
 }
 
 .basehalf-settings-input::placeholder {
@@ -213,47 +284,8 @@
 	border-color: var(--vscode-focusBorder);
 }
 
-/* A switch: off at the left, on at the right. */
-.basehalf-settings-switch {
-	position: relative;
-	width: 32px;
-	height: 18px;
-	padding: 0;
-	border: 0;
-	border-radius: 9px;
-	background: color-mix(in srgb, var(--vscode-foreground) 24%, transparent);
-	cursor: pointer;
-	transition: background-color 120ms ease;
-}
-
-.basehalf-settings-switch[aria-checked='true'] {
-	background: var(--vscode-button-background);
-}
-
-.basehalf-settings-switch-thumb {
-	position: absolute;
-	top: 2px;
-	left: 2px;
-	width: 14px;
-	height: 14px;
-	border-radius: 50%;
-	background: var(--vscode-button-foreground);
-	transition: transform 120ms ease;
-}
-
-.basehalf-settings-switch[aria-checked='true'] .basehalf-settings-switch-thumb {
-	transform: translateX(14px);
-}
-
-.monaco-reduce-motion .basehalf-settings-switch,
-.monaco-reduce-motion .basehalf-settings-switch-thumb {
-	transition: none;
-}
-
 @media (forced-colors: active) {
-	.basehalf-settings-navigation,
-	.basehalf-settings-group,
-	.basehalf-settings-row + .basehalf-settings-row {
+	.basehalf-settings-navigation {
 		border-color: CanvasText;
 	}
 
@@ -261,7 +293,7 @@
 		outline: 1px solid Highlight;
 	}
 
-	.basehalf-settings-switch {
+	.basehalf-settings-check {
 		border: 1px solid CanvasText;
 	}
 }
