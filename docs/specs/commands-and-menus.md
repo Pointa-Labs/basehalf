@@ -1,0 +1,231 @@
+# The commands and menus BaseHalf has
+
+Status: Active (2026-11-21)
+Decision: [D141](../decisions.md#d141--a-command-of-what-basehalf-does-not-have-is-in-no-list-and-does-not-run-new-2026-11-21)
+Related: [the settings BaseHalf offers](settings-catalog.md),
+[architecture invariants](../harness/architecture-invariants.md#product-shell),
+[built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
+[Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md),
+[Agent Area terminal](agent-area-terminal.md)
+
+This specification owns which commands of the base BaseHalf has: what the
+Command Palette lists, what the menus hold, which keys run a command, and
+what happens when something executes a command by its id. It also owns where
+output shows, since BaseHalf has no bottom panel. Which settings BaseHalf
+offers is owned by [the settings BaseHalf offers](settings-catalog.md); what
+each of BaseHalf's own surfaces does with its commands is owned by the
+specification of the surface.
+
+## Problem
+
+Measured on 2026-11-21 in the real window of a development build, with a
+folder under git open:
+
+- **The Command Palette listed 679 commands, and 188 of them belonged to
+  what BaseHalf does not have.** BaseHalf hid the views of the base that it
+  does not have by closing them after they opened. Their features were still
+  loaded, and their commands were still offered: 14 of Tasks, Debug: Add
+  Configuration, which writes `.vscode/launch.json`, Notebook, Test, Remote,
+  Profiles, Browser: Open Integrated Browser, and 85 that split, move, pin,
+  and arrange editors in groups and tabs that BaseHalf does not show.
+- **A command could turn on what BaseHalf turns off.** The palette listed
+  "Chat: Use AI Features with Copilot for free...". The base offers it exactly
+  when its AI features are off, and running it writes
+  `chat.disableAIFeatures: false`.
+- **A command could cover the canvas.** View: Toggle Output and Git's Show
+  Git Output opened the base's bottom panel, with Problems, Output, and
+  Terminal, which BaseHalf's shell does not have.
+- **The menus held entries that did nothing.** The application menu had a
+  Run menu with one dead entry, Run Task under Terminal, and Extensions, Run,
+  Problems, and Output under View. The gear's menu had Profiles and Tasks.
+  The Accounts menu had a disabled "Manage Language Model Access...". The
+  context menu of Files offered Open Timeline for a view that is hidden.
+- **A command wrote a setting that BaseHalf keeps.** View: Toggle
+  Breadcrumbs, moving the side bar or the activity bar, the Command Center
+  entry of the title bar's context menu, and File › Auto Save each only
+  write a setting that the catalog locks, so each would end in a refusal.
+  "Preferences: Toggle between Light/Dark Themes" did nothing: BaseHalf's
+  light preference is a dark theme.
+- **Nothing enforced a hidden command.** The list of hidden surfaces named
+  five commands of the Search Editor, and no code read them.
+
+## Terms
+
+- **The base**: the workbench BaseHalf is built on, and its extensions that
+  ship with BaseHalf.
+- **A hidden command**: a command of the base that BaseHalf does not have.
+- **A family**: the commands of one feature, named by their ids or by a
+  pattern of ids.
+- **The base's plumbing**: a command whose id starts with `_`. The base's
+  parts and its extensions call it, and almost none is offered in a list.
+
+## Which commands BaseHalf has
+
+BaseHalf has a command when a surface of BaseHalf's uses it today. A command
+of a feature that BaseHalf does not have, by a decision or because nothing of
+it ships, is hidden.
+
+### Hidden families
+
+"Listed" is the number of commands the Command Palette listed before, with
+nothing typed.
+
+| Family | What it holds | Listed | Why BaseHalf does not have it |
+| --- | --- | --- | --- |
+| Editor tabs and groups | splitting, new groups, moving an editor or a group, the editor layouts, pinning, locking a group, the tab bar, the place of the editor actions, an editor or a terminal in a window of its own, hiding the editor area | 85 | a file opens in Card Detail, and there is one editor group without tabs |
+| The bottom panel | focusing, moving, aligning, and maximizing the panel, the Output view with its filters, the terminal view of the panel | 19 | the shell has no bottom panel; [output](#output) opens as a document |
+| Tasks | `workbench.action.tasks.*` | 14 | D137: an agent runs a folder's commands in the Agent Area |
+| Debug | `debug.*`, `workbench.debug.*`, `workbench.action.debug.*`, `editor.debug.*`, the debug console, and the three commands that debug a window in a new one | 13 | no debugger ships |
+| Profiles | `workbench.profiles.actions.*` | 9 | D137: one set of settings |
+| The shape of the shell | breadcrumbs, the side bar's and the activity bar's place, the Command Center and the custom title bar, Auto Save, Toggle between Light/Dark Themes, workspace trust, Move View | 9 | each only writes a setting that BaseHalf keeps at its own value, switches to a theme BaseHalf never switches to, or moves a view out of its place |
+| Notebooks | `notebook.*`, `workbench.notebook.*`, the interactive window | 8 | nothing ships that opens a notebook |
+| The base's chat and agents | `workbench.action.chat.*`, `chat.*`, inline chat, agent sessions, tool servers (`workbench.mcp.*`), voice input, the base's onboarding, Open in Images Preview | 7 | the Agent Area is BaseHalf's surface for agents; see [the base's chat](#the-bases-chat) |
+| The merge editor | `merge.*`, `mergeEditor.*`, Git's Resolve in Merge Editor | 5 | D123: a conflict is resolved in the file with its actions |
+| The integrated browser | `workbench.action.browser.*` | 4 | D137: a page opens in the system's browser |
+| Testing | `testing.*` and the Testing views | 4 | no test provider ships |
+| Remote | the remote menu, forwarded ports, the connection, the links to the base's web editor | 3 | BaseHalf opens local folders |
+| The Marketplace | the Extensions view and its lists, Start Extension Bisect, Browse Color Themes in Marketplace | 3 | D45 and D76: BaseHalf installs only the agent extensions |
+| Problems | the Problems view and its filters | 3 | a view of the bottom panel; the marks show in Source |
+| Timeline and Outline | `timeline.*`, Open Timeline, `outline.*` | 2 | hidden views: the Graph of Source Control shows a file's commits |
+| The Search Editor | opening search results in an editor | 0 | it would cover the canvas |
+| Cloud changes and settings sync | `workbench.editSessions.*`, `workbench.userDataSync.*` | 0 | no service is configured |
+
+The families with 0 were not listed in this window and were reachable by a
+key, a menu, or their id.
+
+### Kept families
+
+| Family, by the category the palette lists it under | Listed | The surface that uses it |
+| --- | --- | --- |
+| Git, Source Control, Merge Conflict, Publish to GitHub | 95 | Source Control and the Changes view |
+| Terminal | 73 | the Agent Area: its terminals are the base's, and the commands that make one make a session there ([Agent Area terminal](agent-area-terminal.md)) |
+| View: the side bars, zoom, Zen Mode, full screen, closing and stepping through editors | 67 | the shell, and the one editor group under Card Detail |
+| No category: the editor's own, Go to, the clipboard, Quick Open, the window | 62 | Source, the canvas, and the window |
+| BaseHalf, Agent, About | 53 | the Agent Area, the canvas, Providers, About |
+| Developer | 51 | Reload Window, Toggle Developer Tools, the logs, and the like |
+| File, Workspaces, Explorer, Create | 36 | Files |
+| Help, Notifications, Accounts, Output, Local History, Shell Command, and four single commands | 28 | the window, and [output](#output) |
+| Preferences, Snippets | 19 | Settings, Keyboard Shortcuts, Color Theme, and snippets in Source |
+| Search | 7 | Search |
+
+After the change the palette lists 492 commands, under 491 names.
+
+- **The terminal's commands stay as a family.** An Agent Area terminal is a
+  terminal of the base, and a command that acts on the active terminal acts
+  on it. Only the commands that would put a terminal where BaseHalf has no
+  surface are hidden: a terminal in the editor area, in a window of its own,
+  or in the panel.
+- **Stepping through editors stays.** Source Control opens a deleted file and
+  the files of a commit in the one editor group, and Next Editor and Close
+  Editor work there.
+- **Welcome and its walkthroughs stay.** An empty window shows the Welcome
+  page.
+- **Go to Next Problem stays.** The marks of a mistake show in Source.
+- **The base's plumbing stays.** Git asks `_aiEdits.*` at every commit. No
+  pattern names plumbing; the one such command that the palette offers,
+  the notebook's Select Kernel, is named by its id.
+
+## Required behavior
+
+1. **One list.** The hidden commands are data: families, each with its
+   command ids, its patterns of ids, and its reason
+   (`BASEHALF_HIDDEN_COMMAND_FAMILIES`). A `*` in a pattern stands for any
+   run of characters. A command that a pattern names and that BaseHalf has
+   is in a list of kept commands, with its reason.
+2. **The Command Palette** lists no hidden command, whatever is typed, the
+   editor's own commands among them.
+3. **No menu holds a hidden command**: the application menu, the title bar
+   and its context menu, the gear's and the Accounts menu, the context menus
+   of Files, of Source Control, and of an editor, and the title of a view. A
+   submenu that is left without an entry goes with its entries, and so does
+   a top-level menu of the application menu: there is no Run menu.
+4. **No key runs a hidden command.** A key of the base or of an extension
+   that ran one is free: it does what comes after it, or nothing. A key the
+   user binds to a hidden command in the keybindings file says that the
+   command is not found, as for any command that does not exist.
+5. **Keyboard Shortcuts** lists no hidden command to bind.
+6. **Executing a hidden command by its id fails** as executing a command
+   that does not exist: the caller gets the error `command '<id>' not found`.
+   Nothing of the command runs, and no extension is activated for it. This
+   holds for BaseHalf's own code, for the base's, and for an extension, an
+   agent extension among them: to an extension, BaseHalf is a product in
+   which the command does not exist. The refusal is written to the window's
+   log.
+7. **Customize Layout** lists a row only for a command BaseHalf has, and a
+   heading only above a row. Its Restore Defaults writes no setting that has
+   its default already.
+8. **A new command of a hidden family is hidden before it ships.** A check
+   fails when the base registers a command under a category of a hidden
+   family and no pattern names it.
+
+## Implementation boundaries
+
+- **The list** is `shell/common/basehalfHiddenCommands.ts`, beside the hidden
+  surfaces. It imports nothing. The commands that the hidden surfaces name
+  (`kind: 'command'`) are in it.
+- **Menus and the Command Palette**: BaseHalf's menu service
+  (`shell/common/basehalfMenuService.ts`) takes the place of the base's. The
+  base builds every menu from the menu registry there, so one place serves
+  them all; it leaves out hidden commands and what they leave empty.
+- **Executing**: BaseHalf's command service
+  (`shell/common/basehalfCommandService.ts`) takes the place of the base's
+  and refuses a hidden command.
+- **Four marked changes in the base's files**, each one line that asks the
+  list: the keybinding service leaves the default keys of hidden commands
+  out of its resolver; the list of commands without a key leaves them out;
+  the Command Palette leaves out the editor's own commands that are hidden;
+  and Customize Layout, whose rows are not a menu, leaves out its rows.
+- Nothing of a hidden feature is removed from the build (D122, D137).
+
+## Acceptance criteria
+
+1. With nothing typed, the Command Palette lists no command of a hidden
+   family: none under Tasks, Debug, Notebook, Test, Profiles, Browser, Chat,
+   Voice, Remote, Problems, or Merge Editor, and none that splits or moves an
+   editor.
+2. The application menu has no Run menu; Terminal holds New Terminal, Split
+   Terminal, Run Active File, and Run Selected Text; View holds no
+   Extensions, Run, Browser, Problems, Output, or Editor Layout; Appearance
+   holds no entry for the place of the side bar, the activity bar, the
+   panel, the tab bar, the editor actions, or breadcrumbs; File holds no
+   Auto Save, no Share, and no New Window with Profile; Preferences holds no
+   Profiles and no Tasks.
+3. The gear's menu holds Command Palette, Settings, Keyboard Shortcuts,
+   Snippets, Themes, and Layout Density, and the entries of an update. The
+   Accounts menu holds no entry of a language model.
+4. The context menu of a file in Files holds no Open Timeline, no entry of
+   chat, of testing, or of the integrated browser, and no Share.
+5. The context menu of the title bar holds Navigation Controls and Layout
+   Controls, and no entry that writes a locked setting.
+6. Customize Layout lists Primary Side Bar, Secondary Side Bar, Panel, and
+   Status Bar under Visibility, the place of the quick input, and the modes,
+   and nothing for the place of the side bar or the alignment of a panel.
+7. The keys that the base gives to Output, Problems, Run and Debug,
+   Extensions, Start Debugging, and Run Build Task open nothing and show no
+   message.
+8. Executing a hidden command by its id fails with `command '<id>' not
+   found`, and the command does not run.
+9. A command added to the base under the category of a hidden family, with
+   an id that no pattern names, fails a unit test.
+
+## Verification
+
+- Unit tests of the list (`basehalfHiddenCommands.test.ts`): the family of a
+  hidden command, the commands that stay, the commands of the hidden
+  surfaces, and that no pattern names the base's plumbing; of the two
+  services (`basehalfCommandAndMenuServices.test.ts`): the refusal, and a
+  menu with its submenus (criteria 3 and 8); and of the registry
+  (`basehalfHiddenCommandFamilies.test.ts`), which loads the base's own
+  registrations of Tasks, Debug, Notebooks, Testing, chat, the merge editor,
+  the Search Editor, Problems, and Remote, and fails on a command of their
+  categories that no pattern names (criterion 9).
+- The workbench suite of the smoke: the palette lists no command of the
+  hidden categories, and the gear's menu holds its entries.
+- Measured in the real window on 2026-11-21, before and after, in the same
+  folder: the Command Palette with nothing typed, 679 commands before and
+  492 after; the application menu, File 26 entries and 21, View 50 and 21,
+  Go 38 and 26, Run 1 and no menu, Terminal 12 and 4, Preferences 8 and 6,
+  Edit, Selection, and Help unchanged; the gear's menu, 9 entries and 7; the
+  Accounts menu, 2 and 1; the context menu of the title bar and Customize
+  Layout as criteria 5 and 6 say; and the eight keys of criterion 7, pressed
+  with the keyboard in Files.

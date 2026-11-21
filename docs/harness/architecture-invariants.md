@@ -57,6 +57,15 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   VS Code extension Codex, VS Code extension Claude Code, and Terminal sessions.
   Route extension-created terminals there; do not expose stock VS Code
   Agent/Chat/Copilot/Sessions or terminal-panel UI as competing product areas.
+- A command of the base that BaseHalf does not have is in no list and does
+  not run: the Command Palette, the menus, and Keyboard Shortcuts leave it
+  out, no key runs it, and executing it by its id fails as for a command that
+  does not exist. The commands are named in one list, by family and with a
+  reason each, beside the hidden surfaces; a new command of a base update
+  that belongs to a hidden family is added there. BaseHalf's shell has no
+  bottom panel: do not open one, and show output as a document over the
+  canvas ([the commands and menus BaseHalf has](../specs/commands-and-menus.md),
+  D141).
 - Agent Area terminals present themselves to the programs in them as
   BaseHalf's terminal: `TERM_PROGRAM=BaseHalf`, a BaseHalf XTVERSION reply,
   and Ghostty wheel semantics. Do not reintroduce the `vscode` identity or

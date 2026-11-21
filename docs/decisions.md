@@ -6576,3 +6576,44 @@ its own. The owner then left the open choices to me: "你来决定吧".
 - The Agent Area, the code card, the canvas, and the other surfaces of the catalog's table follow their settings, each by a
   decision of its own.
 - The commands and menu entries of what BaseHalf does not have go, by a decision of their own.
+
+## D141 — A command of what BaseHalf does not have is in no list and does not run (NEW, 2026-11-21)
+
+**Decision.** The commands of the base that BaseHalf does not have are named in one list, by family, with a reason each. The
+Command Palette, every menu, and Keyboard Shortcuts leave them out; no key of the base runs one; and executing one by its id
+fails as executing a command that does not exist, for an extension too. BaseHalf has a command when a surface of BaseHalf's
+uses it today. The base's plumbing, the commands whose ids start with `_`, stays, but for one the palette offers. See
+[the commands and menus BaseHalf has](specs/commands-and-menus.md).
+
+**Why.** D137 gave every setting a class and left the commands to a decision of their own: "the commands and menu entries of
+what BaseHalf does not have go". Measured on 2026-11-21 in the real window, with a folder under git open, the Command
+Palette listed 679 commands with nothing typed. 188 of them belonged to what BaseHalf does not have: 85 arranged editors in
+groups and tabs, 19 the bottom panel, 14 were Tasks, 13 Debug. One wrote `chat.disableAIFeatures: false`. The application
+menu had a Run menu with one dead entry. BaseHalf had hidden the views by closing them after they opened, and its list of
+hidden surfaces named five commands that no code read. With the lock of D137, a command that only writes a locked setting
+would end in a refusal.
+
+**Alternatives.**
+- Not registering the commands, feature by feature, as the Extensions contribution leaves out its own entries. It is a
+  change in every contribution of the base, 15 families, and a base update adds entries in each.
+- A `when` clause on every entry. The base has no clause that holds for a whole family, and an entry of a base update would
+  come without it.
+- A filter in the menu registry or the command registry of the base's platform. It would be BaseHalf's list inside the
+  base's lowest layer; the two services that read the registries can be replaced from BaseHalf's own folder.
+- Hiding without refusing. A command that is in no list and still runs is reached by a key, by a link, and by an
+  extension, and a hidden surface opens again.
+- A message of its own for a refused command. To the caller, BaseHalf is a product without the command; the base's own
+  error for an unknown command says so, and extensions already handle it.
+- Hiding the plumbing too. Git asks `_aiEdits.*` at every commit, and no list offers a command whose id starts with `_`.
+- Hiding the terminal's commands that the Agent Area does not take. An Agent Area terminal is the base's terminal, and
+  which of its commands a session follows is the Agent Area's to decide.
+
+**Consequences.**
+- The Command Palette lists 492 commands. The application menu has no Run menu, and no entry for tasks, profiles, the
+  panel, the editor layouts, or a place of the shell that BaseHalf keeps.
+- A key that ran a hidden command is free.
+- A unit test loads the base's registrations of the hidden families and fails on a command of their categories that no
+  pattern names, so a base update names its new commands before it ships.
+- Four lines of the base's files ask the list: the keybinding resolver, the list of commands without a key, the Command
+  Palette's editor commands, and Customize Layout.
+- Nothing of a hidden feature leaves the build (D122).
