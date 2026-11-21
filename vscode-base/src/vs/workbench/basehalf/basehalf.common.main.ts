@@ -14,6 +14,9 @@ import './navigation/common/basehalfCanvasNavigationService.js';
 import './canvas/common/basehalfCanvasViewportState.js';
 import './references/common/basehalfBadgeMirror.js';
 import './references/common/basehalfReferenceIndex.js';
+// The commands BaseHalf does not have are in no menu and are refused: in place of the base's two services (D141).
+import './shell/common/basehalfCommandService.js';
+import './shell/common/basehalfMenuService.js';
 
 //#endregion
 
