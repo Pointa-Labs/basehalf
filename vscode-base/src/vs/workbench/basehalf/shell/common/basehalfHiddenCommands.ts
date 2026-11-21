@@ -62,6 +62,7 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.showAgentSessionsQuickAccess',
 			'workbench.action.openLanguageModelsJson',
 			'workbench.action.askVScode',
+			'workbench.action.speech.*',
 			'workbench.action.onboarding.*',
 			'workbench.action.welcomeOnboarding2026',
 			'workbench.action.openImagesInCarousel',

@@ -29,6 +29,22 @@ export function assertEverySettingHasAClass() {
 	}
 }
 
+// Commands and menus, criterion 9: the window names in its log every command the base lists in the Command
+// Palette under the category of a family BaseHalf does not have and that no pattern names. No window of the run
+// has written the line.
+export function assertHiddenFamiliesNameTheirCommands() {
+	const logs = fs.readdirSync(logsPath, { recursive: true }).map(String).filter(file => path.basename(file) === 'renderer.log');
+	if (!logs.length) {
+		throw new Error(`No log of a window under ${logsPath}`);
+	}
+	for (const log of logs) {
+		const line = fs.readFileSync(path.join(logsPath, log), 'utf8').split('\n').find(candidate => candidate.includes('[BaseHalf] commands of a hidden family that no pattern names:'));
+		if (line) {
+			throw new Error(`Commands of a hidden family that no pattern names: ${line.slice(line.indexOf('names:') + 6).trim()}`);
+		}
+	}
+}
+
 // BaseHalf's Settings, criteria 1, 2, 7, and 9: the key of Settings opens BaseHalf's own Settings at General, in
 // the overlay, with its three pages and the rows of General under BaseHalf's names; a switch writes the user's
 // settings at once and takes its line away again at the default; the arrow keys choose a page; Advanced Settings…

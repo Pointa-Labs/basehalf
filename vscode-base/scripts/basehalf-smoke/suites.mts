@@ -99,7 +99,7 @@ import {
 	assertTogglePanelRemapsToAgentArea
 } from './areas/workbench/agentArea.mts';
 import { assertCompetingViewContainersHidden, assertHiddenSurfaceCommandsStayHidden, assertKeysOfHiddenCommandsOpenNothing, assertOpenEditorsHidden, assertOutputOpensOverTheCanvas, assertStatusBarCurated, assertTitleBarMenusHoldWhatBaseHalfHas } from './areas/workbench/hiddenSurfaces.mts';
-import { assertBaseHalfAboutPage, assertBaseHalfSettings, assertEverySettingHasAClass, assertProvidersPage } from './areas/workbench/settings.mts';
+import { assertBaseHalfAboutPage, assertBaseHalfSettings, assertEverySettingHasAClass, assertHiddenFamiliesNameTheirCommands, assertProvidersPage } from './areas/workbench/settings.mts';
 import { assertGitBranchCheckoutQuickPick, assertSourceControlChangesAsTree, assertSourceControlLeavesOutSystemFiles, assertSourceControlPanel, assertSourceControlPublishBranchAction } from './areas/workbench/sourceControl.mts';
 import {
 	assertBaseHalfRootTitlebarBreadcrumb,
@@ -205,6 +205,7 @@ async function runWorkbenchSuite(page) {
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 	await step('settings-every-setting-has-a-class', async () => assertEverySettingHasAClass());
+	await step('hidden-families-name-their-commands', async () => assertHiddenFamiliesNameTheirCommands());
 	await step('settings-basehalf-settings', () => assertBaseHalfSettings(page));
 	await step('providers-page', () => assertProvidersPage(page));
 	await step('settings-about-page', () => assertBaseHalfAboutPage(page));
