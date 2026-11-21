@@ -65,6 +65,8 @@ export class BaseHalfCanvasKeys {
 		readonly picking: IContextKey<boolean>;
 		readonly keyboardByToolbar: IContextKey<boolean>;
 	} | undefined;
+	/** What the context keys were last told. */
+	private said: IBaseHalfCanvasKeyContext | undefined;
 	/** The key press a command is being run for: the card that had the keyboard, and where the keyboard was. */
 	private keyPress: { readonly command: BaseHalfCanvasCommandId; readonly card: HTMLElement | undefined; readonly context: IBaseHalfCanvasKeyContext } | undefined;
 	/** The key presses that ran a command and went on to the canvas library. */
@@ -96,9 +98,15 @@ export class BaseHalfCanvasKeys {
 		store.add(DOM.addDisposableListener(root, DOM.EventType.FOCUS_IN, event => this.say(event.target)));
 		store.add(DOM.addDisposableListener(root, DOM.EventType.FOCUS_OUT, event => this.say(event.relatedTarget)));
 		// A command that comes after another key or a press was not run for the last key of the canvas.
-		for (const type of [DOM.EventType.KEY_DOWN, DOM.EventType.POINTER_DOWN]) {
-			store.add(DOM.addDisposableListener(root.ownerDocument, type, () => { this.keyPress = undefined; }, true));
-		}
+		store.add(DOM.addDisposableListener(root.ownerDocument, DOM.EventType.POINTER_DOWN, () => { this.keyPress = undefined; }, true));
+		store.add(DOM.addDisposableListener(root.ownerDocument, DOM.EventType.KEY_DOWN, event => {
+			this.keyPress = undefined;
+			// The keyboard can leave the canvas without an event, as when the element that had it is taken
+			// away: a key pressed elsewhere is never judged by where the keyboard was.
+			if (this.said?.keyboardOn && !(DOM.isHTMLElement(event.target) && root.contains(event.target))) {
+				this.say(event.target);
+			}
+		}, true));
 		store.add(this.view.canvasKeyCommandService.registerCanvas(id => this.run(id)));
 		store.add(toDisposable(() => this.say(null)));
 		return store;
@@ -162,6 +170,7 @@ export class BaseHalfCanvasKeys {
 	/** Reads where the keyboard is and what is selected, and says it through the context keys. */
 	private say(target: EventTarget | null): IBaseHalfCanvasKeyContext {
 		const context = baseHalfCanvasKeyContext(this.facts(target));
+		this.said = context;
 		const keys = this.contextKeys;
 		if (keys) {
 			keys.focus.set(context.focus);

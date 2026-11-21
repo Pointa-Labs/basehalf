@@ -5,6 +5,7 @@
 
 import { localize2 } from '../../../../nls.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { BASEHALF_CANVAS_KEY_COMMANDS, IBaseHalfCanvasKeyCommandService } from '../common/basehalfCanvasKeys.js';
@@ -20,7 +21,9 @@ for (const command of BASEHALF_CANVAS_KEY_COMMANDS) {
 				title: command.title,
 				category: localize2('basehalf.category', "BaseHalf"),
 				f1: false,
-				menu: command.palette ? [{ id: MenuId.CommandPalette, when: command.palette }] : undefined,
+				// Keyboard Shortcuts names a command by its entry of the Command Palette: a command that
+				// the palette never lists has an entry that never holds.
+				menu: [{ id: MenuId.CommandPalette, when: command.palette ?? ContextKeyExpr.false() }],
 				keybinding: command.keys ? {
 					// Above the base's own use of the key, as the keys of the window's zoom.
 					weight: KeybindingWeight.WorkbenchContrib + 50,
