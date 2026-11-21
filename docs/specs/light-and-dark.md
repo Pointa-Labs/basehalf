@@ -354,3 +354,17 @@ against a ground it is drawn on.
   dark ones compared pixel by pixel between the build before and the build after; criterion 4 is also sampled
   there. Criterion 7 was seen on 2026-11-21 for a dark system only: the light half is the base's own path with
   its default theme for it.
+- Criterion 1 as measured on 2026-11-21, at two device pixels per pixel, the window behind another application
+  and its color profile fixed, each build started on a fresh copy of one folder: 51 screenshots of 2880 by 1800,
+  of which 40 are equal in every pixel. The 11 others differ where two runs of one build differ too: the frame
+  a video stopped at and the place of its playhead (the canvas's video card, left out of the count in five
+  screenshots, and the player in two), a scroll bar that fades (two), the line of the cursor in a code card
+  (one), and up to 82 pixels by up to three steps of 255 along the top of a picture's card and the rims of
+  cards (five). Three things were found by this comparison and fixed: a share of transparency mixed in the
+  stylesheet (rule 4), a swatch's edge of no color, which still changed the rim of the round swatch, and the
+  terminal's inactive selection, which a theme under the default ones set.
+- What makes two screenshots comparable, found the hard way: the title bar has another color while the window
+  is the front one, a driver that is connected keeps the document focused, the window opens on whichever
+  display is in use and takes its scale and its color profile, and a zoom by the wheel lands a hair apart from
+  run to run, which shows as one step on a smoothed edge. A comparison fixes the scale and the profile at
+  launch, puts the window behind before a driver connects, and zooms by the number.
