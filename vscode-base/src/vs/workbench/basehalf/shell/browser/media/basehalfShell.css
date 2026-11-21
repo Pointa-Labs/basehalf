@@ -1,0 +1,14 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The parts of the window stand still (workbench appearance, requirement 11). The grid that holds them clips
+ * what is outside it, and so has no scroll position that a call scrolling something into view could change.
+ * A split view that a view of the sidebar scrolls is no node of the grid and keeps its scrolling. The base sets
+ * the overflow on the element itself, so the rule has to outrank that.
+ */
+.monaco-workbench .monaco-grid-branch-node > .monaco-split-view2 > .monaco-scrollable-element > .split-view-container {
+	overflow: clip !important;
+}
