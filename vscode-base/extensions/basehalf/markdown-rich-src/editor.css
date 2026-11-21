@@ -329,9 +329,10 @@ body,
 	min-height: 1.5em;
 }
 
+/* The box of the reading aids stands in the room beside the text, as the handles of a block do on its left: the
+ * text keeps its width with the aids on (note rendering, rule 34b). */
 .basehalf-adhd-block {
 	position: relative;
-	padding-right: 24px;
 }
 
 .basehalf-markdown-rich .basehalf-adhd-unread {
@@ -376,9 +377,10 @@ body,
 
 .basehalf-adhd-check {
 	position: absolute;
-	/* Beside the first line of a paragraph at every text size: 3.84 px down at 16 px, where the middle of the line is 15 px down. */
-	top: calc(0.9375em - 11.16px);
-	right: 0;
+	/* Its middle on the middle of a paragraph's first line at every text size: 15 px down at 16 px. */
+	top: calc(0.9375em - 8px);
+	/* 8 px right of the text column. */
+	right: -24px;
 	box-sizing: border-box;
 	width: 16px;
 	height: 16px;
@@ -393,6 +395,23 @@ body,
 	cursor: pointer;
 	user-select: none;
 	transition: transform 90ms ease, border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+/* Beside the first line of a heading: the middles the handles of a block use (rule 34a), less half the box. */
+.basehalf-adhd-check[data-basehalf-adhd-kind="heading"] {
+	top: calc(var(--basehalf-note-font-size, 16px) * 1.875 - 8px);
+}
+
+.basehalf-adhd-check[data-basehalf-adhd-kind="heading"][data-basehalf-adhd-level="1"] {
+	top: calc(var(--basehalf-note-font-size, 16px) * 3.375 - 8px);
+}
+
+.basehalf-adhd-check[data-basehalf-adhd-kind="heading"][data-basehalf-adhd-level="2"] {
+	top: calc(var(--basehalf-note-font-size, 16px) * 2.625 - 8px);
+}
+
+.basehalf-adhd-check[data-basehalf-adhd-kind="heading"][data-basehalf-adhd-level="3"] {
+	top: calc(var(--basehalf-note-font-size, 16px) * 2.1 - 8px);
 }
 
 .basehalf-adhd-check::after {

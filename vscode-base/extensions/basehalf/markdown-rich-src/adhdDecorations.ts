@@ -32,10 +32,16 @@ const EMPTY_PAYLOAD: IBaseHalfAdhdDecorationPayload = {
 
 const baseHalfAdhdDecorationKey = new PluginKey<IBaseHalfAdhdDecorationState>('baseHalfAdhdDecorations');
 
-function renderCheckbox(id: string, read: boolean): HTMLElement {
+/** The box of a block, which stands beside the block's first line: where that line is depends on its kind and level. */
+function renderCheckbox(id: string, read: boolean, contentType: string, level: unknown): HTMLElement {
 	const el = document.createElement('span');
 	el.className = read ? 'basehalf-adhd-check basehalf-adhd-check-checked' : 'basehalf-adhd-check';
 	el.setAttribute('data-basehalf-adhd-block-id', id);
+	// Attributes of its own: the editor styles every element with data-content-type as a block of that kind.
+	el.setAttribute('data-basehalf-adhd-kind', contentType);
+	if (typeof level === 'number' || typeof level === 'string') {
+		el.setAttribute('data-basehalf-adhd-level', String(level));
+	}
 	el.setAttribute('contenteditable', 'false');
 	el.setAttribute('role', 'checkbox');
 	el.setAttribute('aria-checked', read ? 'true' : 'false');
@@ -61,9 +67,12 @@ function buildDecorations(doc: PmNode, payload: IBaseHalfAdhdDecorationPayload):
 			decorations.push(Decoration.node(innerStart, innerStart + node.firstChild.nodeSize, {
 				class: read ? 'basehalf-adhd-read' : 'basehalf-adhd-unread'
 			}));
-			decorations.push(Decoration.widget(pos + 1, () => renderCheckbox(id, read), {
+			const contentType = node.firstChild.type.name;
+			const level = (node.firstChild.attrs as { readonly level?: unknown }).level;
+			decorations.push(Decoration.widget(pos + 1, () => renderCheckbox(id, read, contentType, level), {
 				side: -1,
-				key: `basehalf-adhd-check-${id}-${read ? 1 : 0}`,
+				// A block that becomes another kind gets the box of that kind.
+				key: `basehalf-adhd-check-${id}-${read ? 1 : 0}-${contentType}-${String(level ?? '')}`,
 				ignoreSelection: true
 			}));
 		}
