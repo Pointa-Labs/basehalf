@@ -64,12 +64,14 @@ function isDirectCardControl(target: EventTarget | null): boolean {
  * Clicks on the scene: a click selects a card, a double click renames it,
  * edits a Note, or opens the card, a double click on the canvas offers to
  * create a card, and the context menus of cards, connections, and the canvas.
- * The wheel scrolls a card's content or moves the canvas.
+ * The wheel scrolls a card's content, or moves or zooms the canvas.
  */
 export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnvironment, scene: {
 	readonly sceneKeyRef: RefObject<string>;
 	readonly structuralEpochRef: RefObject<number>;
 	readonly viewportRef: RefObject<IBaseHalfCanvasSceneViewport>;
+	readonly wheelZoomsRef: RefObject<boolean>;
+	readonly zoomAt: (factor: number, clientX: number, clientY: number) => void;
 	readonly lastPaneConnectionCancellationAt: RefObject<number | undefined>;
 	readonly paneDoubleClickStartedOnPane: RefObject<boolean>;
 	readonly nodesRef: RefObject<BaseHalfCanvasFlowNode[]>;
@@ -78,7 +80,7 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 }) {
 	const { vendor, host, delegate } = environment;
 	const {
-		sceneKeyRef, structuralEpochRef, viewportRef, lastPaneConnectionCancellationAt,
+		sceneKeyRef, structuralEpochRef, viewportRef, wheelZoomsRef, zoomAt, lastPaneConnectionCancellationAt,
 		paneDoubleClickStartedOnPane, nodesRef, edgesRef, requestSelection
 	} = scene;
 
@@ -243,7 +245,9 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 				// Content that says from which zoom it can be read leaves a gesture to the canvas below it (code cards, rule 7).
 				const lowest = content?.dataset.basehalfLowestScrollingZoom;
 				return lowest && viewportRef.current.zoom < Number(lowest) ? undefined : content;
-			}
+			},
+			wheelZooms: () => wheelZoomsRef.current,
+			zoomCanvas: zoomAt
 		});
 		// A table or a code block of a note shows one bar while it is scrolled
 		// sideways, at rest and in the card's editor (note rendering).
@@ -255,7 +259,7 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 			wheelGestures.dispose();
 			sidewaysScrollbar.dispose();
 		};
-	}, []);
+	}, [zoomAt]);
 
 	return { onNodeContextMenu, onEdgeContextMenu, onPaneContextMenu, onNodeClick, onNodeDoubleClick };
 }

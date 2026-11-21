@@ -25,6 +25,7 @@ environment, and the scene component's factory makes the other parts.
 | `createBaseHalfCanvasNoteSelectionControls` | `basehalfCanvasNoteSelectionControls.ts` | The format toolbar and background colors of a selected Note. |
 | `createBaseHalfCanvasVideoSelectionControls` | `basehalfCanvasVideoSelectionControls.ts` | The toolbar of a selected generation card, and the place beside it for its panel. |
 | `createBaseHalfCanvasSceneOverlays` | `basehalfCanvasSceneOverlays.ts` | The circles that begin a connection, the line kept after one is let go on the canvas, the snap guides, and the bridge to React Flow's store. |
+| `createBaseHalfCanvasSceneBackground` | `basehalfCanvasSceneBackground.ts` | What is drawn behind the cards, as the user chose: the lines of React Flow, dots drawn on a canvas element, or nothing. |
 
 ## What the scene component does
 
@@ -43,6 +44,13 @@ does each part of its work in a hook. It calls them in this order:
 | `useBaseHalfCanvasSceneRuntime` | `basehalfCanvasSceneRuntime.ts` | What the canvas view may ask of the mounted scene, such as the viewport. |
 | `useBaseHalfCanvasSceneMouse` | `basehalfCanvasSceneMouse.ts` | Clicks, double clicks, context menus, and the wheel. |
 
+Between the runtime and the mouse, the scene component itself begins a
+gesture of the view (`beginViewportGesture`) and zooms about a point
+(`zoomAt`), which the wheel uses for a gesture that zooms. What the user
+chose for the canvas (`IBaseHalfCanvasSceneSettings`: snapping, what the wheel
+does, the background) comes with the first drawing and through the runtime's
+`setSettings` after it.
+
 Each hook file also holds the rules of its concern that need no React, such
 as `BaseHalfCanvasPendingConnectionState` and `baseHalfCanvasAutoPanStep`.
 
@@ -56,6 +64,7 @@ Each file that draws elements imports their stylesheet from `media/`, named
 after the file: `basehalfCanvasCardNode.css` (the card's place in React Flow,
 its connection handles, and its resize controls),
 `basehalfCanvasReferenceEdge.css`, `basehalfCanvasSceneOverlays.css`,
+`basehalfCanvasSceneBackground.css` (the dots),
 `basehalfCanvasScenePressGesture.css` (the marquee),
 `basehalfCanvasSelectionToolbar.css` (with the box of a set),
 `basehalfCanvasNoteSelectionControls.css`, and

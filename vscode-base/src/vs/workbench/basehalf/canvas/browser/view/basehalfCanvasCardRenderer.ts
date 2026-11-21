@@ -786,7 +786,8 @@ export class BaseHalfCanvasCardRenderer {
 						this.renderMediaPreview(container, preview, interactive, listeners, open, card);
 					});
 				},
-				hoverService: this.view.hoverService
+				hoverService: this.view.hoverService,
+				pointerPlays: this.view.videoPointerPlays
 			});
 			player.setSelected(interactive);
 			listeners.add(player);

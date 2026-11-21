@@ -1,6 +1,7 @@
 # Workbench appearance
 
-Status: Active (2026-10-12)
+Status: Active (2026-10-12; 2026-11-21, D144: the background of the canvas
+is lines, dots, or plain)
 Related: [architecture invariants](../harness/architecture-invariants.md),
 roadmap tracks 8 and 9, public decisions D22 and D51,
 [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md),
@@ -38,7 +39,9 @@ In scope:
 - which color theme the product shows, and where it comes from;
 - the card layout of the workbench parts: the sidebar, the canvas area, and
   the Agent Area;
-- the status colors and status letters in Source Control and Files.
+- the status colors and status letters in Source Control and Files;
+- what the canvas draws behind its cards
+  ([the background of the canvas](#the-background-of-the-canvas)).
 
 Not in scope, and unchanged:
 
@@ -120,6 +123,71 @@ Not in scope, and unchanged:
     same cards as the loaded window: each card where it was when the window
     last saved its layout, with the same corner radius, border, and
     background. It is VS Code's own code of 1.141.
+
+## The background of the canvas
+
+The canvas drew lines behind its cards, 40 flow pixels apart, and nothing
+else could be chosen. What a user likes to look at behind their cards only
+they know, so it is a setting
+([D144](../decisions.md#d144--the-canvas-follows-the-four-settings-of-its-page-new-2026-11-21)): `basehalf.canvas.background`, the row Background of Settings >
+Canvas, with Lines (`lines`, the default), Dots (`dots`), and Plain
+(`plain`).
+
+- **Lines** are as they were: lines 1 screen pixel wide, 40 flow pixels
+  apart at every zoom, in the color they had.
+- **Plain** draws nothing: the ground of the canvas alone.
+- **Dots** are a grid of dots that stays with the cards as the canvas moves
+  and zooms, in the ink of the lines:
+  - A dot is the same size on screen at every zoom, 2 screen pixels across.
+    It does not shrink to nothing at 20% and is no blot at 400%.
+  - The dots are 40 flow pixels apart at 100%, where the lines cross. The
+    dots that show whole are never nearer than 40 screen pixels and never
+    farther than 80: as the canvas zooms out, every second dot fades and is
+    gone when the dots beside it are 40 screen pixels from it, and as it
+    zooms in, a dot grows halfway between two that are more than 40 apart
+    and is whole when they are 80 apart. So no dot appears or goes at once,
+    and the dots are about as many on a screen at 20% as at 400%.
+  - Every dot is drawn on whole pixels of the screen, so that it looks the
+    same wherever the canvas stands: no dot is sharp beside a soft one, and
+    none flickers while the canvas moves. A dot is so at most half a pixel
+    from its place on the canvas.
+  - Dots are quieter than the lines. Their ink is the lines' ink, the text
+    color of the window, at 22% of its strength where a line has 4.5%, and
+    at every zoom they cover less than a tenth of what the lines cover:
+    measured at 100%, the lines darken 4.9% of the canvas's pixels and the
+    dots 0.25%.
+- **Followed at once.** An open canvas draws the new background as the
+  setting changes, without a reload, and no frame shows two backgrounds or
+  none where one is chosen.
+- The colors are the theme's: the ink is the window's text color, thinned,
+  as for the lines. The setting changes the shape only.
+- The background takes no pointer and is nothing to assistive technology.
+
+Acceptance criteria of the background:
+
+- B1. With Dots, at 20%, 37%, 100%, and 400% the canvas shows dots 2 screen
+  pixels across; the dots that show whole are between 40 and 80 screen
+  pixels apart (64, 59, 40, and 40), with a fainter dot halfway where they
+  are more than 40 apart; and every whole dot has the same pixels as every
+  other, and every fainter one as every other, read off the drawing.
+- B2. With Dots, while the canvas zooms from 20% to 400%, sampled in every
+  frame, the dots drawn are those of the zoom shown in that frame, and a dot
+  that fades changes by less than a twentieth of a whole dot from one frame
+  to the next: no dot appears or goes in one frame.
+- B3. With Dots, the canvas moved by a part of a pixel shows every dot as
+  before or one whole pixel on, never between.
+- B4. With Plain, the canvas draws no background element; with Lines, what
+  it drew before this setting.
+- B5. A change of the setting shows on an open canvas within a second, and
+  each frame of the change shows one background.
+- B6. The spacing and the fading of the dots are a function that the unit
+  tests cover with plain numbers (`basehalfCanvasBackground.test.ts`).
+
+B1 to B5 were checked in the real window on 2026-11-21, on a screen of one
+pixel to a screen pixel and with two emulated, where a dot is a round shape
+of 4 pixels; the smoke step `canvas-background-follows-its-setting` covers
+B1 at 100% and 150%, B4, and B5 without its frames. The colors of a light
+theme were not looked at: the ink is the theme's text color.
 
 ## States and failure
 

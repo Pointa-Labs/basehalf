@@ -9,7 +9,7 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import {
 	BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS,
 	BaseHalfCanvasWheelGestures,
-	IBaseHalfCanvasWheelDelta,
+	IBaseHalfCanvasWheelEvent,
 	IBaseHalfCanvasWheelExtent,
 	baseHalfCanvasWheelAfterQuietTime,
 	baseHalfCanvasWheelContentPosition
@@ -28,6 +28,22 @@ export interface IBaseHalfCanvasWheelGestureOptions {
 	readonly card: (path: string) => HTMLElement | undefined;
 	/** The scrollable content that a card element holds, if it holds any. */
 	readonly scrollableContent: (card: HTMLElement) => HTMLElement | undefined;
+	/**
+	 * Whether the setting says that the wheel zooms the canvas; otherwise it
+	 * moves it. It is asked at the first event of a gesture, so that a change
+	 * of the setting cuts no gesture in two.
+	 */
+	readonly wheelZooms: () => boolean;
+	/**
+	 * Zooms the canvas by `factor` about a point of the window: the place of
+	 * the canvas under the point stays under it.
+	 */
+	readonly zoomCanvas: (factor: number, clientX: number, clientY: number) => void;
+	/**
+	 * Ctrl is the zoom key, as on a system that has no Command key; by default
+	 * what the system has. Tests set it.
+	 */
+	readonly zoomKeyIsControl?: boolean;
 	/**
 	 * Calls back once the quiet time has passed, unless it is disposed first.
 	 * Tests replace it.
@@ -50,9 +66,10 @@ function outsideOwnScrollSurfaces(target: Element): Element | undefined {
 
 /**
  * Applies the canvas wheel gestures to the canvas scene: it scrolls the
- * content of a card for the gestures that the content owns, and it keeps a
+ * content of a card for the gestures that the content owns, it keeps a
  * gesture of the canvas with the canvas over surfaces that would take the
- * wheel. The canvas itself pans on the events that this leaves alone.
+ * wheel, and it zooms the canvas for a gesture that zooms. The canvas itself
+ * pans on the events that this leaves alone, and zooms on a pinch.
  */
 export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: IBaseHalfCanvasWheelGestureOptions): IDisposable {
 	const gestures = new BaseHalfCanvasWheelGestures();
@@ -71,6 +88,15 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 	// Kept apart from `scrollTop` and `scrollLeft`, which are rounded: fractions of a pixel add up here.
 	let scrolled: { readonly element: HTMLElement; position: number } | undefined;
 	let redirecting = false;
+	// Where Ctrl is the zoom key, a pinch says that Ctrl is held too. The key
+	// itself tells them apart: whether it went down and has not come up.
+	const zoomKeyIsControl = options.zoomKeyIsControl ?? !isMacintosh;
+	let controlDown = false;
+	const controlKey = zoomKeyIsControl ? combinedDisposable(
+		addDisposableListener(targetWindow, 'keydown', (event: KeyboardEvent) => controlDown = event.ctrlKey, true),
+		addDisposableListener(targetWindow, 'keyup', (event: KeyboardEvent) => controlDown = event.ctrlKey, true),
+		addDisposableListener(targetWindow, 'blur', () => controlDown = false)
+	) : undefined;
 
 	const shownContent = (path: string): HTMLElement | undefined => {
 		if (gestureCard?.path !== path) {
@@ -174,8 +200,12 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 	};
 
 	const listener = addDisposableListener(host, 'wheel', (event: WheelEvent) => {
-		// Pinch and wheel zoom are not scrolls. They stay with the canvas.
-		if (redirecting || event.ctrlKey || (isMacintosh && event.metaKey)) {
+		if (redirecting) {
+			return;
+		}
+		const zoomKey = zoomKeyIsControl ? event.ctrlKey && controlDown : event.metaKey;
+		// A pinch is no scroll. It stays with the canvas, which zooms on it.
+		if (event.ctrlKey && !zoomKey) {
 			return;
 		}
 		const target = wheelTarget(event);
@@ -183,16 +213,17 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 		// turns the wheel sideways, the vertical movement becomes horizontal.
 		const scale = event.deltaMode === event.DOM_DELTA_LINE ? 20 : 1;
 		const sideways = !isMacintosh && event.shiftKey;
-		const delta: IBaseHalfCanvasWheelDelta = {
+		const delta: IBaseHalfCanvasWheelEvent = {
 			deltaX: (sideways ? event.deltaY : event.deltaX) * scale,
-			deltaY: sideways ? 0 : event.deltaY * scale
+			deltaY: sideways ? 0 : event.deltaY * scale,
+			zoomKey
 		};
 		const step = gestures.step(delta, () => {
 			const element = target?.closest(CARD_CONTENT_SELECTOR)?.closest<HTMLElement>(CARD_SELECTOR);
 			const path = element?.dataset.basehalfCardPath;
 			gestureCard = element && path !== undefined ? { path, element } : undefined;
 			gestureSidewaysBox = target?.closest<HTMLElement>(SIDEWAYS_BOX_SELECTOR) ?? undefined;
-			return { ownScroll: !!target?.closest(OWN_SCROLL_SELECTOR), card: path, buttonHeld: event.buttons !== 0 };
+			return { ownScroll: !!target?.closest(OWN_SCROLL_SELECTOR), card: path, buttonHeld: event.buttons !== 0, wheelZooms: options.wheelZooms() };
 		}, extent, sidewaysExtent);
 		quietTime.value = afterQuietTime(() => gestures.end());
 		switch (step.kind) {
@@ -208,11 +239,18 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 				scrollSideways(step.card, step.deltaX);
 				break;
 			case 'pan':
-				if (target && (step.held || target.closest(OWN_SCROLL_SELECTOR))) {
+				// The canvas pans on the event itself where it reads these deltas from it.
+				// It is handed a copy for an event it would read otherwise: one that says
+				// Ctrl is held, which it takes for a pinch, and one of which a part is dropped.
+				if (target && (step.held || event.ctrlKey || step.deltaX !== delta.deltaX || step.deltaY !== delta.deltaY || target.closest(OWN_SCROLL_SELECTOR))) {
 					panCanvas(event, target, step.deltaX, step.deltaY);
 				}
 				break;
+			case 'zoom':
+				take(event);
+				options.zoomCanvas(step.factor, event.clientX, event.clientY);
+				break;
 		}
 	}, { capture: true, passive: false });
-	return combinedDisposable(listener, quietTime);
+	return combinedDisposable(listener, quietTime, ...(controlKey ? [controlKey] : []));
 }

@@ -30,7 +30,7 @@ import { assertCardDetailNoteTitleLine } from './areas/cardDetail/noteTitleLine.
 import { assertCanvasNoteUndoAsksNothing } from './areas/canvas/noteUndo.mts';
 import { assertCanvasNoteLinksOpenTheirTargets, assertCanvasNoteMediaPlaysOnWhenDrawnAgain, assertCanvasNoteMediaReactAtRest, assertCanvasNotePaletteInBothAppearances, assertCanvasNotePictureEditsOnTheCard, assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
 import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
-import { assertCanvasSnapGuides, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
+import { assertCanvasBackgroundFollowsItsSetting, assertCanvasMagnetIsItsSetting, assertCanvasSnapGuides, assertCanvasWheelFollowsItsSetting, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
 import {
 	assertBadgeClosesOnRichEditorActivation,
 	assertBadgeQuickAccessFindsNote,
@@ -257,6 +257,9 @@ async function runCanvasSuite(page) {
 	await step('canvas-create-from-connection', () => assertCanvasCreateFromConnection(page));
 	await step('canvas-pulled-line-is-the-connection', () => assertCanvasPulledLineIsTheConnection(page));
 	await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
+	await step('canvas-wheel-follows-its-setting', () => assertCanvasWheelFollowsItsSetting(page));
+	await step('canvas-magnet-is-its-setting', () => assertCanvasMagnetIsItsSetting(page));
+	await step('canvas-background-follows-its-setting', () => assertCanvasBackgroundFollowsItsSetting(page));
 	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-selection-and-arrangement', () => assertCanvasSelectionAndArrangement(page));
 	await step('canvas-marquee-selects-connections', () => assertCanvasMarqueeSelectsConnections(page));

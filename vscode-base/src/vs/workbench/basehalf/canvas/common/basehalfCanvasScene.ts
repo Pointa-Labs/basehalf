@@ -407,8 +407,40 @@ export interface IBaseHalfCanvasSceneDelegate {
 	reportError(error: unknown): void;
 }
 
+/** What the canvas draws behind its cards (workbench appearance, "The background of the canvas"). */
+export type BaseHalfCanvasSceneBackground = 'lines' | 'dots' | 'plain';
+
+/**
+ * What the user chose for the canvas, which the scene follows as it changes
+ * (BaseHalf's Settings, Canvas).
+ */
+export interface IBaseHalfCanvasSceneSettings {
+	/** A card that is moved or resized lines up with the cards near it. */
+	readonly snap: boolean;
+	/** A gesture of the wheel that the canvas owns zooms it; otherwise it moves it (canvas wheel gestures). */
+	readonly wheelZooms: boolean;
+	readonly background: BaseHalfCanvasSceneBackground;
+}
+
+/** The settings of a scene that was told nothing: the defaults of the settings. */
+export const BASEHALF_CANVAS_SCENE_DEFAULT_SETTINGS: IBaseHalfCanvasSceneSettings = Object.freeze({ snap: true, wheelZooms: false, background: 'lines' });
+
+/**
+ * What the scene follows of the settings `basehalf.canvas.wheel` and
+ * `basehalf.canvas.background`, from their values as they are read: a value
+ * that is none of a setting's is the setting's default.
+ */
+export function baseHalfCanvasSceneSettingsFor(wheel: unknown, background: unknown): Pick<IBaseHalfCanvasSceneSettings, 'wheelZooms' | 'background'> {
+	return {
+		wheelZooms: wheel === 'zoom',
+		background: background === 'dots' || background === 'plain' ? background : 'lines'
+	};
+}
+
 export interface IBaseHalfCanvasSceneRenderer {
 	update(snapshot: IBaseHalfCanvasSceneSnapshot): void;
+	/** Changes some of what the user chose for the canvas; the scene follows at once, also one that is still loading. */
+	setSettings(settings: Partial<IBaseHalfCanvasSceneSettings>): void;
 	/** Shows the panel of the selected Video card, or moves it to a new height. */
 	setVideoPanelSurface(surface: IBaseHalfCanvasSceneVideoPanelSurface): void;
 	/** Clears only the surface that owns this exact element. This identity guard

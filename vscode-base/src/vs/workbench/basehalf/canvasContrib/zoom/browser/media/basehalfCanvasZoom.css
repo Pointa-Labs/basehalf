@@ -61,6 +61,12 @@
 	font-variant-numeric: tabular-nums;
 }
 
+/* The field's frame is its shell's. The workbench rings every focused text
+ * field, which drew a second frame inside it. */
+.monaco-workbench .basehalf-canvas-zoom-input-shell input.basehalf-canvas-zoom-input:focus {
+	outline: none;
+}
+
 .monaco-workbench .basehalf-canvas-zoom-input::selection {
 	color: var(--vscode-editor-selectionForeground, var(--vscode-input-foreground));
 	background: var(--vscode-editor-selectionBackground);

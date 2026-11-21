@@ -6,8 +6,10 @@
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import {
+	BaseHalfCanvasSceneBackground,
 	IBaseHalfCanvasSceneFitOptions,
 	IBaseHalfCanvasSceneSelection,
+	IBaseHalfCanvasSceneSettings,
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneVideoPanelSurface,
 	IBaseHalfCanvasSceneViewport,
@@ -21,7 +23,7 @@ import { BaseHalfCanvasFlowEdge, BaseHalfCanvasFlowNode, IBaseHalfCanvasSceneEnv
 /**
  * What the canvas view may ask of the mounted scene
  * (IBaseHalfCanvasSceneRuntime): a new snapshot, the selection, the Video
- * panel, snapping, and the viewport. Commands that move the viewport run one
+ * panel, what the user chose for the canvas, and the viewport. Commands that move the viewport run one
  * at a time and report where the viewport ended.
  */
 export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneEnvironment, scene: {
@@ -33,6 +35,8 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 	readonly viewportCommandQueue: RefObject<Promise<void>>;
 	readonly interacting: RefObject<boolean>;
 	readonly snapEnabledRef: RefObject<boolean>;
+	readonly wheelZoomsRef: RefObject<boolean>;
+	readonly setBackground: Dispatch<SetStateAction<BaseHalfCanvasSceneBackground>>;
 	readonly setGuides: Dispatch<SetStateAction<readonly IBaseHalfCanvasSnapGuide[]>>;
 	readonly setVideoPanelSurfaceState: Dispatch<SetStateAction<IBaseHalfCanvasSceneVideoPanelSurface | undefined>>;
 	readonly nodesRef: RefObject<BaseHalfCanvasFlowNode[]>;
@@ -43,7 +47,7 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 	const { vendor, host } = environment;
 	const {
 		ready, sceneKeyRef, viewportRef, flowRef, viewportCommandKey, viewportCommandQueue,
-		interacting, snapEnabledRef, setGuides, setVideoPanelSurfaceState, nodesRef,
+		interacting, snapEnabledRef, wheelZoomsRef, setBackground, setGuides, setVideoPanelSurfaceState, nodesRef,
 		requestSelection, updateSnapshot, reportViewport
 	} = scene;
 
@@ -83,11 +87,14 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 		clearVideoPanelSurface(element: HTMLElement): void {
 			setVideoPanelSurfaceState(current => current?.element === element ? undefined : current);
 		},
-		setSnapEnabled(enabled: boolean): void {
-			snapEnabledRef.current = enabled;
-			if (!enabled) {
+		setSettings(settings: IBaseHalfCanvasSceneSettings): void {
+			snapEnabledRef.current = settings.snap;
+			if (!settings.snap) {
 				setGuides(current => current.length === 0 ? current : []);
 			}
+			// A gesture of the wheel asks at its first event, so one that runs goes on as it began.
+			wheelZoomsRef.current = settings.wheelZooms;
+			setBackground(settings.background);
 		},
 		async setZoom(zoom: number): Promise<void> {
 			await runViewportCommand(async () => {

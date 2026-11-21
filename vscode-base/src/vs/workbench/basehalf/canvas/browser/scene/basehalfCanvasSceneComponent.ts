@@ -7,8 +7,10 @@ import { localize } from '../../../../../nls.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import {
+	BaseHalfCanvasSceneBackground,
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneEdge,
+	IBaseHalfCanvasSceneSettings,
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneVideoPanelSurface,
 	IBaseHalfCanvasSceneViewport,
@@ -25,6 +27,7 @@ import type {
 import type { ReactElement } from 'react';
 import { createBaseHalfCanvasCardNode } from './basehalfCanvasCardNode.js';
 import { createBaseHalfCanvasNoteSelectionControls } from './basehalfCanvasNoteSelectionControls.js';
+import { createBaseHalfCanvasSceneBackground } from './basehalfCanvasSceneBackground.js';
 import { createBaseHalfCanvasReferenceEdge } from './basehalfCanvasReferenceEdge.js';
 import { useBaseHalfCanvasSceneCancellation } from './basehalfCanvasSceneCancellation.js';
 import { BaseHalfCanvasPendingConnectionState, BaseHalfCanvasPendingEdgeMutation, IBaseHalfCanvasDropLine, useBaseHalfCanvasSceneConnections } from './basehalfCanvasSceneConnections.js';
@@ -69,10 +72,12 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 	const { SelectionToolbar, SetBox } = createBaseHalfCanvasSelectionToolbar(environment);
 	const { VideoSelectionControls, VideoPanelAdjacentSurface } = createBaseHalfCanvasVideoSelectionControls(environment);
 	const NoteSelectionControls = createBaseHalfCanvasNoteSelectionControls(environment);
+	const SceneBackground = createBaseHalfCanvasSceneBackground(environment);
 	const { ConnectionStoreBridge, ConnectCaptureLayer, ConnectionDropLine, ConnectionLine, LineArrowDefinition, SnapGuides, lineArrowId } = createBaseHalfCanvasSceneOverlays(environment);
 
-	function SceneComponent({ initialSnapshot, onReady: ready }: {
+	function SceneComponent({ initialSnapshot, initialSettings, onReady: ready }: {
 		readonly initialSnapshot: IBaseHalfCanvasSceneSnapshot;
+		readonly initialSettings: IBaseHalfCanvasSceneSettings;
 		readonly onReady: (runtime: IBaseHalfCanvasSceneRuntime) => void;
 	}): ReactElement {
 		const snapshotRef = vendor.useRef(initialSnapshot);
@@ -114,7 +119,10 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const keyboardGeometryPath = vendor.useRef<string | undefined>(undefined);
 		const keyboardGeometryPosition = vendor.useRef<{ x: number; y: number } | undefined>(undefined);
 		const interacting = vendor.useRef(false);
-		const snapEnabledRef = vendor.useRef(true);
+		// What the user chose for the canvas (IBaseHalfCanvasSceneSettings), from the first drawing on.
+		const snapEnabledRef = vendor.useRef(initialSettings.snap);
+		const wheelZoomsRef = vendor.useRef(initialSettings.wheelZooms);
+		const [background, setBackground] = vendor.useState<BaseHalfCanvasSceneBackground>(initialSettings.background);
 		const [guides, setGuides] = vendor.useState<readonly IBaseHalfCanvasSnapGuide[]>([]);
 		// The released connection line, kept while the Create from Connection
 		// menu is open and until the chosen node's edge replaces it.
@@ -445,12 +453,51 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 
 		useBaseHalfCanvasSceneRuntime(environment, {
 			ready, sceneKeyRef, viewportRef, flowRef, viewportCommandKey, viewportCommandQueue,
-			interacting, snapEnabledRef, setGuides, setVideoPanelSurfaceState, nodesRef,
+			interacting, snapEnabledRef, wheelZoomsRef, setBackground, setGuides, setVideoPanelSurfaceState, nodesRef,
 			requestSelection, updateSnapshot, reportViewport
 		});
 
+		// The user begins to move the view: by a pinch, a scroll, a drag, or a
+		// gesture of the wheel that zooms. A move of the view is one gesture
+		// however many starts it reports: a pinch and a wheel that zooms start
+		// anew on each of their wheel events and end once, 150 ms after the last
+		// (canvas card interaction continuity, "A pinch is one gesture").
+		const beginViewportGesture = vendor.useCallback(() => {
+			// A viewport command carries its immutable owner in viewportCommandKey.
+			if (viewportCommandKey.current || viewportGestureSceneKey.current !== undefined) {
+				return;
+			}
+			delegate.didStartViewportInteraction();
+			viewportGestureSceneKey.current = sceneKeyRef.current;
+			beginInteraction();
+		}, [beginInteraction]);
+		// Zooms about a point of the window, for a gesture of the wheel that zooms
+		// (canvas wheel gestures): the place of the canvas under the point stays
+		// under it. It goes through the library's viewport, as a pinch does, so
+		// the cards, the zoom control, and the saved view follow in the same way.
+		const zoomAt = vendor.useCallback((factor: number, clientX: number, clientY: number) => {
+			const flow = flowRef.current;
+			if (!flow) {
+				return;
+			}
+			const current = flow.getViewport();
+			const zoom = Math.min(BASEHALF_CANVAS_MAX_ZOOM, Math.max(BASEHALF_CANVAS_MIN_ZOOM, current.zoom * factor));
+			if (zoom === current.zoom) {
+				return;
+			}
+			const bounds = host.getBoundingClientRect();
+			const x = clientX - bounds.left;
+			const y = clientY - bounds.top;
+			beginViewportGesture();
+			void flow.setViewport({
+				x: x - (x - current.x) * zoom / current.zoom,
+				y: y - (y - current.y) * zoom / current.zoom,
+				zoom
+			});
+		}, [beginViewportGesture]);
+
 		const { onNodeContextMenu, onEdgeContextMenu, onPaneContextMenu, onNodeClick, onNodeDoubleClick } = useBaseHalfCanvasSceneMouse(environment, {
-			sceneKeyRef, structuralEpochRef, viewportRef, lastPaneConnectionCancellationAt,
+			sceneKeyRef, structuralEpochRef, viewportRef, wheelZoomsRef, zoomAt, lastPaneConnectionCancellationAt,
 			paneDoubleClickStartedOnPane, nodesRef, edgesRef, requestSelection
 		});
 
@@ -496,21 +543,11 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 				reportViewport(sceneKeyRef.current, flow.getViewport(), false);
 			},
 			onMoveStart: event => {
-				// React Flow reports `null` for imperative viewport commands. Those
-				// already carry their immutable owner in viewportCommandKey.
-				if (!event || viewportCommandKey.current) {
-					return;
+				// React Flow reports `null` for imperative viewport commands, and for
+				// the zoom of a gesture of the wheel, which began the gesture itself.
+				if (event) {
+					beginViewportGesture();
 				}
-				// A move of the view is one gesture however many starts it reports:
-				// a pinch, or the wheel with the zoom key, starts anew on each of its
-				// wheel events and ends once, 150 ms after the last (canvas card
-				// interaction continuity, "A pinch is one gesture").
-				if (viewportGestureSceneKey.current !== undefined) {
-					return;
-				}
-				delegate.didStartViewportInteraction();
-				viewportGestureSceneKey.current = sceneKeyRef.current;
-				beginInteraction();
 			},
 			onMove: (_event, viewport) => {
 				const owner = viewportCommandKey.current ?? viewportGestureSceneKey.current;
@@ -540,9 +577,14 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			deleteKeyCode: null,
 			minZoom: BASEHALF_CANVAS_MIN_ZOOM,
 			maxZoom: BASEHALF_CANVAS_MAX_ZOOM,
+			// What the wheel does is BaseHalf's (canvas wheel gestures): the library
+			// moves the canvas on the events it is left or handed and zooms on a
+			// pinch. It has no zoom key of its own, since what the key does depends
+			// on the setting.
 			panOnScroll: videoInputPickGesturePolicy.viewportNavigationAllowed,
 			panOnScrollSpeed: 1,
 			zoomOnScroll: false,
+			zoomActivationKeyCode: null,
 			zoomOnPinch: videoInputPickGesturePolicy.viewportNavigationAllowed,
 			zoomOnDoubleClick: false,
 			// The scene draws the marquee and the box of a set itself. The
@@ -574,12 +616,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 				h(ReactFlowComponent, flowProps,
 					h(LineArrowDefinition),
 					h(ConnectionStoreBridge, { register: registerConnectionStore }),
-					h(vendor.Background, {
-						variant: vendor.BackgroundVariant.Lines,
-						gap: 40,
-						size: 1,
-						color: 'color-mix(in srgb, var(--vscode-foreground) 4.5%, transparent)'
-					}),
+					h(SceneBackground, { background }),
 					h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
 					dropLine && dropLine.sceneKey === sceneKeyRef.current ? h(ConnectionDropLine, { key: dropLine.token, path: dropLine.path, elementRef: dropLineElement }) : null,
 					h(ConnectCaptureLayer, { nodes, disabled: videoInputPickActive || nodeDragChromePhase !== undefined }),
