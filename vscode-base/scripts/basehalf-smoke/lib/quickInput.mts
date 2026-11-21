@@ -19,13 +19,32 @@ async function fillAndAcceptQuickOpen(page, value, acceptKey) {
 	await quickInput.fill(value);
 	await waitForQuickInputResult(page, value);
 	if (await quickInput.isVisible().catch(() => false)) {
-		await page.keyboard.press(acceptKey);
+		await pressToAccept(page, acceptKey);
 		try {
 			await quickInput.waitFor({ state: 'hidden', timeout: 5_000 });
 		} catch {
 			await page.keyboard.press('Escape');
 			await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
 		}
+	}
+}
+
+/**
+ * Presses the key that accepts a pick. What the pick opens can take away, while the key is down, the frame that
+ * the keyboard goes back to: Card Detail that shows a note in Rich, then a picture, ends the page of the note,
+ * which had the keyboard. The release of the key then goes to a frame that is gone, and the browser never
+ * confirms it to the driver, so a press would wait for ever; the window takes keys from any other session. A
+ * release is given a moment, and the run goes on.
+ */
+async function pressToAccept(page, key) {
+	const keys = key.split('+');
+	const accept = keys.pop();
+	for (const modifier of keys) {
+		await page.keyboard.down(modifier);
+	}
+	await page.keyboard.down(accept);
+	for (const released of [accept, ...keys.reverse()]) {
+		await Promise.race([page.keyboard.up(released), new Promise(resolve => setTimeout(resolve, 3_000))]);
 	}
 }
 
@@ -74,7 +93,7 @@ export async function tryRunCommand(page, value, options = {}) {
 		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
 		return false;
 	}
-	await page.keyboard.press('Enter');
+	await pressToAccept(page, 'Enter');
 	try {
 		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
 	} catch (error) {
