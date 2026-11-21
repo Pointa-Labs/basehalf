@@ -58,19 +58,19 @@
 	box-sizing: border-box;
 	border: 1px solid transparent;
 	/* While viewing only the part kept shows. */
-	box-shadow: 0 0 0 100vmax var(--vscode-editor-background);
+	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-mediaStageBackground);
 	outline: none;
 	transition: box-shadow 150ms ease, border-color 150ms ease;
 }
 
 /* While editing the rest of the original shows dimmed around the part kept, as a phone's photo editor shows it (D97). */
 .monaco-workbench .basehalf-image-crop:not(.viewing) .basehalf-image-crop-frame {
-	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-overlayBackground62);
+	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-cropVeil62);
 }
 
 /* While the frame or the picture is dragged, the rest is lighter, to show what the drag can take in. */
 .monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-frame {
-	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-overlayBackground45);
+	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-cropVeil45);
 }
 
 /* The frame stands on the part while the pointer is over the picture, the keyboard is on it, or it is adjusted. */

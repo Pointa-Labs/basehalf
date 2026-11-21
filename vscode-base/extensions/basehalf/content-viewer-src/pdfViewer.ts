@@ -584,7 +584,7 @@ function observeWorkbenchTheme(container: EmbedPdfContainer): void {
 function baseHalfPdfTheme(): { preference: 'light' | 'dark'; light: DeepPartial<ThemeColors>; dark: DeepPartial<ThemeColors> } {
 	const workbenchColors: DeepPartial<ThemeColors> = {
 		background: {
-			app: 'var(--vscode-editor-background)',
+			app: 'var(--vscode-basehalf-mediaStageBackground)',
 			surface: 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
 			surfaceAlt: 'var(--vscode-sideBar-background, var(--vscode-editorWidget-background))',
 			elevated: 'var(--vscode-menu-background, var(--vscode-editorWidget-background))',

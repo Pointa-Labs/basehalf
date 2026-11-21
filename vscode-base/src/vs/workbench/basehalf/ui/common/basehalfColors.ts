@@ -7,6 +7,7 @@ import { Color, RGBA } from '../../../../base/common/color.js';
 import { localize } from '../../../../nls.js';
 import { ColorDefaults, ColorValue, isColorDefaults, registerColor } from '../../../../platform/theme/common/colorUtils.js';
 import { contrastBorder, editorBackground } from '../../../../platform/theme/common/colorRegistry.js';
+import { ColorScheme, isDark, isHighContrast } from '../../../../platform/theme/common/theme.js';
 
 // The colors of everything BaseHalf draws, and the one place a literal color is written (light and dark, D148).
 // Each is a color of the base's registry with a default for each kind of theme, so the window has it as
@@ -50,16 +51,22 @@ export const BASEHALF_FOLDER_DROP_BORDER = register('folderDropBorder', '#f0c54c
 export const BASEHALF_CONNECTION_LINE = register('connectionLine', '#666a6d', '#818386', localize('basehalf.color.connectionLine', "The line of a connection on the canvas."), { light: '#292929' });
 export const BASEHALF_CONNECTION_ARROW = register('connectionArrow', '#b1b1b7', '#6a6c70', localize('basehalf.color.connectionArrow', "The arrowhead of a connection on the canvas."), { light: '#292929' });
 
+export const BASEHALF_MARQUEE_INK = register('marqueeInk', '#898d90', '#b4b7ba', localize('basehalf.color.marqueeInk', "The veil over a marquee and over several selected cards, of which a tenth shows."));
+export const BASEHALF_NOTE_QUOTE_FOREGROUND = register('noteQuoteForeground', '#7d797a', '#5b5e62', localize('basehalf.color.noteQuoteForeground', "A quote in a note, and the line beside it."));
+export const BASEHALF_NOTE_CODE_BACKGROUND = register('noteCodeBackground', '#161616', '#f1f1ef', localize('basehalf.color.noteCodeBackground', "The ground of a block of code in a note."));
+export const BASEHALF_NOTE_CODE_FOREGROUND = register('noteCodeForeground', '#ffffff', '#1d1e20', localize('basehalf.color.noteCodeForeground', "The text of a block of code in a note."));
+
 /** The seven backgrounds a note can have, by the names its record keeps. */
 export const BASEHALF_NOTE_BACKGROUNDS = {
-	red: register('noteRedBackground', '#392626', '#fbeeed', localize('basehalf.color.noteRedBackground', "The red background of a note.")),
-	orange: register('noteOrangeBackground', '#3b2c22', '#fbf0e5', localize('basehalf.color.noteOrangeBackground', "The orange background of a note.")),
-	yellow: register('noteYellowBackground', '#373320', '#faf4d9', localize('basehalf.color.noteYellowBackground', "The yellow background of a note.")),
-	green: register('noteGreenBackground', '#22332a', '#e9f4ec', localize('basehalf.color.noteGreenBackground', "The green background of a note.")),
-	cyan: register('noteCyanBackground', '#203238', '#e4f3f6', localize('basehalf.color.noteCyanBackground', "The cyan background of a note.")),
-	blue: register('noteBlueBackground', '#222f3d', '#e8f0fb', localize('basehalf.color.noteBlueBackground', "The blue background of a note.")),
-	purple: register('notePurpleBackground', '#30273c', '#f1ecf9', localize('basehalf.color.notePurpleBackground', "The purple background of a note."))
+	red: register('noteRedBackground', '#392626', '#fce6e4', localize('basehalf.color.noteRedBackground', "The red background of a note.")),
+	orange: register('noteOrangeBackground', '#3b2c22', '#fcead6', localize('basehalf.color.noteOrangeBackground', "The orange background of a note.")),
+	yellow: register('noteYellowBackground', '#373320', '#fbf1c8', localize('basehalf.color.noteYellowBackground', "The yellow background of a note.")),
+	green: register('noteGreenBackground', '#22332a', '#e0f2e4', localize('basehalf.color.noteGreenBackground', "The green background of a note.")),
+	cyan: register('noteCyanBackground', '#203238', '#dbf0f4', localize('basehalf.color.noteCyanBackground', "The cyan background of a note.")),
+	blue: register('noteBlueBackground', '#222f3d', '#dfeafb', localize('basehalf.color.noteBlueBackground', "The blue background of a note.")),
+	purple: register('notePurpleBackground', '#30273c', '#ece4f9', localize('basehalf.color.notePurpleBackground', "The purple background of a note."))
 } as const;
+export const BASEHALF_NOTE_SWATCH_BORDER = register('noteSwatchBorder', ink(0, 0, 0, 0), ink(0, 0, 0, 0.14), localize('basehalf.color.noteSwatchBorder', "The edge of a background's swatch in the menu of a note's backgrounds."));
 
 //#endregion
 
@@ -151,6 +158,11 @@ export const BASEHALF_OVERLAY_BACKGROUND = register('overlayBackground', '#00000
 registerShares('overlayBackground', [18, 25, 30, 35, 42, 45, 55, 60, 62, 66, 72, 78, 82, 86],
 	share => ({ dark: ink(0, 0, 0, share), light: ink(0, 0, 0, share) }),
 	share => localize('basehalf.color.overlayBackgroundShare', "The scrim under what BaseHalf draws over a picture or a video, at {0} percent.", share));
+// The part of a picture that a crop leaves out recedes into what stands behind it: into the dark under a dark
+// theme, into the paper under a light one.
+registerShares('cropVeil', [45, 62],
+	share => ({ dark: ink(0, 0, 0, share), light: ink(243, 243, 241, share + 0.1) }),
+	share => localize('basehalf.color.cropVeil', "The veil over the part of a picture that a crop leaves out, at {0} percent.", share));
 export const BASEHALF_MEDIA_CONTROL_FOREGROUND = register('mediaControlForeground', '#f5f5f5', '#f5f5f5', localize('basehalf.color.mediaControlForeground', "The controls of a player."));
 registerShares('mediaControlForeground', [55, 90],
 	share => ({ dark: ink(245, 245, 245, share), light: ink(245, 245, 245, share) }),
@@ -221,5 +233,23 @@ export function baseHalfTerminalColorDefaults(id: string, base: ColorDefaults | 
 	}
 	return { dark: own.dark, light: own.light, hcDark: isColorDefaults(base) ? base.hcDark : base, hcLight: isColorDefaults(base) ? base.hcLight : base };
 }
+
+/**
+ * The contrast a character of the terminal keeps against the ground of its cell (light and dark, "The terminal").
+ * BaseHalf's default for `terminal.integrated.minimumContrastRatio` is 1, the palette as it is: the dark palette
+ * is made for that, and a higher ratio lifts its colors. On a light ground a program that writes white on a
+ * color, or its default text on black, cannot be read at 1, and the light palette already has the ratio for its
+ * own colors. So under a light theme the base's own default holds until the user sets a ratio; once set, the
+ * setting holds under every theme.
+ */
+export function baseHalfTerminalContrastRatio(configured: number, userSet: boolean, kind: ColorScheme): number {
+	if (userSet || isDark(kind) || isHighContrast(kind)) {
+		return configured;
+	}
+	return Math.max(configured, BASEHALF_LIGHT_TERMINAL_CONTRAST_RATIO);
+}
+
+/** The base's own default of `terminal.integrated.minimumContrastRatio`. */
+export const BASEHALF_LIGHT_TERMINAL_CONTRAST_RATIO = 4.5;
 
 //#endregion

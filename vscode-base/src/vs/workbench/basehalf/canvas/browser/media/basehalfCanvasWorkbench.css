@@ -58,7 +58,7 @@
 	--bh-canvas-active-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-card-text-tertiary) 32%, transparent), 0 4px 14px var(--vscode-basehalf-cardShadow34);
 	--bh-canvas-geometry: var(--bh-card-text-tertiary);
 	--bh-canvas-geometry-strong: var(--bh-card-text-primary);
-	--bh-canvas-marquee-fill: color-mix(in srgb, var(--bh-canvas-geometry) 10%, transparent);
+	--bh-canvas-marquee-fill: color-mix(in srgb, var(--vscode-basehalf-marqueeInk) 10%, transparent);
 	--bh-canvas-focus-ring: var(--vscode-focusBorder, var(--bh-card-text-primary));
 	--bh-card-accent: var(--vscode-textLink-foreground);
 	--bh-card-accent-soft: color-mix(in srgb, var(--bh-card-accent) 28%, var(--bh-card-surface));

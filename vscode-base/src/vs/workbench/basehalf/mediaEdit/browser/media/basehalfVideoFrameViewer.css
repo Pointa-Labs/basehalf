@@ -189,7 +189,7 @@
 /* While a held handle spreads the viewer out, its own pictures stand over the whole video's. */
 .monaco-workbench .basehalf-video-frames-pictures.spread {
 	visibility: hidden;
-	background: color-mix(in srgb, var(--vscode-editor-foreground) 8%, var(--vscode-editor-background));
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 8%, var(--vscode-basehalf-mediaStageBackground));
 }
 
 .monaco-workbench .basehalf-video-frames.spread .basehalf-video-frames-pictures.spread {
@@ -208,7 +208,7 @@
 	z-index: 1;
 	top: 0;
 	bottom: 0;
-	background: color-mix(in srgb, var(--vscode-editor-background) 66%, transparent);
+	background: color-mix(in srgb, var(--vscode-basehalf-mediaStageBackground) 66%, transparent);
 	pointer-events: none;
 }
 
@@ -332,7 +332,7 @@
  * turns them yellow (D102).
  */
 .monaco-workbench .basehalf-video-frames.whole:not(.basehalf-sound-waveform) {
-	--basehalf-video-frames-frame: color-mix(in srgb, var(--vscode-editor-foreground) 30%, var(--vscode-editor-background));
+	--basehalf-video-frames-frame: color-mix(in srgb, var(--vscode-editor-foreground) 30%, var(--vscode-basehalf-mediaStageBackground));
 	--basehalf-video-frames-chevron: var(--vscode-editor-foreground);
 }
 

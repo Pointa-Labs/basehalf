@@ -25,6 +25,8 @@ import { MarkNavigationAddon, ScrollPosition } from './markNavigationAddon.js';
 import { localize } from '../../../../../nls.js';
 import { IColorTheme, IThemeService } from '../../../../../platform/theme/common/themeService.js';
 import { PANEL_BACKGROUND } from '../../../../common/theme.js';
+// BaseHalf: the contrast of the terminal under a light theme (docs/specs/light-and-dark.md).
+import { baseHalfTerminalContrastRatio } from '../../../../basehalf/ui/common/basehalfColors.js';
 import { TERMINAL_FOREGROUND_COLOR, TERMINAL_BACKGROUND_COLOR, TERMINAL_CURSOR_FOREGROUND_COLOR, TERMINAL_CURSOR_BACKGROUND_COLOR, ansiColorIdentifiers, TERMINAL_SELECTION_BACKGROUND_COLOR, TERMINAL_FIND_MATCH_BACKGROUND_COLOR, TERMINAL_FIND_MATCH_HIGHLIGHT_BACKGROUND_COLOR, TERMINAL_FIND_MATCH_BORDER_COLOR, TERMINAL_OVERVIEW_RULER_FIND_MATCH_FOREGROUND_COLOR, TERMINAL_FIND_MATCH_HIGHLIGHT_BORDER_COLOR, TERMINAL_OVERVIEW_RULER_CURSOR_FOREGROUND_COLOR, TERMINAL_SELECTION_FOREGROUND_COLOR, TERMINAL_INACTIVE_SELECTION_BACKGROUND_COLOR, TERMINAL_OVERVIEW_RULER_BORDER_COLOR } from '../../common/terminalColorRegistry.js';
 import { ShellIntegrationAddon } from '../../../../../platform/terminal/common/xterm/shellIntegrationAddon.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -242,7 +244,8 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 			lineHeight: font.lineHeight,
 			logLevel: vscodeToXtermLogLevel(this._logService.getLevel()),
 			logger: this._logService,
-			minimumContrastRatio: config.minimumContrastRatio,
+			// BaseHalf: the ratio of the theme's kind while the user has set none (docs/specs/light-and-dark.md, "The terminal").
+			minimumContrastRatio: this._minimumContrastRatio(),
 			tabStopWidth: config.tabStopWidth,
 			cursorBlink: config.cursorBlinking,
 			blinkIntervalDuration: config.textBlinking ? TextBlinkConstants.IntervalDuration : 0,
@@ -560,7 +563,8 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 		this._setCursorWidth(config.cursorWidth);
 		this.raw.options.scrollback = config.scrollback;
 		this.raw.options.drawBoldTextInBrightColors = config.drawBoldTextInBrightColors;
-		this.raw.options.minimumContrastRatio = config.minimumContrastRatio;
+		// BaseHalf: the ratio of the theme's kind while the user has set none.
+		this.raw.options.minimumContrastRatio = this._minimumContrastRatio();
 		this.raw.options.tabStopWidth = config.tabStopWidth;
 		this.raw.options.fastScrollSensitivity = config.fastScrollSensitivity;
 		this.raw.options.scrollSensitivity = config.mouseWheelScrollSensitivity;
@@ -1058,6 +1062,16 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 
 	private _updateTheme(theme?: IColorTheme): void {
 		this.raw.options.theme = this.getXtermTheme(theme);
+		// BaseHalf: a theme of another kind has another ratio while the user has set none.
+		this.raw.options.minimumContrastRatio = this._minimumContrastRatio(theme);
+	}
+
+	// BaseHalf: the contrast a character keeps against its cell, by the kind of the theme while the user has
+	// set no ratio (docs/specs/light-and-dark.md, "The terminal").
+	private _minimumContrastRatio(theme?: IColorTheme): number {
+		const inspected = this._configurationService.inspect<number>(TerminalSettingId.MinimumContrastRatio);
+		const userSet = inspected.userValue !== undefined || inspected.workspaceValue !== undefined || inspected.workspaceFolderValue !== undefined;
+		return baseHalfTerminalContrastRatio(this._terminalConfigurationService.config.minimumContrastRatio, userSet, (theme ?? this._themeService.getColorTheme()).type);
 	}
 
 	/**

@@ -237,6 +237,11 @@
 	overflow: hidden;
 }
 
+/* What stands behind a picture, a video, and a sound: the paper of the canvas under a light theme (light and dark, rule 13). */
+.monaco-workbench .basehalf-card-detail-media-webview {
+	background: var(--vscode-basehalf-mediaStageBackground);
+}
+
 /* A video plays in BaseHalf's player, centered, which fits itself into this space. */
 .monaco-workbench .basehalf-card-detail-media-webview.holds-player {
 	display: grid;

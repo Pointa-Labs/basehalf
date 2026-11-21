@@ -14,7 +14,7 @@
 	box-sizing: border-box;
 	pointer-events: auto;
 	cursor: grab;
-	background: color-mix(in srgb, var(--bh-canvas-geometry) 12%, transparent);
+	background: color-mix(in srgb, var(--vscode-basehalf-marqueeInk) 12%, transparent);
 	border: 0 solid color-mix(in srgb, var(--bh-canvas-geometry) 45%, transparent);
 }
 

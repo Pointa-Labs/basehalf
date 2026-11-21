@@ -12,7 +12,7 @@
 .monaco-workbench .basehalf-agent-area {
 	--basehalf-agent-extension-background: var(--vscode-sideBar-background);
 	--basehalf-agent-extension-foreground: var(--vscode-sideBar-foreground);
-	--basehalf-agent-terminal-background: var(--vscode-terminal-background);
+	--basehalf-agent-terminal-background: var(--vscode-terminal-background, var(--vscode-sideBar-background));
 	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground);
 	--basehalf-agent-terminal-divider: color-mix(in srgb, var(--basehalf-agent-terminal-background) 58%, var(--vscode-basehalf-shade));
 	--basehalf-agent-terminal-sheen: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 2%, transparent);

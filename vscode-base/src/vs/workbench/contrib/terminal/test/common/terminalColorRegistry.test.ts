@@ -62,23 +62,24 @@ suite('Workbench - TerminalColorRegistry', () => {
 		const theme = getMockTheme(ColorScheme.LIGHT);
 		const colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
 
+		// BaseHalf: the 16 colors under a light theme are BaseHalf's (docs/specs/light-and-dark.md, "The terminal").
 		assert.deepStrictEqual(colors, [
-			'#000000',
-			'#cd3131',
-			'#107c10',
-			'#949800',
-			'#0451a5',
-			'#bc05bc',
-			'#0598bc',
-			'#555555',
-			'#666666',
-			'#cd3131',
-			'#14ce14',
-			'#b5ba00',
-			'#0451a5',
-			'#bc05bc',
-			'#0598bc',
-			'#a5a5a5'
+			'#1f2328',
+			'#c4322e',
+			'#1a7f37',
+			'#7d5e00',
+			'#0b63ce',
+			'#7a3fd6',
+			'#0a7c86',
+			'#656d76',
+			'#7c848c',
+			'#d1242f',
+			'#18803a',
+			'#8f6a00',
+			'#1f6feb',
+			'#8f52e8',
+			'#0b7f89',
+			'#1b1f23'
 		], 'The light terminal colors should be used when the light theme is active');
 
 	});
@@ -87,17 +88,18 @@ suite('Workbench - TerminalColorRegistry', () => {
 		const theme = getMockTheme(ColorScheme.DARK);
 		const colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
 
+		// BaseHalf: the 16 colors under a dark theme are BaseHalf's (docs/specs/light-and-dark.md, "The terminal").
 		assert.deepStrictEqual(colors, [
-			'#000000',
-			'#cd3131',
-			'#0dbc79',
-			'#e5e510',
-			'#2472c8',
-			'#bc3fbc',
-			'#11a8cd',
-			'#e5e5e5',
-			'#666666',
-			'#f14c4c',
+			'#272727',
+			'#f74949',
+			'#2ea043',
+			'#9e6a03',
+			'#0078d4',
+			'#d01273',
+			'#1db4d6',
+			'#cccccc',
+			'#5d5d5d',
+			'#dc5452',
 			'#23d18b',
 			'#f5f543',
 			'#3b8eea',
