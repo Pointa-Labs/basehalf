@@ -43,9 +43,11 @@ export async function assertCanvasKeysAreCommands(page) {
 		}
 	}
 	for (const [query, name] of [['Accept Inline', /Accept Inline (Completion|Suggestion)/], ['inlineSuggest', /inlineSuggest/], ['workbench.extensions.action.installExtensions', /installExtensions/], ['variables.collapse', /variables\.collapse/]]) {
-		const rows = await rowsFor(query);
-		if (rows.some(row => name.test(row))) {
-			throw new Error(`Keyboard Shortcuts must list no command of what BaseHalf does not have, but lists for ${query}: ${JSON.stringify(rows.filter(row => name.test(row)).slice(0, 3))}`);
+		// A row reads its command first, then its key and the condition it acts under: the search also finds a
+		// command of something BaseHalf has whose condition names one of these, so only the command is judged.
+		const commands = (await rowsFor(query)).map(row => row.split(',')[0]);
+		if (commands.some(command => name.test(command))) {
+			throw new Error(`Keyboard Shortcuts must list no command of what BaseHalf does not have, but lists for ${query}: ${JSON.stringify(commands.filter(command => name.test(command)).slice(0, 3))}`);
 		}
 	}
 	// A user has Keyboard Shortcuts in the overlay, where Escape closes it. The base keeps it out of the overlay
