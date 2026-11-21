@@ -102,21 +102,21 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 	{
 		kind: 'tui-codex',
 		label: 'Codex',
-		description: 'Run the Codex CLI in a BaseHalf Agent Area terminal session.',
+		description: 'The Codex CLI in a terminal.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CODEX_TUI_COMMAND_ID,
 		terminalCommand: 'codex'
 	},
 	{
 		kind: 'tui-claude',
 		label: 'Claude Code',
-		description: 'Run Claude Code in a BaseHalf Agent Area terminal session.',
+		description: 'Claude Code in a terminal.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CLAUDE_TUI_COMMAND_ID,
 		terminalCommand: 'claude'
 	},
 	{
 		kind: 'extension-codex',
 		label: 'Codex Extension',
-		description: 'Host the curated VS Code Codex extension experience inside the Agent Area.',
+		description: 'The panel of the Codex extension.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CODEX_EXTENSION_COMMAND_ID,
 		requiresExtensionSlot: 'basehalf.agentArea.extension.codex',
 		extensionId: 'openai.chatgpt',
@@ -126,7 +126,7 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 	{
 		kind: 'extension-claude',
 		label: 'Claude Code Extension',
-		description: 'Host the curated VS Code Claude Code extension experience inside the Agent Area.',
+		description: 'The panel of the Claude Code extension.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID,
 		requiresExtensionSlot: 'basehalf.agentArea.extension.claude',
 		extensionId: 'anthropic.claude-code',
@@ -137,7 +137,7 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 	{
 		kind: 'terminal',
 		label: 'Terminal',
-		description: 'Open a shell for OpenCode, Gemini CLI, or another terminal-based agent.',
+		description: 'A shell, for any other agent or command.',
 		commandId: BASEHALF_AGENT_AREA_NEW_TERMINAL_COMMAND_ID
 	}
 ] as const satisfies readonly IBaseHalfAgentSessionChoice[];
