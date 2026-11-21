@@ -731,7 +731,10 @@ with the windows it was closed with.
    because its tab was chosen takes the keyboard once its terminal is there,
    if it is still the session in front. Choosing a tab gives the keyboard to
    the pane in front of that tab, whether its session starts or runs; the
-   field that renames a tab keeps the keyboard while it is open.
+   field that renames a tab keeps the keyboard while it is open. A session
+   that ends or is closed while it has the keyboard hands it to the pane
+   that comes to the front; with no session left, the keyboard goes to the
+   canvas ([where the keyboard returns](keyboard-return.md#each-closing)).
 8. **No session starts in a window that closes.** As the terminals of a
    closing window end, the tabs behind them come in front; their sessions
    stay as they are.

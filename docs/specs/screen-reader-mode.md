@@ -2,7 +2,9 @@
 
 Status: Active (2026-10-13)
 Decision: [D53](../decisions.md#d53--screen-reader-mode-is-the-users-choice-not-a-guess-new-2026-10-13)
-Related: [Agent Area terminal](agent-area-terminal.md)
+Related: [Agent Area terminal](agent-area-terminal.md),
+[where the keyboard returns](keyboard-return.md#screen-reader-mode) (what has
+the keyboard after something closes, and its name)
 
 ## Problem
 

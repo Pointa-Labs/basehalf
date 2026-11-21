@@ -270,14 +270,17 @@ its text does not stand where the name stood.
   was opened. F2 and Rename open it for a card that is selected: that
   selection ends when the editor opens.
 - **Enter** renames the file, or, for a draft, moves its card information
-  and its row to the new name. Afterwards no card is selected, and the canvas
-  has the keyboard, as after Escape. A
+  and its row to the new name. Afterwards no card is selected, and the card
+  whose name was edited has the keyboard, as after Escape
+  ([where the keyboard returns](keyboard-return.md#each-closing)): F2 opens
+  the editor again, and Enter that is still held opens nothing. A
   name that was not changed closes the editor and renames nothing. A name
   that cannot be used keeps the editor open and shows why: an empty name, a
   name with a path separator, a name the file system does not take, the
   name of another item of the folder, a draft included
   ([generation cards](generation-cards.md#creating-a-generation-card)).
-- **Escape** closes the editor. Nothing is renamed.
+- **Escape** closes the editor. Nothing is renamed. The card has the
+  keyboard, and no card is selected.
 - **A press outside the editor** renames when the name can be used. When it
   cannot, the editor closes and nothing is renamed. What the press lands on
   decides what is selected afterwards.
@@ -396,7 +399,8 @@ change: the name, and nothing else.
 14. With the editor open, writing the file that is being renamed leaves the
     input in the document in every frame, with its text and its caret.
     Enter then renames the file.
-15. After Enter, and after Escape, no card is selected.
+15. After Enter, and after Escape, no card is selected, and the card whose
+    name was edited has the keyboard.
 24. A click on the name of a card selects nothing, and a card that was
     selected stays selected. A click on the glyph of the same card selects
     it.

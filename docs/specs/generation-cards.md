@@ -1220,7 +1220,8 @@ Model", and a dimmed Generate, before the panel of the card with its file.
 
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
-open, returns focus to the card. The input row is one stop of Tab: Left and
+open, returns focus to the card itself, where the keys of the card act
+([where the keyboard returns](keyboard-return.md#each-closing)). The input row is one stop of Tab: Left and
 Right move between its tiles and buttons, Delete or Backspace on a tile
 removes its connection, Enter on a tile puts its mention into the prompt,
 and Alt+Left and Alt+Right move the tile one place. The two buttons that add

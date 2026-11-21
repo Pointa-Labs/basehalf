@@ -108,6 +108,13 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   keyboard opened it. Card Detail keeps the look of the editors it hosts.
   The canvas itself, which holds the keyboard between its cards and when
   Card Detail closes, draws no ring.
+- The keyboard is always somewhere that answers. When what had it goes
+  away (an overlay, Card Detail, an editor or a name on a card, a menu, a
+  card, a session), it returns to where it was, and otherwise to the canvas:
+  never to the page itself, and never to the empty editor group that lies
+  under the canvas. Code that closes something of the canvas asks the canvas
+  view's `keyboardHome` for the place and names no element of its own
+  ([where the keyboard returns](../specs/keyboard-return.md), D149).
 - What lights under the pointer goes out when the pointer leaves, also into
   a webview such as the PDF reader of Card Detail. The workbench does not
   hear the pointer go into a webview, so a webview reports the pointer's
