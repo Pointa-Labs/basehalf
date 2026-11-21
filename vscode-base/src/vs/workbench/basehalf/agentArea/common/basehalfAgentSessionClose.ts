@@ -57,7 +57,7 @@ export function baseHalfClosingWindowAsks(confirmOnExit: unknown, sessions: read
 }
 
 /** What ends the sessions that a question is about. */
-export type BaseHalfAgentSessionEnding = 'close' | 'kill' | 'closeWindow' | 'quit' | 'reloadWindow';
+export type BaseHalfAgentSessionEnding = 'close' | 'kill' | 'closeWindow' | 'quit' | 'reloadWindow' | 'closeFolder';
 
 export interface IBaseHalfAgentSessionCloseQuestion {
 	readonly message: string;
@@ -89,12 +89,17 @@ function primaryButton(ending: BaseHalfAgentSessionEnding, several: boolean): st
 				? localize('basehalf.agentArea.close.closeSessions', "Close Sessions")
 				: localize('basehalf.agentArea.close.closeSession', "Close Session");
 		case 'kill':
-			return localize('basehalf.agentArea.close.killSession', "Kill Session");
+			return several
+				? localize('basehalf.agentArea.close.killSessions', "Kill Sessions")
+				: localize('basehalf.agentArea.close.killSession', "Kill Session");
 		case 'closeWindow':
 			return localize('basehalf.agentArea.close.closeWindow', "Close Window");
 		case 'quit':
 			return localize('basehalf.agentArea.close.quit', "Quit");
 		case 'reloadWindow':
 			return localize('basehalf.agentArea.close.reloadWindow', "Reload Window");
+		case 'closeFolder':
+			// Another folder is opened in the window, or its folder is closed: the folder leaves the window.
+			return localize('basehalf.agentArea.close.closeFolder', "Close Folder");
 	}
 }

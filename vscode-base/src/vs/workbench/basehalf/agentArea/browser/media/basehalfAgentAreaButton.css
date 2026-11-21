@@ -1,0 +1,27 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The dot of a bell on the title bar's button of the Agent Area: a session rang while the Agent Area was hidden
+   (docs/specs/agent-area-terminal.md, The bell). It takes no room, so the button keeps its place and its size,
+   and it has the color of the bell on a tab. */
+.monaco-workbench .part.titlebar .action-item.basehalf-agent-area-button {
+	position: relative;
+}
+
+.monaco-workbench .part.titlebar .action-item.basehalf-agent-area-button > .basehalf-agent-area-button-bell {
+	display: none;
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background-color: var(--vscode-list-warningForeground);
+	pointer-events: none;
+}
+
+.monaco-workbench .part.titlebar .action-item.basehalf-agent-area-button.has-bell > .basehalf-agent-area-button-bell {
+	display: block;
+}

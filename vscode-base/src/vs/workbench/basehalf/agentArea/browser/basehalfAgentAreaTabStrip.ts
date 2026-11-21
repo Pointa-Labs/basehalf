@@ -188,7 +188,9 @@ export class BaseHalfAgentAreaTabStrip implements IDisposable {
 			}
 			if (e.button === 0) {
 				this.area.mutateTabs(s => selectAgentTab(s, tab.id));
-				void this.area.surface.focusActivePane();
+				// After the press has had its own effect: a press on a tab, which takes no keyboard, takes the
+				// keyboard away from wherever it is, also from the pane that was just given it.
+				mainWindow.setTimeout(() => void this.area.surface.focusActivePane(), 0);
 			}
 		});
 		el.addEventListener('dblclick', () => {
@@ -266,9 +268,11 @@ export class BaseHalfAgentAreaTabStrip implements IDisposable {
 		shortcut.textContent = index < 9 ? `${isMacintosh ? '⌘' : 'Ctrl+'}${index === 8 ? 9 : index + 1}` : '';
 		const label = append(labelWrap, $('span.basehalf-agent-tab-label'));
 		const description = append(labelWrap, $('span.basehalf-agent-tab-description'));
-		if (activePane && activePane.state !== 'ready') {
+		// A session that runs, and one that waits to start, show no word of a state.
+		const stateText = activePane ? this.area.stateLabel(activePane.state) : '';
+		if (stateText) {
 			const stateLabel = append(labelWrap, $('span.basehalf-agent-tab-state'));
-			stateLabel.textContent = this.area.stateLabel(activePane.state);
+			stateLabel.textContent = stateText;
 		}
 
 		const indicator = append(el, $('span.basehalf-agent-tab-indicator'));

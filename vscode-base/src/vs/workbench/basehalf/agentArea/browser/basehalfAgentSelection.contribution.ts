@@ -13,6 +13,7 @@ import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../
 import { dirname, isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -38,6 +39,7 @@ import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfM
 import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { renderBaseHalfItemGlyph } from '../../ui/browser/basehalfItemGlyph.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
+import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 
 export function baseHalfAgentSelectionResource(workspaceFolder: URI): URI {
 	return URI.joinPath(workspaceFolder, ...BASEHALF_AGENT_SELECTION_SEGMENTS);
@@ -47,8 +49,9 @@ export function baseHalfAgentSelectionResource(workspaceFolder: URI): URI {
  * Keeps the record of what the user selected last in this window, in
  * `.bh/cache/selection.yaml` of the workspace folder (the selection agents can
  * see, "The record"). It writes the record only while the BaseHalf skill is
- * installed, linked for at least one agent, never in a marked folder, and
- * removes it when the window closes.
+ * installed, linked for at least one agent, and the user shares the selection
+ * (`basehalf.agents.shareSelection`), never in a marked folder, and removes it
+ * when the window closes.
  */
 export class BaseHalfAgentSelectionService extends Disposable implements IBaseHalfAgentSelectionService {
 	declare readonly _serviceBrand: undefined;
@@ -68,7 +71,7 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 	private written: { readonly workspaceFolder: URI; readonly resource: URI; readonly content: string } | undefined;
 	/** Write the record even when it did not change: this window was used last. */
 	private rewrite = false;
-	/** Records left in this window's folders are removed once each time the skill is found missing. */
+	/** Records left in this window's folders are removed once each time the skill is found missing or the selection is not shared. */
 	private leftoversRemoved = false;
 	private skillChecks = 0;
 	/** What the last write found of each workspace folder's marker. */
@@ -83,10 +86,20 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 		@IHostService hostService: IHostService,
 		@ILifecycleService lifecycleService: ILifecycleService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IConfigurationService private readonly configurationService: IConfigurationService
 	) {
 		super();
 		this._register(skillService.onDidChange(() => void this.checkSkill()));
+		this._register(configurationService.onDidChangeConfiguration(event => {
+			// What a user lets an agent read is followed at once: the record is removed, or written, now.
+			if (event.affectsConfiguration(BaseHalfSetting.AgentsShareSelection) && !this.closing) {
+				if (this.records) {
+					this.setCurrent(this.shown(this.input));
+				}
+				void this.flush();
+			}
+		}));
 		this._register(hostService.onDidChangeFocus(focused => {
 			if (focused) {
 				// With two windows on one folder, the record is the one used
@@ -111,10 +124,25 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 		}
 		// The window shows a new selection at once; the record follows when
 		// the selection settles.
-		if (this.skillInstalled) {
-			this.setCurrent(input && this.markedFolders.get(input.workspaceFolder.toString()) !== true ? baseHalfAgentSelectionFor(input) : undefined);
+		if (this.records) {
+			this.setCurrent(this.shown(input));
 		}
 		this.writer.schedule();
+	}
+
+	/** Whether the user shares the selection with agents. */
+	private get shares(): boolean {
+		return this.configurationService.getValue<boolean>(BaseHalfSetting.AgentsShareSelection) !== false;
+	}
+
+	/** Whether a record is kept: the skill is linked, and the user shares the selection. */
+	private get records(): boolean {
+		return this.skillInstalled === true && this.shares;
+	}
+
+	/** What the window shows of a selection, before its record is written. */
+	private shown(input: IBaseHalfAgentSelectionInput | undefined): BaseHalfAgentSelection | undefined {
+		return input && this.markedFolders.get(input.workspaceFolder.toString()) !== true ? baseHalfAgentSelectionFor(input) : undefined;
 	}
 
 	/** Writes or removes the record now. Resolves when it is done. */
@@ -150,7 +178,7 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 			if (this.skillInstalled === undefined) {
 				return;
 			}
-			if (!this.skillInstalled) {
+			if (!this.records) {
 				await this.removeWritten();
 				if (!this.leftoversRemoved) {
 					this.leftoversRemoved = true;
@@ -194,9 +222,9 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 	}
 
 	/**
-	 * Without the skill no window of this machine keeps a record, so
-	 * one in a folder of this window was left by a window that ended without
-	 * closing, such as in a crash.
+	 * Without the skill, and while the selection is not shared, no window
+	 * keeps a record, so one in a folder of this window was left by a window
+	 * that ended without closing, such as in a crash.
 	 */
 	private async removeLeftovers(): Promise<void> {
 		for (const folder of this.contextService.getWorkspace().folders) {

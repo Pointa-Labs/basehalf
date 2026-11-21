@@ -58,7 +58,11 @@ export class BaseHalfAgentAreaExtensionPanes {
 		}
 	}
 
-	async initializeExtensionPane(session: IBaseHalfRuntimeAgentSession): Promise<void> {
+	/**
+	 * Takes the extension's view into the pane. `takesKeyboard` says, when the view is there, whether the
+	 * keyboard goes into the pane in front.
+	 */
+	async initializeExtensionPane(session: IBaseHalfRuntimeAgentSession, takesKeyboard: () => boolean = () => true): Promise<void> {
 		const kind = session.kind as BaseHalfExtensionAgentSessionKind;
 		const choice = baseHalfAgentSessionChoiceForKind(kind);
 
@@ -94,7 +98,9 @@ export class BaseHalfAgentAreaExtensionPanes {
 				}
 			});
 			this.area.render();
-			await this.area.focusSession(session.id);
+			if (takesKeyboard()) {
+				await this.area.focusSession(session.id);
+			}
 			return;
 		}
 
@@ -143,7 +149,9 @@ export class BaseHalfAgentAreaExtensionPanes {
 			session.extensionDispose = result.dispose;
 			session.state = 'ready';
 			this.area.render();
-			await this.area.surface.focusActivePane();
+			if (takesKeyboard()) {
+				await this.area.surface.focusActivePane();
+			}
 		} catch (error) {
 			if (error instanceof BaseHalfExtensionAgentUnavailableError) {
 				session.state = 'unavailable';

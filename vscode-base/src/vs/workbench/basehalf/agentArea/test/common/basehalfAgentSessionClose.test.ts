@@ -46,7 +46,11 @@ suite('BaseHalfAgentSessionClose', () => {
 				baseHalfAgentSessionCloseQuestion('quit', ['sleep'], 3),
 				baseHalfAgentSessionCloseQuestion('reloadWindow', ['sleep', 'Codex'], 2),
 				baseHalfAgentSessionCloseQuestion('closeWindow', [], 1),
-				baseHalfAgentSessionCloseQuestion('closeWindow', [], 4)
+				baseHalfAgentSessionCloseQuestion('closeWindow', [], 4),
+				// Another folder is opened in the window.
+				baseHalfAgentSessionCloseQuestion('closeFolder', ['sleep'], 2),
+				// Kill All Terminals.
+				baseHalfAgentSessionCloseQuestion('kill', ['sleep', 'Claude Code'])
 			],
 			[
 				{ message: '“sleep” is still running.', primaryButton: 'Close Session' },
@@ -55,7 +59,9 @@ suite('BaseHalfAgentSessionClose', () => {
 				{ message: '“sleep” is still running.', primaryButton: 'Quit' },
 				{ message: '2 sessions are still running.', primaryButton: 'Reload Window' },
 				{ message: 'The Agent Area has an open session.', primaryButton: 'Close Window' },
-				{ message: 'The Agent Area has 4 open sessions.', primaryButton: 'Close Window' }
+				{ message: 'The Agent Area has 4 open sessions.', primaryButton: 'Close Window' },
+				{ message: '“sleep” is still running.', primaryButton: 'Close Folder' },
+				{ message: '2 sessions are still running.', primaryButton: 'Kill Sessions' }
 			]
 		);
 	});

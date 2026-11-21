@@ -32,7 +32,11 @@ import type { BaseHalfAgentAreaService, IBaseHalfRuntimeAgentSession } from './b
 export class BaseHalfAgentAreaTerminalPanes {
 	constructor(private readonly area: BaseHalfAgentAreaService) { }
 
-	async initializeTerminalPane(session: IBaseHalfRuntimeAgentSession, options: IBaseHalfCreateAgentTerminalOptions): Promise<void> {
+	/**
+	 * Starts the terminal of a session. `takesKeyboard` says, when the terminal is there, whether the keyboard
+	 * goes into the pane in front.
+	 */
+	async initializeTerminalPane(session: IBaseHalfRuntimeAgentSession, options: IBaseHalfCreateAgentTerminalOptions, takesKeyboard: () => boolean = () => true): Promise<void> {
 		try {
 			const hasMarkedWorkspaceFolder = session.kind === 'tui-claude' ? await this.hasMarkedWorkspaceFolder() : false;
 			// With the BaseHalf skill installed for Claude Code, the launch
@@ -46,7 +50,7 @@ export class BaseHalfAgentAreaTerminalPanes {
 			});
 			const terminal = await this.area.terminalService.createTerminal(terminalOptions);
 			session.launchInstructions.didLaunch(baseHalfHasAgentLaunchInstructions(terminal.shellLaunchConfig.args));
-			await this.attachTerminalToSession(session, terminal, options.command ?? baseHalfAgentSessionChoiceForKind(session.kind).terminalCommand);
+			await this.attachTerminalToSession(session, terminal, options.command ?? baseHalfAgentSessionChoiceForKind(session.kind).terminalCommand, takesKeyboard());
 		} catch (error) {
 			this.area.markSessionFailed(session, error);
 		}
@@ -68,19 +72,21 @@ export class BaseHalfAgentAreaTerminalPanes {
 				session.programTitle = instance.sequence;
 			}
 			this.area.tabs.namesChanged();
+			// The base names a terminal again when its shell changes its folder, which the arrangement keeps.
+			this.area.arrangement.changed();
 		}));
 		// The base keeps a bell in the terminal's statuses for `terminal.integrated.bellDuration` after a ring,
 		// when the settings of the bell say so, and plays its signal itself.
 		session.disposables.add(terminal.statusList.onDidAddStatus(status => {
 			if (status.id === TerminalStatus.Bell) {
-				session.bell = baseHalfAgentSessionBellRang(session.bell, this.area.sessionInView(session));
-				this.area.tabs.marksChanged();
+				session.bell = baseHalfAgentSessionBellRang(session.bell, this.area.sessionInView(session), this.area.visible);
+				this.area.bellsChanged();
 			}
 		}));
 		session.disposables.add(terminal.statusList.onDidRemoveStatus(status => {
 			if (status.id === TerminalStatus.Bell) {
 				session.bell = baseHalfAgentSessionBellEnded(session.bell);
-				this.area.tabs.marksChanged();
+				this.area.bellsChanged();
 			}
 		}));
 		session.disposables.add(terminal.onData(() => {
@@ -93,7 +99,7 @@ export class BaseHalfAgentAreaTerminalPanes {
 			this.area.tabs.namesChanged();
 			this.area.rememberTerminalProcess(session, terminal);
 			this.area.surface.clearSessionStatePanel(session);
-			if (session.state === 'starting' || session.state === 'exited' || session.state === 'failed') {
+			if (session.state === 'waiting' || session.state === 'starting' || session.state === 'exited' || session.state === 'failed') {
 				session.state = 'ready';
 				session.detail = command ? `Running ${command}` : undefined;
 				this.area.render();
@@ -227,8 +233,12 @@ export class BaseHalfAgentAreaTerminalPanes {
 		const isRemote = !!this.area.remoteAgentService.getConnection();
 		const usesNodeRunBridge = baseHalfAgentSessionUsesLocalNodeRunBridge(kind, isRemote);
 		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind, { isRemote, os: OS, ...launch });
+		const raw = this.asTerminalOptions(options.rawTerminalOptions);
 		if (tuiConfig) {
 			return {
+				// An agent's session starts in the workspace folder, or in the folder it was in when its
+				// folder opens with it again.
+				...(raw?.cwd ? { cwd: raw.cwd } : {}),
 				config: baseHalfCreateAgentAreaTerminalConfig({
 					...tuiConfig,
 					args: tuiConfig.args ? [...tuiConfig.args] : undefined
@@ -236,7 +246,6 @@ export class BaseHalfAgentAreaTerminalPanes {
 			};
 		}
 
-		const raw = this.asTerminalOptions(options.rawTerminalOptions);
 		const terminalOptions: ICreateTerminalOptions = raw ? { ...raw } : {};
 		terminalOptions.config = baseHalfCreateAgentAreaTerminalConfig(terminalOptions.config, usesNodeRunBridge);
 		return terminalOptions;

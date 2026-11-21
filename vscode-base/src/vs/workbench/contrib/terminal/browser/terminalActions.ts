@@ -1367,9 +1367,16 @@ export function registerTerminalActions() {
 		title: localize2('workbench.action.terminal.killAll', 'Kill All Terminals'),
 		precondition: ContextKeyExpr.or(sharedWhenClause.terminalAvailable, TerminalContextKeys.isOpen),
 		icon: Codicon.trash,
-		run: async (c) => {
+		run: async (c, accessor) => {
+			// BaseHalf: the sessions of the Agent Area are killed by the Agent Area, which asks once for all of
+			// them by its own rule of what runs, where the base asks once for each terminal.
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+			const others = c.service.instances.filter(instance => !agentAreaService.showsTerminal(instance));
+			if (!await agentAreaService.killAllTerminalSessions()) {
+				return;
+			}
 			const disposePromises: Promise<void>[] = [];
-			for (const instance of c.service.instances) {
+			for (const instance of others) {
 				disposePromises.push(c.service.safeDisposeTerminal(instance));
 			}
 			await Promise.all(disposePromises);

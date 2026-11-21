@@ -183,6 +183,12 @@ export class BaseHalfAgentAreaSurface {
 			return;
 		}
 
+		if (session.state === 'waiting') {
+			// A session that starts now has nothing to take the keyboard yet: it takes it once it is there.
+			session.takesKeyboard = true;
+			return;
+		}
+
 		if (session.terminal) {
 			this.area.terminalPanes.setActiveTerminalForVsCodeCompatibility(session.terminal);
 			session.terminal.setVisible(true);

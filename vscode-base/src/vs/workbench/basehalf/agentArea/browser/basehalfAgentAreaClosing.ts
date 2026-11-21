@@ -89,9 +89,20 @@ export class BaseHalfAgentAreaClosing {
 		if (!baseHalfClosingWindowAsks(this.area.configurationService.getValue(TerminalSettingId.ConfirmOnExit), sessions)) {
 			return false;
 		}
-		const ending: BaseHalfAgentSessionEnding = reason === ShutdownReason.QUIT ? 'quit' : reason === ShutdownReason.RELOAD ? 'reloadWindow' : 'closeWindow';
+		const ending = baseHalfWindowEnding(reason);
 		const running = sessions.filter(entry => entry.running).map(entry => this.area.sessionName(entry.session));
 		const { confirmed } = await this.area.dialogService.confirm({ type: 'warning', ...baseHalfAgentSessionCloseQuestion(ending, running, sessions.length) });
 		return !confirmed;
+	}
+}
+
+/** What ends the sessions of a window that closes for `reason`, as the question's button names it. */
+export function baseHalfWindowEnding(reason: ShutdownReason): BaseHalfAgentSessionEnding {
+	switch (reason) {
+		case ShutdownReason.QUIT: return 'quit';
+		case ShutdownReason.RELOAD: return 'reloadWindow';
+		// Another folder is opened in the window, or its folder is closed.
+		case ShutdownReason.LOAD: return 'closeFolder';
+		case ShutdownReason.CLOSE: return 'closeWindow';
 	}
 }
