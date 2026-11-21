@@ -2,12 +2,18 @@
 
 Status: Active (2026-10-13; the sound element, colors, toggles, links, and
 which blocks Rich edits, 2026-11-02; a code file's card, 2026-11-04 for D118;
-the encoding a card reads its file in, 2026-11-21 for D138)
+the encoding a card reads its file in, 2026-11-21 for D138; the typography of
+a note and the form it opens in, 2026-11-21 for D145)
 Decision: [D54](../decisions.md#d54--a-note-is-shown-rendered-wherever-it-is-read-new-2026-10-13);
-what Rich writes and reads back, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
+what Rich writes and reads back, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02);
+the typography of a note, its three settings, and the form it opens in,
+[D145](../decisions.md#d145--a-note-has-one-typography-which-follows-its-font-and-its-text-size-and-opens-in-the-form-the-user-chose-new-2026-11-21)
 Related: [formats of a note](note-formats.md) (what Rich writes and reads
 back, and which blocks it edits), [canvas wheel gestures](canvas-wheel-gestures.md)
 (scrolling a Note at rest), [canvas card resize](canvas-card-resize.md),
+[zoom and outline of a note](note-zoom-and-outline.md) (the magnifying of a
+page, which lies on top of the text size), [BaseHalf's Settings](settings-pages.md#notes)
+(the rows of the three settings),
 [architecture invariants](../harness/architecture-invariants.md)
 
 ## Problem
@@ -49,6 +55,25 @@ length of its note, and a note above a size limit showed a label instead.
 The card now builds a note in parts, as far as it is shown and a little
 further, the way a notebook builds only the cells in view.
 
+The same note did not look the same either. Measured in the real window on
+2026-11-21, with a note of headings, lists, a table, code, and Chinese text:
+
+| | Rich | Preview | The card |
+| --- | --- | --- | --- |
+| Font | the window's | the window's | a list of its own |
+| Text | 16 px | 14 px | 13 px |
+| Line height | 1.5 | 1.65 | 1.45 |
+| Width of the text, at most | 712 px | 760 px | the card's |
+| Room beside the text, at least | 85 px | 28 px | |
+| Heading 1, 2, 3 | 48, 32, 20.8 px | 28, 21, 16.4 px | 18, 16, 14 px |
+| Heading 4, 5, 6 | 16, 14.4, 12.8 px | 14, 11.6, 9.4 px | 13 px |
+| Between two paragraphs | 6 px | 14 px | 6 px |
+| Code | the browser's fixed font | the window's fixed font | the window's fixed font |
+
+A paragraph that was four lines in Rich was three in Preview, and a heading
+of level 6 was smaller than the text under it in both. None of it could be
+chosen, and a note opened in Rich whatever its reader meant to do with it.
+
 ## Scope
 
 In scope:
@@ -65,6 +90,12 @@ In scope:
 - How long a note can be and still be shown on its card, and edited there;
   how the card builds a long note in parts; and how much of a text file, a
   code file, or a text result a card reads for its excerpt.
+- The typography of a note: its font, the size of its text, its line height,
+  the width of its text, and the sizes of its headings, in Rich, in Preview,
+  and on its card; and how the settings `basehalf.notes.fontFamily` and
+  `basehalf.notes.fontSize` are followed.
+- The form of Card Detail a note opens in, and the setting
+  `basehalf.notes.openIn`.
 
 Not in scope, and unchanged:
 
@@ -77,6 +108,13 @@ Not in scope, and unchanged:
 - What the excerpt of a text file or a folder shows: the first lines, as
   before. What a code file shows is rule 33 (D118).
 - Front matter. It is not part of the shown note.
+- The Source projection, the editor of code, which follows `editor.*`
+  ([a code file on its card and in Card Detail](code-cards.md)).
+- The magnifying of a note's page with a pinch and the outline of its
+  headings ([zoom and outline of a note](note-zoom-and-outline.md)). A pinch
+  draws the page larger, whatever the size of its text.
+- The menus and toolbars of Rich, which are in the font and the size of the
+  window ([the menu of blocks in a note](note-block-menu.md)).
 
 ## Terms
 
@@ -91,6 +129,10 @@ Not in scope, and unchanged:
   edit. It stays in its rendered form while the blocks around it are edited.
 - **Part**: a run of whole top-level blocks of a note that the resting
   projection builds at once, about 2,000 characters long.
+- **Text size**: the size of the text of a paragraph of a note, in pixels at
+  a zoom of 100%. Every other size of a note is a multiple of it.
+- **Form**: Rich, Preview, or Source, the projections of Card Detail that a
+  note has.
 
 ## Required behavior
 
@@ -328,8 +370,104 @@ HTML has no form in it. Read and written back, it would lose:
     before: its lines trimmed, without blank lines, wrapped, in one color. A
     note is not a code file, and neither its card nor its Source has colors.
 
+### The typography of a note
+
+34. **A note has one typography.** In Card Detail a note is set the same in
+    Rich and in Preview: one font, one text size, one line height, one width
+    of its text, and one size of each level of heading. A paragraph breaks
+    at the same words in both, at every width of Card Detail, and a switch
+    between the two changes no size. The values:
+
+    | What | Value |
+    | --- | --- |
+    | Font | `basehalf.notes.fontFamily`, and after it the font of the window |
+    | Text size | `basehalf.notes.fontSize`: 12 to 28 px, 16 px without a value |
+    | Line height | 1.5 times the size of the line's text, in a heading too |
+    | Width of the text | at most 712 px, in the middle of the page, with at least 85 px of the page at each side |
+    | Heading 1, 2, 3 | 3, 2, and 1.3 times the text size, bold |
+    | Heading 4, 5, 6 | the text size, bold |
+    | Above and below the text of a block | 0.1875 of the text size (3 px at 16 px) |
+    | Above a heading | 1.125 times the text size (18 px at 16 px) |
+    | Above the first block and below the last | 56 px and 80 px |
+
+    Rich's values are the measure, because a note is written there; they are
+    what Rich showed at 16 px before, but for the headings of level 5 and 6,
+    which were smaller than the text.
+35. **The font.** `basehalf.notes.fontFamily` is a list of fonts, of which
+    the first that the computer has is used. Without a value a note is in
+    the font of the window, the font of the names in Files. The font of the
+    window follows every list, so a list none of whose fonts the computer
+    has shows the font of the window.
+36. **The text size.** `basehalf.notes.fontSize` is the size of a note's
+    text in Card Detail. A value below 12 is 12, one above 28 is 28, and one
+    that is no number is 16. The size is in the pixels of the window at a
+    zoom of 100%: the zoom of the window and the magnifying of a page
+    ([zoom and outline of a note](note-zoom-and-outline.md)) draw a note
+    larger on top of it, as before.
+37. **Code keeps the font of code.** Inline code and a code block of a note
+    are in `editor.fontFamily`, the font of Source and of code cards, on
+    every surface, whatever the font of the note. In Card Detail code has
+    the size of the text around it.
+38. **The card shows the same note from afar.** A note's card and the card's
+    editor are in the font of the note. Their text is 13 px at a zoom of the
+    canvas of 100%, with a line height of 1.45 and headings of 18, 16, 14,
+    and 13 px, whatever the text size: on the canvas the text of a card
+    follows the zoom of the canvas. Code on the card is 0.92 of the size of
+    the text around it.
+39. **A card at rest and its editor are one face.** They take the font from
+    one place, so the frame in which the editor opens or closes shows every
+    line where it was, in every font.
+40. **The settings are followed at once.** A change of the font or of the
+    text size shows in an open Card Detail, in Rich and in Preview, and a
+    change of the font on every note card of an open canvas, also on one
+    that is being edited: without a reload, in the next frame that is drawn.
+    No frame shows a note partly in the old value.
+    - A note that opens shows the values from its first frame. Rich's page
+      gets them with the note.
+    - The caret, the selection, the editor's undo, an open menu, and the
+      level of a magnified page stay as they were.
+    - The view keeps its place: the block at the top of the view stays
+      there, and only what the new size needs moves.
+    - The menus, the toolbars, and the outline keep the font and the size
+      of the window.
+41. **What a card builds follows the font.** A font changes how many lines a
+    note takes. After a change, the parts of a note that its card has built
+    reach as far as rule 28 asks in the new font, before that frame is shown.
+
+### The form a note opens in
+
+42. A note (`.md`, `.markdown`) opens in Card Detail in the form of
+    `basehalf.notes.openIn`: Rich, Preview, or Source. Without a value, or
+    with a value that is none of the three, it is Rich. This holds wherever
+    the opening names no form: a card's Expand and its double click when
+    the note is too long for the card's editor, Files, the search of the
+    title bar, a link, a file opened from outside.
+43. An opening that names a form opens in that form: Edit in Source of a
+    block, a result of Search at its line, and a format chosen on a card
+    whose note the card's editor cannot change, which opens Rich and is
+    applied there.
+44. The switch between the forms in the header of Card Detail changes the
+    form of the note it shows, and nothing keeps it: the next opening
+    follows the setting again. Back and Forward show a note in the form it
+    had at that step, as before.
+45. The setting is read at each opening. A change of it leaves an open Card
+    Detail as it is. Every other kind of file opens as before.
+
 ## Limits
 
+- A font is a list of names of fonts on the computer. BaseHalf brings no
+  font of its own for notes, and a name the computer does not have is passed
+  over without a sign.
+- At a text size of 28 px a heading of level 1 is 84 px, and a title of
+  more than about 14 letters takes two lines in a text 712 px wide.
+- The card's text does not follow the text size (rule 38). A reader who
+  needs larger text on the canvas zooms the canvas or the window.
+- In Preview a list, a quote, and a table are drawn by the Markdown
+  renderer of the base and in Rich by the editor: their text has the same
+  font, size, and line height, and their marks, their indents, and the lines
+  of a table differ by a few pixels.
+- Pictures, videos, and the boxes of files keep their sizes at every text
+  size.
 - With `files.autoGuessEncoding` on, the excerpt of a text or a code file is
   guessed from its first 8 KiB, and Card Detail guesses from more of the
   file. For a file whose first 8 KiB are plain ASCII the two can differ.
@@ -401,6 +539,29 @@ HTML has no form in it. Read and written back, it would lose:
 - A screen reader reads the built parts of a note at rest.
 - An HTML element that is still open after 50,000 characters (rule 30) is
   shown as the card's editor shows such an element: its blocks one by one.
+
+## Implementation boundaries
+
+- `markdown/common/basehalfNoteTypography.ts`: what a note is set in (the
+  font, the text size, the font of code) from the values of the settings
+  and the font of the window, and the CSS properties that carry it. It
+  imports nothing, so Rich's page uses it too.
+- `markdown/browser/basehalfNoteTypographyService.ts`: the one reader of the
+  three settings (`basehalf.notes.fontFamily`, `basehalf.notes.fontSize`,
+  `editor.fontFamily`). It keeps the properties on the element of the
+  window, where the stylesheets of Preview and of the card read them, and
+  says when they changed. No stylesheet names a font or a size of a note
+  itself.
+- Rich's page is another document. It gets the typography with `init` and
+  in the message `typography` when it changes
+  (`markdown/common/basehalfMarkdownRichWebviewProtocol.ts`), and keeps the
+  same properties on its own document.
+- The canvas asks the notes it has built in parts to build on after the
+  typography changed (`canvas/browser/basehalfCanvasNoteParts.ts`).
+- `cardDetail/common/basehalfCardDetail.ts`: the form a file opens in when
+  an opening names none, with the setting for a note
+  (`baseHalfCardProjectionOpenedIn`). The registry of projections reads the
+  setting at each opening.
 
 ## Failure and recovery
 
@@ -510,6 +671,53 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     UTF-16 with a byte order mark shows its text without any setting. Each
     card shows what Card Detail shows of the file, and a file in UTF-8 shows
     as before.
+23. With the settings without values, a paragraph of a note in Card Detail
+    is drawn in the font of the window at 16 px with lines of 24 px, in a
+    text 712 px wide in a Card Detail of 1,130 px, in Rich and in Preview;
+    its lines break at the same words in both; the headings of level 1 to 6
+    are 48, 32, 20.8, 16, 16, and 16 px in both. In a Card Detail of 834 px
+    the text is 664 px wide in both.
+24. With `"basehalf.notes.fontSize": 28` the paragraph is 28 px with lines
+    of 42 px and the heading of level 1 is 84 px, in Rich and in Preview;
+    with 12, 12 px, 18 px, and 36 px. A value of 40 shows as 28 and a value
+    of 4 as 12. The text of the note's card is 13 px at each.
+25. With `"basehalf.notes.fontFamily"` set to the Serif list, the text of
+    the note is drawn in its first font that the computer has, in Rich, in
+    Preview, on the card at rest, and in the card's editor; inline code and
+    a code block are in `editor.fontFamily` in all four; the menu of
+    blocks, the toolbar of a selection, and the outline are in the font of
+    the window. With a list of one font that the computer does not have,
+    the text is in the font of the window.
+26. In the real window, with a note open in Rich, scrolled to its middle,
+    with a selection in a paragraph in view: the text size written to the
+    settings file as 20 shows in the page within a second, and sampled on
+    every frame from the write on, each frame shows every block of the note
+    in one size, the old or the new; the block at the top of the view is
+    the same before and after, within 2 px of its place; the selection
+    holds the same text, and typing a letter replaces it. The same for the
+    font, and the same in Preview for the block at the top of the view.
+27. In the real window, a change of the font shows on every note card of
+    the open canvas in one frame, at rest and in the card's editor, whose
+    caret stays where it was; the text of a card is 13 px before and after.
+28. A note opened with a text size of 22 and the Serif list shows them in
+    the first frame that shows the note, in Rich and in Preview: sampled on
+    every frame from the opening on, no frame shows text of the note at
+    another size or in another font.
+29. A note magnified to 200% keeps its level through a change of the text
+    size, and criterion 3 of [zoom and outline of a note](note-zoom-and-outline.md)
+    holds at a text size of 28.
+30. On a card whose note is built in parts, switched to the Monospace list
+    and back: after each change the built parts reach two heights of the
+    card below what the card shows, or the note's end, and a card at rest
+    and its editor show every line at the same place in the frame the
+    editor opens.
+31. With `"basehalf.notes.openIn": "preview"` a note opens in Preview from
+    a card's Expand, from Files, and from the search of the title bar, and
+    with `"source"` in Source; a picture, a text file, and a code file open
+    as before. Edit in Source of a block opens Source, and a format chosen
+    on a card that must open Card Detail opens Rich, whatever the setting.
+    A note switched to Rich and closed opens in Preview again. A change of
+    the setting leaves the open Card Detail in its form.
 
 ## Verification
 

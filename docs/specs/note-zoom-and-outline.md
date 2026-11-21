@@ -1,7 +1,7 @@
 # Zoom and outline of a note in Card Detail
 
 Status: Draft (2026-10-27, revised 2026-10-28, 2026-10-31, 2026-11-01,
-2026-11-02, and 2026-11-11)
+2026-11-02, 2026-11-11, and 2026-11-21 for the room of rule 21 in Preview)
 Decision: [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27),
 revised by [D105](../decisions.md#d105--a-pinch-zooms-a-note-as-a-picture-under-the-fingers-and-the-note-is-laid-out-once-they-rest-new-2026-10-31)
 and [D109](../decisions.md#d109--a-pinch-magnifies-a-note-in-card-detail-as-a-browser-magnifies-its-page-and-nothing-of-it-is-laid-out-anew-new-2026-11-01);
@@ -257,6 +257,9 @@ Not in scope, and unchanged:
     pixels the handles, which were partly cut off at the edge, show whole.
     The room is part of the page, so a magnified page has it magnified, at
     each of its edges.
+    Preview keeps the same room, though it has no handles, so that a note
+    has the same lines in both ([note rendering](note-rendering.md#the-typography-of-a-note),
+    rule 34).
 
 ### The handles of a block in Rich
 
@@ -286,9 +289,10 @@ Not in scope, and unchanged:
   gesture began, as a browser draws a page under a pinch: zoomed in, its text
   is a little soft until the fingers rest, and sharp from then on, in the
   same place.
-- L2. The outline shows at every width of Card Detail. In Rich the text
-  column gives up the width that rule 21 takes: 48 pixels in a Card Detail
-  of 834 pixels, 122 in one of 700 (530 are left for the text).
+- L2. The outline shows at every width of Card Detail. The text column
+  gives up the width that rule 21 takes, in Rich and in Preview: 48 pixels
+  in a Card Detail of 834 pixels, 122 in one of 700 (530 are left for the
+  text).
 - L3. The outline is for the pointer. The keyboard does not reach it; a
   screen reader reads the headings in the page itself.
 - L4. A heading inside a list item or a quote is shown as a heading by the
