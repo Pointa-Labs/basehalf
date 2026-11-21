@@ -125,10 +125,15 @@ rule 26).
   carries the text the editor last knew to be in the file; when an earlier
   save of the editor is written but its answer has not reached the editor,
   that text lags. The file holding a text the editor wrote, or the text the
-  save brings, is no conflict; only a text the editor did not write is.
-  Before, Escape pressed while a save was being written was taken for a
-  conflict: Card Detail stayed open, and the window said that the note could
-  not be saved (2026-11-22).
+  save brings, is no conflict; only a text the editor did not write is. A
+  text the editor wrote counts until a text the editor did not write comes
+  into the note, from another program or another view of the note: a save
+  after it is judged against that text alone, so an earlier version that an
+  agent puts back is never written over. The saves of one editor are
+  written one at a time, in the order they were asked for. Before, Escape
+  pressed while a save was being written was taken for a conflict: Card
+  Detail stayed open, and the window said that the note could not be saved
+  (2026-11-22).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the card of its file, when the canvas shows that card, and otherwise to
   the canvas itself: the keys of the card work again, and Enter opens it
