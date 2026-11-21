@@ -118,33 +118,32 @@ export async function setCanvasZoomPercent(page, percent) {
 
 export async function zoomCanvas(page, action, options = {}) {
 	if (options.preserveFocus) {
-		const acted = await page.evaluate(({ actionName, useMetaKey }) => {
+		// The real key, so that the keyboard stays where it is: the keys of the canvas are commands of the key
+		// bindings (the keys of the canvas), which read a key's code, and an event made in the page has none.
+		const key = action === 'reset' ? 'Digit0' : action === 'out' ? 'Minus' : action === 'in' ? 'Equal' : undefined;
+		if (!key) {
+			throw new Error(`Canvas zoom action cannot preserve focus through a shortcut: ${action}`);
+		}
+		const before = await page.evaluate(() => {
 			const activeElement = document.activeElement;
 			const root = activeElement?.closest('.basehalf-canvas-workbench');
 			if (!(activeElement instanceof HTMLElement) || !(root instanceof HTMLElement)) {
 				throw new Error('Canvas zoom shortcut requires focus inside the visible canvas');
 			}
-			const zoom = Number(root.dataset.zoom);
-			if (actionName === 'out' && zoom <= 0.2 || actionName === 'in' && zoom >= 4) {
-				return false;
-			}
-			const key = actionName === 'reset' ? '0' : actionName === 'out' ? '-' : actionName === 'in' ? '=' : undefined;
-			if (!key) {
-				throw new Error(`Canvas zoom action cannot preserve focus through a shortcut: ${actionName}`);
-			}
-			const event = new KeyboardEvent('keydown', {
-				key,
-				metaKey: useMetaKey,
-				ctrlKey: !useMetaKey,
-				bubbles: true,
-				cancelable: true
-			});
-			activeElement.dispatchEvent(event);
-			if (!event.defaultPrevented) {
-				throw new Error(`Canvas zoom shortcut was not handled: ${actionName}`);
-			}
-			return true;
-		}, { actionName: action, useMetaKey: process.platform === 'darwin' });
+			return Number(root.dataset.zoom);
+		});
+		if (action === 'out' && before <= 0.2 || action === 'in' && before >= 4) {
+			return false;
+		}
+		await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+${key}`);
+		// The canvas took the key when its zoom is the one the key asks for.
+		const wanted = action === 'reset' ? 1 : action === 'in' ? Math.min(4, before + 0.1) : Math.max(0.2, before - 0.1);
+		try {
+			await page.waitForFunction(expected => Math.abs(Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) - expected) < 0.006, wanted, { timeout: 10_000 });
+		} catch {
+			throw new Error(`Canvas zoom shortcut was not handled: ${action}`);
+		}
+		const acted = true;
 		await page.locator('.basehalf-canvas-zoom-menu').waitFor({ state: 'hidden', timeout: 10_000 });
 		return acted;
 	}
