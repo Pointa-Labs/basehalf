@@ -313,6 +313,9 @@ suite('BaseHalfImageCropView', () => {
 		assert.ok(Math.abs(scale() - restScale) < 1e-9, 'and comes to rest as it fits');
 		const atRest = frame();
 		assert.ok(atRest.width > 0 && !element.classList.contains('viewing'));
+		// The veil is a color of the theme (light and dark, rule 15), which a test has no theme to give: it is
+		// given here as a dark theme has it.
+		element.style.setProperty('--vscode-basehalf-cropVeil62', 'rgba(0, 0, 0, 0.62)');
 		const shadow = mainWindow.getComputedStyle(element.querySelector('.basehalf-image-crop-frame')!).boxShadow;
 		assert.ok(/rgba\(0, 0, 0, 0\.6/.test(shadow), `the rest of the original shows dimmed while editing: ${shadow}`);
 	});
