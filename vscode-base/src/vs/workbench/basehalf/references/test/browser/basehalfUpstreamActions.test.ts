@@ -10,6 +10,8 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { extUri } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { IConfirmation, IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
@@ -160,6 +162,8 @@ suite('BaseHalfUpstreamActions', () => {
 				messages: []
 			})
 		});
+		// What Search leaves out by default.
+		instantiationService.stub(IConfigurationService, new TestConfigurationService({ search: { exclude: { '**/node_modules': true } } }));
 		instantiationService.stub(IFileService, { onDidFilesChange: Event.None });
 		instantiationService.stub(IEditorService, {});
 		instantiationService.stub(IUriIdentityService, { extUri });

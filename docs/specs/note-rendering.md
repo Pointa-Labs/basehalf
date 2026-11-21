@@ -1,7 +1,8 @@
 # Note rendering
 
 Status: Active (2026-10-13; the sound element, colors, toggles, links, and
-which blocks Rich edits, 2026-11-02; a code file's card, 2026-11-04 for D118)
+which blocks Rich edits, 2026-11-02; a code file's card, 2026-11-04 for D118;
+the encoding a card reads its file in, 2026-11-21 for D138)
 Decision: [D54](../decisions.md#d54--a-note-is-shown-rendered-wherever-it-is-read-new-2026-10-13);
 what Rich writes and reads back, [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
 Related: [formats of a note](note-formats.md) (what Rich writes and reads
@@ -306,6 +307,15 @@ HTML has no form in it. Read and written back, it would lose:
     shows "Binary file" when they hold a NUL byte. A result node reads the
     text of its result the same way. A text result is never reported as
     missing because it is long.
+32a. A card reads its file as text the way Card Detail reads it (D138): in
+    the encoding the settings `files.encoding` and `files.autoGuessEncoding`
+    give for the file and its language, by the byte order mark of a file that
+    has one, and in the encoding chosen for the file in the status bar for as
+    long as the window holds the file's text. So a text file, a code file,
+    and a note show the same characters on their cards as in Card Detail. The
+    8 KiB of rule 32 and the 1 MiB of rule 24 are counted in the bytes of the
+    file, whatever its encoding. "Binary file" shows for what the editor
+    refuses to open as text, and for a NUL character in what was read.
 33. The card of a code file shows the file as the editor does (D118, D121): from
     its first line, in the editor's colors, with its indentation and blank lines,
     at the editor's tab width, and without wrapping, so that a long line ends
@@ -320,6 +330,9 @@ HTML has no form in it. Read and written back, it would lose:
 
 ## Limits
 
+- With `files.autoGuessEncoding` on, the excerpt of a text or a code file is
+  guessed from its first 8 KiB, and Card Detail guesses from more of the
+  file. For a file whose first 8 KiB are plain ASCII the two can differ.
 - The bar of a table or a code block cannot be dragged. A mouse without a
   sideways wheel scrolls the box with Shift and the wheel.
 - A table whose text has no place to wrap, such as a long address, is as
@@ -491,6 +504,12 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 21. A long note scrolled down past its first parts and then edited on its
     card shows the same blocks at the same place before the editor opens,
     while it is open, and after it closes.
+22. A text file, a code file, and a note written in GBK show their
+    characters on their cards with `"files.encoding": "gbk"` in the user's
+    settings, and with `"files.autoGuessEncoding": true` instead. A file in
+    UTF-16 with a byte order mark shows its text without any setting. Each
+    card shows what Card Detail shows of the file, and a file in UTF-8 shows
+    as before.
 
 ## Verification
 
@@ -532,3 +551,9 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
   `preview-note-media-plays-on-when-drawn-again` in Preview, each sampled on
   every frame; `note-formats-media-asks-for-no-refused-address` covers
   criterion 13f.
+- Unit: `basehalfCanvasCardText.test.ts` covers what rule 32a asks of the
+  read: the head of the file or the limit of a note, text only, and the
+  encoding the window holds for the file. Smoke:
+  `card-reads-its-file-in-its-encoding` in `workbench` covers criterion 22
+  for a text file with `files.encoding`; the other cases were run once in
+  the real window.

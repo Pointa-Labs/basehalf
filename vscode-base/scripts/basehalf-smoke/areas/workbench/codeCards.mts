@@ -914,6 +914,123 @@ export async function assertEditingOnTheCard(page) {
 	await setCanvasZoomPercent(page, 100);
 }
 
+/** The card's editor follows the settings of its file for how editing behaves, and keeps what stands where the face stood (code cards, rules 30 and 31). */
+export async function assertCardEditorFollowsSettings(page) {
+	const settings = inWorkspace('.vscode/settings.json');
+	const before = fs.readFileSync(settings, 'utf8');
+	const write = (more: Record<string, unknown>) => fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(before), ...more }, null, '\t'));
+	const firstLine = (selector: string) => cardOf(page, SHORT).evaluate((card, selectorOf) => {
+		const rect = card.querySelector(selectorOf)?.getBoundingClientRect();
+		return rect ? { top: rect.top, left: rect.left, height: rect.height } : null;
+	}, selector);
+	const readEditor = () => cardOf(page, SHORT).evaluate(card => {
+		const editor = card.querySelector('.basehalf-canvas-code-editor .monaco-editor');
+		const line = editor?.querySelector('.view-lines .view-line');
+		return {
+			cursor: editor?.querySelector('.cursors-layer')?.className ?? '',
+			text: (line?.textContent ?? '').replace(/ /g, ' '),
+			fontSize: line?.querySelector('span') ? getComputedStyle(line.querySelector('span')).fontSize : '',
+			numbers: [...editor?.querySelectorAll('.line-numbers') ?? []].map(number => number.textContent).filter(Boolean),
+			minimap: editor?.querySelector('.minimap')?.getBoundingClientRect().width ?? 0,
+			highlighted: [...editor?.querySelectorAll('.view-overlays .current-line') ?? []].filter(element => getComputedStyle(element).borderTopWidth !== '0px' || getComputedStyle(element).backgroundColor !== 'rgba(0, 0, 0, 0)').length
+		};
+	});
+	const typeAParenthesis = async () => {
+		await page.keyboard.press('End');
+		await page.keyboard.type('(');
+		await page.waitForTimeout(150);
+		const text = (await readEditor()).text;
+		await page.keyboard.press('Meta+Z');
+		await page.waitForTimeout(150);
+		return text;
+	};
+	try {
+		// What the face depends on is not the settings'.
+		write({ 'editor.fontSize': 20, 'editor.lineHeight': 30, 'editor.wordWrap': 'on', 'editor.lineNumbers': 'off', 'editor.minimap.enabled': true, 'editor.renderLineHighlight': 'all' });
+		await page.waitForTimeout(1_000);
+		const face = await firstLine('.basehalf-canvas-code-line');
+		const box = await cardOf(page, SHORT).locator('.basehalf-canvas-code-scroller').boundingBox();
+		await page.mouse.dblclick(box.x + box.width * 0.5, box.y + 8 + 9);
+		await waitForReading(() => readFace(page, SHORT), reading => reading.editor, 'the editor on the short card', 10_000);
+		await page.waitForTimeout(300);
+		const line = await firstLine('.basehalf-canvas-code-editor .view-lines .view-line');
+		const kept = await readEditor();
+		if (!face || !line || Math.abs(line.top - face.top) > 1 || Math.abs(line.left - face.left) > 1 || Math.abs(line.height - face.height) > 1
+			|| kept.fontSize !== '12px' || kept.numbers[0] !== '1' || kept.minimap !== 0 || kept.highlighted !== 0) {
+			throw new Error(`The card's editor must stand where the face stood whatever the settings say: ${JSON.stringify({ face, line, kept })}`);
+		}
+		// How editing behaves is the settings', as in Source, and a change holds from the next key.
+		if (!kept.cursor.includes('cursor-line-style') || !(await typeAParenthesis()).endsWith('()')) {
+			throw new Error(`Without a setting the caret is a line and a bracket is closed: ${JSON.stringify(await readEditor())}`);
+		}
+		write({ 'editor.cursorStyle': 'block', 'editor.autoClosingBrackets': 'never' });
+		await waitForReading(readEditor, reading => reading.cursor.includes('cursor-block-style'), 'editor.cursorStyle on a card that is being edited', 10_000);
+		const typed = await typeAParenthesis();
+		if (!typed.endsWith('(') || typed.endsWith('()')) {
+			throw new Error(`editor.autoClosingBrackets must hold on a card: ${typed}`);
+		}
+		await page.keyboard.press('Escape');
+		await waitForReading(() => readFace(page, SHORT), reading => !reading.editor, 'the end of the editing', 10_000);
+	} finally {
+		fs.writeFileSync(settings, before);
+	}
+	await page.waitForTimeout(1_000);
+}
+
+/** A folder named as a build or a dependency folder has a card, and what `files.exclude` leaves out has none, at once (the items a canvas shows). */
+export async function assertCanvasShowsWhatFilesShows(page) {
+	const names = ['build', 'node_modules', 'left-out'];
+	const settings = inWorkspace('.vscode/settings.json');
+	const before = fs.readFileSync(settings, 'utf8');
+	try {
+		for (const name of names) {
+			fs.mkdirSync(inWorkspace(`${FOLDER}/${name}`), { recursive: true });
+			fs.writeFileSync(inWorkspace(`${FOLDER}/${name}/note.md`), '# Note\n');
+		}
+		for (const name of names) {
+			await cardOf(page, `${FOLDER}/${name}`).waitFor({ state: 'attached', timeout: 15_000 });
+		}
+		fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(before), 'files.exclude': { '**/left-out': true } }, null, '\t'));
+		await cardOf(page, `${FOLDER}/left-out`).waitFor({ state: 'detached', timeout: 15_000 });
+		const kept = await Promise.all(['build', 'node_modules'].map(name => cardOf(page, `${FOLDER}/${name}`).count()));
+		if (kept.join() !== '1,1') {
+			throw new Error(`files.exclude must take only the card it names: ${kept.join()}`);
+		}
+		fs.writeFileSync(settings, before);
+		await cardOf(page, `${FOLDER}/left-out`).waitFor({ state: 'attached', timeout: 15_000 });
+	} finally {
+		fs.writeFileSync(settings, before);
+		for (const name of names) {
+			fs.rmSync(inWorkspace(`${FOLDER}/${name}`), { recursive: true, force: true });
+		}
+	}
+	for (const name of names) {
+		await cardOf(page, `${FOLDER}/${name}`).waitFor({ state: 'detached', timeout: 15_000 });
+	}
+}
+
+/** A card reads its file in the encoding the settings give for it, as Card Detail does, and again when the setting changes (note rendering, rule 32a). */
+export async function assertCardReadsItsFileInItsEncoding(page) {
+	const file = `${FOLDER}/kite-gbk.txt`;
+	const settings = inWorkspace('.vscode/settings.json');
+	const before = fs.readFileSync(settings, 'utf8');
+	const shown = () => cardOf(page, file).evaluate(card => card.querySelector('.basehalf-canvas-card-preview')?.textContent ?? '').catch(() => '');
+	try {
+		// "风筝 kite" in GBK.
+		fs.writeFileSync(inWorkspace(file), Buffer.from([0xB7, 0xE7, 0xF3, 0xDD, 0x20, 0x6B, 0x69, 0x74, 0x65, 0x0A]));
+		await waitForReading(shown, text => text.includes('kite'), 'the card of a text file in GBK', 15_000);
+		if ((await shown()).includes('风筝')) {
+			throw new Error('Without a setting a file is read as UTF-8');
+		}
+		fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(before), 'files.encoding': 'gbk' }, null, '\t'));
+		await waitForReading(shown, text => text.includes('风筝 kite'), 'the card to read its file by files.encoding', 15_000);
+	} finally {
+		fs.writeFileSync(settings, before);
+		fs.rmSync(inWorkspace(file), { force: true });
+	}
+	await cardOf(page, file).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
 /** Expand opens Card Detail at the card's place, and a commit takes the marks and leaves the text and the place. */
 export async function assertExpandAndCommit(page) {
 	const box = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();

@@ -14,6 +14,7 @@ import { readBaseHalfSidecarUpstream } from '../../../references/common/basehalf
 import { IBaseHalfCanvasFolderState, IBaseHalfWorkspaceResource } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasItemBounds, baseHalfCanvasModelFromStat, IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneEdge } from '../../common/basehalfCanvasScene.js';
+import { BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, baseHalfItemRules } from '../../../workspace/common/basehalfItemRules.js';
 import { BaseHalfCanvasConnections } from '../../browser/view/basehalfCanvasConnections.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../../browser/basehalfCanvasWorkbench.contribution.js';
 
@@ -143,6 +144,7 @@ suite('BaseHalfCanvasConnections', () => {
 				upstreamIdentity: () => BASEHALF_EXACT_UPSTREAM_IDENTITY,
 				workspaceNode: (workspaceFolder: URI, relativePath: string, kind: IBaseHalfCanvasItem['kind']) => ({ resource: URI.joinPath(workspaceFolder, relativePath), workspaceFolder, relativePath, kind }),
 				openBadgeFaces: new Set<string>(),
+				itemRules: { of: () => BASEHALF_ITEM_RULES_WITHOUT_SETTINGS },
 				logService: new NullLogService()
 			};
 			const connections = new BaseHalfCanvasConnections(view as unknown as BaseHalfCanvasWorkbenchContribution);
@@ -238,4 +240,31 @@ suite('BaseHalfCanvasConnections', () => {
 			children
 		};
 	}
+
+	test('a card in a folder that Search leaves out takes no connection, and says why; the cards that files.exclude hides are not read', async () => {
+		const read = async (relativePath: string, names: readonly string[]) => {
+			const view = {
+				referenceIndexService: { getState: () => 'ready', getStores: () => [], getStore: () => undefined, resolveUpstream: async () => undefined, getDownstream: () => [] },
+				fileService: { stat: async () => { throw new FileOperationError('no marker', FileOperationResult.FILE_NOT_FOUND); } },
+				upstreamIdentity: () => BASEHALF_EXACT_UPSTREAM_IDENTITY,
+				workspaceNode: (workspaceFolder: URI, path: string, kind: IBaseHalfCanvasItem['kind']) => ({ resource: URI.joinPath(workspaceFolder, path), workspaceFolder, relativePath: path, kind }),
+				openBadgeFaces: new Set<string>(),
+				itemRules: { of: () => baseHalfItemRules({ '**/*.tmp': true }, { '**/node_modules': true }) },
+				logService: new NullLogService()
+			};
+			const base = relativePath ? `/workspace/${relativePath}` : '/workspace';
+			const result = await new BaseHalfCanvasConnections(view as unknown as BaseHalfCanvasWorkbenchContribution).readCanvasConnections(
+				{ workspaceFolder: WORKSPACE, resource: URI.joinPath(WORKSPACE, relativePath), relativePath } as IBaseHalfCanvasFolderState,
+				folder(base, names.map(name => file(`${base}/${name}`)))
+			);
+			return { cards: [...result.relationships.keys()], refused: [...result.refusals] };
+		};
+		assert.deepStrictEqual({
+			followed: await read('notes', ['a.md', 'b.tmp']),
+			leftOutOfSearch: await read('node_modules/pkg', ['readme.md'])
+		}, {
+			followed: { cards: ['notes/a.md'], refused: [] },
+			leftOutOfSearch: { cards: ['node_modules/pkg/readme.md'], refused: [['node_modules/pkg/readme.md', 'readme.md is in a folder that Search leaves out.']] }
+		});
+	});
 });

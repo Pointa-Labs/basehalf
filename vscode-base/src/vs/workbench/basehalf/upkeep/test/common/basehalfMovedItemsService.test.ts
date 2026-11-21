@@ -12,6 +12,7 @@ import { Schemas } from '../../../../../base/common/network.js';
 import { joinPath, relativePath as getRelativePath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { FileChangeType, IFileChange, IFileService, IStat } from '../../../../../platform/files/common/files.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
@@ -118,7 +119,7 @@ suite('BaseHalfMovedItemsService', () => {
 	 * its new path and reported as relocated, as the cascade does when nothing
 	 * holds it back.
 	 */
-	function start(fileService: FileService, relocates = false, named: () => readonly string[] = () => [], indexChanged: Event<{ readonly workspaceFolder: URI; readonly state: 'ready' }> = Event.None) {
+	function start(fileService: FileService, relocates = false, named: () => readonly string[] = () => [], indexChanged: Event<{ readonly workspaceFolder: URI; readonly state: 'ready' }> = Event.None, configuration = new TestConfigurationService()) {
 		const service = disposables.add(new BaseHalfMovedItemsService(
 			timing,
 			fileService,
@@ -128,7 +129,8 @@ suite('BaseHalfMovedItemsService', () => {
 			{ readCanvas: async () => null },
 			// The entries the reference index knows: the items that `named` lists.
 			{ getState: () => 'ready', getStores: () => [{ read: { items: named().map(path => ({ path })) } }] as unknown as ReturnType<IBaseHalfReferenceIndexService['getStores']>, onDidChange: indexChanged as IBaseHalfReferenceIndexService['onDidChange'] },
-			new NullLogService()
+			new NullLogService(),
+			configuration
 		));
 		const recognized: string[] = [];
 		const comparing: boolean[] = [];

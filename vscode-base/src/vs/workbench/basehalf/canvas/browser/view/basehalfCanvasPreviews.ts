@@ -27,11 +27,13 @@ import { BASEHALF_CANVAS_DRAFT_PREVIEW, BaseHalfCanvasCardPreview, IBaseHalfCanv
 import { IBaseHalfWorkspaceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { baseHalfMediaVersionQuery } from '../../../playback/browser/basehalfMediaElements.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
+import { baseHalfReadCardText } from '../basehalfCanvasCardText.js';
 import { BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS } from '../basehalfCanvasPictureShapes.js';
 import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, badgeType, baseHalfBadgeResourceIdentity } from './basehalfCanvasViewShared.js';
 import { baseHalfCodePreviewLines, baseHalfCodePreviewLinesFor } from '../../common/basehalfCanvasCodePreview.js';
 import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
 import { PLAINTEXT_LANGUAGE_ID } from '../../../../../editor/common/languages/modesRegistry.js';
+import { BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, baseHalfShownEntries } from '../../../workspace/common/basehalfItemRules.js';
 import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 /**
@@ -73,9 +75,6 @@ interface IBaseHalfCanvasKnownFace {
 	readonly written?: BaseHalfCanvasFileVersion;
 	readonly until: number;
 }
-
-/** An excerpt shows the first lines of a file, so only its head is read, whatever its size. */
-const CARD_EXCERPT_READ_BYTES = 8192;
 
 /** What the card of a media file says of it where it shows no picture. */
 const MEDIA_LABELS: Readonly<Record<BaseHalfRenderableContentKind, string>> = {
@@ -318,8 +317,9 @@ export class BaseHalfCanvasPreviews {
 				// canvas without the removed card; avoid surfacing that expected race.
 				return { kind: 'unavailable', text: 'Preview unavailable' };
 			}
-			const children = (stat.children ?? [])
-				.filter(child => child.isDirectory || child.isFile)
+			// What the folder's own canvas shows.
+			const workspaceFolder = this.view.getCurrentFolder()?.workspaceFolder;
+			const children = baseHalfShownEntries(workspaceFolder ? this.view.itemRules.of(workspaceFolder) : BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, item.path, stat.children ?? [])
 				.sort((a, b) => {
 					if (a.isDirectory !== b.isDirectory) {
 						return a.isDirectory ? -1 : 1;
@@ -348,21 +348,20 @@ export class BaseHalfCanvasPreviews {
 		try {
 			// A note is all or nothing: an oversized Markdown file requires the
 			// full editor; no partial source may masquerade as the stored projection.
-			// The excerpt of any other text needs only the head of the file.
-			const contents = await this.view.fileService.readFile(item.stat.resource, kind === 'markdown'
-				? { limits: { size: BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES } }
-				: { length: CARD_EXCERPT_READ_BYTES });
-			const raw = contents.value.toString();
-			if (raw.includes('\u0000')) {
+			// The excerpt of any other text needs only the head of the file. Either is read as
+			// Card Detail reads the file (note rendering, rule 32a).
+			const read = await baseHalfReadCardText(this.view.textFileService, item.stat.resource, kind === 'markdown' ? BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES : undefined);
+			if (!read) {
 				return { kind: 'unavailable', text: 'Binary file' };
 			}
+			const raw = read.text;
 
 			if (kind === 'markdown') {
 				return { kind, text: baseHalfCanvasMarkdownPreviewSource(raw) };
 			}
 			const languageId = await this.languageOfCode(item.stat.resource, raw);
 			if (languageId || kind === 'code') {
-				const wholeFile = contents.value.byteLength < CARD_EXCERPT_READ_BYTES;
+				const wholeFile = read.wholeFile;
 				const lines = baseHalfCodePreviewLines(raw, wholeFile);
 				return {
 					kind: 'code',

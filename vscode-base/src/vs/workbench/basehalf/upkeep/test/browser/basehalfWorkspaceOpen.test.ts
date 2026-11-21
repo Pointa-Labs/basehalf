@@ -12,6 +12,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { MockContextKeyService } from '../../../../../platform/keybinding/test/common/mockKeybindingService.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
@@ -145,7 +146,8 @@ suite('BaseHalfWorkspaceOpen', () => {
 			new BaseHalfInMemoryFileSearchService(fileService) as Partial<ISearchService> as ISearchService,
 			contextService,
 			uriIdentityService,
-			new NullLogService()
+			new NullLogService(),
+			new TestConfigurationService()
 		));
 		disposables.add(new BaseHalfReferenceIndexContribution(index));
 

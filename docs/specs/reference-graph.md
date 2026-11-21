@@ -406,12 +406,15 @@ entry that names it is dangling until a folder of that name exists.
 
 - **Truth** is saved disk content. Unsaved buffers are never indexed.
 - **Enumeration.** For each workspace folder, the index covers every Markdown
-  file that the canvas could show, and every draft.
-  - It uses file search with every exclude setting and ignore file disregarded,
-    and with symbolic links ignored.
-  - Its explicit exclusions are the canvas-ineligible names (the canvas
-    `SKIP_NAMES` and hidden file names, and the root `CLAUDE.md` and
-    `AGENTS.md`), plus `.bh/` and `.git/`.
+  file that BaseHalf follows ([the items a canvas shows](canvas-items.md#what-basehalf-follows)),
+  and every draft.
+  - It uses file search with `files.exclude` and every ignore file
+    disregarded, and with symbolic links ignored.
+  - Its exclusions are what the setting `search.exclude` leaves out, and what
+    is never an item: `.bh/` and `.git/`, the files the system makes, and the
+    root `CLAUDE.md` and `AGENTS.md`. No list of folder names of its own
+    exists (D138).
+  - An entry may name any item, also one that is not followed.
   - Extensions match without regard to case.
   - Sidecar stores come from a walk of `.bh/mirror/**/upstream.yaml`. The walk
     never follows symbolic links.
@@ -1381,7 +1384,10 @@ slice 4, or slice 5 without slice 3.
    - It updates on an external folder `mv`, on a deletion, and on an external
      frontmatter edit.
    - It never reads unsaved buffers.
-   - A note in a folder hidden by `files.exclude` still shows its edges.
+   - A note in a folder hidden by `files.exclude` is read as any other, and
+     an entry that names it is valid. A note under a folder that
+     `search.exclude` leaves out is not read
+     ([the items a canvas shows](canvas-items.md)).
    - It reports the partial state when the store limit is hit.
 7. Deleting a node leaves dangling entries visible. The delete checkbox removes
    them as a separate undo step. Relink, Relink Everywhere, and Use Workspace

@@ -9,6 +9,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { FileChangesEvent, FileOperationResult, IFileService, IFileStat, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -41,7 +42,7 @@ import {
 	readBaseHalfMarkdownUpstream,
 	readBaseHalfSidecarUpstream
 } from './basehalfReferenceStore.js';
-import { baseHalfIsCanvasEligiblePath } from '../../workspace/common/basehalfItems.js';
+import { BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, BaseHalfItemRulesReader, baseHalfIsFollowedPath } from '../../workspace/common/basehalfItemRules.js';
 
 export const IBaseHalfReferenceIndexService = createDecorator<IBaseHalfReferenceIndexService>('baseHalfReferenceIndexService');
 
@@ -294,16 +295,6 @@ type StoreReadResult =
 	| { readonly kind: 'missing' }
 	| { readonly kind: 'error'; readonly message: string };
 
-/**
- * Store names that the canvas never shows as directories. File search uses
- * them only to avoid walking large trees; `isBaseHalfCanvasEntry` remains the
- * authoritative eligibility check for every result.
- */
-export const BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES = [
-	'.git', '.bh', '.idea', '.vscode', '.turbo', '.next', '.nuxt', '.svelte-kit',
-	'node_modules', 'dist', 'build', 'out', '__pycache__', '.pytest_cache', 'target', 'vendor'
-];
-
 export class BaseHalfReferenceIndexService extends Disposable implements IBaseHalfReferenceIndexService {
 	declare readonly _serviceBrand: undefined;
 
@@ -312,15 +303,20 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 
 	private readonly folders = new Map<string, IFolderIndex>();
 	private readonly existence = new Map<string, Promise<INodeStat | undefined>>();
+	private readonly itemRules: BaseHalfItemRulesReader;
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
 		@ISearchService private readonly searchService: ISearchService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IConfigurationService configurationService: IConfigurationService
 	) {
 		super();
+		this.itemRules = this._register(new BaseHalfItemRulesReader(configurationService));
+		// Search leaves out other folders: the folders are read anew.
+		this._register(this.itemRules.onDidChangeFollowed(() => void this.rebuild()));
 		this._register(this.fileService.onDidFilesChange(event => this.onDidFilesChange(event)));
 		this._register(this.fileService.onDidWatchError(error => this.onDidWatchError(error)));
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(event => {
@@ -794,7 +790,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				ignoreGlobCase: true
 			}],
 			includePattern: { '**/*.md': true, '**/*.markdown': true },
-			excludePattern: Object.fromEntries(BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES.map(name => [`**/${name}`, true])),
+			excludePattern: this.itemRules.of(index.folder).walkExclude,
 			ignoreGlobCase: true,
 			maxResults: BASEHALF_REFERENCE_INDEX_STORE_LIMIT + 1
 		};
@@ -805,7 +801,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		const resources: URI[] = [];
 		for (const match of complete.results) {
 			const relativePath = getRelativePath(index.folder, match.resource);
-			if (relativePath !== undefined && this.isIndexable(index, relativePath) && this.isStoreFileName(relativePath) && this.isCanvasEligible(index, relativePath, false)) {
+			if (relativePath !== undefined && this.isIndexable(index, relativePath) && this.isStoreFileName(relativePath) && this.isFollowed(index, relativePath, false)) {
 				resources.push(match.resource);
 			}
 		}
@@ -1420,13 +1416,13 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		if (!this.isIndexable(index, relativePath)) {
 			return 'ignored';
 		}
-		// Every ancestor must be a folder the canvas shows; the leaf may still
+		// Every ancestor must be a folder BaseHalf follows; the leaf may still
 		// be a skipped folder name, which the subtree rescan checks by type.
 		const parent = relativePath.includes('/') ? relativePath.slice(0, relativePath.lastIndexOf('/')) : '';
-		if (parent && !this.isCanvasEligible(index, parent, true)) {
+		if (parent && !this.isFollowed(index, parent, true)) {
 			return 'ignored';
 		}
-		return this.isStoreFileName(relativePath) && this.isCanvasEligible(index, relativePath, false) ? 'store' : 'unknown';
+		return this.isStoreFileName(relativePath) && this.isFollowed(index, relativePath, false) ? 'store' : 'unknown';
 	}
 
 	/**
@@ -1502,7 +1498,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		} else if (this.isIndexable(index, relativePath)) {
 			below = relativePath;
 			const stat = await this.statNode(root);
-			if (stat && this.isCanvasEligible(index, relativePath, stat.isDirectory)) {
+			if (stat && this.isFollowed(index, relativePath, stat.isDirectory)) {
 				if (stat.isDirectory) {
 					const enumerated = await this.enumerate(index, root, partialReasons);
 					resources.push(...enumerated.resources);
@@ -1635,7 +1631,8 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		if (!stat.isFile && !stat.isDirectory) {
 			return undefined;
 		}
-		if (index && !this.isCanvasEligible(index, path, stat.isDirectory)) {
+		// An entry may name any item of the folder, also one BaseHalf does not follow.
+		if (index && !baseHalfIsFollowedPath(BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, path, stat.isDirectory)) {
 			return undefined;
 		}
 		return { resource: stat.resource, workspaceFolder, relativePath: path, kind: stat.isDirectory ? 'folder' : 'file' };
@@ -1676,7 +1673,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			return false;
 		}
 		const index = this.folderIndex(workspaceFolder);
-		if (path === '.bh' || path.startsWith('.bh/') || (index && (!this.isIndexable(index, path) || !this.isCanvasEligible(index, path, false)))) {
+		if (path === '.bh' || path.startsWith('.bh/') || (index && (!this.isIndexable(index, path) || !this.isFollowed(index, path, false)))) {
 			return false;
 		}
 		let information: URI;
@@ -1709,9 +1706,9 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return this.ownerIndex(resource) === index;
 	}
 
-	/** Whether every segment is one the canvas could show as a card. */
-	private isCanvasEligible(index: IFolderIndex, relativePath: string, isDirectory: boolean): boolean {
-		return baseHalfIsCanvasEligiblePath(index.folder, relativePath, isDirectory);
+	/** Whether the item is one BaseHalf follows: neither it nor a folder above it is left out of Search (the items a canvas shows). */
+	private isFollowed(index: IFolderIndex, relativePath: string, isDirectory: boolean): boolean {
+		return baseHalfIsFollowedPath(this.itemRules.of(index.folder), relativePath, isDirectory);
 	}
 
 	//#endregion

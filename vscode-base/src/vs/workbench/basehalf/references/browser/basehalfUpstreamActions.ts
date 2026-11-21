@@ -9,6 +9,7 @@ import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -49,7 +50,8 @@ import {
 } from '../common/basehalfReferenceIndex.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../generation/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
-import { baseHalfItemDisplayName, BASEHALF_CANVAS_SKIP_NAMES, isBaseHalfCanvasPathEligible } from '../../workspace/common/basehalfItems.js';
+import { BaseHalfItemRulesReader, baseHalfIsFollowedPath } from '../../workspace/common/basehalfItemRules.js';
+import { baseHalfItemDisplayName } from '../../workspace/common/basehalfItems.js';
 
 /** A node an upstream action works on. */
 export interface IBaseHalfUpstreamActionNode extends IBaseHalfWorkspaceResource {
@@ -107,6 +109,7 @@ type ActionPick = IQuickPickItem & { readonly run: () => Promise<unknown> };
  */
 export class BaseHalfUpstreamActions extends Disposable {
 	private readonly nodeCache = new Map<string, { readonly at: number; readonly nodes: Promise<readonly IBaseHalfUpstreamNodeCandidate[]> }>();
+	private readonly itemRules: BaseHalfItemRulesReader;
 
 	constructor(
 		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
@@ -121,9 +124,12 @@ export class BaseHalfUpstreamActions extends Disposable {
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IDialogService private readonly dialogService: IDialogService,
 		@IBaseHalfGenerationCardActions private readonly generationCardActions: IBaseHalfGenerationCardActions,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IConfigurationService configurationService: IConfigurationService
 	) {
 		super();
+		this.itemRules = this._register(new BaseHalfItemRulesReader(configurationService));
+		this._register(this.itemRules.onDidChangeFollowed(() => this.nodeCache.clear()));
 		this._register(this.fileService.onDidFilesChange(event => {
 			if (event.gotAdded() || event.gotDeleted()) {
 				this.nodeCache.clear();
@@ -430,8 +436,9 @@ export class BaseHalfUpstreamActions extends Disposable {
 	}
 
 	/**
-	 * Every node the canvas could show in a workspace folder: files from file
-	 * search (ignore files and exclude settings disregarded, symbolic links
+	 * Every node BaseHalf follows in a workspace folder (the items a canvas
+	 * shows): files from file search (ignore files and `files.exclude`
+	 * disregarded, what `search.exclude` leaves out left out, symbolic links
 	 * ignored), the drafts the reference index knows (reference graph,
 	 * "Drafts"), and the folders that contain them.
 	 */
@@ -448,6 +455,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 	}
 
 	private async searchNodes(workspaceFolder: URI): Promise<readonly IBaseHalfUpstreamNodeCandidate[]> {
+		const rules = this.itemRules.of(workspaceFolder);
 		const query: IFileQuery = {
 			type: QueryType.File,
 			_reason: 'basehalfUpstreamPicker',
@@ -458,7 +466,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 				disregardParentIgnoreFiles: true,
 				ignoreSymlinks: true
 			}],
-			excludePattern: Object.fromEntries([...BASEHALF_CANVAS_SKIP_NAMES].map(name => [`**/${name}`, true])),
+			excludePattern: rules.walkExclude,
 			maxResults: PICKER_MAX_RESULTS
 		};
 		const [complete, badges] = await Promise.all([
@@ -470,7 +478,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 		]);
 		const byPath = new Map<string, IBaseHalfUpstreamNodeCandidate>();
 		const add = (path: string, kind: 'file' | 'folder') => {
-			if (byPath.has(path) || !isBaseHalfCanvasPathEligible(path, kind === 'folder')) {
+			if (byPath.has(path) || !baseHalfIsFollowedPath(rules, path, kind === 'folder')) {
 				return;
 			}
 			const description = badges?.badges.get(path)?.description;
@@ -488,7 +496,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 			return path ? [path] : [];
 		});
 		for (const path of [...files, ...this.referenceIndexService.getDrafts(workspaceFolder)]) {
-			if (!isBaseHalfCanvasPathEligible(path, false)) {
+			if (!baseHalfIsFollowedPath(rules, path, false)) {
 				continue;
 			}
 			add(path, 'file');

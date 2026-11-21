@@ -12,6 +12,7 @@ import { Schemas } from '../../../../../base/common/network.js';
 import { joinPath, relativePath as getRelativePath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
@@ -125,7 +126,8 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			{ workspaceStorageHome: URI.file(options.storage ?? '/storage') },
 			canvasMirror,
 			{ getState: () => 'ready', getStores: () => [], onDidChange: Event.None },
-			new NullLogService()
+			new NullLogService(),
+			new TestConfigurationService()
 		));
 		instantiationService.stub(IBaseHalfMovedItemsService, movedItems);
 		const draftOperations = instantiationService.createInstance(BaseHalfDraftOperations);

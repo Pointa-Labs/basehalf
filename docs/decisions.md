@@ -6576,3 +6576,69 @@ its own. The owner then left the open choices to me: "你来决定吧".
 - The Agent Area, the code card, the canvas, and the other surfaces of the catalog's table follow their settings, each by a
   decision of its own.
 - The commands and menu entries of what BaseHalf does not have go, by a decision of their own.
+
+## D138 — A card follows the settings its file follows elsewhere (NEW, 2026-11-21)
+
+**Decision.** Three surfaces of the canvas follow the settings that the same file already follows in Files and in Card Detail.
+
+- **The editor on a code card** takes the settings `editor.*` for the file and its language in everything that says how
+  editing behaves, and reads them again when they change. What has to stand where the card's face stood stays BaseHalf's:
+  the font and its size, the height of a line, no wrapping, the gutter, no minimap or sticky scroll, the scroll bars, and
+  nothing on a line that the face did not draw ([code cards](specs/code-cards.md), rules 30 to 32).
+- **An entry of a folder has a card when Files shows it**: the canvas follows `files.exclude`. `.bh`, `.git`, the files the
+  system makes, and the agent files of the workspace folder stay out whatever the setting says. No name is left out by
+  BaseHalf itself any more. **BaseHalf follows the items that Search does not leave out**: the reference index, following
+  moved items, and the list of items to connect read `search.exclude`. A card under a folder that Search leaves out is a
+  card as any other, can be the upstream of another, and takes no connection, which the canvas says
+  ([the items a canvas shows](specs/canvas-items.md)).
+- **A card reads its file in the encoding Card Detail reads it in**: by `files.encoding` and `files.autoGuessEncoding` for
+  the file and its language, by a byte order mark, and by the encoding the window holds for the file
+  ([note rendering](specs/note-rendering.md), rule 32a).
+
+**Why.** D137 found these three in its table of surfaces that do not follow a listed setting, and the owner's point of
+2026-11-21 was that BaseHalf has code features, so where a surface of its own is behind its settings the product catches up.
+Each was a surface BaseHalf drew for itself beside one of the base's: the card's editor built every option itself, the canvas
+left out folders by fourteen names of its own (`build`, `out`, `dist`, `target`, `vendor`, `node_modules`, and the like), and a
+card decoded what it read as UTF-8. Run in the real window: with `editor.cursorStyle`, `editor.autoClosingBrackets`, and
+`editor.multiCursorModifier` set, the card's editor now does what Source does, from the next key, and its lines stand where
+the face's stood with the font size, the line height, wrapping, line numbers, and the minimap set otherwise; the cards of a
+folder are the names Files lists, with and without a `files.exclude` entry; and a GBK text file, code file, and note show
+their characters on their cards with `files.encoding` or `files.autoGuessEncoding`, as in Card Detail.
+
+The list of names had decided two things at once, which entries have a card and which folders BaseHalf walks, and the two
+were measured apart before they were given two settings. On a folder of 54 files beside a dependency folder of real packages
+(40,620 files, 1,735 of them Markdown), in a development build: with the dependency folder walked, the first cards came
+after 2.7 s instead of 1.9 to 2.2 s, the reference index read 1,758 files instead of 23, and the snapshot of following moved
+items held 40,670 paths in 3.0 MB instead of 54 in 57 KB. With 225,100 files the first cards came after 3.8 to 4.0 s instead
+of 2.0 s, the index read 10,698 files, and the snapshot passed its limit of 200,000 items, which switches off following moved
+items for the whole folder, the user's own notes included. A burst of 4,000 files written into the dependency folder cost
+nothing either way. So showing follows `files.exclude` alone, and BaseHalf's own reading follows `search.exclude`, which by
+the base's default leaves out `node_modules` and `bower_components`: both are settings the user already has.
+
+**Alternatives.**
+- Following `files.exclude` alone, for cards and for what BaseHalf walks. It is one rule, and it costs every start of a
+  project with dependencies, and above 200,000 files the following of the user's own items.
+- Leaving a folder that Search leaves out off the canvas too. Files shows `node_modules`, and the canvas would again differ
+  from Files by a rule the user cannot see there.
+- Keeping the list of names for what BaseHalf walks. A note in a user's `build/` could still not be connected, and nothing a
+  user sets would change it.
+- Reading `files.exclude` for what BaseHalf follows as well, as Search does. Hiding an item in Files would make the entries
+  that name it dangling, which the reference graph already ruled out.
+- Letting a card that is not followed take a connection, read on demand. The index would then hold what one drawing asked
+  for and lose it at the next start. The refusal says what holds, with a mechanism the canvas has.
+- Passing every editor setting through to the card's editor. A font size or a wrapped line would move the lines when the
+  editor comes, which rule 18 of code cards forbids.
+- A setting of BaseHalf's own for any of the three. Each has a setting of the base that says it already.
+
+**Consequences.**
+- A workspace folder with `.vscode`, `dist`, `build`, `out`, `target`, `vendor`, or `node_modules` shows a card for each, as
+  Files lists them. A user hides one with `files.exclude`, in Files and on the canvas at once.
+- An upstream entry that names an item in such a folder, dangling before, is valid, and the notes of such a folder are read
+  for the reference index unless Search leaves the folder out.
+- The card's editor has two more of the editor's features, each with its setting: dragging selected text
+  (`editor.dragAndDrop`) and indenting what is pasted (`editor.autoIndentOnPaste`).
+- The card of a note is read by the encoding settings too, as its editors are.
+- The walks of files in notes keep their own two names (`.git`, `node_modules`), and the reference index reads a note's
+  front matter as UTF-8: both are left as they are.
+- In [the settings BaseHalf offers](specs/settings-catalog.md), the first three rows of "Where a surface does not follow a
+  listed setting" are done, and `search.exclude` joins the settings BaseHalf's own code reads.

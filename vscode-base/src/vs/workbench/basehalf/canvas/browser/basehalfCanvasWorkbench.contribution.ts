@@ -54,6 +54,7 @@ import { BaseHalfUpstreamActions, IBaseHalfUpstreamActionNode } from '../../refe
 import { BaseHalfCanvasAppearanceWrites, IBaseHalfCanvasAppearanceService } from '../common/basehalfCanvasAppearance.js';
 import { BaseHalfCanvasCardListenerStores } from '../common/basehalfCanvasCardListeners.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
+import { BaseHalfItemRulesReader } from '../../workspace/common/basehalfItemRules.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from '../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
@@ -151,6 +152,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 
 	// The parts of the view, one concern each (view/README.md). They come first,
 	// so that the fields below can reach them.
+	/** Which entries of a folder have a card, and which of them BaseHalf follows (the items a canvas shows). */
+	readonly itemRules: BaseHalfItemRulesReader;
 	readonly renderer = new BaseHalfCanvasRenderer(this);
 	readonly previews = new BaseHalfCanvasPreviews(this);
 	readonly cardRenderer = new BaseHalfCanvasCardRenderer(this);
@@ -362,6 +365,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IExtensionService public readonly extensionService: IExtensionService
 	) {
 		super();
+		this.itemRules = this._register(new BaseHalfItemRulesReader(this.configurationService));
 		// An item that was moved outside BaseHalf: the open canvas and the open
 		// Card Detail follow it (following moved items, "What the user sees").
 		this._register(this.movedItemsService.onDidRelocate(event => {
@@ -571,6 +575,16 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		// Connections live in the downstream nodes' own stores anywhere in the
 		// workspace folder (D37), so any store change of the folder can change
 		// this canvas's edges, counts, or the open badge editor.
+		// Other entries have a card, or other cards take a connection (the items a canvas shows).
+		this._register(this.itemRules.onDidChangeShown(() => this.renderer.scheduleBackgroundRender()));
+		this._register(this.itemRules.onDidChangeFollowed(() => this.renderer.scheduleBackgroundRender()));
+		// A file is read in another encoding: the cards read their text again (note rendering, rule 32a).
+		this._register(this.configurationService.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('files.encoding') || event.affectsConfiguration('files.autoGuessEncoding') || event.affectsConfiguration('files.candidateGuessEncodings')) {
+				this.renderedCardPreviewsByPath = new Map([...this.renderedCardPreviewsByPath].filter(([, entry]) => entry.preview.kind === 'media' || entry.preview.kind === 'folder'));
+				this.renderer.scheduleBackgroundRender();
+			}
+		}));
 		this._register(this.referenceIndexService.onDidChange(event => {
 			const folder = this.getCurrentFolder();
 			if (folder && this.uriIdentityService.extUri.isEqual(event.workspaceFolder, folder.workspaceFolder)) {
