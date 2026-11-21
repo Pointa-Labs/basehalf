@@ -314,7 +314,7 @@
 
 .monaco-workbench .basehalf-canvas-card-badge-remove:hover {
 	color: var(--bh-card-text-primary);
-	background: rgb(255 255 255 / 6%);
+	background: var(--vscode-basehalf-tint6);
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-remove:disabled {
@@ -488,7 +488,7 @@
 	background-color: var(--vscode-editorWidget-background);
 	border: 1px solid var(--vscode-editorWidget-border);
 	border-radius: 6px;
-	box-shadow: 0 10px 28px rgb(0 0 0 / 38%);
+	box-shadow: 0 10px 28px var(--vscode-basehalf-shadow38);
 	outline: none;
 	transform-origin: top center;
 	transform: translateX(-50%);

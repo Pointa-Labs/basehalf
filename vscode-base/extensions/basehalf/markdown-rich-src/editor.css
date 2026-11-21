@@ -108,6 +108,13 @@ body,
 	padding-inline: max(85px, calc((100% - 712px) / 2));
 }
 
+/* A quote keeps 4.5:1 against its ground under each kind of theme (light and dark, rule 10). The editor's own
+ * sheet draws it in one gray whatever the theme, which is the dark value. */
+.basehalf-markdown-rich [data-content-type="quote"] blockquote {
+	color: var(--vscode-basehalf-noteQuoteForeground);
+	border-left-color: var(--vscode-basehalf-noteQuoteForeground);
+}
+
 /* The editor's own menus and toolbars are in the font of the window. */
 .basehalf-markdown-rich .bn-container {
 	background: transparent;
@@ -328,7 +335,7 @@ body,
 }
 
 .basehalf-markdown-rich .basehalf-adhd-unread {
-	color: var(--vscode-editor-foreground, #d4d4d4);
+	color: var(--vscode-editor-foreground);
 	transition: color 120ms ease;
 }
 
@@ -339,8 +346,8 @@ body,
 	 * a stable contrast step without hard-coding one theme's gray. */
 	color: color-mix(
 		in srgb,
-		var(--vscode-editor-foreground, #d4d4d4) 42%,
-		var(--vscode-editor-background, #1e1e1e)
+		var(--vscode-editor-foreground) 42%,
+		var(--vscode-editor-background)
 	);
 	transition: color 120ms ease;
 }
@@ -358,7 +365,7 @@ body,
 
 @keyframes basehalf-selection-reveal {
 	0% {
-		background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c00) 55%, transparent);
+		background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground) 55%, transparent);
 		box-shadow: 0 0 0 2px var(--vscode-editor-findMatchBorder, transparent);
 	}
 	100% {
@@ -377,12 +384,12 @@ body,
 	height: 16px;
 	border: 1.5px solid color-mix(
 		in srgb,
-		var(--vscode-editor-foreground, #d4d4d4) 44%,
-		var(--vscode-editor-background, #1e1e1e)
+		var(--vscode-editor-foreground) 44%,
+		var(--vscode-editor-background)
 	);
 	border-radius: 4px;
-	background: var(--vscode-checkbox-background, var(--vscode-editor-background, #1e1e1e));
-	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--vscode-editor-foreground, #d4d4d4) 8%, transparent);
+	background: var(--vscode-checkbox-background, var(--vscode-editor-background));
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent);
 	cursor: pointer;
 	user-select: none;
 	transition: transform 90ms ease, border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
@@ -396,7 +403,7 @@ body,
 	box-sizing: border-box;
 	width: 5px;
 	height: 9px;
-	border: solid var(--vscode-button-foreground, #ffffff);
+	border: solid var(--vscode-button-foreground);
 	border-width: 0 2px 2px 0;
 	opacity: 0;
 	transform: rotate(45deg) scale(0.65);
@@ -408,17 +415,17 @@ body,
 	border-color: var(--vscode-focusBorder);
 	background: color-mix(
 		in srgb,
-		var(--vscode-focusBorder, #0078d4) 10%,
-		var(--vscode-checkbox-background, var(--vscode-editor-background, #1e1e1e))
+		var(--vscode-focusBorder) 10%,
+		var(--vscode-checkbox-background, var(--vscode-editor-background))
 	);
 }
 
 .basehalf-adhd-check-checked {
-	border-color: var(--vscode-button-background, var(--vscode-focusBorder, #0078d4));
-	background: var(--vscode-button-background, var(--vscode-focusBorder, #0078d4));
+	border-color: var(--vscode-button-background, var(--vscode-focusBorder));
+	background: var(--vscode-button-background, var(--vscode-focusBorder));
 	box-shadow:
-		inset 0 1px 0 color-mix(in srgb, var(--vscode-button-foreground, #ffffff) 22%, transparent),
-		0 1px 2px color-mix(in srgb, var(--vscode-button-background, #0078d4) 28%, transparent);
+		inset 0 1px 0 color-mix(in srgb, var(--vscode-button-foreground) 22%, transparent),
+		0 1px 2px color-mix(in srgb, var(--vscode-button-background) 28%, transparent);
 }
 
 .basehalf-adhd-check-checked::after {
@@ -429,13 +436,13 @@ body,
 .basehalf-adhd-check-checked:hover {
 	border-color: color-mix(
 		in srgb,
-		var(--vscode-button-background, #0078d4) 86%,
-		var(--vscode-button-foreground, #ffffff)
+		var(--vscode-button-background) 86%,
+		var(--vscode-button-foreground)
 	);
 	background: color-mix(
 		in srgb,
-		var(--vscode-button-background, #0078d4) 86%,
-		var(--vscode-button-foreground, #ffffff)
+		var(--vscode-button-background) 86%,
+		var(--vscode-button-foreground)
 	);
 }
 
@@ -444,7 +451,7 @@ body,
 }
 
 .basehalf-adhd-check:focus-visible {
-	outline: 2px solid var(--vscode-focusBorder, #0078d4);
+	outline: 2px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }
 
@@ -473,7 +480,7 @@ body,
 	color: var(--vscode-menu-foreground);
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
-	box-shadow: 0 4px 18px rgb(0 0 0 / 35%);
+	box-shadow: 0 4px 18px var(--vscode-basehalf-shadow35);
 	font-size: 12px;
 	line-height: 20px;
 }
@@ -676,6 +683,17 @@ body,
 	scrollbar-width: none;
 }
 
+/* A code block has a ground and a text color for each kind of theme (light and dark, rule 9). The editor's own
+ * sheet draws it white on near black whatever the theme, which is the dark value of these two. */
+.basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"],
+.basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] > div > select {
+	color: var(--vscode-basehalf-noteCodeForeground);
+}
+
+.basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] {
+	background-color: var(--vscode-basehalf-noteCodeBackground);
+}
+
 /* A tab in code is as wide as the four spaces the card shows for it (note formats, rule 32). */
 .basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] > pre {
 	tab-size: 4;
@@ -768,7 +786,7 @@ body,
 	border-style: solid;
 	border-color: var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 12px;
-	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	box-shadow: 0 8px 24px var(--vscode-basehalf-shadow36);
 	font-size: 13px;
 	opacity: 0;
 	transform: translateX(-10px);
@@ -879,3 +897,25 @@ body,
 	color: var(--vscode-input-placeholderForeground) !important;
 	font-style: normal !important;
 }
+
+/* The colors a note stores are one fixed value each (note formats, rules 46 and 47). A block Rich shows as it is
+ * written draws each stored value in the color of the theme's kind (light and dark, rule 17): the stored value
+ * itself under a dark theme, its light form under a light one. */
+.basehalf-raw-passthrough-rendered span[style*="color:#9b9a97" i] { color: var(--vscode-basehalf-noteGrayText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#ba8e78" i] { color: var(--vscode-basehalf-noteBrownText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#e8706b" i] { color: var(--vscode-basehalf-noteRedText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#dc8434" i] { color: var(--vscode-basehalf-noteOrangeText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#d5ae38" i] { color: var(--vscode-basehalf-noteYellowText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#5cad83" i] { color: var(--vscode-basehalf-noteGreenText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#4ba3dc" i] { color: var(--vscode-basehalf-noteBlueText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#a882e4" i] { color: var(--vscode-basehalf-notePurpleText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="color:#e36aaf" i] { color: var(--vscode-basehalf-notePinkText) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#3f3e3b" i] { background-color: var(--vscode-basehalf-noteGrayHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#4f3a30" i] { background-color: var(--vscode-basehalf-noteBrownHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#692b2b" i] { background-color: var(--vscode-basehalf-noteRedHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#583b1f" i] { background-color: var(--vscode-basehalf-noteOrangeHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#4a401d" i] { background-color: var(--vscode-basehalf-noteYellowHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#24443a" i] { background-color: var(--vscode-basehalf-noteGreenHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#1f4157" i] { background-color: var(--vscode-basehalf-noteBlueHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#45306a" i] { background-color: var(--vscode-basehalf-notePurpleHighlight) !important; }
+.basehalf-raw-passthrough-rendered span[style*="background-color:#62294b" i] { background-color: var(--vscode-basehalf-notePinkHighlight) !important; }

@@ -42,7 +42,7 @@
 	z-index: 1;
 	display: flex;
 	align-items: center;
-	color: #f5f5f5;
+	color: var(--vscode-basehalf-mediaControlForeground);
 	cursor: default;
 	opacity: 0;
 	visibility: hidden;
@@ -144,9 +144,9 @@
 /* The backing of the player's controls, and of Card Detail's controls over a zoomed picture (D98, D101). */
 .monaco-workbench .basehalf-canvas-video-player,
 .monaco-workbench .basehalf-card-detail-media-webview {
-	--basehalf-video-control-backing: rgb(24 24 26 / 62%);
+	--basehalf-video-control-backing: var(--vscode-basehalf-mediaControlBackground62);
 	--basehalf-video-control-blur: blur(12px) saturate(140%);
-	--basehalf-video-control-edge: inset 0 0 0 0.5px rgb(255 255 255 / 14%), 0 1px 3px rgb(0 0 0 / 18%);
+	--basehalf-video-control-edge: inset 0 0 0 0.5px var(--vscode-basehalf-overlayForeground14), 0 1px 3px var(--vscode-basehalf-overlayBackground18);
 }
 
 @container (max-width: 220px) {
@@ -170,7 +170,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-video-player-button:hover {
-	background: rgb(255 255 255 / 14%);
+	background: var(--vscode-basehalf-overlayForeground14);
 }
 
 .monaco-workbench .basehalf-canvas-video-player-button.sound {
@@ -182,7 +182,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-video-player-button.sound:hover {
-	background: rgb(24 24 26 / 78%);
+	background: var(--vscode-basehalf-mediaControlBackground78);
 }
 
 .monaco-workbench .basehalf-canvas-video-player-icon {
@@ -194,7 +194,7 @@
 .monaco-workbench .basehalf-canvas-video-player-time {
 	flex: none;
 	min-width: 36px;
-	color: rgb(245 245 245 / 90%);
+	color: var(--vscode-basehalf-mediaControlForeground90);
 	font-size: 12px;
 	font-variant-numeric: tabular-nums;
 	line-height: 1;
@@ -228,12 +228,12 @@
 
 .monaco-workbench .basehalf-canvas-video-player-track {
 	right: 0;
-	background: rgb(255 255 255 / 24%);
+	background: var(--vscode-basehalf-overlayForeground24);
 }
 
 .monaco-workbench .basehalf-canvas-video-player-fill {
 	width: var(--basehalf-video-played, 0%);
-	background: #fff;
+	background: var(--vscode-basehalf-overlayForeground);
 }
 
 .monaco-workbench .basehalf-canvas-video-player-thumb {
@@ -242,8 +242,8 @@
 	width: 12px;
 	height: 12px;
 	border-radius: 50%;
-	background: #fff;
-	box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+	background: var(--vscode-basehalf-overlayForeground);
+	box-shadow: 0 1px 3px var(--vscode-basehalf-overlayBackground45);
 	pointer-events: none;
 }
 
@@ -259,7 +259,7 @@
 	flex: none;
 	aspect-ratio: var(--basehalf-video-aspect, 16 / 9);
 	border-radius: 6px;
-	background: #000;
+	background: var(--vscode-basehalf-overlayBackground);
 }
 
 .monaco-workbench .basehalf-canvas-video-player.detail .basehalf-canvas-video-player-video {
@@ -277,7 +277,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-video-player.detail .basehalf-canvas-video-player-picture {
-	color: rgb(245 245 245 / 55%);
+	color: var(--vscode-basehalf-mediaControlForeground55);
 	pointer-events: auto;
 }
 

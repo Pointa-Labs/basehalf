@@ -58,7 +58,7 @@
 	border-style: solid;
 	border-color: var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 12px;
-	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	box-shadow: 0 8px 24px var(--vscode-basehalf-shadow36);
 	font-size: 13px;
 	opacity: 0;
 	transform: translateX(-10px);

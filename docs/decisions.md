@@ -7289,6 +7289,78 @@ a user who hid the Agent Area to work on the canvas is the one it has to reach.
 - Every session of the Agent Area is transient for the base, also without the command bridge.
 - The smoke's fixture starts from nothing, so its step of the arrangement reloads the window.
 
+## D148 — BaseHalf is light under a light theme: its colors are colors of the theme, with a value for each kind (NEW, 2026-11-21)
+
+**Decision.** Everything BaseHalf draws takes its colors from the theme. The colors that are BaseHalf's own, the canvas,
+a card's surface, borders and grays of text, the folder's golds, a connection's line, the ink of a shadow, the terminal's
+palette, are colors of the base's color registry, registered in one module with a default for each kind of theme: dark,
+light, high contrast dark, high contrast light. The dark defaults are the values the stylesheets held, so a dark theme
+draws what it drew. The light defaults are a palette of their own: a canvas of quiet paper, white cards that stand on it
+by a hairline and a little light, text near black, connections as quiet as in the dark, the theme's accent
+([light and dark](specs/light-and-dark.md)). The product's themes are the base's two defaults, `Dark 2026` and
+`Light 2026`; the profile sets no color customizations and no preferred themes, so the base's own setting
+`window.autoDetectColorScheme` makes BaseHalf follow the system's appearance.
+
+**Why.** The owner asked for the product itself to be polished along with its settings (D143: "既改产品又设计设置… 把我们的
+产品整个打磨得更好"). The gear's menu offers Themes > Color Theme, and with a light theme the window came apart: a light
+sidebar, title bar, and status bar around a black canvas, a white code card and a white toolbar on it, view controls
+that could not be seen, a dark terminal in a light frame.
+
+Measured in BaseHalf's sources (63 files that name a color): 889 uses of a variable of the theme, 440 uses of a variable
+of BaseHalf's, and 283 literal values, 183 of them in stylesheets. The canvas stayed dark because its 17 base colors were
+literal values in one block, and the 277 uses of its variables all lead there; the code card and the toolbars turned
+light because they ask the theme; the terminal stayed dark because the profile's color customizations hold over every
+theme. So the split was between what asked the theme and what did not, and what did not was small and already had one
+place. That made a light BaseHalf the smaller change than it looked, and a dark BaseHalf under every theme the larger
+one: 889 places would have had to stop asking the theme.
+
+The base already has the mechanism the brief asks for, tokens with a dark and a light value chosen by the kind of the
+theme: its color registry. A color registered there reaches the window as a variable, reaches every page in a frame under
+the same name, changes with the theme in the same frame as the base's own colors, and can be customized by a user as any
+color can. Nothing new had to be built to carry a color to the page of Rich or of a PDF.
+
+**Alternatives.**
+- *A dark BaseHalf under every theme* (the fallback of the brief): every surface keeps the dark palette and the shell
+  is kept dark with it. It asks 889 places to stop following the theme, or the theme picker to stop offering light
+  themes, and it leaves BaseHalf black beside a light app on the other half of the screen.
+- *Variables in a stylesheet, switched by the class of the kind.* It works in the window, but a page in a frame loads no
+  stylesheet of the window: the page of Rich already held copies of a card's three grays as literal values. Each bundle
+  would keep a copy of the palette, and a copy drifts.
+- *A theme of BaseHalf's own* (a theme file with BaseHalf's colors). A theme is chosen by its name; a color a user's
+  other theme does not set would have no value by kind. The registry's defaults are by kind for every theme.
+- *Theme-scoped color customizations in the profile* for the terminal (`"[Light 2026]": {…}`). They are by the theme's
+  name, and a user's own customization of any color replaces the profile's whole object.
+- *An inverted dark palette.* A light surface is not the dark one with its lightness turned around: shadows carry
+  elevation in the light where borders do in the dark, a tint that glows on black is dirt on white, and the grays of
+  text need other steps to keep their order and 4.5:1.
+
+**Consequences.**
+- A stylesheet or a source of BaseHalf's writes no literal color: a test reads the sources and fails on one outside the
+  module of the palette and a short list of named exceptions (the black of a mask, the colors a note stores).
+- A color with a share of transparency is a color of its own for each share (`basehalf.shadow32`). Mixing the share in
+  the stylesheet was tried first and changed 1,300 to 3,400 pixels of each dark screenshot by one step of 255, along the
+  edges of shadows: the browser computes a mixed color another way than a literal one.
+- The terminal's palette moved from `workbench.colorCustomizations` of the profile to the registry's defaults of the
+  terminal's own colors, by kind; the base's default themes carry no terminal colors. A user's customization of one
+  color no longer loses the rest of the palette.
+- Under a light theme a character of the terminal keeps 4.5:1 against the ground of its cell while the user has set no
+  ratio, and 7:1 under a high contrast theme. The profile's default of 1 is for the dark palette. Seen in the real
+  window: at 1, white on a red ground, the default text on black, and black on bright white could not be read on the
+  light ground; at 4.5 all could, and none of the 16 colors as plain text changed.
+- A change of the theme draws the new palette in one frame. Sampled every frame before this was built, a card's surface
+  and border took nine frames to fade from the dark values to the light ones on a canvas that was already light: the
+  card's own transition of 150 ms. While the theme changes, nothing in the window glides.
+- `workbench.preferredLightColorTheme` and `workbench.preferredHighContrastLightColorTheme` are the base's defaults
+  again. The color theme is no longer a setting that changes only the shell: the catalog's note that says so is out of
+  date, and a row "Appearance" (Dark, Light, Match the System) can be built on `window.autoDetectColorScheme` and
+  `workbench.colorTheme` alone.
+- The colors a note stores are still dark-surface values in its file. Under a light theme each is drawn in its light
+  form; the file is unchanged.
+- Behind a picture, a video, a sound, and a PDF in Card Detail stands the paper of the canvas under a light theme, and
+  the part a crop leaves out recedes into that paper: not a white page, where a picture with a white ground loses its
+  edge, and not a dark stage, which would be a dark room in a light product.
+- Under a dark theme the screenshots of the states the specification names are equal pixel by pixel before and after.
+
 ## D149 — The keyboard is always somewhere that answers (NEW, 2026-11-21)
 
 **Decision.** When what had the keyboard goes away and nothing else took it, the keyboard returns to where it was, when

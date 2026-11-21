@@ -100,7 +100,7 @@ import { installBaseHalfNoteBlockIndex } from './noteBlockIndex.js';
 import { installBaseHalfNotePaste, makeBaseHalfNotePasteHandler } from './notePaste.js';
 import { baseHalfNoteUnwrittenKey, makeBaseHalfNoteShapeExtension } from './noteShape.js';
 import { baseHalfNoteTitleLinePress, baseHalfNoteTitleLineStart, baseHalfNoteTitleOnlyEnd, isBaseHalfNoteTitleLineBlock, makeBaseHalfNoteTitleLineExtension } from './noteTitleLine.js';
-import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
+import { BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNoteStoredOpenToggles } from './noteToggleState.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/ui/browser/basehalfSidewaysScrollbar.js';
 import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
@@ -172,15 +172,22 @@ const baseHalfBlockNoteTheme: Theme = {
 		hovered: { text: 'var(--vscode-menu-selectionForeground)', background: 'var(--vscode-menu-selectionBackground)' },
 		selected: { text: 'var(--vscode-list-activeSelectionForeground)', background: 'var(--vscode-list-activeSelectionBackground)' },
 		disabled: { text: 'var(--vscode-disabledForeground)', background: 'transparent' },
-		shadow: '0 4px 18px rgb(0 0 0 / 28%)',
+		shadow: '0 4px 18px var(--vscode-basehalf-shadow28)',
 		border: 'var(--vscode-widget-border)',
 		sideMenu: 'var(--vscode-descriptionForeground)',
-		// The nine colors as the note stores them, in every appearance (note formats, rules 46 and 47).
-		highlights: Object.fromEntries(BASEHALF_NOTE_PALETTE_COLORS.map(name => [name, { ...BASEHALF_NOTE_PALETTE[name] }])),
+		// The nine colors as the theme's kind draws them: under a dark theme the values the note stores, under a
+		// light one their light forms (note formats, rules 46 and 47; light and dark, rule 17).
+		highlights: Object.fromEntries(BASEHALF_NOTE_PALETTE_COLORS.map(name => [name, baseHalfNotePaletteVariables(name)])),
 	},
 	borderRadius: 4,
 	fontFamily: 'var(--vscode-font-family)',
 };
+
+/** The variables of the theme that hold how a palette color is drawn. */
+function baseHalfNotePaletteVariables(name: string): { text: string; background: string } {
+	const id = name[0].toUpperCase() + name.slice(1);
+	return { text: `var(--vscode-basehalf-note${id}Text)`, background: `var(--vscode-basehalf-note${id}Highlight)` };
+}
 
 function workbenchColorScheme(): 'light' | 'dark' {
 	return document.body.classList.contains('vscode-light') || document.body.classList.contains('vscode-high-contrast-light')

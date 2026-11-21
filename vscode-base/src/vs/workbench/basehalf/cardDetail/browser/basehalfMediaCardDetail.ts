@@ -1090,7 +1090,7 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 		.image-stage.scaled img { flex: none; margin: auto; }
 		.image-stage img { display: block; max-width: none; max-height: none; image-rendering: auto; }
 		.image-stage img.fit { max-width: calc(100% - 48px); max-height: calc(100% - 48px); }
-		.toolbar { position: fixed; right: 18px; bottom: 18px; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; background: var(--vscode-editorWidget-background); box-shadow: 0 4px 14px rgb(0 0 0 / 25%); }
+		.toolbar { position: fixed; right: 18px; bottom: 18px; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; background: var(--vscode-editorWidget-background); box-shadow: 0 4px 14px var(--vscode-basehalf-shadow25); }
 		.toolbar button { min-width: 30px; height: 28px; padding: 0 8px; color: var(--vscode-foreground); background: transparent; border: 0; border-radius: 4px; font: inherit; cursor: pointer; }
 		.toolbar button:hover { background: var(--vscode-toolbar-hoverBackground); }
 		.toolbar button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
@@ -1119,7 +1119,7 @@ function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: stri
 		.status[hidden] { display: none; }
 		.status-content { display: grid; justify-items: center; gap: 14px; max-width: 520px; text-align: center; }
 		.status-message { margin: 0; font-size: 12px; line-height: 18px; }
-		.loading .status-placeholder { width: min(390px, 54vw); height: min(520px, 66vh); border: 1px solid var(--vscode-widget-border, transparent); border-radius: 3px; background: linear-gradient(100deg, var(--vscode-editorWidget-background) 20%, var(--vscode-toolbar-hoverBackground) 45%, var(--vscode-editorWidget-background) 70%); background-size: 220% 100%; box-shadow: 0 8px 28px rgb(0 0 0 / 18%); animation: basehalf-pdf-loading 1.4s ease-in-out infinite; }
+		.loading .status-placeholder { width: min(390px, 54vw); height: min(520px, 66vh); border: 1px solid var(--vscode-widget-border, transparent); border-radius: 3px; background: linear-gradient(100deg, var(--vscode-editorWidget-background) 20%, var(--vscode-toolbar-hoverBackground) 45%, var(--vscode-editorWidget-background) 70%); background-size: 220% 100%; box-shadow: 0 8px 28px var(--vscode-basehalf-shadow18); animation: basehalf-pdf-loading 1.4s ease-in-out infinite; }
 		.error .status-placeholder { display: none; }
 		.error .status-message { color: var(--vscode-errorForeground, var(--vscode-descriptionForeground)); }
 		/* The status covers the reader until the page it opens at is drawn; what it says comes only for a PDF that takes longer than a second (PDFs and books, rule 15a). */

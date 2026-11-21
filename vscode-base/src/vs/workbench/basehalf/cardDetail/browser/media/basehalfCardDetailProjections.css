@@ -256,7 +256,7 @@
 
 @keyframes basehalf-card-detail-selection-reveal {
 	0% {
-		background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c00) 55%, transparent);
+		background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground) 55%, transparent);
 		box-shadow: 0 0 0 2px var(--vscode-editor-findMatchBorder, transparent);
 	}
 	100% {
@@ -297,6 +297,11 @@
 	height: 100%;
 	min-height: 0;
 	overflow: hidden;
+}
+
+/* What stands behind a picture, a video, and a sound: the paper of the canvas under a light theme (light and dark, rule 14). */
+.monaco-workbench .basehalf-card-detail-media-webview {
+	background: var(--vscode-basehalf-mediaStageBackground);
 }
 
 /* A video plays in BaseHalf's player, centered, which fits itself into this space. */
@@ -578,7 +583,7 @@
 }
 
 .monaco-workbench .basehalf-card-detail-mode-button {
-	--basehalf-card-detail-mode-yellow: #f5c400;
+	--basehalf-card-detail-mode-yellow: var(--vscode-basehalf-editModeBackground);
 	/* Edit and Done stand one over the other: the button is as wide for each. */
 	display: inline-grid;
 	place-items: center;
@@ -595,11 +600,6 @@
 	font-weight: 600;
 	line-height: 24px;
 	cursor: pointer;
-}
-
-.monaco-workbench.vs-dark .basehalf-card-detail-mode-button,
-.monaco-workbench.hc-black .basehalf-card-detail-mode-button {
-	--basehalf-card-detail-mode-yellow: #ffd60a;
 }
 
 .monaco-workbench .basehalf-card-detail-mode-button[hidden] {
@@ -620,12 +620,12 @@
 }
 
 .monaco-workbench .basehalf-card-detail-mode-button.done {
-	color: #1c1c1e;
+	color: var(--vscode-basehalf-editModeForeground);
 	background: var(--basehalf-card-detail-mode-yellow);
 }
 
 .monaco-workbench .basehalf-card-detail-mode-button.done:hover {
-	background: color-mix(in srgb, var(--basehalf-card-detail-mode-yellow) 88%, #fff);
+	background: color-mix(in srgb, var(--basehalf-card-detail-mode-yellow) 88%, var(--vscode-basehalf-overlayForeground));
 }
 
 /* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */

@@ -128,8 +128,8 @@
 	height: 13px;
 	box-sizing: border-box;
 	padding: 0 3px;
-	color: #fff;
-	background: rgba(0, 0, 0, 0.55);
+	color: var(--vscode-basehalf-overlayForeground);
+	background: var(--vscode-basehalf-overlayBackground55);
 	border-radius: 4px;
 	font-size: 9px;
 	font-variant-numeric: tabular-nums;
@@ -150,8 +150,8 @@
 	left: 0;
 	height: 14px;
 	padding-left: 4px;
-	color: #fff;
-	background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+	color: var(--vscode-basehalf-overlayForeground);
+	background: linear-gradient(transparent, var(--vscode-basehalf-overlayBackground60));
 	font-size: 9px;
 	line-height: 14px;
 	text-align: left;
@@ -203,8 +203,8 @@
 	height: 16px;
 	place-items: center;
 	padding: 0;
-	color: #fff;
-	background: rgba(0, 0, 0, 0.6);
+	color: var(--vscode-basehalf-overlayForeground);
+	background: var(--vscode-basehalf-overlayBackground60);
 	border: 0;
 	border-radius: 50%;
 	font: inherit;
@@ -242,7 +242,7 @@
 }
 
 .monaco-workbench .bh-input-tile-remove:hover {
-	background: var(--vscode-errorForeground, #f14c4c);
+	background: var(--vscode-errorForeground);
 }
 
 .monaco-workbench .bh-input-tile-name:hover {
@@ -326,7 +326,7 @@
 	border-style: solid;
 	border-color: var(--bh-video-panel-line, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
 	border-radius: 12px;
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+	box-shadow: 0 8px 24px var(--vscode-basehalf-shadow35);
 	pointer-events: none;
 }
 
@@ -334,7 +334,7 @@
 	display: grid;
 	place-items: center;
 	overflow: hidden;
-	background: rgba(0, 0, 0, 0.3);
+	background: var(--vscode-basehalf-overlayBackground30);
 	border-radius: 8px;
 }
 

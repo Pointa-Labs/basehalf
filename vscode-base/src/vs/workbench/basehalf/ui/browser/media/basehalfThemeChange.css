@@ -1,0 +1,16 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * A change of the theme shows at once (light and dark, rule 25). A card, a toolbar, and a control glide between
+ * their own states over a tenth of a second or two; with the theme's colors as those states they would glide
+ * from the old palette to the new, dark cards fading on a canvas that is already light. While the theme changes
+ * nothing glides: the frame after the change draws the new palette whole.
+ */
+.monaco-workbench.basehalf-theme-changing *,
+.monaco-workbench.basehalf-theme-changing *::before,
+.monaco-workbench.basehalf-theme-changing *::after {
+	transition: none !important;
+}

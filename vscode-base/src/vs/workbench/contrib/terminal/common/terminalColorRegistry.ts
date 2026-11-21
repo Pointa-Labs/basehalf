@@ -6,8 +6,10 @@
 import { editorOverviewRulerBorder } from '../../../../editor/common/core/editorColorRegistry.js';
 import * as nls from '../../../../nls.js';
 
-import { registerColor, ColorIdentifier, ColorDefaults, editorFindMatch, editorFindMatchHighlight, overviewRulerFindMatchForeground, editorSelectionBackground, transparent, editorHoverHighlight } from '../../../../platform/theme/common/colorRegistry.js';
+import { registerColor, ColorIdentifier, ColorDefaults, editorFindMatch, editorFindMatchHighlight, overviewRulerFindMatchForeground, editorSelectionBackground, transparent, editorHoverHighlight, getColorRegistry } from '../../../../platform/theme/common/colorRegistry.js';
 import { EDITOR_DRAG_AND_DROP_BACKGROUND, PANEL_BORDER, TAB_ACTIVE_BORDER } from '../../../common/theme.js';
+// BaseHalf: the terminal's palette under a dark and a light theme is BaseHalf's (docs/specs/light-and-dark.md).
+import { BASEHALF_TERMINAL_COLOR_IDS, baseHalfTerminalColorDefaults } from '../../../basehalf/ui/common/basehalfColors.js';
 
 /**
  * The color identifiers for the terminal's ansi colors. The index in the array corresponds to the index
@@ -98,6 +100,14 @@ export const TERMINAL_INITIAL_HINT_FOREGROUND = registerColor('terminal.initialH
 	hcDark: null,
 	hcLight: null
 }, nls.localize('terminalInitialHintForeground', 'Foreground color of the terminal initial hint.'));
+
+// BaseHalf: the colors registered above take BaseHalf's defaults for a dark and a light theme and keep the base's
+// for high contrast. A color that is not registered yet, one of the 16, takes them in `registerColors` below.
+for (const contribution of getColorRegistry().getColors()) {
+	if (BASEHALF_TERMINAL_COLOR_IDS.includes(contribution.id)) {
+		getColorRegistry().updateDefaultColor(contribution.id, baseHalfTerminalColorDefaults(contribution.id, contribution.defaults));
+	}
+}
 
 export const ansiColorMap: { [key: string]: { index: number; defaults: ColorDefaults } } = {
 	'terminal.ansiBlack': {
@@ -250,6 +260,7 @@ export function registerColors(): void {
 	for (const id in ansiColorMap) {
 		const entry = ansiColorMap[id];
 		const colorName = id.substring(13);
-		ansiColorIdentifiers[entry.index] = registerColor(id, entry.defaults, nls.localize('terminal.ansiColor', '\'{0}\' ANSI color in the terminal.', colorName));
+		// BaseHalf: the 16 colors are BaseHalf's under a dark and a light theme.
+		ansiColorIdentifiers[entry.index] = registerColor(id, baseHalfTerminalColorDefaults(id, entry.defaults), nls.localize('terminal.ansiColor', '\'{0}\' ANSI color in the terminal.', colorName));
 	}
 }

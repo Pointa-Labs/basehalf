@@ -584,11 +584,11 @@ function observeWorkbenchTheme(container: EmbedPdfContainer): void {
 function baseHalfPdfTheme(): { preference: 'light' | 'dark'; light: DeepPartial<ThemeColors>; dark: DeepPartial<ThemeColors> } {
 	const workbenchColors: DeepPartial<ThemeColors> = {
 		background: {
-			app: 'var(--vscode-editor-background)',
+			app: 'var(--vscode-basehalf-mediaStageBackground)',
 			surface: 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
 			surfaceAlt: 'var(--vscode-sideBar-background, var(--vscode-editorWidget-background))',
 			elevated: 'var(--vscode-menu-background, var(--vscode-editorWidget-background))',
-			overlay: 'rgb(0 0 0 / 42%)',
+			overlay: 'var(--vscode-basehalf-overlayBackground42)',
 			input: 'var(--vscode-input-background)'
 		},
 		foreground: {
@@ -622,7 +622,7 @@ function baseHalfPdfTheme(): { preference: 'light' | 'dark'; light: DeepPartial<
 			errorLight: 'var(--vscode-inputValidation-errorBackground)',
 			warning: 'var(--vscode-editorWarning-foreground)',
 			warningLight: 'var(--vscode-inputValidation-warningBackground)',
-			success: 'var(--vscode-testing-iconPassed, #4caf50)',
+			success: 'var(--vscode-testing-iconPassed)',
 			successLight: 'var(--vscode-diffEditor-insertedTextBackground)',
 			info: 'var(--vscode-editorInfo-foreground)',
 			infoLight: 'var(--vscode-inputValidation-infoBackground)'

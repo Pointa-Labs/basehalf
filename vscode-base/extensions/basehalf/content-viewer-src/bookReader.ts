@@ -170,11 +170,12 @@ function fail(message: string): void {
 /** The book's own styles, with the editor's colors and the size of text the user chose. */
 function bookStyles(): string {
 	const style = getComputedStyle(document.documentElement);
-	const color = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+	// The theme's colors always have a value in a page (light and dark, rule 1).
+	const color = (name: string) => style.getPropertyValue(name).trim();
 	const dark = document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
-	const foreground = color('--vscode-editor-foreground', dark ? '#cccccc' : '#1f1f1f');
-	const link = color('--vscode-textLink-foreground', dark ? '#4daafc' : '#005fb8');
-	const selectionBackground = color('--vscode-editor-selectionBackground', dark ? '#264f78' : '#add6ff');
+	const foreground = color('--vscode-editor-foreground');
+	const link = color('--vscode-textLink-foreground');
+	const selectionBackground = color('--vscode-editor-selectionBackground');
 	return `
 		@namespace epub "http://www.idpf.org/2007/ops";
 		html {
@@ -355,7 +356,7 @@ async function search(query: string): Promise<void> {
 	let count = 0;
 	// Matches are marked as the editor marks what Find finds.
 	const style = getComputedStyle(document.documentElement);
-	const color = style.getPropertyValue('--vscode-editor-findMatchHighlightBackground').trim() || 'rgb(234 92 0 / 33%)';
+	const color = style.getPropertyValue('--vscode-editor-findMatchHighlightBackground').trim();
 	for await (const result of reader.search({ query, draw: Overlayer.highlight, drawOptions: { color } })) {
 		if (run !== searchRun) {
 			return;

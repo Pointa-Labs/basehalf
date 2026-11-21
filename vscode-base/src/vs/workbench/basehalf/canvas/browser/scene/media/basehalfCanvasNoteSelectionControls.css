@@ -29,7 +29,7 @@
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 8px;
-	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	box-shadow: 0 4px 16px var(--vscode-basehalf-shadow32);
 	pointer-events: auto;
 }
 
@@ -44,6 +44,13 @@
 	cursor: pointer;
 }
 
+/* A pale color keeps its edge on a pale menu (light and dark, rule 9). Under a dark theme no edge is drawn: one
+ * of no color at all still changes how the round swatch's rim is smoothed, by a step in some pixels. */
+.monaco-workbench.vs .basehalf-canvas-note-background-option,
+.monaco-workbench.hc-light .basehalf-canvas-note-background-option {
+	box-shadow: inset 0 0 0 1px var(--vscode-basehalf-noteSwatchBorder);
+}
+
 .monaco-workbench .basehalf-canvas-note-background-option:hover,
 .monaco-workbench .basehalf-canvas-note-background-option:focus-visible {
 	border-color: color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
@@ -56,22 +63,22 @@
 }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch.red,
-.monaco-workbench .basehalf-canvas-note-background-option.red { --basehalf-note-swatch: #392626; }
+.monaco-workbench .basehalf-canvas-note-background-option.red { --basehalf-note-swatch: var(--vscode-basehalf-noteRedBackground); }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch.orange,
-.monaco-workbench .basehalf-canvas-note-background-option.orange { --basehalf-note-swatch: #3b2c22; }
+.monaco-workbench .basehalf-canvas-note-background-option.orange { --basehalf-note-swatch: var(--vscode-basehalf-noteOrangeBackground); }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch.yellow,
-.monaco-workbench .basehalf-canvas-note-background-option.yellow { --basehalf-note-swatch: #373320; }
+.monaco-workbench .basehalf-canvas-note-background-option.yellow { --basehalf-note-swatch: var(--vscode-basehalf-noteYellowBackground); }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch.green,
-.monaco-workbench .basehalf-canvas-note-background-option.green { --basehalf-note-swatch: #22332a; }
+.monaco-workbench .basehalf-canvas-note-background-option.green { --basehalf-note-swatch: var(--vscode-basehalf-noteGreenBackground); }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch.cyan,
-.monaco-workbench .basehalf-canvas-note-background-option.cyan { --basehalf-note-swatch: #203238; }
+.monaco-workbench .basehalf-canvas-note-background-option.cyan { --basehalf-note-swatch: var(--vscode-basehalf-noteCyanBackground); }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch.blue,
-.monaco-workbench .basehalf-canvas-note-background-option.blue { --basehalf-note-swatch: #222f3d; }
+.monaco-workbench .basehalf-canvas-note-background-option.blue { --basehalf-note-swatch: var(--vscode-basehalf-noteBlueBackground); }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch.purple,
-.monaco-workbench .basehalf-canvas-note-background-option.purple { --basehalf-note-swatch: #30273c; }
+.monaco-workbench .basehalf-canvas-note-background-option.purple { --basehalf-note-swatch: var(--vscode-basehalf-notePurpleBackground); }

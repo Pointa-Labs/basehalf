@@ -29,7 +29,7 @@
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 10px;
-	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	box-shadow: 0 4px 16px var(--vscode-basehalf-shadow32);
 }
 
 .monaco-workbench .basehalf-canvas-tidy-question-actions {

@@ -58,26 +58,26 @@
 	box-sizing: border-box;
 	border: 1px solid transparent;
 	/* While viewing only the part kept shows. */
-	box-shadow: 0 0 0 100vmax var(--vscode-editor-background);
+	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-mediaStageBackground);
 	outline: none;
 	transition: box-shadow 150ms ease, border-color 150ms ease;
 }
 
 /* While editing the rest of the original shows dimmed around the part kept, as a phone's photo editor shows it (D97). */
 .monaco-workbench .basehalf-image-crop:not(.viewing) .basehalf-image-crop-frame {
-	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 62%);
+	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-cropVeil62);
 }
 
 /* While the frame or the picture is dragged, the rest is lighter, to show what the drag can take in. */
 .monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-frame {
-	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 45%);
+	box-shadow: 0 0 0 100vmax var(--vscode-basehalf-cropVeil45);
 }
 
 /* The frame stands on the part while the pointer is over the picture, the keyboard is on it, or it is adjusted. */
 .monaco-workbench .basehalf-image-crop-view:hover .basehalf-image-crop-frame,
 .monaco-workbench .basehalf-image-crop-frame.keyboard,
 .monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-frame {
-	border-color: rgb(255 255 255 / 85%);
+	border-color: var(--vscode-basehalf-overlayForeground85);
 }
 
 .monaco-workbench .basehalf-image-crop-corner,
@@ -112,7 +112,7 @@
 
 .monaco-workbench .basehalf-image-crop-grid {
 	position: absolute;
-	background: rgb(255 255 255 / 45%);
+	background: var(--vscode-basehalf-overlayForeground45);
 	opacity: 0;
 	transition: opacity 120ms ease;
 	pointer-events: none;
@@ -148,7 +148,7 @@
 	width: 22px;
 	height: 22px;
 	box-sizing: border-box;
-	border: 0 solid #fff;
+	border: 0 solid var(--vscode-basehalf-overlayForeground);
 	outline: none;
 }
 
@@ -165,7 +165,7 @@
 
 .monaco-workbench .basehalf-image-crop-side {
 	position: absolute;
-	background: #fff;
+	background: var(--vscode-basehalf-overlayForeground);
 }
 
 .monaco-workbench .basehalf-image-crop-side::before {
@@ -200,8 +200,8 @@
 	position: absolute;
 	padding: 2px 8px;
 	border-radius: 6px;
-	color: #fff;
-	background: rgb(0 0 0 / 66%);
+	color: var(--vscode-basehalf-overlayForeground);
+	background: var(--vscode-basehalf-overlayBackground66);
 	font-size: 11px;
 	font-variant-numeric: tabular-nums;
 	font-weight: 600;

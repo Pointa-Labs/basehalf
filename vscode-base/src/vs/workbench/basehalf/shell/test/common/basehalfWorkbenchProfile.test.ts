@@ -240,8 +240,8 @@ suite('BaseHalfWorkbenchProfile', () => {
 	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
 		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.activityBar.location'], 'top');
 		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.experimental.modernUI'], true);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.preferredLightColorTheme'], 'Dark 2026');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.preferredHighContrastLightColorTheme'], 'Default High Contrast');
+		// The themes and the colors are the base's and the color registry's (light and dark): the profile sets none.
+		assert.deepStrictEqual(Object.keys(BASEHALF_CONFIGURATION_DEFAULTS).filter(key => /olorTheme$|^workbench\.colorCustomizations$|^window\.autoDetect/.test(key)), []);
 		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.editor.showTabs'], 'none');
 		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['breadcrumbs.enabled'], false);
 		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['files.autoSave'], 'afterDelay');

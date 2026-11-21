@@ -237,7 +237,7 @@
 	width: 14px;
 	height: 14px;
 	border-radius: 50%;
-	background: #ffffff;
+	background: var(--vscode-button-foreground);
 	transition: transform 120ms ease;
 }
 

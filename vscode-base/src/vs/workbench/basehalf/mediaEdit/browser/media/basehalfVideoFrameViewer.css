@@ -12,9 +12,9 @@
  * and the handles are grey. The waveform of a sound shares the strip's rules.
  */
 .monaco-workbench .basehalf-video-frames {
-	--basehalf-video-frames-yellow: #f5c400;
+	--basehalf-video-frames-yellow: var(--vscode-basehalf-editModeBackground);
 	--basehalf-video-frames-frame: var(--basehalf-video-frames-yellow);
-	--basehalf-video-frames-chevron: rgb(0 0 0 / 78%);
+	--basehalf-video-frames-chevron: var(--vscode-basehalf-overlayBackground78);
 	display: flex;
 	flex-direction: column;
 	/* As wide as the player above it, which the stage is. */
@@ -27,13 +27,8 @@
 	user-select: none;
 }
 
-.monaco-workbench.vs-dark .basehalf-video-frames,
-.monaco-workbench.hc-black .basehalf-video-frames {
-	--basehalf-video-frames-yellow: #ffd60a;
-}
-
 .monaco-workbench .basehalf-video-frames.whole {
-	--basehalf-video-frames-frame: #fff;
+	--basehalf-video-frames-frame: var(--vscode-basehalf-overlayForeground);
 }
 
 .monaco-workbench .basehalf-video-frames-row {
@@ -194,7 +189,7 @@
 /* While a held handle spreads the viewer out, its own pictures stand over the whole video's. */
 .monaco-workbench .basehalf-video-frames-pictures.spread {
 	visibility: hidden;
-	background: color-mix(in srgb, var(--vscode-editor-foreground) 8%, var(--vscode-editor-background));
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 8%, var(--vscode-basehalf-mediaStageBackground));
 }
 
 .monaco-workbench .basehalf-video-frames.spread .basehalf-video-frames-pictures.spread {
@@ -213,7 +208,7 @@
 	z-index: 1;
 	top: 0;
 	bottom: 0;
-	background: color-mix(in srgb, var(--vscode-editor-background) 66%, transparent);
+	background: color-mix(in srgb, var(--vscode-basehalf-mediaStageBackground) 66%, transparent);
 	pointer-events: none;
 }
 
@@ -294,8 +289,8 @@
 	width: 2px;
 	margin-left: -1px;
 	border-radius: 1px;
-	background: #fff;
-	box-shadow: 0 0 3px rgb(0 0 0 / 55%);
+	background: var(--vscode-basehalf-overlayForeground);
+	box-shadow: 0 0 3px var(--vscode-basehalf-overlayBackground55);
 	pointer-events: none;
 }
 
@@ -319,7 +314,7 @@
 	width: 4px;
 	margin-left: -2px;
 	border-radius: 2px;
-	box-shadow: 0 0 0 0.5px rgb(0 0 0 / 45%), 0 0 3px rgb(0 0 0 / 35%);
+	box-shadow: 0 0 0 0.5px var(--vscode-basehalf-overlayBackground45), 0 0 3px var(--vscode-basehalf-overlayBackground35);
 }
 
 /*
@@ -337,7 +332,7 @@
  * turns them yellow (D102).
  */
 .monaco-workbench .basehalf-video-frames.whole:not(.basehalf-sound-waveform) {
-	--basehalf-video-frames-frame: color-mix(in srgb, var(--vscode-editor-foreground) 30%, var(--vscode-editor-background));
+	--basehalf-video-frames-frame: color-mix(in srgb, var(--vscode-editor-foreground) 30%, var(--vscode-basehalf-mediaStageBackground));
 	--basehalf-video-frames-chevron: var(--vscode-editor-foreground);
 }
 
@@ -355,7 +350,7 @@
 	border-radius: 8px;
 	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
 	background: var(--vscode-editorWidget-background);
-	box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
+	box-shadow: 0 1px 4px var(--vscode-basehalf-overlayBackground30);
 	font-size: 12px;
 	font-variant-numeric: tabular-nums;
 	line-height: 16px;
@@ -396,8 +391,8 @@
 	left: calc((var(--basehalf-video-frames-start, 0%) + var(--basehalf-video-frames-end, 100%)) / 2);
 	padding: 2px 8px;
 	border-radius: 6px;
-	color: #fff;
-	background: rgb(0 0 0 / 66%);
+	color: var(--vscode-basehalf-overlayForeground);
+	background: var(--vscode-basehalf-overlayBackground66);
 	font-size: 11px;
 	font-variant-numeric: tabular-nums;
 	font-weight: 600;
@@ -412,7 +407,7 @@
 	top: -7px;
 	color: var(--vscode-foreground);
 	background: var(--vscode-editorWidget-background);
-	box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+	box-shadow: 0 1px 4px var(--vscode-basehalf-overlayBackground25);
 	transform: translate(-50%, -100%);
 }
 

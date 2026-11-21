@@ -429,38 +429,6 @@ export const BASEHALF_HIDDEN_SURFACES = [
 
 export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'json' | 'git' | 'media-preview' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
-// Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
-// BaseHalf's neutral dark surface and blue product accent.
-export const BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS = {
-	'terminal.background': '#1f1f1f',
-	'terminal.foreground': '#cccccc',
-	'terminalCursor.foreground': '#ffffff',
-	'terminalCursor.background': '#000000',
-	'terminal.selectionBackground': '#3a3d41',
-	'terminal.selectionForeground': '#e0e0e0',
-	'terminal.inactiveSelectionBackground': '#3a3d4180',
-	'terminal.ansiBlack': '#272727',
-	'terminal.ansiRed': '#f74949',
-	'terminal.ansiGreen': '#2ea043',
-	'terminal.ansiYellow': '#9e6a03',
-	'terminal.ansiBlue': '#0078d4',
-	'terminal.ansiMagenta': '#d01273',
-	'terminal.ansiCyan': '#1db4d6',
-	'terminal.ansiWhite': '#cccccc',
-	'terminal.ansiBrightBlack': '#5d5d5d',
-	'terminal.ansiBrightRed': '#dc5452',
-	'terminal.ansiBrightGreen': '#23d18b',
-	'terminal.ansiBrightYellow': '#f5f543',
-	'terminal.ansiBrightBlue': '#3b8eea',
-	'terminal.ansiBrightMagenta': '#d670d6',
-	'terminal.ansiBrightCyan': '#29b8db',
-	'terminal.ansiBrightWhite': '#e5e5e5',
-	'terminalCommandDecoration.defaultBackground': '#cccccc40',
-	'terminalCommandDecoration.errorBackground': '#f74949',
-	'terminalCommandDecoration.successBackground': '#2ea043',
-	'terminalOverviewRuler.border': '#00000000'
-} as const;
-
 /**
  * One decision, "saves feel instant", as the delay of every save BaseHalf makes of what a user edits: the
  * default of `files.autoSaveDelay` below and the write of a badge's description on the canvas. The rich
@@ -476,12 +444,9 @@ export const BASEHALF_AUTO_SAVE_DELAY_MS = 250;
  */
 export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	...BASEHALF_LOCKED_SETTINGS,
-	// The canvas and the Agent Area terminal have a dark palette of their own.
-	// A switch that the system makes by itself, for the appearance or for high
-	// contrast, therefore stays on a dark theme. A user can still pick a light
-	// theme in the Color Theme picker.
-	'workbench.preferredLightColorTheme': 'Dark 2026',
-	'workbench.preferredHighContrastLightColorTheme': 'Default High Contrast',
+	// No theme and no color is set here. The product's themes are the base's defaults for a dark and a light
+	// appearance, and what BaseHalf draws has a palette for each (docs/specs/light-and-dark.md): the terminal's
+	// colors are defaults of the color registry, by the kind of the theme, not customizations over every theme.
 	// A save follows an edit at once, in every place BaseHalf saves what a user edits. A longer delay is the
 	// user's to set: a surface then says that it is saving until the file is written.
 	'files.autoSaveDelay': BASEHALF_AUTO_SAVE_DELAY_MS,
@@ -531,7 +496,7 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// (docs/specs/agent-area-terminal.md, Row height).
 	'terminal.integrated.fontSize': 13,
 	'terminal.integrated.lineHeight': 1.15,
-	// Ghostty renders the terminal palette directly. VS Code's default contrast
+	// The terminal draws its palette as it is. VS Code's default contrast
 	// remapping changes ANSI colors enough that Codex/TUI output looks muted.
 	'terminal.integrated.minimumContrastRatio': 1,
 	// A window that closes takes an agent's run with it, and nothing brings it
@@ -541,8 +506,7 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// An agent rings the bell when it needs the user, and the bell on its tab
 	// is how a user who looks elsewhere comes to know. The base's default
 	// shows none (docs/specs/agent-area-terminal.md, The bell).
-	'terminal.integrated.enableVisualBell': true,
-	'workbench.colorCustomizations': BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS
+	'terminal.integrated.enableVisualBell': true
 } as const;
 
 export const BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR = [
