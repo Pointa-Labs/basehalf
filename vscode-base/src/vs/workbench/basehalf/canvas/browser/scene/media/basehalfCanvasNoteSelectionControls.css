@@ -41,9 +41,14 @@
 	background: var(--basehalf-note-swatch);
 	border: 2px solid transparent;
 	border-radius: 50%;
-	/* A pale color keeps its edge on a pale menu (light and dark, rule 9). */
-	box-shadow: inset 0 0 0 1px var(--vscode-basehalf-noteSwatchBorder);
 	cursor: pointer;
+}
+
+/* A pale color keeps its edge on a pale menu (light and dark, rule 9). Under a dark theme no edge is drawn: one
+ * of no color at all still changes how the round swatch's rim is smoothed, by a step in some pixels. */
+.monaco-workbench.vs .basehalf-canvas-note-background-option,
+.monaco-workbench.hc-light .basehalf-canvas-note-background-option {
+	box-shadow: inset 0 0 0 1px var(--vscode-basehalf-noteSwatchBorder);
 }
 
 .monaco-workbench .basehalf-canvas-note-background-option:hover,
