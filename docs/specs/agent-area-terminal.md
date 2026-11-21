@@ -526,6 +526,34 @@ cursor, and the scrollback, works as in the base.
 8. The tab's key, its state, its activity dot, and the scrolling of the
    strip are unchanged.
 
+#### The bell
+
+An agent rings the bell of its terminal when it needs the user. The bell on
+the tab is how a user who looks at another session comes to know, and a user
+who shows the Agent Area again after hiding it.
+
+1. With `terminal.integrated.enableVisualBell` on, a bell that a program
+   rings shows on the tab of its session: a bell stands where the tab's
+   activity dot and its close button stand, and the close button returns
+   under the pointer. BaseHalf's default for the setting is on; the base's
+   is off.
+2. A session is **in view** while the Agent Area is shown and its tab is in
+   front. The bell of a session in view shows for
+   `terminal.integrated.bellDuration` milliseconds after the last ring. The
+   bell of a session that is not in view stays until the session comes into
+   view, and from then for the same time, as if it rang at that moment: a
+   second is too short for a user who is elsewhere.
+3. A tab with several panes shows the bell of any of them.
+4. The bell sounds as the base's signal says: the base plays
+   `accessibility.signals.terminalBell` for every ring of every terminal, in
+   view or not, and that setting says whether a sound is heard. The base
+   turns a value of the deprecated `terminal.integrated.enableBell` into
+   these two settings.
+5. As in the base, a ring within the first second of a terminal shows
+   nothing.
+6. A bell changes only its mark on the tab: the strip is not drawn again
+   ([The name of a session](#the-name-of-a-session), rule 6).
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -786,3 +814,33 @@ cursor, and the scrollback, works as in the base.
     the flaky test`, `Claude Code` with the setting off, the title again
     with it on, and `Claude Code` with Exited after `quit`; the question
     said "“✳ Fix the flaky test” is still running."
+20. A unit test of the bell shows: a ring in view shows until its time
+    ends; a ring out of view shows after its time has ended, until the
+    session comes into view and for the time of a bell after that; and a
+    session that comes into view while the bell still rings shows it until
+    both times have ended. A unit test shows on as
+    BaseHalf's default for `terminal.integrated.enableVisualBell`.
+21. Recorded manual check, in a real window with two Terminal sessions:
+    - `printf '\a'` in the session in front shows the bell on its tab and
+      takes it away after the duration, at the default and at
+      `terminal.integrated.bellDuration` of 3000;
+    - a bell rung in the session that is not in front, three seconds after
+      the other tab was chosen, shows on its tab, is still there ten
+      seconds later, and goes within the duration after the tab is chosen;
+    - a bell rung while the Agent Area is hidden shows on the tab in front
+      when the Agent Area is shown again, for the duration;
+    - with `terminal.integrated.enableVisualBell` off no bell shows;
+    - with `accessibility.signals.terminalBell` set to sound, a ring loads
+      the base's sound; the tabs keep their elements through a bell.
+
+    Recorded 2026-11-21 in a development build with its sound muted: the
+    bell of the session in front showed for 991 ms at the default and for
+    2,994 ms at a duration of 3000, in the warning color of the theme, and
+    the close button returned under the pointer. A bell rung in the other
+    session showed on its tab and was there ten seconds later; once its tab
+    was chosen it showed for another 1,035 ms. A bell rung while the Agent
+    Area was hidden showed for 1,012 ms once the area was shown. With the
+    setting off none showed. With `accessibility.signals.terminalBell` set
+    to sound, the base played `terminalBell.mp3` for a ring in view and for
+    one out of view, and nothing at the signal's default or with the sound
+    off. The tabs kept their elements throughout.
