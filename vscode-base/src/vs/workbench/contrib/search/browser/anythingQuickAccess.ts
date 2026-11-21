@@ -210,7 +210,17 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		this.fileQueryBuilder = this.instantiationService.createInstance(QueryBuilder);
 		this.workspaceSymbolsQuickAccess = this._register(instantiationService.createInstance(SymbolsQuickAccessProvider));
 		this.editorSymbolsQuickAccess = this.instantiationService.createInstance(GotoSymbolQuickAccessProvider);
+
+		// BaseHalf: a file that came or went is not in the cache of the search before (title bar location, requirement 12).
+		this._register(this.fileService.onDidFilesChange(event => {
+			if (event.gotAdded() || event.gotDeleted()) {
+				this.filesCameOrWent = true;
+			}
+		}));
 	}
+
+	/** BaseHalf: whether a file came or went since the cache of the last search was made. */
+	private filesCameOrWent = false;
 
 	private get configuration() {
 		const editorConfig = this.configurationService.getValue<IWorkbenchEditorConfiguration>().workbench?.editor;
@@ -579,11 +589,19 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 	private readonly fileQueryBuilder: QueryBuilder;
 
 	private createFileQueryCache(): FileQueryCacheState {
+		// BaseHalf: the cache of the search before stands in while the new one loads, unless a file came or went
+		// since it was made; then the search waits for the new one (title bar location, requirement 12).
+		let previous = this.pickState.fileQueryCache;
+		if (this.filesCameOrWent) {
+			this.filesCameOrWent = false;
+			previous?.dispose();
+			previous = undefined;
+		}
 		return new FileQueryCacheState(
 			cacheKey => this.fileQueryBuilder.file(this.contextService.getWorkspace().folders, this.getFileQueryOptions({ cacheKey })),
 			query => this.searchService.fileSearch(query),
 			cacheKey => this.searchService.clearCache(cacheKey),
-			this.pickState.fileQueryCache
+			previous
 		).load();
 	}
 
