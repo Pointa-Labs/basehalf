@@ -208,6 +208,7 @@ export class BaseHalfCanvasCardRenderer {
 	didMountCardElement(path: string, element: HTMLElement): void {
 		this.view.cardListenerStores.didMount(path, element);
 		this.view.creation.mountInlineRenameEditor(path, element);
+		this.view.keyboardHome.cardMounted(element);
 	}
 
 	applyNoteBackground(card: HTMLElement, background: BaseHalfCanvasNoteBackground | undefined): void {

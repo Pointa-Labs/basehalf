@@ -194,10 +194,11 @@ suite('BaseHalfCanvasKeys', () => {
 				'the selected code card',
 				'something of the selected code card that is no control',
 				'the selected video card',
-				'a card of two selected ones'
+				'a card of two selected ones',
+				'the frame the canvas library draws around the selected card'
 			],
-			// A set is not moved by keys, whatever is held with the arrow key.
-			withCommand: ['the blank canvas, two cards selected', 'a card of two selected ones']
+			// A set is not moved by keys, whatever is held with the arrow key, and the library moves no card from its frame.
+			withCommand: ['the blank canvas, two cards selected', 'a card of two selected ones', 'the frame the canvas library draws around the selected card']
 		});
 	});
 });

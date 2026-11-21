@@ -111,6 +111,8 @@ import { BaseHalfCanvasCreation } from './view/basehalfCanvasCreation.js';
 import { BaseHalfCanvasFolderDrops } from './view/basehalfCanvasFolderDrops.js';
 import { BaseHalfCanvasCardDetailHost } from './view/basehalfCanvasCardDetailHost.js';
 import { BaseHalfCanvasKeys } from './view/basehalfCanvasKeys.js';
+import { BaseHalfCanvasKeyboardHome } from './view/basehalfCanvasKeyboardHome.js';
+import { IBaseHalfKeyboardPartsService } from './basehalfKeyboardParts.js';
 import { IBaseHalfCanvasKeyCommandService } from '../common/basehalfCanvasKeys.js';
 import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, BaseHalfCanvasInlineEdit, IBaseHalfActiveCanvasNoteEditor, IBaseHalfBadgeDescriptionPending, IBaseHalfCanvasCardRenderCacheEntry, IBaseHalfCanvasMutationGuard, IBaseHalfCanvasNotePreviewMount, IBaseHalfCanvasPostCreateOwner, IBaseHalfPendingCanvasNoteFocus, IBaseHalfPendingCanvasNoteFormatCommand, IBaseHalfPendingCanvasNoteNavigationGuard, baseHalfBadgeResourceIdentity, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasTargetTakesOwnTransfer } from './view/basehalfCanvasViewShared.js';
 
@@ -173,6 +175,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly folderDrops = new BaseHalfCanvasFolderDrops(this);
 	readonly cardDetailHost = new BaseHalfCanvasCardDetailHost(this);
 	readonly keys = new BaseHalfCanvasKeys(this);
+	readonly keyboardHome = new BaseHalfCanvasKeyboardHome(this);
 
 	readonly root: HTMLElement;
 	readonly createButton: HTMLButtonElement;
@@ -195,7 +198,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly detailEditActions: HTMLElement;
 	readonly detailBadgeZone: HTMLElement;
 	readonly detailBody: HTMLElement;
-	private readonly editorContainer: HTMLElement;
+	/** The base's editor part, which the canvas lies over: its empty group is under the canvas. */
+	readonly editorContainer: HTMLElement;
 	readonly cardListenerStores = this._register(new BaseHalfCanvasCardListenerStores());
 	/**
 	 * The rename editor of a card. It lives as long as its edit: a card that
@@ -326,7 +330,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IInstantiationService public readonly instantiationService: IInstantiationService,
 		@ILogService public readonly logService: ILogService,
 		@IEditorService private readonly editorService: IEditorService,
-		@IEditorGroupsService private readonly editorGroupsService: IEditorGroupsService,
+		@IEditorGroupsService public readonly editorGroupsService: IEditorGroupsService,
 		@IFilesConfigurationService private readonly filesConfigurationService: IFilesConfigurationService,
 		@IWorkingCopyService public readonly workingCopyService: IWorkingCopyService,
 		@IWorkingCopyFileService public readonly workingCopyFileService: IWorkingCopyFileService,
@@ -373,7 +377,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@ILanguageService public readonly languageService: ILanguageService,
 		@IExtensionService public readonly extensionService: IExtensionService,
 		@IKeybindingService public readonly keybindingService: IKeybindingService,
-		@IBaseHalfCanvasKeyCommandService public readonly canvasKeyCommandService: IBaseHalfCanvasKeyCommandService
+		@IBaseHalfCanvasKeyCommandService public readonly canvasKeyCommandService: IBaseHalfCanvasKeyCommandService,
+		@IBaseHalfKeyboardPartsService public readonly keyboardPartsService: IBaseHalfKeyboardPartsService
 	) {
 		super();
 		this.itemRules = this._register(new BaseHalfItemRulesReader(this.configurationService));
@@ -440,6 +445,9 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(toDisposable(() => this.inlineRenameEditor?.store.dispose()));
 		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
 		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
+		// The canvas itself holds the keyboard between its cards: it has a name for what reads the window aloud.
+		this.cards.setAttribute('role', 'group');
+		this.cards.setAttribute('aria-label', localize('basehalf.canvas.name', "Canvas"));
 		this.canvasOverlay = DOM.append(this.surface, DOM.$('.basehalf-canvas-overlay'));
 		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
 			commitGeometry: (sceneKey, structuralEpoch, geometries, reason) => this.geometry.commitSceneGeometry(sceneKey, structuralEpoch, geometries, reason),
@@ -644,6 +652,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		// The keys of the canvas are commands, which its part of keys runs before any control (the keys of the canvas).
 		this._register(this.keys.start());
+		// The keyboard is always somewhere that answers (where the keyboard returns).
+		this._register(this.keyboardHome.start());
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (this.keys.ran(event)) {
 				// Enter or Space ran its command and went on to the canvas library: the base's key bindings do not run it again.
@@ -728,6 +738,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.workingCopyFileService.onWillRunWorkingCopyFileOperation(event => {
 			if (event.operation === FileOperation.MOVE) {
 				this.previews.carryMovedCards(event.files);
+				this.keyboardHome.followMoves(event.files);
 			}
 		}));
 		this._register(this.workspaceMutationCoordinator.onDidFinishStructuralMutation(outcome => {
@@ -854,7 +865,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				}
 			},
 			isInteracting: () => this.canvasScene.isInteracting(),
-			focusCard: path => this.renderedCardElementsByPath.get(path)?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true }),
+			// The card itself, where the keys of a card act: not the frame the canvas library draws around it.
+			focusCard: path => this.renderedCardElementsByPath.get(path)?.focus({ preventScroll: true }),
 			startCardPick: pick => this.selectionActions.startCanvasCardPick(pick),
 			endCardPick: () => this.selectionActions.endCanvasCardPick(),
 			showCardPanel: (sceneKey, path, element, screenHeight) => this.canvasScene.setVideoPanelSurface({ sceneKey, structuralEpoch: this.renderedSceneStructuralEpoch, path, element, screenHeight }),
@@ -911,7 +923,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				}
 			},
 			closeNoteEditor: () => this.noteEditing.closeActiveCanvasNoteEditorAfterFormats(),
-			focus: () => this.cards.focus({ preventScroll: true }),
+			focus: () => this.keyboardHome.give(),
 			registerCommand: (id, run) => this.keys.registerFeatureCommand(id, run),
 			reportError: error => this.reportCanvasMutationError(error),
 			viewControls: this.viewControls,

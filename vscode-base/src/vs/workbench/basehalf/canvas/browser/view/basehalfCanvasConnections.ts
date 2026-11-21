@@ -390,7 +390,7 @@ export class BaseHalfCanvasConnections {
 					getActions: () => actions,
 					onHide: wasCancelled => {
 						if (wasCancelled) {
-							this.view.cards.focus({ preventScroll: true });
+							this.view.keyboardHome.give();
 							resolve(false);
 							return;
 						}

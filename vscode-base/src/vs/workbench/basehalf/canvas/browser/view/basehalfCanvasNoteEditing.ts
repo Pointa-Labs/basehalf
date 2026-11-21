@@ -834,8 +834,10 @@ export class BaseHalfCanvasNoteEditing {
 			const focusedCardPath = isHTMLElement(focused)
 				? focused.closest<HTMLElement>('.basehalf-canvas-card')?.dataset.basehalfCardPath
 				: undefined;
+			// Where the keyboard was sent because it had nowhere to be, it stands as on the page itself.
 			const remainsOwned = ownerDocument.hasFocus()
 				&& (focused === ownerDocument.body
+					|| this.view.keyboardHome.gave(focused)
 					|| focused === active.card
 					|| (intent.createFocusOrigin !== undefined && focused === intent.createFocusOrigin)
 					|| (intent.createFocusReturnPath !== undefined && focusedCardPath === intent.createFocusReturnPath)

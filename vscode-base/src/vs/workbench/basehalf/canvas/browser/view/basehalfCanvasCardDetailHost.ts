@@ -11,6 +11,7 @@ import { IKeyboardEvent } from '../../../../../base/browser/keyboardEvent.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname, extname, joinPath } from '../../../../../base/common/resources.js';
 import { raceTimeout } from '../../../../../base/common/async.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
 import { IFileStat } from '../../../../../platform/files/common/files.js';
@@ -268,6 +269,7 @@ export class BaseHalfCanvasCardDetailHost {
 			this.detailIdentityReconcileSeq++;
 			this.detailIdentityPendingResourceKey = undefined;
 			const wasOpen = this.detailSurfaceResourceKey !== undefined;
+			const closedResource = this.detailSurfaceResourceKey !== undefined ? URI.parse(this.detailSurfaceResourceKey) : undefined;
 			this.view.detailBadgeOpen = false;
 			this.view.detailBadgeRefreshAfterFocusLeaves = false;
 			this.detailBadgeResourceKey = undefined;
@@ -303,7 +305,12 @@ export class BaseHalfCanvasCardDetailHost {
 				}
 			}
 			if (hadKeyboard) {
-				this.view.cards.focus({ preventScroll: true });
+				// The card of the file that was shown, when the canvas holds it; the canvas itself otherwise.
+				if (closedResource) {
+					this.view.keyboardHome.giveToCardOf(closedResource);
+				} else {
+					this.view.keyboardHome.give();
+				}
 			}
 			return;
 		}
@@ -664,6 +671,16 @@ export class BaseHalfCanvasCardDetailHost {
 		const whenRendered = instance.open(cardDetail).catch(error => this.view.logService.error(error));
 		instance.setStructuralFrozen?.(this.view.workspaceMutationCoordinator.isResourceMutationFenced(cardDetail.workspaceFolder, cardDetail.relativePath));
 		return { host, store, instance, whenRendered };
+	}
+
+	/** Card Detail takes the keyboard that has nowhere to be, as when an overlay closes over it (where the keyboard returns). */
+	takeKeyboard(): void {
+		const projection = this.view.activeDetailProjection;
+		if (projection !== undefined) {
+			this.giveKeyboardToView(projection);
+		} else {
+			this.view.root.focus({ preventScroll: true });
+		}
 	}
 
 	/** To the view, or where a press on the header's blank part leaves it when the view takes none: on nothing, no key reaches Card Detail. */

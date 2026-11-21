@@ -1,7 +1,8 @@
 # Opening and closing Card Detail
 
 Status: Active (2026-10-23). Revised 2026-11-13: the canvas takes the
-keyboard back without a ring.
+keyboard back without a ring. Revised 2026-11-21: the card of the file takes
+the keyboard when Card Detail closes (D149).
 Related: [architecture invariants](../harness/architecture-invariants.md#product-shell)
 (the files a card and Card Detail show),
 [generation cards](generation-cards.md) ("The player" and "The toolbar"),
@@ -120,7 +121,11 @@ rule 26).
   sound, which it leaves first, back to viewing the file, wherever in Card
   Detail the keyboard is ([editing media](media-editing.md#the-keyboard)).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
-  the canvas, where the keys of the selected card work again.
+  the card of its file, when the canvas shows that card, and otherwise to
+  the canvas itself: the keys of the card work again, and Enter opens it
+  again ([where the keyboard returns](keyboard-return.md#each-closing)).
+- An overlay that closes over Card Detail gives the keyboard back to Card
+  Detail: to what it shows, as when it opened, and a note keeps its caret.
 - The canvas that holds the keyboard draws no ring: it is not a control, and
   its edges are Card Detail's. Grow Branch in a PDF gave the canvas the
   keyboard as Card Detail began to close, and the workbench's ring of a
@@ -171,8 +176,8 @@ navigation, which has already changed when it starts.
    when the transition ends; the transition did not wait for the note's
    editor.
 5. Escape closes Card Detail with the keyboard in its header, the player of
-   a video, an image, and a PDF, and the keyboard is on the canvas again;
-   with a menu of the note's editor open, it closes the menu only.
+   a video, an image, and a PDF, and the keyboard is on the card of the file
+   again; with a menu of the note's editor open, it closes the menu only.
 6. A file opened from Files: Card Detail fades in the same way.
 7. With `workbench.reduceMotion` on: the frames go from the canvas straight
    to Card Detail drawn, and back.

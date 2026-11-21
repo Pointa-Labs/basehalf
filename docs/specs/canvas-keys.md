@@ -142,7 +142,9 @@ else:
   shows the key Tidy Canvas has now. A command without a key shows none.
 - The arrow keys never reach the canvas library, which would move the
   selected cards by its own steps: where Move Card acts, an arrow key that
-  the user took from it does nothing.
+  the user took from it does nothing. Nor do they reach it from the frame
+  the library draws around the one selected card, where the Tab key can put
+  the keyboard: there they do nothing (D149).
 
 ### The Command Palette
 
@@ -197,6 +199,10 @@ the keyboard.
    canvas's: the control it is pressed on receives it, then the base's key
    bindings.
 6. An input method's keys are never looked up.
+7. The repeats of a key that is held do nothing on the canvas once the
+   keyboard is on another element than the one the key went down on, but
+   for Tab and the arrow keys
+   ([where the keyboard returns](keyboard-return.md#a-key-that-is-held)).
 
 ## Implementation boundaries
 
@@ -296,7 +302,8 @@ the keyboard.
 - What the first run showed and the code had not said: the editor of a
   card's name keeps every key, so the zoom keys do nothing there; and after
   Escape ends the editing of a note on its card the keyboard is on the page
-  itself, where the zoom keys zoom the window.
+  itself, where the zoom keys zoom the window. Since D149 the keyboard is
+  on the card then ([where the keyboard returns](keyboard-return.md)).
 - Run in the real window for the keys with other modifiers, in five places,
   before and after: the 21 presses that differ are the ones "The commands"
   names: Control+=, Control+D, and Shift+Command+D act no more, nor F2,

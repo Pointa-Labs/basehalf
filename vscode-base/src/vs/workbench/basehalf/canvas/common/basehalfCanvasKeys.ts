@@ -323,13 +323,14 @@ export function getBaseHalfCanvasKeyCommand(id: string | null | undefined): IBas
 /**
  * Whether the scene stops an arrow key before the canvas library, which would move the selected cards
  * by its own steps: while a set is selected, wherever among the cards outside the toolbar the keyboard
- * is, and where Move Card acts, when the key is not Move Card's any more.
+ * is; where Move Card acts, when the key is not Move Card's any more; and, while one card is selected,
+ * on the frame the library draws around a card, where the Tab key can put the keyboard.
  */
 export function baseHalfCanvasStopsArrowKey(context: IBaseHalfCanvasKeyContext, modifiers: { readonly ctrlOrMeta: boolean; readonly alt: boolean }): boolean {
 	if (context.keyboardOn !== 'canvas' && context.keyboardOn !== 'card' && context.keyboardOn !== 'insideCard' && context.keyboardOn !== 'scene' && context.keyboardOn !== 'connection') {
 		return false;
 	}
-	if (context.selectedCards >= 2) {
+	if (context.selectedCards >= 2 || (context.selectedCards === 1 && context.keyboardOn === 'scene')) {
 		return true;
 	}
 	return !modifiers.ctrlOrMeta && !modifiers.alt && context.selectedCards === 1 && !context.picking

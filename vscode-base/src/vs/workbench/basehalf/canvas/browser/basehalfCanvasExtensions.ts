@@ -179,7 +179,7 @@ export interface IBaseHalfCanvasView {
 	selectCreatedCard(path: string): void;
 	/** Whether a gesture of the pointer is going on on the canvas, such as a drag. */
 	isInteracting(): boolean;
-	/** Moves the keyboard focus to a card. */
+	/** Moves the keyboard focus to a card: to the card itself, where the keys of a card act. */
 	focusCard(path: string): void;
 	/**
 	 * Pick on Canvas (generation cards, "Pick on Canvas"; D69): until it is
@@ -254,7 +254,10 @@ export interface IBaseHalfCanvasView {
 
 	/** Closes the note that is being edited on its card, as a click elsewhere does. False when it stays open. */
 	closeNoteEditor(): Promise<boolean>;
-	/** Gives the keyboard focus to the canvas, where its keys and undo work. */
+	/**
+	 * Gives the keyboard focus to the canvas, where its keys and undo work: to the card that last had
+	 * the keyboard, or to the canvas itself (where the keyboard returns).
+	 */
 	focus(): void;
 	/**
 	 * The feature runs this command of the canvas, as Tidy Canvas runs its own (the keys of the canvas).
