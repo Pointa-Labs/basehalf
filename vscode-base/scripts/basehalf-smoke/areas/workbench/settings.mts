@@ -57,6 +57,7 @@ export async function assertBaseHalfSettings(page) {
 	const before = await readingAids.getAttribute('aria-checked');
 	await readingAids.click();
 	await waitUntil(() => written()['basehalf.editor.readingMode'] === (before !== 'true'), 'the switch of Reading Aids to be written to the user\'s settings', 10_000);
+	await waitForReading(() => readingAids.getAttribute('aria-checked'), checked => checked === String(before !== 'true'), 'the switch of Reading Aids to show what was written');
 	await readingAids.click();
 	await waitUntil(() => !('basehalf.editor.readingMode' in written()), 'Reading Aids at its default to leave the user\'s settings', 10_000);
 
@@ -77,6 +78,14 @@ export async function assertBaseHalfSettings(page) {
 		entries => entries.includes('BaseHalf'), 'the advanced list to show its groups', 20_000);
 	if (groups.includes('Chat') || groups.includes('Providers') || groups.includes('About')) {
 		throw new Error(`The advanced list must hold no group of the base's chat and no page of BaseHalf's: ${JSON.stringify(groups)}`);
+	}
+
+	// The base keeps its Settings editor out of the overlay while its smoke driver runs, so here the advanced
+	// list stands in the editor area, where a user has it in the overlay: it is closed as an editor is.
+	if (await advanced.evaluate(element => !element.closest('.modal-editor-part'))) {
+		await advanced.locator('.settings-toc-container').click();
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
+		await advanced.waitFor({ state: 'hidden', timeout: 15_000 });
 	}
 
 	// Settings of its key shows BaseHalf's Settings again, and Escape closes it.

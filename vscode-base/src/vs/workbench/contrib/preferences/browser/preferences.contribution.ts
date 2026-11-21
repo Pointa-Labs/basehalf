@@ -250,14 +250,15 @@ class PreferencesActionsContribution extends Disposable implements IWorkbenchCon
 				});
 			}
 			run(accessor: ServicesAccessor, args: string | IOpenSettingsActionOptions) {
-				// BaseHalf: Settings of the gear's menu, of the application menu, and of its key is BaseHalf's own
-				// Settings. With a search, or anything else asked of it, the command lists settings in this editor
-				// (docs/specs/settings-pages.md).
-				if (args === undefined) {
-					return accessor.get(ICommandService).executeCommand(BASEHALF_OPEN_SETTINGS_COMMAND_ID);
-				}
 				// args takes a string for backcompat
 				const opts = typeof args === 'string' ? { query: args } : sanitizeOpenSettingsArgs(args);
+				// BaseHalf: Settings of the gear's menu, of the application menu, and of its key is BaseHalf's own
+				// Settings. A click in the application menu comes with where it was made and asks for nothing more.
+				// With a search, or a setting to show, the command lists settings in this editor
+				// (docs/specs/settings-pages.md).
+				if (!opts.query && !opts.revealSetting && !opts.focusSearch && !opts.openToSide) {
+					return accessor.get(ICommandService).executeCommand(BASEHALF_OPEN_SETTINGS_COMMAND_ID);
+				}
 				return accessor.get(IPreferencesService).openSettings({ ...opts });
 			}
 		}));

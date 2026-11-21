@@ -22,7 +22,7 @@ import { BaseHalfSettingRow, IBaseHalfShownSetting, renderBaseHalfSettingsSectio
  * card of the title bar, below it the one action the state calls for, and
  * then when BaseHalf looks for an update by itself.
  */
-/** Numbers the pages: Settings can show the page twice, in two editor groups, and each page's ids are its own. */
+/** Numbers the pages, so that the ids of each page's elements are its own. */
 let pageCount = 0;
 
 export class BaseHalfAboutView extends Disposable implements IBaseHalfSettingsPage {
@@ -45,8 +45,6 @@ export class BaseHalfAboutView extends Disposable implements IBaseHalfSettingsPa
 
 	create(parent: HTMLElement): void {
 		this.root = append(parent, $('.basehalf-settings-page.basehalf-about'));
-		this.root.setAttribute('role', 'region');
-		this.root.setAttribute('aria-labelledby', this.titleId);
 		this.root.tabIndex = -1;
 
 		const title = append(this.root, $('h1'));

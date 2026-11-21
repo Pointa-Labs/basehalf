@@ -9,6 +9,7 @@ import { Registry } from '../../../platform/registry/common/platform.js';
 import { IJSONSchema } from '../../../base/common/jsonSchema.js';
 import { ExtensionsRegistry, IExtensionPointUser } from '../../services/extensions/common/extensionsRegistry.js';
 import { IConfigurationNode, IConfigurationRegistry, Extensions, validateProperty, ConfigurationScope, OVERRIDE_PROPERTY_REGEX, IConfigurationDefaults, configurationDefaultsSchemaId, IConfigurationDelta, getDefaultValue, getAllConfigurationProperties, parseScope, EXTENSION_UNIFICATION_EXTENSION_IDS, overrideIdentifiersFromKey } from '../../../platform/configuration/common/configurationRegistry.js';
+import { isBaseHalfSettingLocked } from '../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { IJSONContributionRegistry, Extensions as JSONExtensions } from '../../../platform/jsonschemas/common/jsonContributionRegistry.js';
 import { workspaceSettingsSchemaId, launchSchemaId, tasksSchemaId, mcpSchemaId } from '../../services/configuration/common/configuration.js';
 import { hasKey, isObject, isUndefined } from '../../../base/common/types.js';
@@ -209,6 +210,19 @@ defaultConfigurationExtPoint.setHandler((extensions, { added, removed }) => {
 			const overrides = objects.deepClone(extension.value);
 			for (const key of Object.keys(overrides)) {
 				const registeredPropertyScheme = registeredProperties[key];
+				// BaseHalf: an extension's default does not change a setting that BaseHalf keeps, also not for one
+				// language (docs/specs/settings-catalog.md, "Locked").
+				if (isBaseHalfSettingLocked(key)) {
+					delete overrides[key];
+					continue;
+				}
+				if (OVERRIDE_PROPERTY_REGEX.test(key) && isObject(overrides[key])) {
+					for (const overridden of Object.keys(overrides[key] as object)) {
+						if (isBaseHalfSettingLocked(overridden)) {
+							delete (overrides[key] as Record<string, unknown>)[overridden];
+						}
+					}
+				}
 				if (registeredPropertyScheme?.disallowConfigurationDefault) {
 					extension.collector.warn(nls.localize('config.property.preventDefaultConfiguration.warning', "Cannot register configuration defaults for '{0}'. This setting does not allow contributing configuration defaults.", key));
 					delete overrides[key];

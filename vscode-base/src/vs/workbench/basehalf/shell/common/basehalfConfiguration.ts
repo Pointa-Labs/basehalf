@@ -27,10 +27,7 @@ export const BASEHALF_CANVAS_DEFAULT_ZOOM_MAX = 1;
 
 export const BASEHALF_AGENT_DEFAULT_SESSION: BaseHalfAgentSessionKind = 'tui-codex';
 
-/**
- * The tag of every BaseHalf setting. The welcome page's Open BaseHalf Settings
- * searches Settings for it (`@tag:basehalf`).
- */
+/** The tag of every BaseHalf setting: `@tag:basehalf` lists them in the advanced list. */
 export const BASEHALF_SETTINGS_TAG = 'basehalf';
 
 // Exported so tests can restore BaseHalf settings after platform suites reset

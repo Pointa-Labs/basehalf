@@ -6,7 +6,7 @@
 /* The page takes its frame, its title, and its sections from BaseHalf's Settings (basehalfSettings.css). */
 
 /*
- * A focus ring is for the keyboard (settings pages, "While a page is shown").
+ * A focus ring is for the keyboard (BaseHalf's Settings, "While Settings is open").
  * The workbench rings every focused button and element with a tab index, also
  * after a click; here a control that a click focused shows none, and the page
  * itself never does.

@@ -5,8 +5,6 @@
 
 import { State, StateType } from '../../../../platform/update/common/update.js';
 
-/** The page of Settings that holds the version, the state of an update, and "Release Notes". */
-export const BASEHALF_ABOUT_SETTINGS_SECTION_ID = 'basehalf/about';
 export const BASEHALF_OPEN_ABOUT_COMMAND_ID = 'basehalf.about.open';
 
 export type BaseHalfAboutAction = 'check' | 'download' | 'install' | 'restart';

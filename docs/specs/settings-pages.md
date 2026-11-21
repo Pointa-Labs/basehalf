@@ -58,13 +58,14 @@ and **About**, and shows the page chosen beside it. Under the list, at the
 bottom, is **Advanced Settings…**.
 
 - Settings has no search and no choice of a scope: it holds twelve settings
-  and two pages, and writes the user's settings.
+  and two pages.
 - A page is drawn when it is first shown and stays while Settings is open:
   what was typed in it is there when the page is chosen again, but for a
   credential that was typed and not set, which is cleared when its page is
   left.
-- Settings starts anew each time it opens: at General, unless the opening
-  asks for a page.
+- Settings that was closed opens at General, unless the opening asks for a
+  page. Settings that is open, or stands behind the advanced list, shows the
+  page it has when it is asked for again without one.
 
 ## The General page
 
@@ -92,9 +93,12 @@ of BaseHalf's own. `update.mode` is on the About page.
 - **A control shows the value in effect** and changes it at once: a switch
   and a choice when they are used, a text and a number when the field is
   left or Enter is pressed. No button saves.
-- **A change is written to the user's settings.** A value equal to the
-  default is written as no value, so the settings file holds only what
-  differs.
+- **A change is written where the value in effect comes from**: to the
+  settings file of the folder when the folder sets the setting, and to the
+  user's otherwise, as the base writes a setting it is given no place for.
+  So a control never shows one value and changes another. In the user's
+  settings a value equal to the default is written as no value, and so is
+  an emptied text: the file holds only what differs.
 - **A value that is none of a choice's** is listed with the others: a zoom
   by its percentage, as the zoom of a window that was changed with the keys
   of the menu, and any other as it is written, as a way of wrapping that
@@ -102,13 +106,17 @@ of BaseHalf's own. `update.mode` is on the About page.
 - **A number outside what the setting takes** becomes the nearest it takes.
   A number field left empty shows the value in effect again.
 - **A value changed elsewhere**, in the advanced list, in a settings file,
-  or by a key, shows in its row as it changes, unless the user is typing in
-  that field.
+  or by a key, shows in its row as it changes; in a field the user is typing
+  in, when the field is left.
+- **Zoom is one setting.** The keys that zoom the window change
+  `window.zoomLevel`, as the row does: BaseHalf's default for
+  `window.zoomPerWindow` is off, so a zoom holds in every window and shows
+  in Settings.
 
 ## Opening Settings
 
 **Settings** of the gear's menu and of the application menu, and its key,
-open Settings at General.
+open Settings: at General when it was closed.
 
 These open Settings at a page: **Set Up** and **Providers…** of the panel of
 a generation card and its model menu, **Set Up** of its voice menu, the
@@ -189,24 +197,31 @@ For every opening:
   below the shell can be one: `generation/browser/basehalfVideoProvidersPage.ts`;
   and `shell/browser/basehalfAbout.ts`.
 - `contrib/preferences/browser/preferences.contribution.ts`: the base's
-  Settings command hands over to BaseHalf's Settings when it is run without
-  a search. BaseHalf has no other line in the Settings editor of the base
-  but the catalog's ([the settings BaseHalf offers](settings-catalog.md)).
+  Settings command hands over to BaseHalf's Settings when it asks for no
+  search and no setting, also when it comes from the application menu.
+- What BaseHalf still has in the Settings editor of the base: the one group
+  of its settings in `settingsLayout.ts`, the name Advanced Settings in
+  `preferencesEditorInput.ts`, its own name among the terms of search
+  results in `contrib/preferences/common/preferences.ts`, and the lines of
+  the catalog ([the settings BaseHalf offers](settings-catalog.md)). The
+  editor itself, its tree, and its options are the base's.
 
 ## Acceptance criteria
 
-1. Settings of the gear's menu, Settings… of the application menu, and the
-   key open BaseHalf's Settings at General, in the overlay: the list holds
+1. Settings of the gear's menu, Settings… clicked in the application menu,
+   and the key open BaseHalf's Settings at General, in the overlay: the list holds
    General, Providers, About, and Advanced Settings…, and the page holds the
    eleven rows of the table in its order, with these names and lines.
 2. A switch, a choice, a text, and a number changed on General are in the
    user's settings file within a second, and what they change follows: the
    zoom of the window, the font size of Source. Set back to the default, the
-   line is gone from the file.
+   line is gone from the file. A setting that the folder's settings file
+   sets is changed there, and its control shows the new value.
 3. A number of 500 typed for Font Size becomes 100; an emptied number field
    shows the value in effect.
 4. With `window.zoomLevel` at 0.5 in the settings file, Zoom lists 110% with
-   its other choices and shows it chosen.
+   its other choices and shows it chosen. After the key that zooms in, Zoom
+   shows 120%.
 5. Set Up of the panel of a generation card, the command Providers, and the
    command About BaseHalf open Settings at the page: sampled every frame in
    the real window from the click on, no frame shows Settings with another
@@ -241,4 +256,6 @@ For every opening:
   there, opens at About and at Providers from their commands and from Set
   Up, and reaches the advanced list (`areas/workbench/settings.mts`,
   `areas/video/generationCards.mts`, `areas/video/audioCards.mts`). The
-  smoke opens Settings in the overlay, as a user does.
+  smoke opens Settings in the overlay, as a user does; the base keeps its
+  own Settings editor out of the overlay while its smoke driver runs, so
+  the smoke sees the advanced list in the editor area.

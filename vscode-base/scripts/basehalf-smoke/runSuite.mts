@@ -59,9 +59,9 @@ for (const dir of [logsPath, crashesPath, userDataDir, sharedDataDir, extensions
 // Context menus come from BaseHalf's product default (`window.menuStyle:
 // custom`), not from this profile: every step that reads a menu also checks
 // that default, since Playwright cannot inspect a native macOS context menu.
-// Welcome runs force the broader stock startup choice: Folder/Workspace must
-// still return to the canvas, while the empty New Window must keep BaseHalf
-// Welcome.
+// Welcome runs ask for the base's broader startup choice in the user's settings. BaseHalf keeps
+// `workbench.startupEditor` (the settings BaseHalf offers, "Locked"), so the line changes nothing:
+// a folder still opens its canvas, and the empty New Window still shows BaseHalf's Welcome.
 fs.mkdirSync(path.join(userDataDir, 'User'), { recursive: true });
 fs.writeFileSync(
 	path.join(userDataDir, 'User', 'settings.json'),

@@ -7,9 +7,7 @@ import { $, addDisposableListener, append, EventType, getActiveElement } from '.
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { equals } from '../../../../base/common/objects.js';
 import { localize } from '../../../../nls.js';
-import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { BASEHALF_AGENT_SESSION_CHOICES } from '../../agentArea/common/basehalfAgentArea.js';
 import { IBaseHalfSettingsPage, IBaseHalfSettingsPageLayout } from '../../ui/browser/basehalfSettingsPage.js';
 import { BaseHalfSetting } from '../common/basehalfConfiguration.js';
@@ -150,8 +148,9 @@ let pageCount = 0;
 
 /**
  * One setting on a page: its name, a line about it where its name does not say enough, and its
- * control. The control shows the value in effect and writes the user's settings; a value equal to
- * the default is written as no value, as the Settings editor of the base writes it.
+ * control. The control shows the value in effect and writes where that value comes from, as the
+ * base writes a setting it is given no place for: the settings file of the folder when the folder
+ * sets it, and the user's otherwise, where a value equal to the default is written as no value.
  */
 export class BaseHalfSettingRow extends Disposable {
 	readonly element: HTMLElement;
@@ -212,7 +211,12 @@ export class BaseHalfSettingRow extends Disposable {
 				button.type = 'button';
 				button.setAttribute('role', 'switch');
 				append(button, $('span.basehalf-settings-switch-thumb')).setAttribute('aria-hidden', 'true');
-				this._register(addDisposableListener(button, EventType.CLICK, () => this.write(button.getAttribute('aria-checked') !== 'true')));
+				this._register(addDisposableListener(button, EventType.CLICK, () => {
+					// The switch moves as it is clicked, so that a second click is its way back and not the same change again.
+					const next = button.getAttribute('aria-checked') !== 'true';
+					button.setAttribute('aria-checked', String(next));
+					this.write(next);
+				}));
 				return button;
 			}
 			case 'choice': {
@@ -237,7 +241,9 @@ export class BaseHalfSettingRow extends Disposable {
 				if (control.placeholder) {
 					input.placeholder = control.placeholder;
 				}
-				this._register(addDisposableListener(input, EventType.CHANGE, () => this.write(input.value.trim())));
+				// An emptied text is no value: the default holds again.
+				this._register(addDisposableListener(input, EventType.CHANGE, () => this.write(input.value.trim() || undefined)));
+				this._register(addDisposableListener(input, EventType.BLUR, () => this.refresh()));
 				return input;
 			}
 			case 'number': {
@@ -257,6 +263,7 @@ export class BaseHalfSettingRow extends Disposable {
 					input.value = String(value);
 					this.write(value);
 				}));
+				this._register(addDisposableListener(input, EventType.BLUR, () => this.refresh()));
 				return input;
 			}
 		}
@@ -288,9 +295,7 @@ export class BaseHalfSettingRow extends Disposable {
 	}
 
 	private write(value: unknown): void {
-		const schema = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).getConfigurationProperties()[this.setting.key];
-		const written = equals(value, schema?.default) ? undefined : value;
-		this.configurationService.updateValue(this.setting.key, written, ConfigurationTarget.USER).then(undefined, () => undefined).finally(() => this.refresh());
+		this.configurationService.updateValue(this.setting.key, value).then(undefined, () => undefined).finally(() => this.refresh());
 	}
 }
 
@@ -323,8 +328,6 @@ export class BaseHalfGeneralSettingsPage extends Disposable implements IBaseHalf
 
 	create(parent: HTMLElement): void {
 		const root = this.root = append(parent, $('.basehalf-settings-page.basehalf-settings-general'));
-		root.setAttribute('role', 'region');
-		root.setAttribute('aria-labelledby', `${this.idPrefix}-title`);
 		root.tabIndex = -1;
 		const title = append(root, $('h1'));
 		title.id = `${this.idPrefix}-title`;

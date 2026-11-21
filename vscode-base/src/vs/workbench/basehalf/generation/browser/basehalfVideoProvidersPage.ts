@@ -20,7 +20,6 @@ import { BASEHALF_MODEL_KINDS, BaseHalfModelKind, BaseHalfVideoCatalogState, bas
 import { IBaseHalfCustomProviderChange, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
 import { BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH, BaseHalfVideoProviderSettingsError, IBaseHalfProvidersPageTarget, parseBaseHalfProvidersPageInput } from '../common/basehalfVideoProviderSettings.js';
 
-type BaseHalfVideoProvidersStatusKind = 'success' | 'warning';
 
 /**
  * A control whose text survives a render: the endpoint, the field of one
@@ -36,9 +35,11 @@ interface IBaseHalfVideoProvidersKept {
 	readonly values: ReadonlyMap<BaseHalfVideoProviderControl, string>;
 }
 
-/** The outcome of a change, shown once it ends, and only while its provider is the one shown. */
+/**
+ * What follows a change once it ends, while its provider is the one shown. A change that was saved says
+ * nothing: the page shows it where it was made.
+ */
 interface IBaseHalfVideoProvidersSaveOutcome {
-	readonly success: string;
 	readonly onSuccess?: () => void;
 	readonly onFailure?: () => void;
 }
@@ -52,7 +53,7 @@ interface IBaseHalfVideoProviderShown {
 	readonly credentials: string;
 }
 
-/** Numbers the pages: Settings can show the page twice, in two editor groups, and each page's ids are its own. */
+/** Numbers the pages, so that the ids of each page's elements are its own. */
 let pageCount = 0;
 
 /**
@@ -69,8 +70,8 @@ let pageCount = 0;
  * is set.
  *
  * The page is drawn again only when what it shows changed, and keeps the
- * control that had the focus, or the one that took its place (settings pages,
- * "While a page is shown").
+ * control that had the focus, or the one that took its place (BaseHalf's
+ * Settings, "While Settings is open").
  */
 export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfSettingsPage {
 	private readonly idPrefix = `basehalf-video-providers-${++pageCount}`;
@@ -142,8 +143,6 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 
 	create(parent: HTMLElement): void {
 		this.root = append(parent, $('.basehalf-video-providers'));
-		this.root.setAttribute('role', 'region');
-		this.root.setAttribute('aria-labelledby', this.id('title'));
 		this.root.tabIndex = -1;
 
 		const header = append(this.root, $('.basehalf-video-providers-header'));
@@ -196,8 +195,8 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 	}
 
 	/**
-	 * Shows what an opening asks for (settings pages, "Opening Settings at a
-	 * page"): a card type, a provider, both, or, with neither, the page as it
+	 * Shows what an opening asks for (BaseHalf's Settings, "Opening
+	 * Settings"): a card type, a provider, both, or, with neither, the page as it
 	 * is. The catalog may still load: the type and the provider are shown once
 	 * it is there.
 	 */
@@ -766,14 +765,14 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 			this.select(added);
 			this.revealPending = true;
 			this.clearSensitiveInputs();
-			this.setStatus(localize('basehalf.video.providers.customAdded', "{0} added.", label), 'success');
+			this.setStatus('');
 			this.render();
 			this.rows.get(added)?.focus();
 			return;
 		}
 		this.fieldErrors.set('add:form', failure!);
 		this.showFieldError('add:form', failure);
-		this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."), 'warning');
+		this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."));
 		if (!this.pendingSaves && (this.outcomeToDraw || this.changedSinceRender())) {
 			this.render();
 		}
@@ -789,9 +788,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 		append(remove, $('span.codicon.codicon-close')).setAttribute('aria-hidden', 'true');
 		disposables.add(this.hoverService.setupDelayedHover(remove, { content: label }));
 		disposables.add(addDisposableListener(remove, EventType.CLICK, () => {
-			void this.save(provider, `remove:${serviceId}`, undefined, () => this.providerSettings.updateCustomProvider(provider.id, { models: custom.models.filter(model => model.id !== serviceId) }), {
-				success: localize('basehalf.video.providers.modelRemoved', "{0} removed.", serviceId)
-			});
+			void this.save(provider, `remove:${serviceId}`, undefined, () => this.providerSettings.updateCustomProvider(provider.id, { models: custom.models.filter(model => model.id !== serviceId) }), {});
 		}));
 	}
 
@@ -833,7 +830,6 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 			const id = input.value.trim();
 			const kind = BASEHALF_MODEL_KINDS.find(candidate => candidate === kindSelect.value) ?? chosen;
 			void this.save(provider, 'models', 'custom:model', () => this.providerSettings.updateCustomProvider(provider.id, { models: [...custom.models, { id, kind }] }), {
-				success: localize('basehalf.video.providers.modelAdded', "{0} added.", id),
 				onSuccess: () => input.value = ''
 			});
 		};
@@ -841,10 +837,10 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 		this.onEnter(input, submitModel, disposables);
 
 		const nameField = this.textField(editor, 'custom:label', localize('basehalf.video.providers.customName', "Name"), { value: custom.label, maxLength: 64 });
-		this.saveOnChange(nameField, provider, 'custom:label', () => custom.label, value => ({ label: value }), localize('basehalf.video.providers.nameSaved', "Name saved."), disposables);
+		this.saveOnChange(nameField, provider, 'custom:label', () => custom.label, value => ({ label: value }), disposables);
 		const kinds = custom.models.map(model => model.kind);
 		const addressField = this.textField(editor, 'custom:address', localize('basehalf.video.providers.customAddress', "API Address"), { type: 'url', value: custom.baseUrl, hint: addressHint(kinds.includes(chosen) ? chosen : kinds[0]), maxLength: BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH });
-		this.saveOnChange(addressField, provider, 'custom:address', () => custom.baseUrl, value => ({ baseUrl: value }), localize('basehalf.video.providers.addressSaved', "API Address saved."), disposables);
+		this.saveOnChange(addressField, provider, 'custom:address', () => custom.baseUrl, value => ({ baseUrl: value }), disposables);
 		for (const credential of provider.credentials) {
 			this.renderCredential(editor, provider, credential, status, disposables);
 		}
@@ -854,7 +850,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 				placeholder: DEFAULT_VOICE_LIST,
 				hint: localize('basehalf.video.providers.customVoicesHint', "Ids of voices, separated by commas. Empty: the six of OpenAI's speech API.")
 			});
-			this.saveOnChange(voices, provider, 'custom:voices', () => (custom.voices ?? []).join(', '), value => ({ voices: value.split(/[\s,]+/).filter(voice => voice) }), localize('basehalf.video.providers.voicesSaved', "Voices saved."), disposables);
+			this.saveOnChange(voices, provider, 'custom:voices', () => (custom.voices ?? []).join(', '), value => ({ voices: value.split(/[\s,]+/).filter(voice => voice) }), disposables);
 		}
 		const removeField = append(editor, $('.basehalf-video-provider-field.remove-provider'));
 		const remove = this.button(removeField, localize('basehalf.video.providers.removeProvider', "Remove Provider"), 'custom:removeProvider');
@@ -863,12 +859,12 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 	}
 
 	/** Saves a field of a custom provider when it is left or on Enter, unless it holds what is stored. */
-	private saveOnChange(input: HTMLInputElement, provider: IBaseHalfVideoCatalogProvider, control: BaseHalfVideoProviderControl, stored: () => string, change: (value: string) => IBaseHalfCustomProviderChange, success: string, disposables: DisposableStore): void {
+	private saveOnChange(input: HTMLInputElement, provider: IBaseHalfVideoCatalogProvider, control: BaseHalfVideoProviderControl, stored: () => string, change: (value: string) => IBaseHalfCustomProviderChange, disposables: DisposableStore): void {
 		const run = () => {
 			if (input.value.trim() === stored().trim() && !this.fieldErrors.has(control)) {
 				return;
 			}
-			void this.save(provider, control, control, () => this.providerSettings.updateCustomProvider(provider.id, change(input.value)), { success });
+			void this.save(provider, control, control, () => this.providerSettings.updateCustomProvider(provider.id, change(input.value)), {});
 		};
 		disposables.add(addDisposableListener(input, EventType.CHANGE, run));
 		this.onEnter(input, run, disposables);
@@ -881,9 +877,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 			primaryButton: localize({ key: 'basehalf.video.providers.removeProviderButton', comment: ['&& denotes a mnemonic'] }, "&&Remove")
 		});
 		if (confirmed) {
-			await this.save(provider, 'removeProvider', undefined, () => this.providerSettings.removeCustomProvider(provider.id), {
-				success: localize('basehalf.video.providers.providerRemoved', "{0} removed.", custom.label)
-			});
+			await this.save(provider, 'removeProvider', undefined, () => this.providerSettings.removeCustomProvider(provider.id), {});
 		}
 	}
 
@@ -914,9 +908,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 			append(button, $('span.basehalf-video-provider-region-label')).textContent = region.label;
 			disposables.add(addDisposableListener(button, EventType.CLICK, () => {
 				if (region.id !== this.providerSettings.getStatus(provider).region.id) {
-					void this.save(provider, `region:${region.id}`, undefined, () => this.providerSettings.setRegion(provider, region.id), {
-						success: localize('basehalf.video.providers.regionSaved', "Region saved.")
-					});
+					void this.save(provider, `region:${region.id}`, undefined, () => this.providerSettings.setRegion(provider, region.id), {});
 				}
 			}));
 			disposables.add(addDisposableListener(button, EventType.KEY_DOWN, (event: KeyboardEvent) => {
@@ -971,7 +963,6 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 				const value = input.value;
 				input.value = '';
 				void this.save(provider, control, control, () => this.providerSettings.setCredential(provider, credential.id, value), {
-					success: localize('basehalf.video.providers.credentialSaved', "{0} saved.", credential.label),
 					onSuccess: () => this.replacing.delete(credential.id),
 					onFailure: () => {
 						// Not saved: give the pasted text back so the user can correct it.
@@ -1114,15 +1105,13 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 		if (failure === undefined) {
 			if (shown) {
 				outcome.onSuccess?.();
-				this.setStatus(outcome.success, 'success');
-			} else {
-				this.setStatus(outcomeFor(provider, outcome.success), 'success');
 			}
+			this.setStatus('');
 		} else if (shown && control) {
 			this.fieldErrors.set(control, failure);
-			this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."), 'warning');
+			this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."));
 		} else {
-			this.setStatus(shown ? failure : outcomeFor(provider, failure), 'warning');
+			this.setStatus(shown ? failure : outcomeFor(provider, failure));
 		}
 		// The last change to end draws the page, with what the others changed.
 		if (this.pendingSaves) {
@@ -1160,11 +1149,11 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 		const inPlace = this.controls.get('endpoint') === input;
 		if (!inPlace) {
 			// Another provider is shown now, or the page was drawn again meanwhile.
-			this.setStatus(outcomeFor(provider, failure ?? localize('basehalf.video.providers.saved', "Saved.")), failure === undefined ? 'success' : 'warning');
+			this.setStatus(failure === undefined ? '' : outcomeFor(provider, failure));
 		} else if (failure !== undefined) {
 			this.fieldErrors.set('endpoint', failure);
 			this.showFieldError('endpoint', failure);
-			this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."), 'warning');
+			this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."));
 		} else {
 			this.fieldErrors.delete('endpoint');
 			this.showFieldError('endpoint', undefined);
@@ -1174,7 +1163,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 				input.value = status.endpoint;
 			}
 			input.dataset.custom = String(status.customEndpoint);
-			this.setStatus(localize('basehalf.video.providers.saved', "Saved."), 'success');
+			this.setStatus('');
 			// The field shows this provider's endpoint now: only it counts as drawn.
 			const rendered = this.renderedSettings?.get(provider.id);
 			if (this.renderedSettings && rendered) {
@@ -1227,9 +1216,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 		});
 		if (confirmed) {
 			const control: BaseHalfVideoProviderControl = `credential:${credential.id}`;
-			await this.save(provider, control, control, () => this.providerSettings.setCredential(provider, credential.id, undefined), {
-				success: localize('basehalf.video.providers.credentialRemoved', "{0} removed.", credential.label)
-			});
+			await this.save(provider, control, control, () => this.providerSettings.setCredential(provider, credential.id, undefined), {});
 		}
 	}
 
@@ -1248,19 +1235,10 @@ export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfS
 		this.focusables.set(key, element);
 	}
 
-	private setStatus(message: string, kind?: BaseHalfVideoProvidersStatusKind): void {
-		if (!this.status) {
-			return;
-		}
-		// A change that was saved shows where it was made, and the line says only what was not.
-		if (kind === 'success') {
-			message = '';
-		}
-		this.status.textContent = message;
-		if (message && kind) {
-			this.status.dataset.state = kind;
-		} else {
-			delete this.status.dataset.state;
+	/** The line above the list says only what was not saved; empty, it takes no room. */
+	private setStatus(message: string): void {
+		if (this.status) {
+			this.status.textContent = message;
 		}
 	}
 

@@ -27,6 +27,9 @@ import { IBaseHalfSettingsEditorOptions } from './basehalfSettingsEditorInput.js
 /** The width of the list of pages. */
 const NAVIGATION_WIDTH = 196;
 
+/** Numbers the editors, so that the ids of each one's elements are its own. */
+let editorCount = 0;
+
 function pageLabel(page: BaseHalfSettingsPageId): string {
 	switch (page) {
 		case 'general': return localize('basehalf.settings.page.general', "General");
@@ -44,6 +47,7 @@ export class BaseHalfSettingsEditor extends EditorPane {
 
 	static readonly ID = 'workbench.editor.basehalfSettings';
 
+	private readonly idPrefix = `basehalf-settings-${++editorCount}`;
 	private body: HTMLElement | undefined;
 	private readonly tabs = new Map<BaseHalfSettingsPageId, HTMLButtonElement>();
 	private readonly pages = new Map<BaseHalfSettingsPageId, IBaseHalfSettingsPage>();
@@ -73,8 +77,10 @@ export class BaseHalfSettingsEditor extends EditorPane {
 			const tab = append(list, $('button.basehalf-settings-page-tab')) as HTMLButtonElement;
 			tab.type = 'button';
 			tab.dataset.page = page;
+			tab.id = `${this.idPrefix}-tab-${page}`;
 			tab.textContent = pageLabel(page);
 			tab.setAttribute('role', 'tab');
+			tab.setAttribute('aria-controls', `${this.idPrefix}-panel`);
 			this.tabs.set(page, tab);
 			this._register(addDisposableListener(tab, EventType.CLICK, () => this.show(page)));
 			this._register(addDisposableListener(tab, EventType.KEY_DOWN, (event: KeyboardEvent) => this.onTabKey(page, event)));
@@ -85,6 +91,7 @@ export class BaseHalfSettingsEditor extends EditorPane {
 		this._register(addDisposableListener(advanced, EventType.CLICK, () => void this.commandService.executeCommand(BASEHALF_OPEN_ADVANCED_SETTINGS_COMMAND_ID)));
 
 		this.body = append(root, $('.basehalf-settings-body'));
+		this.body.id = `${this.idPrefix}-panel`;
 		this.body.setAttribute('role', 'tabpanel');
 	}
 
@@ -123,7 +130,7 @@ export class BaseHalfSettingsEditor extends EditorPane {
 				tab.setAttribute('aria-selected', String(id === page));
 				tab.tabIndex = id === page ? 0 : -1;
 			}
-			this.body.setAttribute('aria-label', pageLabel(page));
+			this.body.setAttribute('aria-labelledby', `${this.idPrefix}-tab-${page}`);
 		}
 		if (asked || input !== undefined) {
 			shown.setInput(input);

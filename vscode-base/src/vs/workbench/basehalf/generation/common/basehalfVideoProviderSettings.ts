@@ -25,9 +25,6 @@ import { BASEHALF_VIDEO_PROVIDER_ID_PATTERN } from './basehalfVideoCatalogParsin
  */
 export const BASEHALF_VIDEO_PROVIDERS_COMMAND_ID = 'basehalf.video.providers';
 
-/** The Settings section that holds the Providers page. It keeps the place of the former Models & Providers page. */
-export const BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID = 'basehalf/models';
-
 /**
  * What an opening asks the Providers page to show (settings pages, "Opening
  * Settings at a page"; D107): a card type, a provider, both, or neither.

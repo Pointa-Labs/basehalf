@@ -1,7 +1,8 @@
 # The settings BaseHalf offers
 
-Status: Active (2026-11-21). Decided; being implemented: until the catalog is
-in the product, the Settings editor of the base lists every setting.
+Status: Active (2026-11-21). The catalog, the lock, and the lists are
+implemented; the surfaces of the tables below follow their settings by the
+specifications that own them.
 Decision: [D137](../decisions.md#d137--every-setting-has-one-of-five-classes-and-a-setting-nothing-follows-is-work-not-waste-new-2026-11-21)
 Related: [BaseHalf's Settings](settings-pages.md) (the pages, which
 change with the Settings of BaseHalf's own),
@@ -302,19 +303,25 @@ and by the update check).
 
 ## Implementation boundaries
 
-- **One catalog** in `shell/common/`: ordered rules from a pattern of setting
-  names to a class, for a locked setting its value, and for a pending one
-  the surface that owes the answer. BaseHalf's Settings, the advanced list,
-  and the lock read it. The defaults of `basehalfWorkbenchProfile.ts` that
-  become locked move into it.
+- **One catalog**, `platform/configuration/common/basehalfSettingsCatalog.ts`,
+  beside the service it extends, where every process can read it: ordered
+  rules from a pattern of setting names to a class, and for a locked setting
+  its value. BaseHalf's Settings, the advanced list, and the lock read it.
+  The surface that owes a pending setting its answer is named in the table
+  above, not in the code. The defaults of the product profile that are
+  locked come from it.
 - **The lock** sits where the base already drops a value that a layer may
   not set, a setting of the application written in a folder's file, or a
-  restricted one in an untrusted folder: at the reading of a settings file.
-  It holds in the main process, which reads `window.*` before a window
-  exists.
-- **Locked, pending, and unlisted settings leave the lists** the way the base
-  leaves out a setting that is not offered on a system: they are registered
-  as not included.
+  restricted one in an untrusted folder: at the reading of a settings file,
+  also in the section of a language. It holds in the main process, which
+  reads `window.*` before a window exists. A write of a locked setting is
+  refused, and removing its line is not; an extension's default for one is
+  dropped. What the base itself offers to write one, as a box of the welcome
+  page, is not shown.
+- **Locked, pending, and unlisted settings leave the lists** where the lists
+  are made: the groups of the Settings editor and the schema of a settings
+  file take only the shown and the advanced settings. They stay registered,
+  so their defaults and whatever still reads them are as in the base.
 
 ## Acceptance criteria
 

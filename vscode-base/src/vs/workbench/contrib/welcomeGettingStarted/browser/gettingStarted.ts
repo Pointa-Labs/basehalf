@@ -949,10 +949,8 @@ export class GettingStartedPage extends EditorPane {
 			this.categoriesSlideDisposables.add(agentsBanner.disposables);
 			footerChildren.push(agentsBanner.element);
 		}
-		footerChildren.push($('p.showOnStartup', {},
-			showOnStartupCheckbox.domNode,
-			showOnStartupLabel,
-		));
+		// BaseHalf: an empty window shows this page, and `workbench.startupEditor` is a setting BaseHalf keeps
+		// (docs/specs/settings-catalog.md, "Locked"): the box that would write it is not shown.
 
 		const footer = $('.footer', {}, ...footerChildren);
 

@@ -504,6 +504,9 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// Changes stands its files under their folders, as Files does. VS Code's own
 	// default is a flat list (Git/SCM/GitHub/GitGraph, "The Changes View").
 	'scm.defaultViewMode': 'tree',
+	// Zoom of Settings and the keys that zoom are one setting: a zoom made with the keys shows in Settings,
+	// and one chosen there holds in every window (docs/specs/settings-pages.md).
+	'window.zoomPerWindow': false,
 	// Context menus are drawn in the window, as VS Code's Agents window does:
 	// they follow the product theme, and canvas state shown while a menu is
 	// open closes with it. A native menu is closed by the OS before the window

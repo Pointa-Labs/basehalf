@@ -20,7 +20,7 @@
 }
 
 /*
- * A focus ring is for the keyboard (settings pages, "While a page is shown").
+ * A focus ring is for the keyboard (BaseHalf's Settings, "While Settings is open").
  * The workbench rings every focused button and element with a tab index, also
  * after a click, at a specificity of up to (0,3,0). Here a control that a click
  * focused shows none, each control's own ring below is drawn only for the
@@ -49,20 +49,14 @@
 .basehalf-video-providers-status {
 	margin: 8px 0 0;
 	font-size: 12px;
-	color: var(--vscode-descriptionForeground);
+	color: var(--vscode-list-warningForeground, var(--vscode-editorWarning-foreground));
 }
 
 .basehalf-video-providers-status:empty {
 	display: none;
 }
 
-.basehalf-video-providers-status[data-state='success'] {
-	color: var(--vscode-testing-iconPassed);
-}
 
-.basehalf-video-providers-status[data-state='warning'] {
-	color: var(--vscode-list-warningForeground, var(--vscode-editorWarning-foreground));
-}
 
 .basehalf-video-providers-content {
 	display: grid;

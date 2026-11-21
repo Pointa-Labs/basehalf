@@ -44,7 +44,7 @@ suite('BaseHalfConfiguration', () => {
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].section?.title, 'BaseHalf');
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].scope, ConfigurationScope.RESOURCE);
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].default, false);
-		assert.ok(properties[BaseHalfSetting.EditorReadingMode].description?.includes('ADHD'));
+		assert.ok(properties[BaseHalfSetting.EditorReadingMode].description?.includes('marked as read'));
 		// A note's files go into its own folder in the store: there is nothing to configure (files in notes, rule 6).
 		assert.strictEqual(properties['basehalf.editor.attachmentsDirectory'], undefined);
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].scope, ConfigurationScope.RESOURCE);

@@ -801,8 +801,8 @@ async function assertProviderKeyStaysSecret(page) {
 			await waitForReading(() => readProviderEditor(providers), seen => seen.credentials.find(candidate => candidate.id === credential.id)?.set === true, `${credential.id} of ${providerId} to be saved`);
 		}
 		const saved = await waitForReading(() => readProviderEditor(providers), seen => seen.rowSetUp === 'true', `${providerId} to be set up`);
-		if (saved.credentials.some(credential => credential.state !== 'Set. It is encrypted on this computer and never shown.' || credential.input !== null)) {
-			throw new Error(`The page must say that every credential is set, without a field that holds it: ${JSON.stringify(saved)}`);
+		if (saved.credentials.some(credential => !credential.set || credential.input !== null)) {
+			throw new Error(`The page must show every credential as set, without a field that holds it: ${JSON.stringify(saved)}`);
 		}
 	}
 	for (const key of [provider.key, smoke.secondKey]) {

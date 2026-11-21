@@ -40,7 +40,12 @@ class BaseHalfSettingsService implements IBaseHalfSettingsService {
 			...(page !== undefined ? { basehalfSettingsPage: page } : {}),
 			...(input !== undefined ? { basehalfSettingsPageInput: input } : {})
 		};
-		await this.editorService.openEditor(this.instantiationService.createInstance(BaseHalfSettingsEditorInput), options, MODAL_GROUP);
+		const editorInput = this.instantiationService.createInstance(BaseHalfSettingsEditorInput);
+		const pane = await this.editorService.openEditor(editorInput, options, MODAL_GROUP);
+		// Settings that was open keeps the input it has.
+		if (pane?.input !== editorInput) {
+			editorInput.dispose();
+		}
 	}
 }
 

@@ -96,6 +96,20 @@ suite('BaseHalf General settings', () => {
 		assert.deepStrictEqual(service.written, [['a.text', 'Fira Code']]);
 	});
 
+	test('an emptied text is written as no value', () => {
+		const { element, service } = row({ key: 'a.text', label: 'A Text', control: { kind: 'text' } }, 'Menlo');
+		change(element.querySelector('input')!, '   ');
+		assert.deepStrictEqual(service.written, [['a.text', undefined]]);
+	});
+
+	test('a switch moves as it is clicked, so a second click is its way back', () => {
+		const { element, service } = row({ key: 'a.switch', label: 'A Switch', control: { kind: 'switch' } }, false);
+		const control = element.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+		control.click();
+		control.click();
+		assert.deepStrictEqual(service.written, [['a.switch', true], ['a.switch', false]]);
+	});
+
 	test('a row names its control, and its line describes it', () => {
 		const { element } = row({ key: 'a.switch', label: 'A Switch', description: 'One line.', control: { kind: 'switch' } }, false);
 		const control = element.querySelector<HTMLButtonElement>('button[role="switch"]')!;
