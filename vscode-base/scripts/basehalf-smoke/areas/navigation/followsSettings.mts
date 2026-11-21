@@ -14,7 +14,7 @@ import { workspacePath } from '../../context.mts';
 import { assertCanvasFolder, openRootCanvas } from '../../lib/canvas.mts';
 import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
-import { quickOpen } from '../../lib/quickInput.mts';
+import { visibleQuickInput } from '../../lib/quickInput.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
 import { showExplorer } from '../../lib/workspace.mts';
 
@@ -43,6 +43,36 @@ async function withSettings(page, values: Record<string, unknown>, run: () => Pr
 	} finally {
 		fs.writeFileSync(SETTINGS, before, 'utf8');
 		await page.waitForTimeout(1_500);
+	}
+}
+
+/**
+ * Opens a file or a folder that these steps wrote, from the search. The search lists the files of the disk when it
+ * opens, and on a loaded machine a file written a moment ago can be missing from that list ("No matching results",
+ * seen on 2026-11-21 at a load of 34): the search is opened again until it lists the name.
+ */
+async function quickOpen(page, name: string) {
+	const deadline = Date.now() + 60_000;
+	for (; ;) {
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+		const input = visibleQuickInput(page);
+		await input.waitFor({ state: 'visible', timeout: 15_000 });
+		await input.fill(name);
+		const listed = await page.waitForFunction(expected => {
+			const rows = [...document.querySelectorAll('.quick-input-widget .quick-input-list .monaco-list-row[role="option"]')];
+			return rows.some(row => (row.getAttribute('aria-label') ?? row.textContent ?? '').toLocaleLowerCase().includes(expected));
+		}, name.toLocaleLowerCase(), { timeout: 5_000 }).then(() => true, () => false);
+		if (listed) {
+			await page.keyboard.press('Enter');
+			await input.waitFor({ state: 'hidden', timeout: 15_000 });
+			return;
+		}
+		await page.keyboard.press('Escape');
+		await input.waitFor({ state: 'hidden', timeout: 15_000 });
+		if (Date.now() > deadline) {
+			throw new Error(`The search never listed ${name}, which these steps wrote`);
+		}
+		await page.waitForTimeout(1_000);
 	}
 }
 

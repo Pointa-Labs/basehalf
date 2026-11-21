@@ -356,7 +356,7 @@ async function runCardDetailSuite(page) {
 	await step('note-title-line', () => assertCardDetailNoteTitleLine(page));
 }
 
-/** Quick Text Search, the Explorer, back and forward between folders and cards, what happens to the files of the workspace, and the settings of the workbench that BaseHalf's surfaces follow. */
+/** Quick Text Search, the Explorer, back and forward between folders and cards, what happens to the files of the workspace, and the settings of the workbench that the surfaces of BaseHalf follow. */
 async function runNavigationSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('quick-text-search-readme-routing', () => quickOpen(page, '%needle-basehalf-routing'));
