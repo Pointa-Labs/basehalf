@@ -121,7 +121,7 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 			'terminal.integrated.rightClickBehavior', 'terminal.integrated.middleClickBehavior', 'terminal.integrated.accessibleView*'
 		]
 	},
-	{ class: 'pending', family: 'Agent Area: the folder of a split', patterns: ['terminal.integrated.splitCwd'] },
+	{ class: 'advanced', family: 'Agent Area: the folder of a split', patterns: ['terminal.integrated.splitCwd'] },
 	{ class: 'pending', family: 'Agent Area: suggestions of a shell', patterns: ['terminal.integrated.suggest.*'] },
 	{
 		class: 'advanced', family: 'JSON files: formatting, suggestions, and marks', patterns: [

@@ -17,20 +17,20 @@ suite('BaseHalf settings catalog', () => {
 		assert.deepStrictEqual([
 			'basehalf.canvas.defaultZoom', 'window.zoomLevel', 'editor.fontSize', 'terminal.integrated.fontSize', 'update.mode',
 			'window.commandCenter', 'workbench.editor.showTabs', 'files.autoSave', 'chat.disableAIFeatures', 'task.allowAutomaticTasks',
-			'terminal.integrated.enableBell', 'terminal.integrated.tabs.title', 'terminal.integrated.suggest.enabled',
+			'terminal.integrated.persistentSessionScrollback', 'terminal.integrated.enablePersistentSessions', 'terminal.integrated.suggest.enabled',
 			'chat.editing.confirmEditRequestRemoval', 'task.autoDetect', 'editor.inlineSuggest.enabled', 'editor.suggest.showMethods', 'terminal.integrated.tabs.location',
 			'workbench.browser.pageZoom', 'breadcrumbs.filePath', 'notebook.lineNumbers', 'telemetry.telemetryLevel',
 			'editor.suggest.showWords', 'editor.minimap.enabled', 'workbench.localHistory.enabled', 'workbench.colorTheme', 'git.autofetch', 'files.enableTrash',
-			'terminal.integrated.cwd', 'http.proxy', 'window.menuStyle',
+			'terminal.integrated.cwd', 'terminal.integrated.tabs.title', 'http.proxy', 'window.menuStyle',
 			'editor.formatOnSave', 'json.format.enable', 'json.colorDecorators.enable', 'problems.decorations.enabled', 'files.autoSaveWhenNoErrors', 'editor.formatOnType'
 		].map(key => `${key}: ${baseHalfSettingClass(key)}`), [
 			'basehalf.canvas.defaultZoom: shown', 'window.zoomLevel: shown', 'editor.fontSize: shown', 'terminal.integrated.fontSize: shown', 'update.mode: shown',
 			'window.commandCenter: locked', 'workbench.editor.showTabs: locked', 'files.autoSave: locked', 'chat.disableAIFeatures: locked', 'task.allowAutomaticTasks: locked',
-			'terminal.integrated.enableBell: pending', 'terminal.integrated.tabs.title: pending', 'terminal.integrated.suggest.enabled: pending',
+			'terminal.integrated.persistentSessionScrollback: pending', 'terminal.integrated.enablePersistentSessions: pending', 'terminal.integrated.suggest.enabled: pending',
 			'chat.editing.confirmEditRequestRemoval: unlisted', 'task.autoDetect: unlisted', 'editor.inlineSuggest.enabled: unlisted', 'editor.suggest.showMethods: unlisted', 'terminal.integrated.tabs.location: unlisted',
 			'workbench.browser.pageZoom: unlisted', 'breadcrumbs.filePath: unlisted', 'notebook.lineNumbers: unlisted', 'telemetry.telemetryLevel: unlisted',
 			'editor.suggest.showWords: advanced', 'editor.minimap.enabled: advanced', 'workbench.localHistory.enabled: advanced', 'workbench.colorTheme: advanced', 'git.autofetch: advanced', 'files.enableTrash: advanced',
-			'terminal.integrated.cwd: advanced', 'http.proxy: advanced', 'window.menuStyle: advanced',
+			'terminal.integrated.cwd: advanced', 'terminal.integrated.tabs.title: advanced', 'http.proxy: advanced', 'window.menuStyle: advanced',
 			'editor.formatOnSave: advanced', 'json.format.enable: advanced', 'json.colorDecorators.enable: unlisted', 'problems.decorations.enabled: advanced', 'files.autoSaveWhenNoErrors: locked', 'editor.formatOnType: unlisted'
 		]);
 	});

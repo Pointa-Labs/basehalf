@@ -37,6 +37,7 @@ import { IBaseHalfAgentSessionName, baseHalfAgentSessionName } from '../common/b
 import { BASEHALF_AGENT_SESSION_NO_BELL, IBaseHalfAgentSessionBell, baseHalfAgentSessionBellLingered, baseHalfAgentSessionBellSeen } from '../common/basehalfAgentSessionBell.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
 import { BaseHalfSplitDir, BaseHalfFocusDir, dropEdge } from '../common/basehalfAgentSplitTree.js';
+import { baseHalfSplitFolder } from '../common/basehalfAgentSplitFolder.js';
 import { normalizeBaseHalfAgentDefaultSession, BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { BaseHalfAgentAreaTabStrip } from './basehalfAgentAreaTabStrip.js';
 import { BaseHalfAgentAreaSurface } from './basehalfAgentAreaSurface.js';
@@ -556,16 +557,35 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	}
 
 	async splitActivePane(dir: BaseHalfSplitDir): Promise<IBaseHalfAgentAreaSession | undefined> {
-		if (!activeAgentTab(this.tabsState)) {
+		const tab = activeAgentTab(this.tabsState);
+		if (!tab) {
 			return this.createSession('terminal');
 		}
 
+		const cwd = await this.splitFolder(this.runtime.get(tab.activePaneId)?.terminal);
 		const choice = baseHalfAgentSessionChoiceForKind('terminal');
 		const session = this.createRuntimeSession('terminal', choice.label, choice.description);
 		this.mutateTabs(state => splitActiveAgentPane(state, dir, session.id, this.mintId('split')));
 		await this.show(true);
-		await this.terminalPanes.initializeTerminalPane(session, {});
+		await this.terminalPanes.initializeTerminalPane(session, cwd ? { rawTerminalOptions: { cwd } } : {});
 		return this.snapshotSession(session);
+	}
+
+	/**
+	 * The folder the session of a split starts in, as `terminal.integrated.splitCwd` says of the session
+	 * it splits; none is the workspace folder, where every new session starts.
+	 */
+	private async splitFolder(terminal: ITerminalInstance | undefined): Promise<string | undefined> {
+		const folder = baseHalfSplitFolder(this.configurationService.getValue(TerminalSettingId.SplitCwd), !!terminal);
+		if (!terminal || folder === 'workspace') {
+			return undefined;
+		}
+		try {
+			return (folder === 'initial' ? await terminal.getInitialCwd() : await terminal.getSpeculativeCwd()) || undefined;
+		} catch {
+			// A session whose process has ended cannot say where it was.
+			return undefined;
+		}
 	}
 
 	closeActivePane(): void {
