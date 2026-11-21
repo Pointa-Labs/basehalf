@@ -125,6 +125,8 @@ specification that owns what the setting does.
 
 | Section | Name | Setting | Control | The line under the name | Owned by |
 | --- | --- | --- | --- | --- | --- |
+| Window | Appearance | `workbench.colorTheme` | choice: Dark, Light | none | [light and dark](light-and-dark.md) |
+| Window | Match the System | `window.autoDetectColorScheme` | switch | Dark or light, as the system is. | light and dark |
 | Window | Zoom | `window.zoomLevel` | choice, by percentage | none | the base |
 | Code | Font | `editor.fontFamily` | text | none | [code cards](code-cards.md) |
 | Code | Font Size | `editor.fontSize` | number | In Source. A code card keeps its size. | code cards |
@@ -153,6 +155,10 @@ One group, without a section's name.
 | Text Size | `basehalf.notes.fontSize` | number, 12 to 28 | In Card Detail. On the canvas, a card's text follows the zoom. | note rendering |
 | Opens In | `basehalf.notes.openIn` | choice: Rich, Preview, Source | none | note rendering |
 | Reading Aids | `basehalf.editor.readingMode` | switch | Keywords stand out, and a paragraph can be marked as read. | note rendering |
+
+Appearance is the color theme: Dark and Light are BaseHalf's two, `Dark 2026` and `Light 2026`; another theme,
+chosen from the gear's menu, is listed by its name. While Match the System is on, the base takes the system's
+appearance and the theme chosen here waits.
 
 The font is a list of fonts, as the code's: Default is no value, the font of
 the window; Serif and Monospace are lists BaseHalf names; any other list,
