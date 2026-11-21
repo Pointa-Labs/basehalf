@@ -6584,7 +6584,8 @@ Command Palette, every menu, and Keyboard Shortcuts leave them out; no key of th
 fails as executing a command that does not exist, for an extension too. BaseHalf has a command when a surface of BaseHalf's
 uses it today. The base's plumbing, the commands whose ids start with `_`, stays, but for one the palette offers. Output,
 which had the base's bottom panel, opens as a read-only document in the overlay over the canvas, and the Output view is a
-hidden surface. See
+hidden surface. While the base's AI features are off, the base looks for no tool servers, and the product configuration
+names no address of the service of the base's chat. See
 [the commands and menus BaseHalf has](specs/commands-and-menus.md).
 
 **Why.** D137 gave every setting a class and left the commands to a decision of their own: "the commands and menu entries of
@@ -6607,6 +6608,9 @@ would end in a refusal.
 - A message of its own for a refused command. To the caller, BaseHalf is a product without the command; the base's own
   error for an unknown command says so, and extensions already handle it.
 - Hiding the plumbing too. Git asks `_aiEdits.*` at every commit, and no list offers a command whose id starts with `_`.
+- Taking `defaultChatAgent` out of the product configuration, which is what makes the base offer its setup. 37 modules of
+  the base read the block, and several read it without asking whether it is there; one fails as it loads. The block stays,
+  without its addresses, and the setup command is hidden as every command of the family is.
 - An Output view in the Agent Area, or a bottom panel only for output. The Agent Area holds sessions, and a panel is the
   surface the shell does not have; a log is read now and then, as Settings is, and the overlay is there for that.
 - Hiding the terminal's commands that the Agent Area does not take. An Agent Area terminal is the base's terminal, and
@@ -6618,6 +6622,8 @@ would end in a refusal.
 - A key that ran a hidden command is free.
 - Show Git Output, Show Output Channels, Show Logs, and a channel an extension shows open over the canvas; nothing opens
   the bottom panel. A channel does not follow its last line while it is open.
+- A `.mcp.json` at the root of a folder is read only by the agent it is for. With a GitHub session, nothing asks GitHub
+  about a plan of the base's chat: read in the code, not run with a real account.
 - A unit test loads the base's registrations of the hidden families and fails on a command of their categories that no
   pattern names, so a base update names its new commands before it ships.
 - Four lines of the base's files ask the list: the keybinding resolver, the list of commands without a key, the Command

@@ -151,6 +151,36 @@ Settings opens in:
 A channel does not scroll by itself as it grows. Output that should be
 followed line by line is a terminal's, in the Agent Area.
 
+## The base's chat
+
+The base's AI features are off in BaseHalf: `chat.disableAIFeatures` is a
+locked setting ([the settings BaseHalf offers](settings-catalog.md)). Three
+things of the base still reached past that switch:
+
+- **Its setup commands.** The base offers "Use AI Features with Copilot for
+  free..." exactly while its AI features are off, and the command turns
+  them on. Every command of the family is hidden, the setup's among them,
+  so no list offers one, no entry of the Accounts menu or of the title bar
+  runs one, and executing one by its id fails. Nothing else in BaseHalf
+  writes the switch: the one other writer of the base follows the base's
+  own chat extension being enabled, and BaseHalf does not run it.
+- **The search for tool servers.** At every start the base looked for the
+  servers of its chat, and read a `.mcp.json` at the root of the opened
+  folder for it. While the base's AI features are off, it looks for none:
+  a `.mcp.json` is an agent's own configuration, and only the agent reads
+  it.
+- **The account of the base's chat.** With a GitHub session, the base asks
+  GitHub which plan of its chat the account has, with the account's token.
+  The product configuration names no address for these questions, so none
+  is asked. Signing in to GitHub for Git stays as it is.
+
+The product configuration keeps its block for the base's chat agent
+(`defaultChatAgent`): 37 modules of the base read it, several without asking
+whether it is there. It keeps the names that the base's code compares
+extensions and settings with, and has no address of a service: the five
+addresses that take an account's token are empty, and the address of the
+base's voice service is not there.
+
 ## Required behavior
 
 1. **One list.** The hidden commands are data: families, each with its
@@ -200,6 +230,9 @@ followed line by line is a terminal's, in the Agent Area.
   `showChannel`. There, a marked change opens the channel's document in the
   overlay instead (`shell/common/basehalfOutput.ts`). The Output view is on
   the list of hidden surfaces.
+- **The base's chat**: the search for tool servers is one contribution of
+  the base (`contrib/mcp/browser/mcpDiscovery.ts`); a marked change makes it
+  follow `chat.disableAIFeatures`. The addresses are in `product.json`.
 - **Four marked changes in the base's files**, each one line that asks the
   list: the keybinding service leaves the default keys of hidden commands
   out of its resolver; the list of commands without a key leaves them out;
@@ -237,7 +270,12 @@ followed line by line is a terminal's, in the Agent Area.
    found`, and the command does not run.
 9. A command added to the base under the category of a hidden family, with
    an id that no pattern names, fails a unit test.
-10. Git: Show Git Output shows Git's output in the overlay over the canvas,
+10. With `chat.disableAIFeatures` on, the base starts no search for tool
+    servers, at the start of a window and when `chat.mcp.access` changes.
+11. The product configuration has a `defaultChatAgent` whose five addresses
+    for entitlements, the token, the registry of tool servers, and managed
+    settings are empty, and no `voiceWsUrl`.
+12. Git: Show Git Output shows Git's output in the overlay over the canvas,
     at its last line; a letter typed into it changes nothing; Escape closes
     it. The bottom panel does not open. The same holds for a channel picked
     in Output: Show Output Channels and for a log picked in Developer: Show
@@ -254,6 +292,8 @@ followed line by line is a terminal's, in the Agent Area.
   registrations of Tasks, Debug, Notebooks, Testing, chat, the merge editor,
   the Search Editor, Problems, and Remote, and fails on a command of their
   categories that no pattern names (criterion 9).
+- A unit test of the product configuration (`basehalfBaseAiOff.test.ts`,
+  criterion 11).
 - A unit test of where a channel opens (`basehalfOutput.test.ts`), and the
   list of hidden view containers in `basehalfWorkbenchProfile.test.ts`.
 - The workbench suite of the smoke: the palette lists no command of the
@@ -268,9 +308,15 @@ followed line by line is a terminal's, in the Agent Area.
   Accounts menu, 2 and 1; the context menu of the title bar and Customize
   Layout as criteria 5 and 6 say; and the eight keys of criterion 7, pressed
   with the keyboard in Files.
-- Run in the real window on 2026-11-21 for criterion 10: Git: Show Git
+- Run in the real window on 2026-11-21 for criterion 12: Git: Show Git
   Output, Main picked in Show Output Channels, and Window picked in Show
   Logs each opened in the overlay under the channel's name, with the newest
   line last; a letter typed changed nothing; Escape closed each; the bottom
   panel stayed shut. An agent extension's channel was not run: it reaches
   the same place as Git's, through the extension host.
+- Run in the real window on 2026-11-21 for criterion 10: the starts of the
+  base's search for a root `.mcp.json` were counted while `chat.mcp.access`
+  went to `registry` and back to `all`, which makes the base start every
+  search again: one start before the change, none after. That the base asks
+  nothing of GitHub with a session was read in the code and not run: no
+  session of a real account was used.
