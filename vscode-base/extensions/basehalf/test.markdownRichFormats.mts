@@ -86,11 +86,14 @@ const bundle = await build({
 });
 const bundled = performance.now();
 const files = new Map<string, Uint8Array>(bundle.outputFiles.map(file => [`/${path.relative(outdir, file.path).split(path.sep).join('/')}`, file.contents]));
+// The page has no workbench around it to give it the colors of the theme (light and dark): the one a check reads
+// stands here with its value under a dark theme, which is the value a note stores.
 files.set('/index.html', Buffer.from(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="/markdownRichFormats.entry.css">
+<style>:root { --vscode-basehalf-noteRedText: #e8706b; }</style>
 </head>
 <body>
 <div id="root"></div>
