@@ -191,7 +191,8 @@ export class BaseHalfMarkdownRichSaving {
 				const outcome = await this.coordinator.handleSaveRequested(
 					message,
 					new BaseHalfMarkdownRichTextModelDisk(model, this.detail.textFileAdapter()),
-					bridge
+					bridge,
+					this.acceptedEditorBodies()
 				);
 				if (outcome.result === 'saved' || outcome.result === 'noop') {
 					this.detail.lastSentContent = outcome.content ?? model.getValue();

@@ -89,6 +89,32 @@ export interface IBaseHalfMarkdownRichBodyWriteRequest {
 	readonly previousContent: string;
 	/** "Keep my edits": write the body even when the current body diverged. */
 	readonly forceWrite: boolean;
+	/**
+	 * Bodies this editor wrote or is writing. A save's `previousContent` lags a save of the same editor that was
+	 * written while its answer was on the way; a text that holds one of these bodies has not diverged.
+	 */
+	readonly acceptedBodies?: Iterable<string>;
+}
+
+/**
+ * Whether the current text holds a body the editor did not write: neither the one it last observed, nor the one
+ * the save brings, nor one it wrote or is writing. Only such a body is a conflict (opening and closing Card
+ * Detail, "Escape closes Card Detail also while what was just typed is being written").
+ */
+export function baseHalfMarkdownRichBodyDiverged(current: string, request: Pick<IBaseHalfMarkdownRichBodyWriteRequest, 'body' | 'previousContent' | 'acceptedBodies'>): boolean {
+	if (!baseHalfMarkdownRichBodiesDiffer(current, request.previousContent)) {
+		return false;
+	}
+	const currentBody = baseHalfMarkdownRichBody(current);
+	if (currentBody === request.body) {
+		return false;
+	}
+	for (const accepted of request.acceptedBodies ?? []) {
+		if (accepted === currentBody) {
+			return false;
+		}
+	}
+	return true;
 }
 
 export type BaseHalfMarkdownRichBodyWriteResult =
@@ -103,7 +129,8 @@ const BASEHALF_MARKDOWN_RICH_WRITE_ATTEMPTS = 3;
  * Writes a rich body under the document's current frontmatter.
  *
  * - The current text is read first. Without `forceWrite`, a body that diverged
- *   from `previousContent` is a conflict; a frontmatter-only change is not.
+ *   is a conflict (`baseHalfMarkdownRichBodyDiverged`); a frontmatter-only
+ *   change is not, nor a body this editor wrote.
  * - The written text is the current frontmatter joined with the rich body, so
  *   an upstream edit made by an agent or by BaseHalf survives the save.
  * - The write carries a compare-and-swap guard. When the store changes between
@@ -121,7 +148,7 @@ export async function writeBaseHalfMarkdownRichBody(
 			return { kind: 'writeFailed', error };
 		}
 
-		if (!request.forceWrite && baseHalfMarkdownRichBodiesDiffer(current, request.previousContent)) {
+		if (!request.forceWrite && baseHalfMarkdownRichBodyDiverged(current, request)) {
 			return { kind: 'blockedByConflict', disk: current };
 		}
 

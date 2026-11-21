@@ -8,7 +8,7 @@ import {
 	BaseHalfMarkdownRichWebviewMessage
 } from './basehalfMarkdownRichWebviewProtocol.js';
 import {
-	baseHalfMarkdownRichBody,
+	baseHalfMarkdownRichBodyDiverged,
 	composeBaseHalfMarkdownRichContent,
 	IBaseHalfMarkdownRichDisk,
 	writeBaseHalfMarkdownRichBody
@@ -39,18 +39,23 @@ export interface IBaseHalfMarkdownRichSaveOutcome {
  * Host side of a rich save. The webview sends only its body; the text model
  * owns the frontmatter. Every save and force-write therefore writes the
  * model's current frontmatter with the rich body, and only a body divergence
- * blocks a save as a conflict.
+ * blocks a save as a conflict. `acceptedBodies` are those the host accepted
+ * from this editor or is writing for it: the webview's `previousContent`
+ * lags a save the host wrote while its answer was on the way, as when
+ * closing asks for a save just after one the typing asked for.
  */
 export class BaseHalfMarkdownRichWebviewSaveCoordinator {
 	async handleSaveRequested(
 		message: BaseHalfMarkdownRichSaveRequestedMessage,
 		disk: IBaseHalfMarkdownRichDisk,
-		sender: IBaseHalfMarkdownRichSaveSender
+		sender: IBaseHalfMarkdownRichSaveSender,
+		acceptedBodies: Iterable<string> = []
 	): Promise<IBaseHalfMarkdownRichSaveOutcome> {
 		const result = await writeBaseHalfMarkdownRichBody(disk, {
 			body: message.body,
 			previousContent: message.previousContent,
-			forceWrite: message.forceWrite
+			forceWrite: message.forceWrite,
+			acceptedBodies
 		});
 
 		let outcome: IBaseHalfMarkdownRichSaveOutcome;
@@ -92,24 +97,10 @@ export function planBaseHalfMarkdownRichProjectionHandoff(
 	message: Pick<BaseHalfMarkdownRichSaveRequestedMessage, 'body' | 'previousContent' | 'forceWrite'>,
 	acceptedBodies: Iterable<string>
 ): BaseHalfMarkdownRichProjectionHandoffPlan {
-	if (!message.forceWrite) {
-		const currentBody = baseHalfMarkdownRichBody(current);
-		if (currentBody !== message.body
-			&& currentBody !== baseHalfMarkdownRichBody(message.previousContent)
-			&& !includes(acceptedBodies, currentBody)) {
-			return { kind: 'conflict', disk: current };
-		}
+	if (!message.forceWrite && baseHalfMarkdownRichBodyDiverged(current, { ...message, acceptedBodies })) {
+		return { kind: 'conflict', disk: current };
 	}
 
 	const content = composeBaseHalfMarkdownRichContent(current, message.body);
 	return { kind: 'apply', content, changed: content !== current };
-}
-
-function includes(values: Iterable<string>, value: string): boolean {
-	for (const candidate of values) {
-		if (candidate === value) {
-			return true;
-		}
-	}
-	return false;
 }

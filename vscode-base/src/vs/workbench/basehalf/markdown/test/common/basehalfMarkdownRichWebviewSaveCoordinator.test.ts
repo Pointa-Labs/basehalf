@@ -58,6 +58,44 @@ suite('BaseHalfMarkdownRichWebviewSaveCoordinator', () => {
 		assert.deepStrictEqual(sender.results, [{ requestId: 'save-1', result: 'blockedByConflict', options: { disk: 'Source unsaved\n' } }]);
 	});
 
+	test('a save whose earlier text lags a written save of the same editor is written', async () => {
+		// Closing asked for a save while the answer to the save of the typing was on the way: the editor still
+		// names the text before that save as the one it last knew.
+		const disk = new TestDisk('Saved by rich\n');
+		const sender = new TestSender();
+		const outcome = await new BaseHalfMarkdownRichWebviewSaveCoordinator().handleSaveRequested(saveRequested({
+			body: 'Saved by rich\nMore\n',
+			previousContent: 'Alpha\n'
+		}), disk, sender, ['Saved by rich\n']);
+
+		assert.deepStrictEqual(outcome, { result: 'saved', okToLeave: true, content: 'Saved by rich\nMore\n' });
+		assert.strictEqual(disk.content, 'Saved by rich\nMore\n');
+	});
+
+	test('a save of the text the file holds writes nothing, whatever text the editor last knew', async () => {
+		const disk = new TestDisk('Saved by rich\n');
+		const sender = new TestSender();
+		const outcome = await new BaseHalfMarkdownRichWebviewSaveCoordinator().handleSaveRequested(saveRequested({
+			body: 'Saved by rich\n',
+			previousContent: 'Alpha\n'
+		}), disk, sender);
+
+		assert.deepStrictEqual(outcome, { result: 'noop', okToLeave: true, content: 'Saved by rich\n' });
+		assert.deepStrictEqual(disk.writes, []);
+	});
+
+	test('a text another wrote is a conflict, whatever bodies this editor wrote', async () => {
+		const disk = new TestDisk('External edit\n');
+		const sender = new TestSender();
+		const outcome = await new BaseHalfMarkdownRichWebviewSaveCoordinator().handleSaveRequested(saveRequested({
+			body: 'Rich local\n',
+			previousContent: 'Alpha\n'
+		}), disk, sender, ['Saved by rich\n', 'Rich local\n']);
+
+		assert.deepStrictEqual(outcome, { result: 'blockedByConflict', okToLeave: false, disk: 'External edit\n' });
+		assert.deepStrictEqual(disk.writes, []);
+	});
+
 	test('structural serialization never treats rename/delete as consent to overwrite external content', async () => {
 		const disk = new TestDisk('External edit\n');
 		const sender = new TestSender();
