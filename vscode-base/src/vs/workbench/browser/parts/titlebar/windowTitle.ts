@@ -32,6 +32,8 @@ import { getWindowById } from '../../../../base/browser/dom.js';
 import { CodeWindow } from '../../../../base/browser/window.js';
 import { IDecorationsService } from '../../../services/decorations/common/decorations.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
+// BaseHalf: the title names the shown place.
+import { IBaseHalfShownPlaceTitleService } from '../../../basehalf/navigation/common/basehalfShownPlaceTitle.js';
 
 const enum WindowSettingNames {
 	titleSeparator = 'window.titleSeparator',
@@ -98,7 +100,9 @@ export class WindowTitle extends Disposable {
 		@IProductService private readonly productService: IProductService,
 		@IViewsService private readonly viewsService: IViewsService,
 		@IDecorationsService private readonly decorationsService: IDecorationsService,
-		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
+		// BaseHalf: the title names the shown place.
+		@IBaseHalfShownPlaceTitleService private readonly baseHalfShownPlaceTitleService: IBaseHalfShownPlaceTitleService
 	) {
 		super();
 
@@ -128,6 +132,8 @@ export class WindowTitle extends Disposable {
 			}
 		}));
 		this._register(this.accessibilityService.onDidChangeScreenReaderOptimized(() => this.titleUpdater.schedule()));
+		// BaseHalf: a folder is shown as a canvas and a file in Card Detail, and neither is an editor of the base.
+		this._register(this.baseHalfShownPlaceTitleService.onDidChange(() => this.titleUpdater.schedule()));
 	}
 
 	private onConfigurationChanged(event: IConfigurationChangeEvent): void {
@@ -306,6 +312,10 @@ export class WindowTitle extends Disposable {
 	getWindowTitle(): string {
 		const editor = this.editorService.activeEditor;
 		const workspace = this.contextService.getWorkspace();
+		// BaseHalf: with no editor of the base, the variables of the active editor and of its folder speak of the
+		// shown place: the file in Card Detail and the folder whose canvas is shown (the shown place and the
+		// workbench, "The title of the window"). The title bar draws its own location and does not read them.
+		const shownPlace = editor ? undefined : this.baseHalfShownPlaceTitleService.title;
 
 		// Compute root
 		let root: URI | undefined;
@@ -316,8 +326,8 @@ export class WindowTitle extends Disposable {
 		}
 
 		// Compute active editor folder
-		const editorResource = EditorResourceAccessor.getOriginalUri(editor, { supportSideBySide: SideBySideEditor.PRIMARY });
-		let editorFolderResource = editorResource ? dirname(editorResource) : undefined;
+		const editorResource = EditorResourceAccessor.getOriginalUri(editor, { supportSideBySide: SideBySideEditor.PRIMARY }) ?? shownPlace?.file; // BaseHalf
+		let editorFolderResource = shownPlace ? shownPlace.folder : editorResource ? dirname(editorResource) : undefined; // BaseHalf
 		if (editorFolderResource?.path === '.') {
 			editorFolderResource = undefined;
 		}
@@ -328,8 +338,8 @@ export class WindowTitle extends Disposable {
 		let folder: IWorkspaceFolder | undefined = undefined;
 		if (this.contextService.getWorkbenchState() === WorkbenchState.FOLDER) {
 			folder = workspace.folders[0];
-		} else if (editorResource) {
-			folder = this.contextService.getWorkspaceFolder(editorResource) ?? undefined;
+		} else if (editorResource ?? shownPlace?.folder) { // BaseHalf: the folder of a canvas too
+			folder = this.contextService.getWorkspaceFolder((editorResource ?? shownPlace?.folder)!) ?? undefined;
 		}
 
 		// Compute remote
@@ -346,9 +356,11 @@ export class WindowTitle extends Disposable {
 		}
 
 		// Variables
-		const activeEditorShort = editor ? editor.getTitle(Verbosity.SHORT) : '';
-		const activeEditorMedium = editor ? editor.getTitle(Verbosity.MEDIUM) : activeEditorShort;
-		const activeEditorLong = editor ? editor.getTitle(Verbosity.LONG) : activeEditorMedium;
+		// BaseHalf: the file in Card Detail by the name BaseHalf shows for it, and by its paths as an editor of a file is.
+		const shownFile = shownPlace?.file;
+		const activeEditorShort = editor ? editor.getTitle(Verbosity.SHORT) : shownPlace?.name ?? '';
+		const activeEditorMedium = editor ? editor.getTitle(Verbosity.MEDIUM) : shownFile ? this.labelService.getUriLabel(shownFile, { relative: true }) : activeEditorShort;
+		const activeEditorLong = editor ? editor.getTitle(Verbosity.LONG) : shownFile ? this.labelService.getUriLabel(shownFile) : activeEditorMedium;
 		const activeFolderShort = editorFolderResource ? basename(editorFolderResource) : '';
 		const activeFolderMedium = editorFolderResource ? this.labelService.getUriLabel(editorFolderResource, { relative: true }) : '';
 		const activeFolderLong = editorFolderResource ? this.labelService.getUriLabel(editorFolderResource) : '';
@@ -357,7 +369,7 @@ export class WindowTitle extends Disposable {
 		const rootPath = root ? this.labelService.getUriLabel(root) : '';
 		const folderName = folder ? folder.name : '';
 		const folderPath = folder ? this.labelService.getUriLabel(folder.uri) : '';
-		const dirty = editor?.isDirty() && !editor.isSaving() ? WindowTitle.TITLE_DIRTY : '';
+		const dirty = (editor ? editor.isDirty() && !editor.isSaving() : shownPlace?.unsaved) ? WindowTitle.TITLE_DIRTY : ''; // BaseHalf
 		const appName = this.productService.nameLong;
 		const profileName = this.userDataProfileService.currentProfile.isDefault ? '' : this.userDataProfileService.currentProfile.name;
 		const focusedView: string = this.viewsService.getFocusedViewName();

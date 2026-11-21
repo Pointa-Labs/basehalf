@@ -11,6 +11,7 @@
 //#region Services
 
 import './navigation/common/basehalfCanvasNavigationService.js';
+import './navigation/common/basehalfShownPlaceTitle.js';
 import './canvas/common/basehalfCanvasViewportState.js';
 import './references/common/basehalfBadgeMirror.js';
 import './references/common/basehalfReferenceIndex.js';
