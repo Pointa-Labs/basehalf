@@ -8,11 +8,14 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { BASEHALF_SETTING_RULES } from '../../../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
-import { baseHalfGeneralSettings, BaseHalfSettingRow, IBaseHalfShownSetting } from '../../browser/basehalfGeneralSettingsPage.js';
+import { BaseHalfSettingRow } from '../../browser/basehalfSettingsListPage.js';
+import { baseHalfShownSettings, IBaseHalfShownSetting } from '../../browser/basehalfShownSettings.js';
 import { BASEHALF_CONFIGURATION_NODE } from '../../common/basehalfConfiguration.js';
+import { BaseHalfSettingsListPageId } from '../../common/basehalfSettings.js';
 
-/** The General page of BaseHalf's Settings, and the row of a setting (BaseHalf's Settings, "The General page"). */
-suite('BaseHalf General settings', () => {
+/** The pages of BaseHalf's Settings that list settings, and the row of a setting (BaseHalf's Settings, "The pages"). */
+suite('BaseHalf settings list pages', () => {
+	const pages: readonly BaseHalfSettingsListPageId[] = ['general', 'canvas', 'notes', 'agentArea'];
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
 	/** What a row wrote, by setting, in order. */
@@ -39,22 +42,35 @@ suite('BaseHalf General settings', () => {
 		element.dispatchEvent(new Event('change'));
 	}
 
-	test('the page and About hold the shown settings of the catalog, each once', () => {
+	test('the pages and About hold the shown settings of the catalog, each once: every setting of BaseHalf\'s own is on a page', () => {
 		const shown = BASEHALF_SETTING_RULES.filter(rule => rule.class === 'shown').flatMap(rule => rule.patterns)
 			.flatMap(pattern => pattern === 'basehalf.*' ? Object.keys(BASEHALF_CONFIGURATION_NODE.properties ?? {}) : [pattern]);
-		const general = baseHalfGeneralSettings().flatMap(section => section.settings.map(setting => setting.key));
-		assert.deepStrictEqual([...general, 'update.mode'].sort(), [...shown].sort());
+		const listed = pages.flatMap(page => baseHalfShownSettings(page)).flatMap(section => section.settings.map(setting => setting.key));
+		assert.deepStrictEqual([...listed, 'update.mode'].sort(), [...shown].sort());
 	});
 
-	test('the rows of the page, in its order, with a line only under the names that need one', () => {
-		assert.deepStrictEqual(baseHalfGeneralSettings().map(section => `${section.title}: ${section.settings.map(setting => `${setting.label}${setting.description ? '*' : ''} (${setting.control.kind})`).join(', ')}`), [
-			'Window: Zoom (choice)',
-			'Canvas: Zoom of a New Folder* (choice)',
-			'Notes: Reading Aids* (switch)',
-			'Code: Font (text), Font Size* (number), Wrap Long Lines* (choice)',
-			'Files: Show the .bh Folder* (switch)',
-			'Agent Area: First Session* (choice), Terminal Font (text), Terminal Font Size (number), Offer the BaseHalf Skill* (switch)'
+	test('the rows of each page, in its order, with a line only under the names that need one', () => {
+		assert.deepStrictEqual(pages.flatMap(page => baseHalfShownSettings(page).map(section => `${page} / ${section.title ?? '-'}: ${section.settings.map(setting => `${setting.label}${setting.description ? '*' : ''} (${setting.control.kind})`).join(', ')}`)), [
+			'general / Window: Zoom (choice)',
+			'general / Code: Font (text), Font Size* (number), Wrap Long Lines* (choice)',
+			'general / Files: Show the .bh Folder* (switch)',
+			'canvas / -: Zoom of a New Folder* (choice), Mouse Wheel* (choice), Snap to Cards* (switch), Background (choice), Play Videos Under the Pointer* (switch)',
+			'notes / -: Font* (choice), Text Size* (number), Opens In (choice), Reading Aids* (switch)',
+			'agentArea / Sessions: First Session* (choice), Reopen Sessions* (switch)',
+			'agentArea / Terminal: Font (text), Font Size (number)',
+			'agentArea / Agents: Offer the BaseHalf Skill* (switch), Share the Selection* (switch)'
 		]);
+	});
+
+	test('a choice shows the value of a setting that is an empty text, and a font that is none of the choices by its own name', () => {
+		const font = baseHalfShownSettings('notes').flatMap(section => section.settings).find(setting => setting.key === 'basehalf.notes.fontFamily')!;
+		const standard = row(font, '').element.querySelector('select')!;
+		const own = row(font, 'Avenir Next').element.querySelector('select')!;
+		assert.deepStrictEqual({
+			standard: standard.selectedOptions[0]?.textContent,
+			own: own.selectedOptions[0]?.textContent,
+			listed: Array.from(own.options).map(option => option.textContent)
+		}, { standard: 'Default', own: 'Avenir Next', listed: ['Default', 'Serif', 'Monospace', 'Avenir Next'] });
 	});
 
 	test('a switch shows the value in effect and writes the other one', () => {
@@ -75,7 +91,7 @@ suite('BaseHalf General settings', () => {
 	});
 
 	test('the zoom of a window that is none of the choices is listed by its percentage', () => {
-		const zoom = baseHalfGeneralSettings().flatMap(section => section.settings).find(setting => setting.key === 'window.zoomLevel')!;
+		const zoom = baseHalfShownSettings('general').flatMap(section => section.settings).find(setting => setting.key === 'window.zoomLevel')!;
 		const { element } = row(zoom, 0.5);
 		const select = element.querySelector('select')!;
 		assert.deepStrictEqual({ chosen: select.selectedOptions[0]?.textContent, around: Array.from(select.options).map(option => option.textContent).slice(3, 6) }, { chosen: '110%', around: ['100%', '110%', '120%'] });

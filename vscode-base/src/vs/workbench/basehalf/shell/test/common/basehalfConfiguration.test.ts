@@ -30,9 +30,18 @@ suite('BaseHalfConfiguration', () => {
 		assert.deepStrictEqual(keys, [
 			'basehalf.editor.readingMode',
 			'basehalf.canvas.defaultZoom',
+			'basehalf.canvas.wheel',
+			'basehalf.canvas.snap',
+			'basehalf.canvas.background',
+			'basehalf.canvas.playVideosOnHover',
+			'basehalf.notes.fontFamily',
+			'basehalf.notes.fontSize',
+			'basehalf.notes.openIn',
 			'basehalf.files.showHiddenFolder',
 			'basehalf.agent.defaultSession',
-			'basehalf.agents.offerSkill'
+			'basehalf.agent.restoreSessions',
+			'basehalf.agents.offerSkill',
+			'basehalf.agents.shareSelection'
 		]);
 
 		const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);

@@ -44,6 +44,7 @@
 }
 
 .basehalf-settings-page-tab,
+.basehalf-settings-keyboard,
 .basehalf-settings-advanced {
 	padding: 6px 10px;
 	border: 0;
@@ -64,11 +65,20 @@
 	font-weight: 600;
 }
 
-.basehalf-settings-advanced {
+/* What is elsewhere, under the pages: Keyboard Shortcuts and the advanced list. */
+.basehalf-settings-elsewhere {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
 	margin-top: auto;
+}
+
+.basehalf-settings-keyboard,
+.basehalf-settings-advanced {
 	color: var(--vscode-descriptionForeground);
 }
 
+.basehalf-settings-keyboard:hover,
 .basehalf-settings-advanced:hover {
 	color: var(--vscode-foreground);
 }
@@ -98,6 +108,11 @@
 
 .basehalf-settings-section {
 	max-width: 620px;
+}
+
+/* A page whose settings are one group: the group stands under the page's title. */
+.basehalf-settings-section.untitled {
+	margin-top: 18px;
 }
 
 .basehalf-settings-section h2 {

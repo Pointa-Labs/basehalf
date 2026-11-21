@@ -6,142 +6,10 @@
 import { $, addDisposableListener, append, EventType, getActiveElement } from '../../../../base/browser/dom.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { equals } from '../../../../base/common/objects.js';
-import { localize } from '../../../../nls.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { BASEHALF_AGENT_SESSION_CHOICES } from '../../agentArea/common/basehalfAgentArea.js';
 import { IBaseHalfSettingsPage, IBaseHalfSettingsPageLayout } from '../../ui/browser/basehalfSettingsPage.js';
-import { BaseHalfSetting } from '../common/basehalfConfiguration.js';
-
-/** How a setting is changed on the page. */
-export type BaseHalfSettingControl =
-	| { readonly kind: 'switch' }
-	| { readonly kind: 'choice'; readonly options: readonly IBaseHalfSettingOption[]; /** Names a value that is none of the choices, as the choices are named. */ readonly name?: (value: string | number) => string }
-	| { readonly kind: 'text'; readonly placeholder?: string }
-	| { readonly kind: 'number'; readonly minimum: number; readonly maximum: number };
-
-export interface IBaseHalfSettingOption {
-	readonly value: string | number;
-	readonly label: string;
-}
-
-/** A shown setting of the catalog (the settings BaseHalf offers, "Shown"), under BaseHalf's own name and words. */
-export interface IBaseHalfShownSetting {
-	readonly key: string;
-	readonly label: string;
-	readonly description?: string;
-	readonly control: BaseHalfSettingControl;
-}
-
-export interface IBaseHalfShownSettingsSection {
-	readonly id: string;
-	readonly title: string;
-	readonly settings: readonly IBaseHalfShownSetting[];
-}
-
-/** The zoom of the window is a level, each a fifth larger than the one before; the page names it by its percentage. */
-function windowZoomOptions(): IBaseHalfSettingOption[] {
-	return [-3, -2, -1, 0, 1, 2, 3, 4, 5].map(level => ({ value: level, label: percentage(Math.pow(1.2, level)) }));
-}
-
-function percentage(factor: number): string {
-	return localize('basehalf.settings.percentage', "{0}%", Math.round(factor * 100));
-}
-
-/** The settings of the General page, in its order. `update.mode` is on the About page, with the state of an update. */
-export function baseHalfGeneralSettings(): IBaseHalfShownSettingsSection[] {
-	return [
-		{
-			id: 'window',
-			title: localize('basehalf.settings.window', "Window"),
-			settings: [{
-				key: 'window.zoomLevel',
-				label: localize('basehalf.settings.zoom', "Zoom"),
-				control: { kind: 'choice', options: windowZoomOptions(), name: level => typeof level === 'number' ? percentage(Math.pow(1.2, level)) : String(level) }
-			}]
-		},
-		{
-			id: 'canvas',
-			title: localize('basehalf.settings.canvas', "Canvas"),
-			settings: [{
-				key: BaseHalfSetting.CanvasDefaultZoom,
-				label: localize('basehalf.settings.canvasZoom', "Zoom of a New Folder"),
-				description: localize('basehalf.settings.canvasZoomDescription', "The largest zoom at which a folder first shows all its cards."),
-				control: {
-					kind: 'choice',
-					options: [0.25, 0.33, 0.5, 0.67, 0.75, 1].map(zoom => ({ value: zoom, label: percentage(zoom) })),
-					name: zoom => typeof zoom === 'number' ? percentage(zoom) : String(zoom)
-				}
-			}]
-		},
-		{
-			id: 'notes',
-			title: localize('basehalf.settings.notes', "Notes"),
-			settings: [{
-				key: BaseHalfSetting.EditorReadingMode,
-				label: localize('basehalf.settings.readingAids', "Reading Aids"),
-				description: localize('basehalf.settings.readingAidsDescription', "Keywords stand out, and a paragraph can be marked as read."),
-				control: { kind: 'switch' }
-			}]
-		},
-		{
-			id: 'code',
-			title: localize('basehalf.settings.code', "Code"),
-			settings: [{
-				key: 'editor.fontFamily',
-				label: localize('basehalf.settings.codeFont', "Font"),
-				control: { kind: 'text' }
-			}, {
-				key: 'editor.fontSize',
-				label: localize('basehalf.settings.codeFontSize', "Font Size"),
-				description: localize('basehalf.settings.codeFontSizeDescription', "In Source. A code card keeps its size."),
-				control: { kind: 'number', minimum: 6, maximum: 100 }
-			}, {
-				key: 'editor.wordWrap',
-				label: localize('basehalf.settings.wordWrap', "Wrap Long Lines"),
-				description: localize('basehalf.settings.wordWrapDescription', "In Source."),
-				control: {
-					kind: 'choice', options: [
-						{ value: 'off', label: localize('basehalf.settings.off', "Off") },
-						{ value: 'on', label: localize('basehalf.settings.on', "On") }
-					]
-				}
-			}]
-		},
-		{
-			id: 'files',
-			title: localize('basehalf.settings.files', "Files"),
-			settings: [{
-				key: BaseHalfSetting.FilesShowHiddenFolder,
-				label: localize('basehalf.settings.showHiddenFolder', "Show the .bh Folder"),
-				description: localize('basehalf.settings.showHiddenFolderDescription', "It holds the files of notes and the records of cards."),
-				control: { kind: 'switch' }
-			}]
-		},
-		{
-			id: 'agentArea',
-			title: localize('basehalf.settings.agentArea', "Agent Area"),
-			settings: [{
-				key: BaseHalfSetting.AgentDefaultSession,
-				label: localize('basehalf.settings.defaultSession', "First Session"),
-				description: localize('basehalf.settings.defaultSessionDescription', "Started when the Agent Area opens with no session."),
-				control: { kind: 'choice', options: BASEHALF_AGENT_SESSION_CHOICES.map(choice => ({ value: choice.kind, label: choice.label })) }
-			}, {
-				key: 'terminal.integrated.fontFamily',
-				label: localize('basehalf.settings.terminalFont', "Terminal Font"),
-				control: { kind: 'text', placeholder: localize('basehalf.settings.terminalFontPlaceholder', "Same as Code") }
-			}, {
-				key: 'terminal.integrated.fontSize',
-				label: localize('basehalf.settings.terminalFontSize', "Terminal Font Size"),
-				control: { kind: 'number', minimum: 6, maximum: 100 }
-			}, {
-				key: BaseHalfSetting.AgentsOfferSkill,
-				label: localize('basehalf.settings.offerSkill', "Offer the BaseHalf Skill"),
-				description: localize('basehalf.settings.offerSkillDescription', "The skill tells agents what is selected and how cards connect."),
-				control: { kind: 'switch' }
-			}]
-		}
-	];
-}
+import { BaseHalfSettingsListPageId } from '../common/basehalfSettings.js';
+import { baseHalfShownSettings, IBaseHalfSettingOption, IBaseHalfShownSetting } from './basehalfShownSettings.js';
 
 /** Numbers the pages, so that the ids of each page's elements are its own. */
 let pageCount = 0;
@@ -299,43 +167,56 @@ export class BaseHalfSettingRow extends Disposable {
 	}
 }
 
-/** A group of settings under a heading: rows in one box, a line between them. */
-export function renderBaseHalfSettingsSection(parent: HTMLElement, id: string, title: string): HTMLElement {
+/**
+ * A group of settings: rows in one box, a line between them, under a heading when the group has
+ * a name of its own. A group without one is named by `labelledBy`, the page's title.
+ */
+export function renderBaseHalfSettingsSection(parent: HTMLElement, id: string, title: string | undefined, labelledBy?: string): HTMLElement {
 	const section = append(parent, $('section.basehalf-settings-section'));
-	const heading = append(section, $('h2'));
-	heading.id = `${id}-heading`;
-	heading.textContent = title;
-	const group = append(section, $('.basehalf-settings-group'));
+	const group = $('.basehalf-settings-group');
 	group.setAttribute('role', 'group');
-	group.setAttribute('aria-labelledby', heading.id);
-	return group;
+	if (title !== undefined) {
+		const heading = append(section, $('h2'));
+		heading.id = `${id}-heading`;
+		heading.textContent = title;
+		group.setAttribute('aria-labelledby', heading.id);
+	} else {
+		section.classList.add('untitled');
+		if (labelledBy) {
+			group.setAttribute('aria-labelledby', labelledBy);
+		}
+	}
+	return append(section, group);
 }
 
 /**
- * The General page of BaseHalf's Settings (BaseHalf's pages in Settings): the shown settings of
- * the catalog under BaseHalf's own names, by what they belong to.
+ * A page of BaseHalf's Settings that is a list of settings (BaseHalf's Settings, "The pages"):
+ * the shown settings of the catalog that belong to the page, under BaseHalf's own names.
  */
-export class BaseHalfGeneralSettingsPage extends Disposable implements IBaseHalfSettingsPage {
-	private readonly idPrefix = `basehalf-settings-general-${++pageCount}`;
+export class BaseHalfSettingsListPage extends Disposable implements IBaseHalfSettingsPage {
+	private readonly idPrefix: string;
 	private root: HTMLElement | undefined;
 	private readonly rows: BaseHalfSettingRow[] = [];
 
 	constructor(
+		private readonly page: BaseHalfSettingsListPageId,
+		private readonly title: string,
 		@IConfigurationService private readonly configurationService: IConfigurationService
 	) {
 		super();
+		this.idPrefix = `basehalf-settings-${page}-${++pageCount}`;
 	}
 
 	create(parent: HTMLElement): void {
-		const root = this.root = append(parent, $('.basehalf-settings-page.basehalf-settings-general'));
+		const root = this.root = append(parent, $(`.basehalf-settings-page.basehalf-settings-list.basehalf-settings-${this.page}`));
 		root.tabIndex = -1;
 		const title = append(root, $('h1'));
 		title.id = `${this.idPrefix}-title`;
-		title.textContent = localize('basehalf.settings.general', "General");
+		title.textContent = this.title;
 
 		const store = this._register(new DisposableStore());
-		for (const section of baseHalfGeneralSettings()) {
-			const group = renderBaseHalfSettingsSection(root, `${this.idPrefix}-${section.id}`, section.title);
+		for (const section of baseHalfShownSettings(this.page)) {
+			const group = renderBaseHalfSettingsSection(root, `${this.idPrefix}-${section.id}`, section.title, title.id);
 			for (const setting of section.settings) {
 				this.rows.push(store.add(new BaseHalfSettingRow(group, setting, `${this.idPrefix}-${setting.key.replace(/[^A-Za-z0-9]/g, '-')}`, this.configurationService)));
 			}

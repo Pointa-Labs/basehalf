@@ -19,9 +19,9 @@ import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { BaseHalfVideoProvidersPage } from '../../generation/browser/basehalfVideoProvidersPage.js';
 import { IBaseHalfSettingsPage } from '../../ui/browser/basehalfSettingsPage.js';
-import { BASEHALF_OPEN_ADVANCED_SETTINGS_COMMAND_ID, BASEHALF_SETTINGS_PAGES, BaseHalfSettingsPageId, isBaseHalfSettingsPageId } from '../common/basehalfSettings.js';
+import { BASEHALF_OPEN_ADVANCED_SETTINGS_COMMAND_ID, BASEHALF_OPEN_KEYBOARD_SHORTCUTS_COMMAND_ID, BASEHALF_SETTINGS_PAGES, BaseHalfSettingsPageId, isBaseHalfSettingsPageId } from '../common/basehalfSettings.js';
 import { BaseHalfAboutView } from './basehalfAbout.js';
-import { BaseHalfGeneralSettingsPage } from './basehalfGeneralSettingsPage.js';
+import { BaseHalfSettingsListPage } from './basehalfSettingsListPage.js';
 import { IBaseHalfSettingsEditorOptions } from './basehalfSettingsEditorInput.js';
 
 /** The width of the list of pages. */
@@ -33,6 +33,9 @@ let editorCount = 0;
 function pageLabel(page: BaseHalfSettingsPageId): string {
 	switch (page) {
 		case 'general': return localize('basehalf.settings.page.general', "General");
+		case 'canvas': return localize('basehalf.settings.page.canvas', "Canvas");
+		case 'notes': return localize('basehalf.settings.page.notes', "Notes");
+		case 'agentArea': return localize('basehalf.settings.page.agentArea', "Agent Area");
 		case 'providers': return localize('basehalf.settings.page.providers', "Providers");
 		case 'about': return localize('basehalf.settings.page.about', "About");
 	}
@@ -85,7 +88,13 @@ export class BaseHalfSettingsEditor extends EditorPane {
 			this._register(addDisposableListener(tab, EventType.CLICK, () => this.show(page)));
 			this._register(addDisposableListener(tab, EventType.KEY_DOWN, (event: KeyboardEvent) => this.onTabKey(page, event)));
 		}
-		const advanced = append(navigation, $('button.basehalf-settings-advanced')) as HTMLButtonElement;
+		// Under the pages: the keys, and every setting of the base that does something in BaseHalf.
+		const elsewhere = append(navigation, $('.basehalf-settings-elsewhere'));
+		const keyboard = append(elsewhere, $('button.basehalf-settings-keyboard')) as HTMLButtonElement;
+		keyboard.type = 'button';
+		keyboard.textContent = localize('basehalf.settings.keyboard', "Keyboard Shortcuts…");
+		this._register(addDisposableListener(keyboard, EventType.CLICK, () => void this.commandService.executeCommand(BASEHALF_OPEN_KEYBOARD_SHORTCUTS_COMMAND_ID)));
+		const advanced = append(elsewhere, $('button.basehalf-settings-advanced')) as HTMLButtonElement;
 		advanced.type = 'button';
 		advanced.textContent = localize('basehalf.settings.advanced', "Advanced Settings…");
 		this._register(addDisposableListener(advanced, EventType.CLICK, () => void this.commandService.executeCommand(BASEHALF_OPEN_ADVANCED_SETTINGS_COMMAND_ID)));
@@ -141,7 +150,11 @@ export class BaseHalfSettingsEditor extends EditorPane {
 
 	private createPage(page: BaseHalfSettingsPageId): IBaseHalfSettingsPage {
 		switch (page) {
-			case 'general': return this.instantiationService.createInstance(BaseHalfGeneralSettingsPage);
+			case 'general':
+			case 'canvas':
+			case 'notes':
+			case 'agentArea':
+				return this.instantiationService.createInstance(BaseHalfSettingsListPage, page, pageLabel(page));
 			case 'providers': return this.instantiationService.createInstance(BaseHalfVideoProvidersPage);
 			case 'about': return this.instantiationService.createInstance(BaseHalfAboutView);
 		}

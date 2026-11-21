@@ -14,7 +14,8 @@ import { IUpdateService, State } from '../../../../platform/update/common/update
 import { IBaseHalfSettingsPage } from '../../ui/browser/basehalfSettingsPage.js';
 import { UpdateTooltip } from '../../../contrib/update/browser/updateTooltip.js';
 import { BASEHALF_ABOUT_ACTION_COMMANDS, BaseHalfAboutAction, baseHalfAboutAction } from '../common/basehalfAbout.js';
-import { BaseHalfSettingRow, IBaseHalfShownSetting, renderBaseHalfSettingsSection } from './basehalfGeneralSettingsPage.js';
+import { BaseHalfSettingRow, renderBaseHalfSettingsSection } from './basehalfSettingsListPage.js';
+import { IBaseHalfShownSetting } from './basehalfShownSettings.js';
 
 /**
  * The About page of Settings (app update, "Where an update shows"): the

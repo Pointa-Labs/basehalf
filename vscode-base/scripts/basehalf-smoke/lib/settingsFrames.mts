@@ -23,7 +23,7 @@ export async function watchSettingsFrames(page) {
 			const settings = Array.from(document.querySelectorAll('.basehalf-settings')).find(element => element.getClientRects().length > 0);
 			if (settings) {
 				const shown = Array.from(settings.querySelectorAll('.basehalf-settings-body > *')).filter(element => !element.hidden && element.getClientRects().length > 0);
-				const known = ['basehalf-settings-general', 'basehalf-video-providers', 'basehalf-about'];
+				const known = ['basehalf-settings-general', 'basehalf-settings-canvas', 'basehalf-settings-notes', 'basehalf-settings-agentArea', 'basehalf-video-providers', 'basehalf-about'];
 				frames.push({
 					entry: settings.querySelector('.basehalf-settings-page-tab[aria-selected="true"]')?.textContent ?? null,
 					page: shown.length === 1 ? known.find(name => shown[0].classList.contains(name)) ?? shown[0].className : `${shown.length} pages`

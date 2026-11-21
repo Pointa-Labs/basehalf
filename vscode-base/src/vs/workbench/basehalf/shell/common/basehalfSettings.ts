@@ -6,8 +6,10 @@
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 
 /** The pages of BaseHalf's Settings (BaseHalf's pages in Settings), in the order of its list. */
-export const BASEHALF_SETTINGS_PAGES = ['general', 'providers', 'about'] as const;
+export const BASEHALF_SETTINGS_PAGES = ['general', 'canvas', 'notes', 'agentArea', 'providers', 'about'] as const;
 export type BaseHalfSettingsPageId = typeof BASEHALF_SETTINGS_PAGES[number];
+/** The pages that are a list of settings. */
+export type BaseHalfSettingsListPageId = Exclude<BaseHalfSettingsPageId, 'providers' | 'about'>;
 
 export function isBaseHalfSettingsPageId(value: unknown): value is BaseHalfSettingsPageId {
 	return typeof value === 'string' && (BASEHALF_SETTINGS_PAGES as readonly string[]).includes(value);
@@ -17,6 +19,8 @@ export function isBaseHalfSettingsPageId(value: unknown): value is BaseHalfSetti
 export const BASEHALF_OPEN_SETTINGS_COMMAND_ID = 'basehalf.settings.open';
 /** The Settings editor of the base, which lists every setting that does something in BaseHalf. */
 export const BASEHALF_OPEN_ADVANCED_SETTINGS_COMMAND_ID = 'basehalf.settings.openAdvanced';
+/** Keyboard Shortcuts of the base, which lists the commands of BaseHalf with their keys. */
+export const BASEHALF_OPEN_KEYBOARD_SHORTCUTS_COMMAND_ID = 'workbench.action.openGlobalKeybindings';
 
 export const IBaseHalfSettingsService = createDecorator<IBaseHalfSettingsService>('baseHalfSettingsService');
 

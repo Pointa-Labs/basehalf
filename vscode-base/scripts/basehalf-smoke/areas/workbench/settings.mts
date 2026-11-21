@@ -46,7 +46,7 @@ export function assertHiddenFamiliesNameTheirCommands() {
 }
 
 // BaseHalf's Settings, criteria 1, 2, 7, and 9: the key of Settings opens BaseHalf's own Settings at General, in
-// the overlay, with its three pages and the rows of General under BaseHalf's names; a switch writes the user's
+// the overlay, with its six pages and the rows of General under BaseHalf's names; a switch writes the user's
 // settings at once and takes its line away again at the default; the arrow keys choose a page; Advanced Settings…
 // shows the Settings editor of the base, which lists BaseHalf's settings in one group and nothing of the base's
 // chat; and Escape closes Settings.
@@ -59,16 +59,34 @@ export async function assertBaseHalfSettings(page) {
 	const seen = await settings.evaluate(root => ({
 		pages: Array.from(root.querySelectorAll('.basehalf-settings-page-tab')).map(tab => `${tab.textContent}${tab.getAttribute('aria-selected') === 'true' ? '*' : ''}`),
 		advanced: root.querySelector('.basehalf-settings-advanced')?.textContent ?? null,
+		keyboard: root.querySelector('.basehalf-settings-keyboard')?.textContent ?? null,
 		rows: Array.from(root.querySelectorAll('.basehalf-settings-general .basehalf-settings-row-label')).map(label => label.textContent),
 		overlay: !!root.closest('.modal-editor-part'),
 		search: !!root.querySelector('input[type="search"], .suggest-input-container')
 	}));
-	const rows = ['Zoom', 'Zoom of a New Folder', 'Reading Aids', 'Font', 'Font Size', 'Wrap Long Lines', 'Show the .bh Folder', 'First Session', 'Terminal Font', 'Terminal Font Size', 'Offer the BaseHalf Skill'];
-	if (JSON.stringify(seen.pages) !== JSON.stringify(['General*', 'Providers', 'About']) || seen.advanced !== 'Advanced Settings…'
-		|| JSON.stringify(seen.rows) !== JSON.stringify(rows) || !seen.overlay || seen.search) {
+	const rows = ['Zoom', 'Font', 'Font Size', 'Wrap Long Lines', 'Show the .bh Folder'];
+	if (JSON.stringify(seen.pages) !== JSON.stringify(['General*', 'Canvas', 'Notes', 'Agent Area', 'Providers', 'About']) || seen.advanced !== 'Advanced Settings…'
+		|| seen.keyboard !== 'Keyboard Shortcuts…' || JSON.stringify(seen.rows) !== JSON.stringify(rows) || !seen.overlay || seen.search) {
 		throw new Error(`Settings must open BaseHalf's own Settings at General, in the overlay, with its pages and rows: ${JSON.stringify(seen)}`);
 	}
 
+	// Each page of settings holds its rows under BaseHalf's names.
+	const pageRows = {
+		canvas: ['Zoom of a New Folder', 'Mouse Wheel', 'Snap to Cards', 'Background', 'Play Videos Under the Pointer'],
+		notes: ['Font', 'Text Size', 'Opens In', 'Reading Aids'],
+		agentArea: ['First Session', 'Reopen Sessions', 'Font', 'Font Size', 'Offer the BaseHalf Skill', 'Share the Selection']
+	};
+	for (const [name, expected] of Object.entries(pageRows)) {
+		await settings.locator(`.basehalf-settings-page-tab[data-page="${name}"]`).click();
+		const shown = await waitForReading(
+			() => settings.locator(`.basehalf-settings-${name}:not([hidden]) .basehalf-settings-row-label`).allTextContents(),
+			labels => labels.length > 0, `the page ${name} of Settings to show its rows`);
+		if (JSON.stringify(shown) !== JSON.stringify(expected)) {
+			throw new Error(`The page ${name} of Settings must hold its rows: ${JSON.stringify(shown)}`);
+		}
+	}
+
+	await settings.locator('.basehalf-settings-page-tab[data-page="notes"]').click();
 	const readingAids = settings.locator('[data-setting="basehalf.editor.readingMode"] [role="switch"]');
 	const before = await readingAids.getAttribute('aria-checked');
 	await readingAids.click();
@@ -80,10 +98,10 @@ export async function assertBaseHalfSettings(page) {
 	// The arrow keys choose a page and keep the keyboard in the list.
 	await settings.locator('.basehalf-settings-page-tab[data-page="general"]').focus();
 	await page.keyboard.press('ArrowDown');
-	await settings.locator('.basehalf-settings-page-tab[data-page="providers"][aria-selected="true"]').waitFor({ state: 'visible', timeout: 10_000 });
+	await settings.locator('.basehalf-settings-page-tab[data-page="canvas"][aria-selected="true"]').waitFor({ state: 'visible', timeout: 10_000 });
 	const inList = await page.evaluate(() => document.activeElement?.getAttribute('data-page'));
-	if (inList !== 'providers') {
-		throw new Error(`Arrow Down in the list of pages must choose Providers and keep the keyboard in the list: the focus is on ${inList}`);
+	if (inList !== 'canvas') {
+		throw new Error(`Arrow Down in the list of pages must choose Canvas and keep the keyboard in the list: the focus is on ${inList}`);
 	}
 
 	await settings.locator('.basehalf-settings-advanced').click();
