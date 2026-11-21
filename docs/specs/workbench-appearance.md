@@ -111,8 +111,10 @@ Not in scope, and unchanged:
     gutter, and a call that scrolls something into view, from a page, from a
     tool that drives the window, or from a control that takes the keyboard,
     moved every part 4 px and left it there. The grid clips what is outside
-    it and has no scroll position. This is the second rule BaseHalf adds to
-    the layout.
+. With `accessibility.dimUnfocused.enabled` on, a session of the Agent Area
+    and the canvas, with what stands over it, dim while the keyboard is
+    elsewhere, by `accessibility.dimUnfocused.opacity`, as the base's
+    terminals and editors do.
 
 ### Git status colors and letters
 

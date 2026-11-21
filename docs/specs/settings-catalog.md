@@ -134,21 +134,22 @@ question is whether BaseHalf decided so.
 ## The catalog
 
 Counts are those of the registry on 2026-11-21, read again after the
-surfaces came to follow their settings and JSON's language service was
-admitted: 1,483 settings. A pattern ends in `*` where it stands for every
+surfaces came to follow their settings, JSON's language service was
+admitted, and BaseHalf gained the settings of its own (D143): 1,492
+settings. A pattern ends in `*` where it stands for every
 setting that starts so.
 
-### Shown (12)
+### Shown (23)
+
+Each has a row on a page of [BaseHalf's Settings](settings-pages.md), which
+owns their names and words.
 
 | Setting | What it is to a user |
 | --- | --- |
-| `basehalf.editor.readingMode` | reading aids in notes |
-| `basehalf.canvas.defaultZoom` | how large the canvas first shows a folder |
-| `basehalf.files.showHiddenFolder` | `.bh` in Files |
-| `basehalf.agent.defaultSession` | the session the Agent Area starts with |
-| `basehalf.agents.offerSkill` | the offer of BaseHalf's skill |
+| `basehalf.*` (14) | every setting of BaseHalf's own: none is kept for the advanced list (D143) |
+| `workbench.colorTheme`, `window.autoDetectColorScheme` | dark or light, or as the system is ([light and dark](light-and-dark.md), D148) |
 | `window.zoomLevel` | the size of everything in the window |
-| `editor.fontFamily`, `editor.fontSize`, `editor.wordWrap` | code and a note's Source: the font also of code cards |
+| `editor.fontFamily`, `editor.fontSize`, `editor.wordWrap` | code and a note's Source: the font also of code cards and of code in a note |
 | `terminal.integrated.fontFamily`, `terminal.integrated.fontSize` | the Agent Area's terminals |
 | `update.mode` | whether BaseHalf looks for updates by itself |
 
@@ -165,19 +166,27 @@ setting that starts so.
 | Workspace trust stays off: BaseHalf has no surface for it, and an untrusted folder would run without Git (5) | `security.workspace.trust.*`, with `enabled` false and the prompts `never` |
 | Hidden surfaces stay shut, and a folder starts no task by itself (5) | `task.allowAutomaticTasks` `off`, `debug.internalConsoleOptions` `neverOpen`, `testing.automaticallyOpenPeekView` `never`, `testing.automaticallyOpenTestResults` `neverOpen`, `testing.countBadge` `off` |
 
-### Pending (15)
+### Pending (0)
 
-| What a user would expect | Settings | Why nothing follows them | The surface that owes the answer | What it takes |
-| --- | --- | --- | --- | --- |
-| A terminal is there again after the window reloads (3) | `terminal.integrated.enablePersistentSessions`, `terminal.integrated.persistentSession*` | a session is started as one that is not kept | [Agent Area terminal](agent-area-terminal.md) | sessions the base keeps, the Agent Area saving its tabs and panes with their processes and attaching to them at start, and a decision on what coming back means for an agent: a specification of its own |
-| A shell suggests commands and paths as they are typed (12) | `terminal.integrated.suggest.*` | the extension that provides them does not ship | Agent Area terminal, [what the package holds](what-the-package-holds.md) | shipping the extension, its list placed and drawn inside a pane, and a decision whether a terminal that follows a native one has it; an agent's session has no shell and would get none |
+Nothing is pending. Of the 29 settings that were on 2026-11-21:
 
-Of the 14 other settings that were pending on 2026-11-21, 13 are advanced:
-the Agent Area follows them
-([Agent Area terminal](agent-area-terminal.md#the-settings-of-a-terminal-that-a-session-follows)).
-`terminal.integrated.enableBell`, which the base retired, is unlisted.
+- 14 are advanced: the Agent Area follows them
+  ([Agent Area terminal](agent-area-terminal.md#the-settings-of-a-terminal-that-a-session-follows),
+  D140, and the folder of a split).
+- 15 are unlisted, settled by D147: `terminal.integrated.enablePersistentSessions`
+  and the two of `persistentSession*`, because BaseHalf brings back the
+  arrangement of the Agent Area and starts every process anew, by its own
+  setting `basehalf.agent.restoreSessions`; and the 12 of
+  `terminal.integrated.suggest.*`, because the Agent Area's terminal is for
+  agents and a plain shell, an agent's session has no shell to suggest for,
+  the extension that provides them does not ship, and completion is the
+  shell's own.
+- `terminal.integrated.enableBell`, which the base retired, is unlisted.
 
-### Unlisted (658)
+The class stays: a setting of a base update that a surface of BaseHalf's
+should follow and does not yet is pending until it does.
+
+### Unlisted (673)
 
 | Family | Count | What settles it |
 | --- | --- | --- |
@@ -189,6 +198,8 @@ the Agent Area follows them
 | Editor tabs and groups: the looks of tabs, pinned tabs, splitting, `explorer.openEditors.*` | 39 | a file opens in Card Detail, and there is one editor group (architecture invariants) |
 | Debug: `debug.*`, `launch` | 34 | no debugger ships; the view is hidden |
 | The stock terminal panel: the rest of `terminal.integrated.tabs.*`, where a terminal opens, sticky scroll, the marks of commands, the hint, and the retired `terminal.integrated.enableBell` | 27 | terminals are the Agent Area's, which hides sticky scroll and the marks of commands |
+| Suggestions of a shell: `terminal.integrated.suggest.*` | 12 | D147: the terminal is for agents and a plain shell; completion is the shell's own |
+| The processes of sessions kept through a reload: `terminal.integrated.enablePersistentSessions`, `persistentSession*` | 3 | D147: BaseHalf brings back the arrangement and starts every process anew |
 | Tasks, the integrated browser, profiles: `task.*`, `workbench.browser.*`, and the two settings of profiles | 23 | D137: BaseHalf has none of the three. An agent runs a folder's commands in the Agent Area, a page opens in the system's browser, and there is one set of settings |
 | The workbench without a service or a provider: cloud changes, the product icon theme, the chat entries of the Command Palette, AI search of settings | 20 | no service is configured and no provider ships |
 | The Marketplace: recommendations, signatures, the gallery | 14 | D76 and D122: BaseHalf installs only the extensions it allows |
@@ -204,19 +215,19 @@ The rows that name D118 rest on one decision, no language service but
 JSON's: about 115 settings
 ([what the decision settled](#what-the-decision-settled)).
 
-### Advanced (749)
+### Advanced (747)
 
 | Family | Count |
 | --- | --- |
 | The text editor: `editor.*`, `diffEditor.*` | 220 |
 | Source control and Git: `scm.*`, `git.*`, `github.*`, `merge-conflict.*`, `mediaPreview.*` | 138 |
-| The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 99 |
+| The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 98 |
 | The terminal: `terminal.*`, with the 13 the Agent Area came to follow | 91 |
 | Files: `files.*`, `explorer.*` | 47 |
 | Accessibility: `accessibility.*` | 31 |
 | The application: `http.*`, `update.*`, `keyboard.*`, `security.*`, and the like | 29 |
 | Search: `search.*` | 28 |
-| The window: `window.*` | 24 |
+| The window: `window.*` | 23 |
 | What JSON's language service uses of the editor: formatting on save and on paste, the default formatter, code actions on save, its four kinds of suggestion, the marks of a mistake and their signals | 19 |
 | Agent extensions: `extensions.*`, `comments.*`, `output.*` | 15 |
 | JSON: `json.*` | 8 |
@@ -228,10 +239,13 @@ BaseHalf's defaults for advanced settings are defaults, not rules: `.bh`,
 `terminal.integrated.enableVisualBell` on; and those of the product profile
 that the specification of each surface names.
 
-- The color theme is advanced: the canvas and the Agent Area terminal keep
-  their dark palette whatever the theme is
-  ([workbench appearance](workbench-appearance.md)), so a light theme
-  changes only the sidebar, the title bar, and the status bar.
+- The color theme is shown since BaseHalf has a light palette (D148): what
+  BaseHalf draws takes its colors by the kind of the theme, dark or light
+  ([light and dark](light-and-dark.md)). The other settings of themes, the
+  file icon theme and the customizations of colors among them, are
+  advanced. `terminal.integrated.minimumContrastRatio` is advanced with the
+  base's default; while a user sets none, BaseHalf's terminal takes 1 under
+  a dark theme, 4.5 under a light one, and 7 under high contrast.
 - The shell of a terminal, the proxy, screen reader mode, and Git's fetching
   are advanced too: a user may look for them, and each needs the words of
   the base to be understood.
@@ -249,7 +263,7 @@ that the specification of each surface names.
 ## Where a surface does not follow a listed setting
 
 A shown or an advanced setting works in the base's own surfaces. On
-2026-11-21 ten surfaces of BaseHalf's did not follow one. Seven follow it
+2026-11-21 ten surfaces of BaseHalf's did not follow one. They follow it
 now, each by the specification that owns the surface:
 
 | Surface | Settings | Where it is specified |
@@ -261,17 +275,17 @@ now, each by the specification that owns the surface:
 | Going back and forward with the buttons of a mouse or a swipe | `workbench.editor.mouseBackForwardToNavigate`, `workbench.editor.swipeToNavigate` | [the shown place and the workbench](shown-place-and-workbench.md) |
 | Files and Source Control, when a file opens in Card Detail | `explorer.autoReveal`, `scm.autoReveal` | the shown place and the workbench |
 | The title of the window | the variables of `window.title` | the shown place and the workbench |
+| The Agent Area's sessions and the canvas | `accessibility.dimUnfocused.*` | [workbench appearance](workbench-appearance.md): they dim as the base's terminals and editors do |
+| A note in Rich, in Preview, and on its card | `basehalf.notes.fontFamily`, `basehalf.notes.fontSize` | [note rendering](note-rendering.md), D145 |
+| The canvas's keys | Keyboard Shortcuts | [the keys of the canvas](canvas-keys.md), D146 |
 
 These do not follow a setting yet. Each is work for the specification that
 owns the surface; none changes a class.
 
 | Surface | Settings it does not follow | What happens instead |
 | --- | --- | --- |
-| The Agent Area and the canvas | `accessibility.dimUnfocused.*` | only the base's editors and terminals dim |
 | The editor's own library inside the page of Rich | `workbench.reduceMotion` set to `on` or `off` | the library asks the system's preference by itself |
 | The walks for files inside notes | `search.exclude` | they leave out `.git` and `node_modules`, two names of their own |
-| A note in Rich, in Preview, and on its card | none exists | the size and the font of a note's text have no setting |
-| The canvas's own keys | none exists | the keys of the canvas are not in Keyboard Shortcuts and cannot be changed |
 
 One group of advanced settings stops at a note on purpose:
 `files.trimTrailingWhitespace`, `files.insertFinalNewline`, and
@@ -315,8 +329,13 @@ of a terminal that a session of the Agent Area follows:
   (D141, [commands and menus](commands-and-menus.md)).
 - **The Agent Area follows the settings of a terminal** (D140) for the name
   of a session, the bell, closing with something running, the clicks, the
-  folder of a split, and the accessible view. Sessions after a reload and
-  the suggestions of a shell stay pending, each with what it takes.
+  folder of a split, and the accessible view. Sessions after a reload are
+  BaseHalf's own setting, and the suggestions of a shell are not BaseHalf's
+  (D147): nothing is pending.
+- **BaseHalf has settings of its own for what only a user can choose**
+  (D143 to D148): the wheel, the magnet, and the background of the canvas, a
+  video under the pointer, a note's font, size, and form, the sessions a
+  folder opens with, what agents read of the selection, and dark or light.
 - **The surfaces follow their settings** (D138 for a card and the canvas,
   D139 for what the workbench's settings say), each by the specification
   that owns the surface.
@@ -368,7 +387,7 @@ of a terminal that a session of the Agent Area follows:
 3. `window.titleBarStyle` as `native` in the user's `settings.json` leaves
    BaseHalf's one title bar after a restart.
 4. The advanced list holds shown and advanced settings and no other, of the
-   761 those the base lists on the system (734 on 2026-11-21):
+   770 those the base lists on the system:
    its table of contents has no group for chat, notebooks, debug, testing,
    or remote, and a search for a locked, a pending, or an unlisted setting
    finds nothing.
@@ -390,7 +409,9 @@ of a terminal that a session of the Agent Area follows:
   against it (`vscode-base/.build/rw-set/classes.mjs`): first 12 shown, 48
   locked, 29 pending, 676 unlisted, 709 advanced of 1,474; and, read again
   from the build that holds D138 to D142, 12 shown, 49 locked, 15 pending,
-  658 unlisted, 749 advanced of 1,483, none without a rule. Both are tool
+  658 unlisted, 749 advanced of 1,483; and from the build that holds D143
+  to D150, 23 shown, 49 locked, none pending, 673 unlisted, 747 advanced of
+  1,492, none without a rule. Both are tool
   state of the checkout, not part of the tree; the check of criterion 1
   replaces them.
 - Run in the real window on 2026-11-21: the three settings of the problem
