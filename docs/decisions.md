@@ -7021,6 +7021,12 @@ card already had the rule that a heading of level 4 to 6 is not smaller than the
 - The stylesheets of the card and of Preview and Rich's page name no font and no text size of a note: they read the
   properties `--basehalf-note-font-family`, `--basehalf-note-font-size`, and `--basehalf-note-code-font-family`.
 - The rules of Rich's page for a note on the canvas are gone: no such page is made since the card got an editor of its own.
+- What stood at fixed sizes beside the text follows the text size: the marks of a list, the box of a task, the handles
+  of a block, and the box of the reading aids. Beside a heading of level 4 to 6 the handles now stand at the heading's
+  line; they stood 15 px above it.
+- A table in Rich keeps its words whole, as on the card, and scrolls sideways when it is too wide: at 28 px it broke
+  "Temperature" after the u. A code block keeps its lines whole in Rich, which broke a long line, and in Preview, which
+  drew a code block without a box and without the indentation of its lines.
 - A card's Expand, and its double click on a note too long for the card's editor, name no form. A format chosen on such a
   card still opens Rich.
 - The magnifying of a page (D109), the outline, and Source are unchanged.

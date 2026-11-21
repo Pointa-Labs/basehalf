@@ -245,10 +245,16 @@ Not in scope, and unchanged:
     space inside it. The table keeps the widths its columns need. When it is
     wider than the text column, it scrolls sideways inside its own box, and
     the page does not scroll sideways.
-14. In the rich projection a table that is wider than the text column
-    scrolls sideways inside its own box.
+14. In the rich projection a table keeps its words and numbers whole, as
+    on the card (rule 7): a column grows to its longest word, at every text
+    size, and a table that is wider than the text column scrolls sideways
+    inside its own box.
 14a. In both projections a table or a code block that is scrolled sideways
     shows the bar of rules 7d and 7e, and not the system's scrollbar.
+14b. In both projections a code block is a box of its own with a background
+    that sets it apart from the text, as on the card (rule 7a). Its lines
+    keep their indentation and are never broken: a block with a line longer
+    than the text column scrolls sideways inside its own box.
 
 ### A block the rich projection cannot edit
 
@@ -393,6 +399,15 @@ HTML has no form in it. Read and written back, it would lose:
     Rich's values are the measure, because a note is written there; they are
     what Rich showed at 16 px before, but for the headings of level 5 and 6,
     which were smaller than the text.
+34a. **What stands beside the text follows the text size.** The bullet or
+    the number of a list item, the room it stands in (1.125 of the text size
+    for a bullet, 1.375 for a number), the step of a nested block (1.125),
+    and the box of a task are multiples of the text size, in Rich and in
+    Preview. In Rich the handles of a block stand at the middle of the
+    block's first line at every text size and beside a heading of every
+    level ([zoom and outline of a note](note-zoom-and-outline.md), rule 22),
+    and the box of the reading aids stands beside the first line of its
+    paragraph.
 35. **The font.** `basehalf.notes.fontFamily` is a list of fonts, of which
     the first that the computer has is used. Without a value a note is in
     the font of the window, the font of the names in Files. The font of the
@@ -711,6 +726,19 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     card below what the card shows, or the note's end, and a card at rest
     and its editor show every line at the same place in the frame the
     editor opens.
+30a. At a text size of 12, 16, and 28, in the font of the window, the Serif
+    list, and the Monospace list: the number of a list item stands clear of
+    its text; the box of a task is in the middle of its first line; in Rich
+    the handles of a block are within 1 px of the middle of the block's
+    first line, beside a paragraph and beside a heading of each level; the
+    menu of blocks opens 4 px under its line, 280 px wide, with rows of 13 px
+    in the font of the window; the pale word of an empty title line has the
+    size and the font of the title.
+30b. At a text size of 28, a table of four columns in Rich breaks no number
+    and no word but at its hyphen, and a code block with a line longer than
+    the text column shows that line unbroken in Rich and in Preview, each
+    block as high as its number of lines, with a background of its own; in
+    Preview its lines keep their indentation.
 31. With `"basehalf.notes.openIn": "preview"` a note opens in Preview from
     a card's Expand, from Files, and from the search of the title bar, and
     with `"source"` in Source; a picture, a text file, and a code file open
@@ -759,6 +787,36 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
   `preview-note-media-plays-on-when-drawn-again` in Preview, each sampled on
   every frame; `note-formats-media-asks-for-no-refused-address` covers
   criterion 13f.
+- Unit, the typography: `basehalfNoteTypography.test.ts` covers rules 35 to
+  37, the values a surface gets for each value of the three settings, and
+  the properties that carry them; `basehalfNoteTypographyService.test.ts`
+  that each setting is followed at once, that the element of the window
+  holds the new values when the change is told, the font of a window that
+  is starting, and that the limits are the registered ones;
+  `basehalfNotePlace.test.ts` the place a view keeps (rule 40);
+  `basehalfMarkdownRichWebviewProtocol.test.ts` and
+  `basehalfMarkdownRichWebviewBridge.test.ts` the typography with `init` and
+  in its own message; `basehalfCanvasNoteParts.test.ts` rule 41.
+- Unit, the form a note opens in: `basehalfCardDetail.test.ts` covers rules
+  42 to 45 as far as the registry decides them: each value of the setting
+  for a note and for other files, a form the note does not have, the setting
+  read at each opening, an opening that names a form, and the name and the
+  values the setting is registered with.
+- Smoke, in `cardDetail`: `note-has-one-typography` covers criteria 23 to 25,
+  `note-typography-is-followed-at-once` criteria 26 and 27 on every frame,
+  and `note-opens-in-the-form-of-its-setting` criterion 31 for the search, a
+  card's Expand, the switch, and a change of the setting.
+- In the real window, on 2026-11-21, with a note of headings of every level,
+  lists, tasks, a table, a quote, code, a picture, and Chinese text in a copy
+  of a folder of real notes: criteria 23 to 31, each change sampled on every
+  frame by the page itself (about 325 frames a change): the text size and
+  the font in Rich and in Preview, the font on 16 note cards at rest and in
+  a card's editor with the caret in it, a note opening in Rich and in
+  Preview at 22 px in the Serif list, a pinch to 201% at 28 px, a card built
+  in parts through a change from a wide font to a narrow one, the rows of
+  Settings > Notes with Card Detail open behind them, and each way of
+  opening a note with each value of the setting; and screenshots at 12, 16,
+  and 28 px in the three fonts for criteria 30a and 30b.
 - Unit: `basehalfCanvasCardText.test.ts` covers what rule 32a asks of the
   read: the head of the file or the limit of a note, text only, and the
   encoding the window holds for the file. Smoke:

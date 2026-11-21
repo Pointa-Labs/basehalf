@@ -127,6 +127,19 @@
 	padding-inline-start: 1.375em;
 }
 
+/* The box of a task stands where Rich has it: in place of the bullet, in the
+ * middle of the first line, at the size of the text. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content li:has(> input[type="checkbox"]) {
+	margin-inline-start: -1.125em;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content li > input[type="checkbox"] {
+	width: 0.75em;
+	height: 0.75em;
+	margin: 0 0.5em 0 0.25em;
+	vertical-align: middle;
+}
+
 /* A paragraph inside a list item or a quote is the item's own text: the room is the item's. */
 .monaco-workbench .basehalf-card-detail-markdown-preview-content :is(li, blockquote) > p {
 	padding-block: 0;
