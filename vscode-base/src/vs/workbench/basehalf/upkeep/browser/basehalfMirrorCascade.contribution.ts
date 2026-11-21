@@ -11,7 +11,7 @@ import { basename, relativePath as getRelativePath } from '../../../../base/comm
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { FileOperation, FileOperationResult, FileSystemProviderCapabilities, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
+import { FileOperation, FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -52,6 +52,7 @@ import { baseHalfDeleteMirrorFile, baseHalfPreserveUnreadableGenerationFile, bas
 // The draft operations that a draft at the new path of a moved item moves aside with.
 import './basehalfDraftOperations.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
+import { baseHalfUsesTrash } from '../../workspace/common/basehalfTrash.js';
 import { IBaseHalfDraftOperations } from '../common/basehalfDraftOperations.js';
 
 const BADGE_FILE_NAME = 'badge.yaml';
@@ -526,11 +527,10 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	 * Whether a workbench delete of `resource` goes to the trash. The working
 	 * copy precondition does not receive the delete's `useTrash` option, so
 	 * this follows the same rule the canvas and Explorer use to choose it:
-	 * `files.enableTrash` and a provider that supports the trash.
+	 * the Trash is not turned off, and the provider has one.
 	 */
 	private deletesToTrash(resource: URI): boolean {
-		return this.configurationService.getValue<boolean>('files.enableTrash') !== false
-			&& this.fileService.hasCapability(resource, FileSystemProviderCapabilities.Trash);
+		return baseHalfUsesTrash(this.configurationService, this.fileService, resource);
 	}
 
 	private planCascadeMove(source: URI, target: URI, drafts: readonly IBaseHalfWorkspacePath[] = []): IBaseHalfCascadePlan | undefined {

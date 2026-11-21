@@ -14,7 +14,7 @@ import { localize } from '../../../../nls.js';
 import { BaseHalfFilePart, IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IBaseHalfFileTimesService } from '../../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { FileOperation, FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
+import { FileOperation, IFileService } from '../../../../platform/files/common/files.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -56,6 +56,7 @@ import { BASEHALF_IMAGE_MAX_PIXELS, BASEHALF_IMAGE_MAX_SIDE, BaseHalfImageCropEr
 import { BASEHALF_SOUND_MAX_SECONDS, BaseHalfSoundEditError, encodeBaseHalfSoundParts, IBaseHalfSoundInfo, readBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
 import { BaseHalfVideoClipError, encodeBaseHalfVideoClip, encodeBaseHalfWebmCopy } from './basehalfVideoClipEncoder.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
+import { baseHalfUsesTrash } from '../../workspace/common/basehalfTrash.js';
 import { baseHalfMediaVersion } from '../../playback/browser/basehalfMediaElements.js';
 
 /**
@@ -1111,7 +1112,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 	 */
 	private async letGoOfOldEdit(file: IBaseHalfWorkspaceResource, folder: URI): Promise<void> {
 		const listing = await this.fileService.resolve(folder).catch(() => undefined);
-		const trash = this.configurationService.getValue<boolean>('files.enableTrash') !== false && this.fileService.hasCapability(file.workspaceFolder, FileSystemProviderCapabilities.Trash);
+		const trash = baseHalfUsesTrash(this.configurationService, this.fileService, file.workspaceFolder);
 		for (const child of listing?.children ?? []) {
 			if (child.isFile && baseHalfIsEditOriginalName(child.name)) {
 				await baseHalfReleaseEditOriginal({
