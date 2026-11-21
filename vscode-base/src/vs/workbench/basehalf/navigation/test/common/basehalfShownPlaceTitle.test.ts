@@ -127,6 +127,7 @@ suite('BaseHalf: what the title of the window says of the shown place', () => {
 		file.resource = CODE;
 		didChangeDirty.fire(model);
 		const afterOtherFile = changes();
+		navigation.isSurfaceActive = false;
 		didChangeSurfaceActive.fire(false);
 		assert.deepStrictEqual({ afterPlace, afterShownFile, afterOtherFile, afterCovered: changes() }, { afterPlace: 1, afterShownFile: 2, afterOtherFile: 2, afterCovered: 3 });
 	});

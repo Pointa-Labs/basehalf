@@ -63,15 +63,33 @@ suite('BaseHalf: the shown place', () => {
 		});
 	});
 
-	test('a change of the place and an editor that comes or goes over the canvas are both told', () => {
+	test('another file, another folder, and an editor that comes or goes over the canvas are told, and another view of the same file is not', () => {
 		const service = navigation();
 		const listeners = store.add(new DisposableStore());
-		let told = 0;
-		listeners.add(onDidChangeBaseHalfShownPlace(service)(() => told++));
-		service.didChangeState.fire(cardDetail);
-		service.didChangeSurfaceActive.fire(false);
+		const told: string[] = [];
+		const change = (what: string, state: IBaseHalfCanvasNavigationState, surfaceActive = true) => {
+			const before = told.length;
+			service.state = state;
+			if (service.isSurfaceActive !== surfaceActive) {
+				service.isSurfaceActive = surfaceActive;
+				service.didChangeSurfaceActive.fire(surfaceActive);
+			} else {
+				service.didChangeState.fire(state);
+			}
+			if (told.length === before) {
+				told.push(`${what}: not told`);
+			}
+		};
+		listeners.add(onDidChangeBaseHalfShownPlace(service)(() => told.push('told')));
+		change('a canvas', canvas);
+		change('a file over it', cardDetail);
+		change('the same file in Source', { canvasFolder: cardDetail.canvasFolder, cardDetail: { ...cardDetail.cardDetail!, projection: 'source' } });
+		change('an editor of the base over it', cardDetail, false);
+		change('the editor gone', cardDetail);
+		change('the canvas again', canvas);
 		listeners.clear();
-		service.didChangeState.fire(canvas);
-		assert.strictEqual(told, 2);
+		service.state = cardDetail;
+		service.didChangeState.fire(cardDetail);
+		assert.deepStrictEqual(told, ['told', 'told', 'the same file in Source: not told', 'told', 'told', 'told']);
 	});
 });

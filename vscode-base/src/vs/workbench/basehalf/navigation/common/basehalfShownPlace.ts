@@ -29,7 +29,21 @@ export function baseHalfShownCanvasFolder(navigationService: IBaseHalfCanvasNavi
 	return navigationService.isSurfaceActive ? navigationService.state.canvasFolder?.resource : undefined;
 }
 
-/** Fires when the shown place may be another: a canvas or Card Detail opened or closed, or an editor of the base came or went over the canvas. */
+/**
+ * Fires when the shown place is another: Card Detail shows another file or none, another folder's canvas is shown,
+ * or an editor of the base came or went over the canvas. Another view of the same file, a selection in it, and the
+ * same place opened again are no change, as the base tells no change of its active editor for them.
+ */
 export function onDidChangeBaseHalfShownPlace(navigationService: IBaseHalfCanvasNavigationService): Event<void> {
-	return Event.any(Event.signal(navigationService.onDidChangeState), Event.signal(navigationService.onDidChangeSurfaceActive));
+	return (listener, thisArgs, disposables) => {
+		const place = () => `${baseHalfShownFile(navigationService)?.toString() ?? ''}\n${baseHalfShownCanvasFolder(navigationService)?.toString() ?? ''}`;
+		let shown = place();
+		return Event.any(Event.signal(navigationService.onDidChangeState), Event.signal(navigationService.onDidChangeSurfaceActive))(() => {
+			const next = place();
+			if (next !== shown) {
+				shown = next;
+				listener.call(thisArgs);
+			}
+		}, undefined, disposables);
+	};
 }

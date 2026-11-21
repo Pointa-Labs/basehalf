@@ -29,7 +29,7 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { ICodeEditor, isCodeEditor, isDiffEditor } from '../../../../editor/browser/editorBrowser.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { getWindowById } from '../../../../base/browser/dom.js';
-import { CodeWindow } from '../../../../base/browser/window.js';
+import { CodeWindow, mainWindow } from '../../../../base/browser/window.js';
 import { IDecorationsService } from '../../../services/decorations/common/decorations.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 // BaseHalf: the title names the shown place.
@@ -315,7 +315,8 @@ export class WindowTitle extends Disposable {
 		// BaseHalf: with no editor of the base, the variables of the active editor and of its folder speak of the
 		// shown place: the file in Card Detail and the folder whose canvas is shown (the shown place and the
 		// workbench, "The title of the window"). The title bar draws its own location and does not read them.
-		const shownPlace = editor ? undefined : this.baseHalfShownPlaceTitleService.title;
+		// A window of its own for an editor has no canvas: only the main window shows a place.
+		const shownPlace = editor || this.windowId !== mainWindow.vscodeWindowId ? undefined : this.baseHalfShownPlaceTitleService.title;
 
 		// Compute root
 		let root: URI | undefined;

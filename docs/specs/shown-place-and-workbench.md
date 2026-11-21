@@ -96,7 +96,9 @@ the real window, a development build of 0.7.0:
    view; with `focusNoScroll` it selects the row without scrolling; with
    `false` it does nothing. A file that `explorer.autoRevealExclude` names,
    or that lies in a folder it names, is not revealed. Files does the same
-   when it comes into view while Card Detail shows a file.
+   when it comes into view while Card Detail shows a file. Another view of
+   the same file, as Source after Rich, reveals nothing again: a row that
+   the user selected in Files meanwhile stays selected.
 7. **A canvas reveals nothing.** While a canvas is shown, Files keeps the
    selection it has: opening a folder's canvas, selecting cards, and closing
    Card Detail change nothing in Files. A folder shown as a canvas is the
@@ -258,8 +260,11 @@ the real window, a development build of 0.7.0:
 - In the real window on 2026-11-21: criteria 7, 8, and 9, the title read
   from the window's document, which is what the system is given, and the
   path read from the title bar. Before the change, every title was the
-  workspace's name. The system's own list of windows was not looked at,
-  and a rename of the file in Card Detail (rule 13) was not run.
+  workspace's name. A text file in Card Detail renamed on the disk: the
+  title and the selected row of Files named the new file within four
+  seconds (rule 13). With a second row selected in Files by hand, Source
+  and Rich of the same note left both rows selected. The system's own list
+  of windows was not looked at.
 - The `navigation` suite of the smoke runs criteria 1 and 2
   (`mouse-buttons-go-back-and-forward`, the buttons sent over the debugging
   protocol to a note, the canvas, and Files), criteria 4 and 5 with
