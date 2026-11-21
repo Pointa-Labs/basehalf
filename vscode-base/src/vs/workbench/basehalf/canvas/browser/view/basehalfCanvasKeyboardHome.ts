@@ -17,6 +17,13 @@ import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkb
  * that had it is gone, or on the empty editor group under the canvas, where the base puts it when it
  * gives the keyboard to its editor area. The closings of the canvas ask it instead of naming an element.
  */
+/**
+ * How long after the keyboard was lost to nothing the rule looks, in milliseconds (where the keyboard returns,
+ * "When the rule looks"): past the next frame, by when a control that takes the place of the one that went has
+ * taken the keyboard, and under what a user notices.
+ */
+const LOOK_DELAY = 50;
+
 export class BaseHalfCanvasKeyboardHome {
 
 	/** The card that last had the keyboard on the canvas, by its file; none: the canvas itself. */
@@ -182,7 +189,7 @@ export class BaseHalfCanvasKeyboardHome {
 			if (!this.view.disposed) {
 				this.giveIfNowhere();
 			}
-		}, 0);
+		}, LOOK_DELAY);
 	}
 
 	/** Gives the keyboard by the rule when it is on the page itself or on the empty editor group. */

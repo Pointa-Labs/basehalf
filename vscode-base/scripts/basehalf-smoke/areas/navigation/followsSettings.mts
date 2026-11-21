@@ -351,7 +351,8 @@ export async function assertLightAndDark(page) {
 	const check = async (theme: string, kind: 'vs' | 'vs-dark') => {
 		const reading = await waitForReading(read, value => value.kind === kind, `the window to show ${theme}`, 15_000);
 		const wanted = expected[kind];
-		if (reading.canvas !== wanted.canvas || reading.canvasColor !== wanted.canvas || reading.folderCard !== wanted.folderCard || reading.folderColor !== wanted.folderCard || reading.terminalColor !== wanted.terminalColor) {
+		// A folder's card is judged while the canvas shows one: under Card Detail lies the canvas of the note's folder.
+		if (reading.canvas !== wanted.canvas || reading.canvasColor !== wanted.canvas || (reading.folderCard !== undefined && reading.folderCard !== wanted.folderCard) || reading.folderColor !== wanted.folderCard || reading.terminalColor !== wanted.terminalColor) {
 			throw new Error(`Under ${theme} the canvas, a folder's card, and the terminal have the colors of a ${kind === 'vs' ? 'light' : 'dark'} theme: ${JSON.stringify({ reading, wanted })}`);
 		}
 	};
