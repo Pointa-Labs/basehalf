@@ -105,6 +105,14 @@ Not in scope, and unchanged:
     view container, and the container that hosts an extension agent's view
     inside it, are created with `fillsToBottomEdge`, an option that BaseHalf
     added to the base's view pane container for this.
+11. The parts stand still. The grid that holds the title bar, the sidebar,
+    the canvas area, the Agent Area, and the status bar cannot be scrolled:
+    in this layout its content is 4 px larger than the window each way, the
+    gutter, and a call that scrolls something into view, from a page, from a
+    tool that drives the window, or from a control that takes the keyboard,
+    moved every part 4 px and left it there. The grid clips what is outside
+    it and has no scroll position. This is the second rule BaseHalf adds to
+    the layout.
 
 ### Git status colors and letters
 
@@ -238,6 +246,9 @@ theme were not looked at: the ink is the theme's text color.
    Agent Area part, the status bar, and the rows and badges of Source Control
    are those of VS Code 1.141 with its activity bar at the top and its tabs
    hidden.
+9. After a call that scrolls a control of a card into view, the title bar,
+   the sidebar, and the status bar stand where they stood: the grid has no
+   scroll position.
 
 ## Verification
 
