@@ -60,6 +60,8 @@ export class BaseHalfCanvasCardDetailHost {
 	private readonly transition = new BaseHalfCardDetailTransition();
 	/** A projection that was not drawn when Card Detail faded in: it stays out of the transition. */
 	private surfaceOutOfTransition: HTMLElement | undefined;
+	/** The views that have drawn their file: they can take the keyboard at once. */
+	private readonly drawnDetailSurfaces = new WeakSet<IBaseHalfCardDetailSurface>();
 	/** Card Detail that has opened, and where the keyboard was then, until it takes the keyboard. */
 	private keyboardPending: { readonly cardDetail: IBaseHalfCardDetailState; readonly activeAtOpen: Element | null } | undefined;
 	/** What the header's switch was drawn for, and what it now acts on. */
@@ -670,17 +672,42 @@ export class BaseHalfCanvasCardDetailHost {
 
 		const whenRendered = instance.open(cardDetail).catch(error => this.view.logService.error(error));
 		instance.setStructuralFrozen?.(this.view.workspaceMutationCoordinator.isResourceMutationFenced(cardDetail.workspaceFolder, cardDetail.relativePath));
-		return { host, store, instance, whenRendered };
+		const surface = { host, store, instance, whenRendered };
+		void whenRendered.then(() => this.drawnDetailSurfaces.add(surface));
+		return surface;
 	}
 
-	/** Card Detail takes the keyboard that has nowhere to be, as when an overlay closes over it (where the keyboard returns). */
+	/**
+	 * Card Detail takes the keyboard that has nowhere to be, as when an overlay closes over it (where the keyboard
+	 * returns). Its view takes it once it is drawn, as when Card Detail opens: a page that has the keyboard while it
+	 * is still loading gives it back to the window when it has loaded. Until then Card Detail itself holds it.
+	 */
 	takeKeyboard(): void {
 		const projection = this.view.activeDetailProjection;
-		if (projection !== undefined) {
-			this.giveKeyboardToView(projection);
-		} else {
+		const surface = projection !== undefined ? this.detailSurfaces.get(projection) : undefined;
+		if (projection === undefined || !surface) {
 			this.view.root.focus({ preventScroll: true });
+			return;
 		}
+		if (this.drawnDetailSurfaces.has(surface)) {
+			this.giveKeyboardToView(projection);
+			return;
+		}
+		this.view.root.focus({ preventScroll: true });
+		const resourceKey = this.view.canvasNavigationService.state.cardDetail?.resource.toString();
+		void surface.whenRendered.then(() => {
+			const ownerDocument = this.view.detail.ownerDocument;
+			const active = ownerDocument.activeElement;
+			// The user may have put the keyboard somewhere meanwhile: it stays there.
+			const waiting = !active || active === ownerDocument.body || active === this.view.root;
+			if (this.view.disposed || !waiting
+				|| this.view.canvasNavigationService.state.cardDetail?.resource.toString() !== resourceKey
+				|| this.view.activeDetailProjection !== projection
+				|| this.detailSurfaces.get(projection) !== surface) {
+				return;
+			}
+			this.giveKeyboardToView(projection);
+		});
 	}
 
 	/** To the view, or where a press on the header's blank part leaves it when the view takes none: on nothing, no key reaches Card Detail. */

@@ -404,6 +404,10 @@ export async function assertLightAndDark(page) {
 			const runs: Record<string, string[]> = {};
 			let changedAt: number | undefined;
 			for (const key of Object.keys(samples[0])) {
+				// A surface that is not drawn now is judged by no frame: under Card Detail lies the canvas of the note's folder.
+				if (samples.every(sample => sample[key] === 'none')) {
+					continue;
+				}
 				runs[key] = samples.map(sample => sample[key]).filter((value, index, all) => index === 0 || value !== all[index - 1]);
 				const at = samples.findIndex(sample => sample[key] !== samples[0][key]);
 				if (runs[key].length !== 2 || (changedAt !== undefined && at !== changedAt)) {
