@@ -347,6 +347,11 @@ export async function assertAgentSeesSelection(page) {
 	const codeFile = path.join(workspacePath, 'agent-code.ts');
 	fs.writeFileSync(codeFile, 'export const first = 1;\nexport const second = 2;\n', 'utf8');
 	const codeCard = page.locator('.basehalf-canvas-card[data-basehalf-card-path="agent-code.ts"]');
+	// The card takes the first free place, which is below the view while the rows of the folders the steps before
+	// removed still hold their places for 60 seconds (canvas card placement, "A chosen row whose item is gone"); a
+	// code card out of view draws no lines. All cards are brought into view.
+	await codeCard.waitFor({ state: 'attached', timeout: 15_000 });
+	await zoomCanvas(page, 'fit');
 	await codeCard.locator('.basehalf-canvas-code-scroller').waitFor({ state: 'visible', timeout: 15_000 });
 	await codeCard.locator('.basehalf-canvas-code-scroller').dblclick({ timeout: 10_000 });
 	await codeCard.locator('.basehalf-canvas-code-editor .monaco-editor').waitFor({ state: 'visible', timeout: 10_000 });
