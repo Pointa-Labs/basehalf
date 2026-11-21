@@ -394,6 +394,11 @@
 	display: none;
 }
 
+/* The zone holds the keyboard only while it is drawn anew: it shows no ring for that turn. */
+.monaco-workbench .basehalf-card-detail-badge:focus {
+	outline: none;
+}
+
 .monaco-workbench .basehalf-card-detail-badge {
 	flex: none;
 	display: flex;

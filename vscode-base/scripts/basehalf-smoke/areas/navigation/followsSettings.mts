@@ -213,14 +213,14 @@ export async function assertWindowTitleNamesTheShownPlace(page) {
 	await assertCardDetail(page, REVEALED);
 	const onNote = await waitForReading(read, reading => reading.title.startsWith('revealed'), 'the title of the window to name the note', 10_000);
 	// A note is named without its extension, here as in the path of the title bar (canvas card name).
-	if (!onNote.title.startsWith(`revealed${separator}${workspace}`) || onNote.path !== `${workspace} / ${FOLDER} / inside / revealed`) {
-		throw new Error(`In Card Detail the window is named by the note and the workspace, and the path stays: ${JSON.stringify(onNote)}`);
+	if (!onNote.title.startsWith(`revealed${separator}${FOLDER}/inside${separator}${workspace}`) || onNote.path !== `${workspace} / ${FOLDER} / inside / revealed`) {
+		throw new Error(`In Card Detail the window is named by the note, its folder, and the workspace, and the path stays: ${JSON.stringify(onNote)}`);
 	}
 
 	await closeCardDetailIfOpen(page);
 	const onFolder = await waitForReading(read, reading => !reading.title.includes('revealed'), 'the title of the window on the canvas of a folder', 10_000);
-	if (!onFolder.title.startsWith(workspace) || onFolder.path !== `${workspace} / ${FOLDER} / inside`) {
-		throw new Error(`On the canvas of a folder the window is named by the workspace, and the path stays: ${JSON.stringify(onFolder)}`);
+	if (!onFolder.title.startsWith(`${FOLDER}/inside${separator}${workspace}`) || onFolder.path !== `${workspace} / ${FOLDER} / inside`) {
+		throw new Error(`On the canvas of a folder the window is named by the folder and the workspace, and the path stays: ${JSON.stringify(onFolder)}`);
 	}
 }
 

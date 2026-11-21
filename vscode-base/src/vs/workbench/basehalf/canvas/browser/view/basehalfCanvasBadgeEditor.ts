@@ -1008,6 +1008,14 @@ export class BaseHalfCanvasBadgeEditor {
 		}
 		this.view.detailBadgeRefreshAfterFocusLeaves = false;
 
+		// A control of the zone takes the keyboard a turn after the zone is drawn. The zone holds it until then, so
+		// that it is never on the page: from there Card Detail's view takes it, and a view that takes the keyboard
+		// closes the zone (where the keyboard returns, "A part that is drawn anew").
+		if ((focusToggle || restoreCollapsedToggleFocus || focusEditorControl) && active && this.view.detailBadgeZone.contains(active)) {
+			this.view.detailBadgeZone.tabIndex = -1;
+			this.view.detailBadgeZone.focus({ preventScroll: true });
+		}
+
 		this.view.detailBadgeDisposables.clear();
 		clearNode(this.view.detailBadgeZone);
 		const open = openOverride ?? this.view.detailBadgeOpen;
