@@ -11,6 +11,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
 import { FileChangeType } from '../../../../../platform/files/common/files.js';
+import { TextFileEditorModelState } from '../../../../services/textfile/common/textfiles.js';
 import { baseHalfNoteTitle, baseHalfNoteTitleName, baseHalfNoteTitleNameNumbered } from '../../../markdown/common/basehalfNoteTitle.js';
 import { baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
@@ -20,11 +21,16 @@ interface IBaseHalfNoteTitleEdit {
 	readonly resource: URI;
 	/**
 	 * The title the edit began with, `undefined` for a note that had no title. A title another program writes
-	 * into the note while the edit goes on is the one the edit begins with from then on.
+	 * into the note becomes it once an editor takes that title up.
 	 */
 	titleBefore: string | undefined;
 	/** The title of the text an editor of BaseHalf last saved for the note in this edit; at first, the title it began with. */
 	titleSaved: string | undefined;
+	/**
+	 * A title another program wrote since the last save of an editor, with the etag of the text that brought it.
+	 * The next save tells what the editor did with it: took it up, or kept its own text.
+	 */
+	written?: { readonly title: string | undefined; readonly etag: string };
 }
 
 /** How long a note has to be let go before its file takes the title's name. */
@@ -125,14 +131,23 @@ export class BaseHalfCanvasNoteTitles {
 				this.noteLetGo();
 			}, true));
 		}
-		// Every editor of BaseHalf writes a note by saving its text model: such a save is the user's. It comes
-		// before the change of the file that it makes is seen.
+		// Every editor of BaseHalf writes a note by saving its text model: such a save is the user's.
 		this.view.register(this.view.textFileService.files.onDidSave(event => {
 			const edit = this.edits.get(this.key(event.model.resource));
 			const text = event.model.textEditorModel?.getValue();
-			if (edit && text !== undefined) {
-				edit.titleSaved = baseHalfNoteTitle(text);
+			if (!edit || text === undefined) {
+				return;
 			}
+			const title = baseHalfNoteTitle(text);
+			const written = edit.written;
+			edit.written = undefined;
+			// A text read as another program's that was this save's own, seen before the save said so, was the user's.
+			if (written && written.etag !== event.stat.etag && title === written.title) {
+				// The editor took up the other program's title: the edit begins with it. An editor that kept its own
+				// text over it (Keep my edits) leaves the edit's title as it was.
+				edit.titleBefore = title;
+			}
+			edit.titleSaved = title;
 		}));
 		this.view.register(this.view.fileService.onDidFilesChange(event => {
 			for (const [key, edit] of this.edits) {
@@ -143,17 +158,31 @@ export class BaseHalfCanvasNoteTitles {
 		}));
 	}
 
-	/** A change of the note's file that brings a title no editor of BaseHalf saved was another program's. */
+	/**
+	 * A change of the note's file that brings a title no editor of BaseHalf saved was another program's: noted, for
+	 * the next save to settle. A change seen while an editor's save is under way is that save's.
+	 */
 	private async fileChanged(key: string, edit: IBaseHalfNoteTitleEdit): Promise<void> {
-		const text = await this.readNote(edit.resource);
-		if (text === undefined || this.edits.get(key) !== edit) {
+		const saving = () => {
+			const model = this.view.textFileService.files.get(edit.resource);
+			return !!model && (model.isDirty() || model.hasState(TextFileEditorModelState.PENDING_SAVE));
+		};
+		if (saving()) {
 			return;
 		}
-		const title = baseHalfNoteTitle(text);
-		if (title !== edit.titleSaved) {
-			edit.titleBefore = title;
-			edit.titleSaved = title;
+		let content: { readonly text: string; readonly etag: string };
+		try {
+			const file = await this.view.fileService.readFile(edit.resource);
+			content = { text: file.value.toString(), etag: file.etag };
+		} catch {
+			// Moved or removed.
+			return;
 		}
+		if (this.edits.get(key) !== edit || saving()) {
+			return;
+		}
+		const title = baseHalfNoteTitle(content.text);
+		edit.written = title === edit.titleSaved ? undefined : { title, etag: content.etag };
 	}
 
 	private isHeld(key: string): boolean {
@@ -191,6 +220,10 @@ export class BaseHalfCanvasNoteTitles {
 		// A name that the user is typing for the note is the name it gets.
 		const renaming = this.view.inlineEdit;
 		if (renaming?.kind === 'rename' && extUri.isEqual(renaming.resource, resource)) {
+			return;
+		}
+		// The title another program wrote, which no editor has saved over since, is not the user's.
+		if (edit.written) {
 			return;
 		}
 		const text = await this.readNote(resource);
