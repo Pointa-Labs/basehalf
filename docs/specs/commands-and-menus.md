@@ -140,7 +140,11 @@ the commit message, and the peek of a test.
 | Search | 7 | Search |
 
 After the change the palette lists 486 commands, under 485 names. JSON's
-language service adds two of its own (D142).
+language service adds two of its own (D142). D146 adds the commands of the
+canvas that the palette lists, five while nothing is selected
+([the keys of the canvas](canvas-keys.md#the-command-palette)), and takes
+Snooze Inline Suggestions and Cancel Snooze Inline Suggestions; the palette
+was not counted again in a folder under git.
 
 - **The terminal's commands stay as a family.** An Agent Area terminal is a
   terminal of the base, and a command that acts on the active terminal acts
