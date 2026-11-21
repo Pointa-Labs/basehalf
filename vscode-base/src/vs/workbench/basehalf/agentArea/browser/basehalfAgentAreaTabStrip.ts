@@ -103,7 +103,7 @@ export class BaseHalfAgentAreaTabStrip {
 			}
 			if (e.button === 1) {
 				e.preventDefault();
-				this.area.softCloseTab(tab.id);
+				void this.area.softCloseTab(tab.id);
 				return;
 			}
 			if (e.button === 0) {
@@ -201,7 +201,7 @@ export class BaseHalfAgentAreaTabStrip {
 		close.addEventListener('mousedown', e => {
 			e.preventDefault();
 			e.stopPropagation();
-			this.area.softCloseTab(tab.id);
+			void this.area.softCloseTab(tab.id);
 		});
 		const dot = append(indicator, $('span.basehalf-agent-tab-activity'));
 		dot.setAttribute('aria-hidden', 'true');
@@ -269,9 +269,9 @@ export class BaseHalfAgentAreaTabStrip {
 				toAction({ id: 'basehalf.agentTab.restartPane', label: 'Restart Pane', enabled: !!activePane, run: () => void this.area.restartSession(tab.activePaneId) }),
 				toAction({ id: 'basehalf.agentTab.killPane', label: 'Kill Pane', enabled: !!activePane, run: () => void this.area.killSession(tab.activePaneId) }),
 				new Separator(),
-				toAction({ id: 'basehalf.agentTab.close', label: 'Close Tab', run: () => this.area.softCloseTab(tab.id) }),
-				toAction({ id: 'basehalf.agentTab.closeOthers', label: 'Close Other Tabs', enabled: state.tabs.length > 1, run: () => this.area.softCloseOtherTabs(tab.id) }),
-				toAction({ id: 'basehalf.agentTab.closeRight', label: 'Close Tabs to the Right', enabled: index >= 0 && index < state.tabs.length - 1, run: () => this.area.softCloseTabsToRight(tab.id) })
+				toAction({ id: 'basehalf.agentTab.close', label: 'Close Tab', run: () => void this.area.softCloseTab(tab.id) }),
+				toAction({ id: 'basehalf.agentTab.closeOthers', label: 'Close Other Tabs', enabled: state.tabs.length > 1, run: () => void this.area.softCloseOtherTabs(tab.id) }),
+				toAction({ id: 'basehalf.agentTab.closeRight', label: 'Close Tabs to the Right', enabled: index >= 0 && index < state.tabs.length - 1, run: () => void this.area.softCloseTabsToRight(tab.id) })
 			]
 		});
 	}

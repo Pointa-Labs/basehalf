@@ -9,6 +9,7 @@ import {
 	BASEHALF_EMPTY_AGENT_TABS_STATE,
 	IBaseHalfAgentTabsState,
 	activeAgentTab,
+	agentTabPaneIds,
 	closeActiveAgentPane,
 	closeAgentTab,
 	closeAgentTabsToRight,
@@ -143,6 +144,14 @@ suite('BaseHalfAgentTabsModel', () => {
 		const { state: finalized, entry } = finalizeAgentClose(s, 'k2');
 		assert.deepStrictEqual(entry && closingEntryPaneIds(entry), ['p1']);
 		assert.deepStrictEqual(finalized.closing.map(c => c.key), ['k1']);
+	});
+
+	test('agentTabPaneIds lists the panes of the given tabs in the order of the strip', () => {
+		const s = splitActiveAgentPane(threeTabs(), 'right', 'p1b', 's1');
+		assert.deepStrictEqual(
+			[agentTabPaneIds(s, ['t3', 't1']), agentTabPaneIds(s, ['t2']), agentTabPaneIds(s, ['nope'])],
+			[['p1', 'p1b', 'p3'], ['p2'], []]
+		);
 	});
 
 	test('closing every tab reaches the empty state', () => {

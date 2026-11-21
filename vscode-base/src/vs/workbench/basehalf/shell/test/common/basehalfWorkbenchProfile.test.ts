@@ -220,6 +220,10 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['editor.accessibilitySupport'], 'off');
 	});
 
+	test('asks before a window closes with something running in the Agent Area', () => {
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.confirmOnExit'], 'hasChildProcesses');
+	});
+
 	test('gives the Agent Area terminal the reference terminal\'s default font size and row height', () => {
 		assert.deepStrictEqual(
 			[BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.fontSize'], BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.lineHeight']],

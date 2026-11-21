@@ -9,7 +9,7 @@ import { BaseHalfAgentSessionKind, BaseHalfAgentSessionState, BaseHalfAgentLaunc
 import { DisposableStore, MutableDisposable, IDisposable, Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ITerminalInstance, ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { IBaseHalfAgentTabsState, BASEHALF_EMPTY_AGENT_TABS_STATE, mountedAgentPaneIds, activeAgentTab, agentTabForPane, focusAgentPane, removeAgentPane, splitActiveAgentPane, gotoAgentPaneDir, gotoAgentPaneRing, switchAgentTab, gotoAgentTab, lastAgentTab, resizeActiveAgentPane, equalizeAgentPanes, toggleAgentPaneZoom, closeActiveAgentPane, selectAgentTab, closeAgentTab, closeOtherAgentTabs, closeAgentTabsToRight, undoAgentClose, finalizeAgentClose, closingEntryPaneIds, moveAgentPane, createAgentTab } from '../common/basehalfAgentTabsModel.js';
+import { IBaseHalfAgentTabsState, BASEHALF_EMPTY_AGENT_TABS_STATE, mountedAgentPaneIds, activeAgentTab, agentTabForPane, focusAgentPane, removeAgentPane, splitActiveAgentPane, gotoAgentPaneDir, gotoAgentPaneRing, switchAgentTab, gotoAgentTab, lastAgentTab, resizeActiveAgentPane, equalizeAgentPanes, toggleAgentPaneZoom, closeActiveAgentPane, selectAgentTab, closeAgentTab, closeOtherAgentTabs, closeAgentTabsToRight, agentTabPaneIds, undoAgentClose, finalizeAgentClose, closingEntryPaneIds, moveAgentPane, createAgentTab } from '../common/basehalfAgentTabsModel.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -38,6 +38,9 @@ import { BaseHalfAgentAreaTabStrip } from './basehalfAgentAreaTabStrip.js';
 import { BaseHalfAgentAreaSurface } from './basehalfAgentAreaSurface.js';
 import { BaseHalfAgentAreaExtensionPanes } from './basehalfAgentAreaExtensionPanes.js';
 import { BaseHalfAgentAreaTerminalPanes } from './basehalfAgentAreaTerminalPanes.js';
+import { BaseHalfAgentAreaClosing } from './basehalfAgentAreaClosing.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
 
 // The Agent Area: its sessions in tabs and panes, each a terminal or an agent extension's view.
 
@@ -86,6 +89,8 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	readonly extensionPanes = new BaseHalfAgentAreaExtensionPanes(this);
 	/** Panes that hold a terminal */
 	readonly terminalPanes = new BaseHalfAgentAreaTerminalPanes(this);
+	/** The question before sessions or the window close with something running */
+	readonly closing = new BaseHalfAgentAreaClosing(this);
 
 	declare readonly _serviceBrand: undefined;
 
@@ -124,7 +129,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@ITerminalService public readonly terminalService: ITerminalService,
 		@INotificationService public readonly notificationService: INotificationService,
-		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IConfigurationService public readonly configurationService: IConfigurationService,
 		@ILogService public readonly logService: ILogService,
 		@IBaseHalfAgentSkillService public readonly agentSkillService: IBaseHalfAgentSkillService,
 		@IContextKeyService contextKeyService: IContextKeyService,
@@ -139,9 +144,13 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		@IHostService public readonly hostService: IHostService,
 		@IRemoteAgentService public readonly remoteAgentService: IRemoteAgentService,
 		@IFileService public readonly fileService: IFileService,
-		@IWorkspaceContextService public readonly workspaceContextService: IWorkspaceContextService
+		@IWorkspaceContextService public readonly workspaceContextService: IWorkspaceContextService,
+		@IDialogService public readonly dialogService: IDialogService,
+		@ILifecycleService lifecycleService: ILifecycleService
 	) {
 		super();
+
+		this._register(lifecycleService.onBeforeShutdown(event => event.veto(this.closing.vetoWindowClose(event.reason), 'veto.basehalfAgentArea')));
 
 		const extensionAgentProvider = this.instantiationService.createInstance(BaseHalfViewContainerExtensionAgentProvider);
 		this._register(this.registerExtensionAgentProvider('extension-codex', extensionAgentProvider));
@@ -487,6 +496,9 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	}
 
 	async killSession(id: string): Promise<void> {
+		if (!await this.closing.confirmEnding([id], 'kill')) {
+			return;
+		}
 		const session = this.runtime.get(id);
 		if (!session || session.closing) {
 			return;
@@ -508,8 +520,17 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		this.render();
 	}
 
-	async closeSession(id: string): Promise<void> {
-		this.softClosePane(id);
+	async killTerminalSession(terminal: unknown): Promise<boolean> {
+		const session = [...this.runtime.values()].find(candidate => candidate.terminal === terminal);
+		if (!session) {
+			return false;
+		}
+		await this.killSession(session.id);
+		return true;
+	}
+
+	closeSession(id: string): Promise<void> {
+		return this.softClosePane(id);
 	}
 
 	// ── Tabs + panes (Ghostty-style layout) ────────────────────────────────────
@@ -534,14 +555,14 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	closeActivePane(): void {
 		const tab = activeAgentTab(this.tabsState);
 		if (tab) {
-			this.softClosePane(tab.activePaneId);
+			void this.softClosePane(tab.activePaneId);
 		}
 	}
 
 	closeActiveTab(): void {
 		const tab = activeAgentTab(this.tabsState);
 		if (tab) {
-			this.softCloseTab(tab.id);
+			void this.softCloseTab(tab.id);
 		}
 	}
 
@@ -593,7 +614,13 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 
 	// ── Soft close + undo ──────────────────────────────────────────────────────
 
-	private softClosePane(paneId: string): void {
+	// Each close asks first when something runs in a session it would end and the setting says so
+	// (`closing`); the tabs are read again after the answer, since they may have changed meanwhile.
+
+	private async softClosePane(paneId: string): Promise<void> {
+		if (!agentTabForPane(this.tabsState, paneId) || !await this.closing.confirmEnding([paneId], 'close')) {
+			return;
+		}
 		const owner = agentTabForPane(this.tabsState, paneId);
 		if (!owner) {
 			return;
@@ -604,14 +631,21 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		}
 	}
 
-	softCloseTab(tabId: string): void {
+	async softCloseTab(tabId: string): Promise<void> {
+		if (!await this.closing.confirmEnding(agentTabPaneIds(this.tabsState, [tabId]), 'close')) {
+			return;
+		}
 		const key = this.mintId('close');
 		if (this.mutateTabs(state => closeAgentTab(state, tabId, key))) {
 			this.startGraceTimer(key);
 		}
 	}
 
-	softCloseOtherTabs(tabId: string): void {
+	async softCloseOtherTabs(tabId: string): Promise<void> {
+		const others = this.tabsState.tabs.filter(tab => tab.id !== tabId).map(tab => tab.id);
+		if (!await this.closing.confirmEnding(agentTabPaneIds(this.tabsState, others), 'close')) {
+			return;
+		}
 		const keys: string[] = [];
 		const mint = () => {
 			const key = this.mintId('close');
@@ -623,7 +657,12 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		}
 	}
 
-	softCloseTabsToRight(tabId: string): void {
+	async softCloseTabsToRight(tabId: string): Promise<void> {
+		const index = this.tabsState.tabs.findIndex(tab => tab.id === tabId);
+		const toRight = index < 0 ? [] : this.tabsState.tabs.slice(index + 1).map(tab => tab.id);
+		if (!await this.closing.confirmEnding(agentTabPaneIds(this.tabsState, toRight), 'close')) {
+			return;
+		}
 		const keys: string[] = [];
 		const mint = () => {
 			const key = this.mintId('close');
@@ -804,7 +843,8 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 			this.releaseTerminalProcess(persistentProcessId);
 		}
 		if (killTerminal && session.terminal && !session.terminal.isDisposed) {
-			void this.terminalService.safeDisposeTerminal(session.terminal);
+			// Whether to ask was settled before the close began (`closing`): nothing asks once the pane is gone.
+			session.terminal.dispose(TerminalExitReason.User);
 		}
 		session.state = 'disposed';
 		session.disposables.dispose();
@@ -899,6 +939,11 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 			state: session.state,
 			detail: session.detail
 		};
+	}
+
+	/** The name a session shows on its tab and in a question about it. */
+	sessionName(session: IBaseHalfRuntimeAgentSession): string {
+		return session.label;
 	}
 
 	stateLabel(state: BaseHalfAgentSessionState): string {

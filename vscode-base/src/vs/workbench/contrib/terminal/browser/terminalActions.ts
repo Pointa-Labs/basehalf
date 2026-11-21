@@ -1339,6 +1339,11 @@ export function registerTerminalActions() {
 		if (!target) {
 			return;
 		}
+		// BaseHalf: a session of the Agent Area is killed by the Agent Area, which asks first as its own
+		// ways to close do, also when what runs is an agent and not a child of a shell.
+		if (await accessor.get(IBaseHalfAgentAreaService).killTerminalSession(target)) {
+			return;
+		}
 		await c.service.safeDisposeTerminal(target);
 		await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.Kill);
 	}

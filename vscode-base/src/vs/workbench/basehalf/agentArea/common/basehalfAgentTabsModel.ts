@@ -131,6 +131,11 @@ export function mountedAgentPaneIds(state: IBaseHalfAgentTabsState): string[] {
 	return out;
 }
 
+/** The panes of the given tabs, in the order of the strip. */
+export function agentTabPaneIds(state: IBaseHalfAgentTabsState, tabIds: readonly string[]): string[] {
+	return state.tabs.filter(tab => tabIds.includes(tab.id)).flatMap(tab => orderedLeafIds(tab.tree));
+}
+
 function replaceTab(tabs: readonly IBaseHalfAgentTab[], tabId: string, next: IBaseHalfAgentTab): readonly IBaseHalfAgentTab[] {
 	return tabs.map(tab => (tab.id === tabId ? next : tab));
 }

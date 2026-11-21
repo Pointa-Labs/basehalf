@@ -65,7 +65,9 @@ for (const dir of [logsPath, crashesPath, userDataDir, sharedDataDir, extensions
 fs.mkdirSync(path.join(userDataDir, 'User'), { recursive: true });
 fs.writeFileSync(
 	path.join(userDataDir, 'User', 'settings.json'),
-	JSON.stringify(runsNewWindowWelcome ? { 'workbench.startupEditor': 'welcomePage' } : {}, null, '\t'),
+	// The smoke closes its window while programs of its steps still run in the Agent Area; BaseHalf's default
+	// would ask first.
+	JSON.stringify({ 'terminal.integrated.confirmOnExit': 'never', ...(runsNewWindowWelcome ? { 'workbench.startupEditor': 'welcomePage' } : {}) }, null, '\t'),
 	'utf8'
 );
 

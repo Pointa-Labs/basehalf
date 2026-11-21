@@ -385,6 +385,8 @@ export interface IBaseHalfAgentAreaService {
 	focusSession(id: string): Promise<void>;
 	restartSession(id: string): Promise<void>;
 	killSession(id: string): Promise<void>;
+	/** Kills the session that shows the given terminal, asking first as closing does. Resolves to false when no session shows it. */
+	killTerminalSession(terminal: unknown): Promise<boolean>;
 	closeSession(id: string): Promise<void>;
 
 	// Tab strip + pane splits (Ghostty-style layout ported from the original dock)

@@ -546,6 +546,10 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// Ghostty renders the terminal palette directly. VS Code's default contrast
 	// remapping changes ANSI colors enough that Codex/TUI output looks muted.
 	'terminal.integrated.minimumContrastRatio': 1,
+	// A window that closes takes an agent's run with it, and nothing brings it
+	// back. The base's default never asks
+	// (docs/specs/agent-area-terminal.md, Closing with something running).
+	'terminal.integrated.confirmOnExit': 'hasChildProcesses',
 	'testing.automaticallyOpenPeekView': 'never',
 	'testing.automaticallyOpenTestResults': 'neverOpen',
 	'testing.countBadge': 'off',
