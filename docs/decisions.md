@@ -6642,3 +6642,84 @@ the base's default leaves out `node_modules` and `bower_components`: both are se
   front matter as UTF-8: both are left as they are.
 - In [the settings BaseHalf offers](specs/settings-catalog.md), the first three rows of "Where a surface does not follow a
   listed setting" are done, and `search.exclude` joins the settings BaseHalf's own code reads.
+
+## D139 — What BaseHalf draws follows the settings of the workbench (NEW, 2026-11-21)
+
+**Decision.** Where a surface of BaseHalf's stood behind a setting that the workbench lists, the surface follows the
+setting, by the base's own mechanism and at the one place where the base asks. Six cases, each in the specification that
+owns the surface:
+
+- Whether BaseHalf animates is `workbench.reduceMotion`. The window's stylesheets style under the class of the workbench's
+  root and its scripts ask the accessibility service; a page styles and asks by the class the workbench keeps on its body.
+  Nothing of BaseHalf's asks the system ([architecture invariants](harness/architecture-invariants.md#product-shell)).
+- The back and forward buttons of a mouse and a swipe run Go Back and Go Forward, the commands of the title bar's buttons,
+  under `workbench.editor.mouseBackForwardToNavigate` and `workbench.editor.swipeToNavigate`
+  ([the shown place and the workbench](specs/shown-place-and-workbench.md)).
+- Files and Source Control reveal the file that Card Detail shows, as `explorer.autoReveal`,
+  `explorer.autoRevealExclude`, and `scm.autoReveal` say, and nothing while a canvas is shown.
+- The variables of `window.title` speak of the shown place: the file in Card Detail, by the name BaseHalf shows for it,
+  and the folder of the canvas. The title bar's own path does not change.
+- `files.trimTrailingWhitespace`, `files.insertFinalNewline`, and `files.trimFinalNewlines` never change a note, by
+  whatever way it is saved, and keep working for every other file ([formats of a note](specs/note-formats.md), rule 89).
+- `files.enableTrash` is read one way by everything of BaseHalf's that deletes: only `false` turns the Trash off
+  ([exact undo](specs/exact-undo.md#when-the-kept-versions-go-to-the-trash)).
+
+**Why.** D137 gave every setting a class, and the owner's point of 2026-11-21 was that part of the gap is the product's:
+"肯定还有一部分是我们的产品落后于设置了，我们有的产品功能是需要的". The catalog listed these surfaces as read in the code. Run that
+day in the real window, a development build of 0.7.0, before any change:
+
+- With `workbench.reduceMotion` on, the card of a folder still changed over 150 ms and a connection handle over 80 ms.
+  Eleven stylesheets and five scripts asked the system's own preference, and two scripted glides, the zoom of a picture
+  and the stretch of a video's strip, asked nothing. Three rules for reduced motion lost to the rule they were to
+  override, so they did nothing under the system's preference either: the handle of a connection, the bar of the time's
+  zoom, and the parts of a video's strip while viewing.
+- The back button of a mouse did nothing over the canvas, over Files, and over a note, while Go Back in the title bar was
+  three places from the first. The command that a swipe runs changed nothing on a note.
+- A note of a closed folder, opened from the search, left Files with its folders closed and no row selected, and a
+  changed note left its row in Source Control unselected.
+- The title of the window was the workspace's name on a note, on a code file, and on every canvas.
+- A note whose line ended in two spaces and whose file ended without a line feed, changed by one letter in another line
+  with the three settings on, lost the two spaces and gained a line feed from Source and from Rich: the line break of
+  Markdown was gone from the file.
+- The kept versions took `files.enableTrash` as off when it was not set; the other four places took it as on. In the
+  product the setting has a default, so only a test could meet the difference: it was read in the code, not run.
+
+The cause is one for four of the six: a feature of the base follows its active editor, and a canvas and Card Detail are
+no editors of the base. Each such feature reads the active editor at one place, and that place is where it now asks for
+the shown place.
+
+**Alternatives.**
+- Card Detail as an editor of the base, so that everything that follows the active editor follows it by itself. Tabs,
+  groups, and the base's history come with an editor, which the product shell set aside (D20); and what reads the active
+  editor is far more than the four features that should follow Card Detail.
+- A listener of BaseHalf's own for the buttons of a mouse, beside the base's. Two owners of one button, and the setting
+  read twice. The base's listener runs the two commands, which already choose the history.
+- Reduced motion as the setting or the system's preference, whichever reduces, as the outline of a note did. The value
+  `off` would do nothing where the system reduces motion.
+- A message of BaseHalf's own that tells a page of reduced motion, as the first message to Rich carried it. The workbench
+  already keeps a class on the body of every page and changes it when the setting changes; the message is gone.
+- A default of the three settings of white space for Markdown, as the base has one. A note is plain text to the base
+  (D118), so a default by language does not reach it, and a user's own value would outrank a default.
+- Saving a note without any save participant. It would have to be said at each place that saves a note, and it would
+  take away what an agent extension does at a save as well. The three participants are exempted where they are
+  registered, which every save of a note passes.
+- The folder of a canvas as the name of the active editor in the title. With the title as it comes, the canvas of the
+  workspace folder would be named twice. The folder of a canvas is what the variables of the active folder say.
+
+**Consequences.**
+- Four rows leave the catalog's table of surfaces that do not follow a listed setting: what BaseHalf animates, going back
+  and forward, Files and Source Control, and the title of the window. No setting changes its class.
+- A page reports the back and forward buttons of a mouse to the window, as it reports its keys: VS Code's page for
+  webviews and its element carry the change, with the hash of the page's script
+  ([`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md)).
+- With the title as it comes, the canvas of a folder inside the workspace is named by the workspace alone. Naming the
+  folder there takes `${activeFolderShort}` in the default of `window.title`, which is the product profile's to set.
+- The hover of the title bar's search, which says the search's name and the title of the window as in the base, now names
+  the file in Card Detail too.
+- A test fails on a source of BaseHalf's that asks the system for reduced motion, and on one that reads
+  `files.enableTrash` itself.
+- The text of a book is a frame inside its page, which the page's own frame does not hear: the book reader tells Card
+  Detail of the two buttons there, and the window takes them as pressed on the page.
+- Not covered: a library inside the page of Rich asks the system for reduced motion by itself; the buttons of a mouse
+  over the view of an agent extension were not run; a swipe was sent to the window as the event the system sends, and
+  the gesture itself was not made.

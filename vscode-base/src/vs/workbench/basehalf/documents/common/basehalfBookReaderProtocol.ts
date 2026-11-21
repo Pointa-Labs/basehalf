@@ -36,6 +36,8 @@ export type BaseHalfBookReaderMessage =
 	| { readonly type: 'basehalf.book.openLink'; readonly href: string }
 	| { readonly type: 'basehalf.book.failed'; readonly message: string }
 	| { readonly type: 'basehalf.book.userInteraction' }
+	/** The back (3) or the forward (4) button of a mouse, pressed or released over the book's text, which is a frame of its own inside the page. */
+	| { readonly type: 'basehalf.book.mouseButton'; readonly event: 'mousedown' | 'mouseup'; readonly button: 3 | 4 }
 	| { readonly type: 'basehalf.media.escape' };
 
 /** The words of the reader's page, in the workbench's language. `{0}` stands for a number. */
@@ -124,6 +126,10 @@ export function baseHalfBookReaderMessage(value: unknown): BaseHalfBookReaderMes
 			return typeof message.href === 'string' && message.href.length <= 4096 ? { type: message.type, href: message.href } : undefined;
 		case 'basehalf.book.failed':
 			return { type: message.type, message: typeof message.message === 'string' ? message.message.slice(0, 2000) : '' };
+		case 'basehalf.book.mouseButton':
+			return (message.event === 'mousedown' || message.event === 'mouseup') && (message.button === 3 || message.button === 4)
+				? { type: message.type, event: message.event, button: message.button }
+				: undefined;
 		case 'basehalf.book.userInteraction':
 		case 'basehalf.media.escape':
 			return { type: message.type };

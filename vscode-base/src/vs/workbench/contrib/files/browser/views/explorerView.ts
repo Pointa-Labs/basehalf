@@ -59,6 +59,7 @@ import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { IAccessibilityService } from '../../../../../platform/accessibility/common/accessibility.js';
 import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/navigation/common/basehalfOpenRouting.js';
+import { baseHalfShownFile, onDidChangeBaseHalfShownPlace } from '../../../../basehalf/navigation/common/basehalfShownPlace.js';
 
 
 function hasExpandedRootChild(tree: WorkbenchCompressibleAsyncDataTree<ExplorerItem | ExplorerItem[], ExplorerItem, FuzzyScore>, treeInput: ExplorerItem[]): boolean {
@@ -388,6 +389,11 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 		this._register(this.editorService.onDidActiveEditorChange(() => {
 			this.selectActiveFile();
 		}));
+		// BaseHalf: a file opens in Card Detail, which is no editor of the base: Files reveals the file it shows
+		// as `explorer.autoReveal` says (the shown place and the workbench, rule 6).
+		this._register(onDidChangeBaseHalfShownPlace(this.baseHalfCanvasNavigationService)(() => {
+			this.selectActiveFile();
+		}));
 
 		// Also handle configuration updates
 		this._register(this.configurationService.onDidChangeConfiguration(e => this.onConfigurationUpdated(e)));
@@ -494,7 +500,8 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 
 	private async selectActiveFile(reveal = this._autoReveal): Promise<void> {
 		if (this._autoReveal) {
-			const activeFile = EditorResourceAccessor.getCanonicalUri(this.editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY });
+			const activeFile = EditorResourceAccessor.getCanonicalUri(this.editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY })
+				?? baseHalfShownFile(this.baseHalfCanvasNavigationService); // BaseHalf: the file in Card Detail
 
 			if (activeFile) {
 				const focus = this.tree.getFocus();

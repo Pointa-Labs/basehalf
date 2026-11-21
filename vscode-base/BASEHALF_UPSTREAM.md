@@ -290,6 +290,29 @@ last saw the pointer changes, such as Card Detail closing while the pointer
 is in its reader, the browser reports an enter there with no move.
 A base update keeps them unless VS Code ends that hover itself.
 
+## What follows the shown place (2026-11-21)
+
+A canvas and Card Detail are no editors of the base, so what follows the base's active editor asks BaseHalf where it
+reads the active editor (D139, `docs/specs/shown-place-and-workbench.md`). Each change has a `BaseHalf:` mark, and a
+base update keeps them:
+
+- `services/history/browser/historyService.ts`: the back and forward buttons of a mouse run the commands Go Back and
+  Go Forward (a new `ICommandService` in the constructor) in place of the service's own stack.
+- `platform/windows/electron-main/windowImpl.ts`: a swipe runs the same two commands in place of the commands of the
+  recently used editors.
+- `contrib/webview/browser/pre/index.html`, `webviewMessages.d.ts`, and `webviewElement.ts`: a page reports the two
+  buttons (`did-mouse-back-forward`), and the element sends a mouse event of that button from itself. The hash of the
+  page's script in its `Content-Security-Policy` is of the script with this change: after a base update of the page,
+  put the lines back and compute the hash again (SHA-256 of the text between the script's tags, in Base64).
+- `contrib/files/browser/views/explorerView.ts` (`selectActiveFile`) and `contrib/scm/browser/scmViewPane.ts`
+  (`onDidActiveEditorChange`): the file of Card Detail where there is no active editor, and a listener for a change of
+  the shown place.
+- `browser/parts/titlebar/windowTitle.ts`: the variables of the active editor and its folder from
+  `IBaseHalfShownPlaceTitleService` where there is no active editor.
+
+In the same work, `contrib/codeEditor/browser/saveParticipants.ts` registers the three participants that change the
+white space of a file through `baseHalfSaveParticipantExceptNotes` (formats of a note, rule 89).
+
 ## The text editor of Card Detail
 
 Card Detail is not an editor pane, so VS Code's editor service knows nothing of its text

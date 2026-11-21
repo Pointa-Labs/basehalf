@@ -9,12 +9,13 @@ import { isEqualOrParent } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IBaseHalfMovedItemsService } from '../../upkeep/common/basehalfMovedItemsService.js';
 import { baseHalfReleaseUnmentionedNoteFiles } from '../common/basehalfNoteFileRetention.js';
+import { baseHalfUsesTrash } from '../../workspace/common/basehalfTrash.js';
 
 /** How often a window that stays open looks whether a folder's day has passed (files in notes, rule 37). */
 export const BASEHALF_NOTE_FILE_RESCAN_MS = 60 * 60 * 1000;
@@ -95,7 +96,7 @@ export class BaseHalfNoteFileRetentionContribution extends Disposable implements
 		await baseHalfReleaseUnmentionedNoteFiles({
 			fileService: this.fileService,
 			logService: this.logService,
-			trash: this.configurationService.getValue<boolean>('files.enableTrash') !== false && this.fileService.hasCapability(workspaceFolder, FileSystemProviderCapabilities.Trash),
+			trash: baseHalfUsesTrash(this.configurationService, this.fileService, workspaceFolder),
 			// The text of open notes, saved or not, mentions their files too (rule 37).
 			openTexts: () => this.modelService.getModels().filter(model => isEqualOrParent(model.uri, workspaceFolder)).map(model => model.getValue()),
 		}, workspaceFolder);

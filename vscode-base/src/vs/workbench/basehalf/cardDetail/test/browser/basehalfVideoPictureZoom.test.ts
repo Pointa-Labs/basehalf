@@ -33,7 +33,7 @@ suite('BaseHalfVideoPictureZoom', () => {
 	 * player of 1000 × 562 at 200, 100 in it, its video of `width` × `height`
 	 * pixels, and a control of Card Detail under the player.
 	 */
-	function setUp(width = 854, height = 480) {
+	function setUp(width = 854, height = 480, reducedMotion = false) {
 		const disposables = store.add(new DisposableStore());
 		const area = mainWindow.document.createElement('div');
 		area.style.cssText = 'position: fixed; left: 0; top: 0; width: 1400px; height: 900px; overflow: hidden;';
@@ -49,7 +49,7 @@ suite('BaseHalfVideoPictureZoom', () => {
 		area.append(player, control);
 		mainWindow.document.body.appendChild(area);
 		disposables.add(toDisposable(() => area.remove()));
-		const zoom = disposables.add(new BaseHalfVideoPictureZoom(player, video, area, target => target === control, TestResizeObserver));
+		const zoom = disposables.add(new BaseHalfVideoPictureZoom(player, video, () => reducedMotion, area, target => target === control, TestResizeObserver));
 		const clicks: number[] = [];
 		disposables.add({ dispose: () => video.removeEventListener('click', onClick) });
 		function onClick() {
@@ -171,6 +171,15 @@ suite('BaseHalfVideoPictureZoom', () => {
 		pinch(video, 700, 450, 3);
 		zoom.fit();
 		await new Promise(resolve => setTimeout(resolve, 320));
+		assert.deepStrictEqual({ state: zoom.state, transform: video.style.transform, zoomedArea: area.classList.contains('basehalf-picture-zoomed-area') }, {
+			state: { zoom: 1, origin: { x: 0, y: 0 } }, transform: '', zoomedArea: false
+		});
+	});
+
+	test('with motion reduced, Edit puts a zoomed picture back as it fits at once', () => {
+		const { video, zoom, area } = setUp(854, 480, true);
+		pinch(video, 700, 450, 3);
+		zoom.fit();
 		assert.deepStrictEqual({ state: zoom.state, transform: video.style.transform, zoomedArea: area.classList.contains('basehalf-picture-zoomed-area') }, {
 			state: { zoom: 1, origin: { x: 0, y: 0 } }, transform: '', zoomedArea: false
 		});

@@ -15,7 +15,6 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { RedoCommand, SelectAllCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
-import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -144,7 +143,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfMarkdownAttachmentService public readonly attachmentService: IBaseHalfMarkdownAttachmentService,
 		@ILogService public readonly logService: ILogService,
-		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
 		@IBaseHalfClipboardService public readonly clipboardService: IBaseHalfClipboardService
 	) {
 		super();
@@ -736,8 +734,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
-		const reading = this.surface === 'detail' ? { reducedMotion: this.accessibilityService.isMotionReduced() } : undefined;
-		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection, reading);
+		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection);
 		await this.sendAdhdState(state);
 	}
 

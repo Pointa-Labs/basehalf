@@ -329,11 +329,9 @@
 	transition: opacity 150ms ease, visibility 0s linear 150ms;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing:not(.sound),
-	.monaco-workbench .basehalf-card-detail-video-stage .basehalf-card-detail-video-edit-room > .basehalf-media-edit-line {
-		transition: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-card-detail-video-stage.basehalf-media-editing:not(.sound),
+.monaco-workbench.monaco-reduce-motion .basehalf-card-detail-video-stage .basehalf-card-detail-video-edit-room > .basehalf-media-edit-line {
+	transition: none;
 }
 
 /*
@@ -406,11 +404,9 @@
 	opacity: 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-card-detail-video-edit-room > .basehalf-video-frames::before,
-	.monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line::before {
-		transition: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-card-detail-video-edit-room > .basehalf-video-frames::before,
+.monaco-workbench.monaco-reduce-motion .basehalf-card-detail-media-webview .basehalf-media-edit-line::before {
+	transition: none;
 }
 
 .monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-panning .basehalf-canvas-video-player-video {

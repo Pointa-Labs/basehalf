@@ -8,7 +8,7 @@ import { dirname, isEqual, isEqualOrParent, relativePath as getRelativePath } fr
 import { URI } from '../../../../base/common/uri.js';
 import { parse as parseYaml, YamlNode, YamlParseError } from '../../../../base/common/yaml.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { FileOperationResult, FileSystemProviderCapabilities, IFileService, IFileStatWithPartialMetadata, toFileOperationResult } from '../../../../platform/files/common/files.js';
+import { FileOperationResult, IFileService, IFileStatWithPartialMetadata, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -18,6 +18,7 @@ import { BASEHALF_LEGACY_AGENT_GUIDE_SECTIONS, IBaseHalfLegacyAgentGuideSection 
 import { baseHalfAssertBhPathComponentsNotSymbolicLink, baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot, baseHalfWalkMirror } from '../../workspace/common/basehalfMirrorTree.js';
 import { BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER, baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
 import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfUsesTrash } from '../../workspace/common/basehalfTrash.js';
 
 export const IBaseHalfLegacyCleanupService = createDecorator<IBaseHalfLegacyCleanupService>('baseHalfLegacyCleanupService');
 
@@ -648,7 +649,7 @@ export class BaseHalfLegacyCleanupService implements IBaseHalfLegacyCleanupServi
 		if (!removal.boilerplateOnly) {
 			return { kind: 'removed' };
 		}
-		if (!this.fileService.hasCapability(resource, FileSystemProviderCapabilities.Trash) || this.configurationService.getValue<boolean>('files.enableTrash') === false) {
+		if (!baseHalfUsesTrash(this.configurationService, this.fileService, resource)) {
 			return { kind: 'notTrashed', reason: 'trashUnavailable' };
 		}
 		try {

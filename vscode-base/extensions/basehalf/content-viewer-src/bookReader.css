@@ -383,8 +383,6 @@ foliate-view {
 	to { background-position: -100% 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.loading .status-placeholder {
-		animation: none;
-	}
+.vscode-reduce-motion .loading .status-placeholder {
+	animation: none;
 }

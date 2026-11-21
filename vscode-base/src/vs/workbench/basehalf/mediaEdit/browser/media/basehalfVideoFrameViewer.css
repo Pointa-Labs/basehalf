@@ -187,10 +187,8 @@
 	transition-duration: 80ms;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-time-zoom-bar {
-		transition: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-time-zoom-bar {
+	transition: none;
 }
 
 /* While a held handle spreads the viewer out, its own pictures stand over the whole video's. */
@@ -450,13 +448,11 @@
 	transition: opacity 150ms ease-out, visibility 0s linear 150ms;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-video-frames-set,
-	.monaco-workbench .basehalf-video-frames-pictures.zoom,
-	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-part,
-	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-handle,
-	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-shade,
-	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-length {
-		transition: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-video-frames-set,
+.monaco-workbench.monaco-reduce-motion .basehalf-video-frames-pictures.zoom,
+.monaco-workbench.monaco-reduce-motion .basehalf-video-frames .basehalf-video-frames-part,
+.monaco-workbench.monaco-reduce-motion .basehalf-video-frames .basehalf-video-frames-handle,
+.monaco-workbench.monaco-reduce-motion .basehalf-video-frames .basehalf-video-frames-shade,
+.monaco-workbench.monaco-reduce-motion .basehalf-video-frames .basehalf-video-frames-length {
+	transition: none;
 }

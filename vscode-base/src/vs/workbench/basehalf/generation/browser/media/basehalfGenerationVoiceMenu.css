@@ -224,9 +224,7 @@
 	font-size: 14px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .bh-voice-menu-play.loading > .codicon[class*='codicon-'] {
-		animation: none;
-		opacity: 0.5;
-	}
+.monaco-workbench.monaco-reduce-motion .bh-voice-menu-play.loading > .codicon[class*='codicon-'] {
+	animation: none;
+	opacity: 0.5;
 }

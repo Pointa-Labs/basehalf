@@ -53,6 +53,8 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 	constructor(
 		private readonly player: HTMLElement,
 		private readonly video: HTMLVideoElement,
+		/** Whether the window reduces motion (`workbench.reduceMotion`): the picture is then where a glide would end at once. */
+		reducedMotion: () => boolean,
 		/** The media area of Card Detail, where the zoomed picture shows; the player itself while it fills the screen. */
 		private readonly area: HTMLElement = player,
 		/** Whether a gesture there belongs to a control of Card Detail, which keeps it, as the frame viewer or the line under the editor. */
@@ -64,7 +66,7 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 		this.glide = this._register(new BaseHalfPageZoomGlide(baseHalfStripClock(getWindow(player)), () => this.page, page => {
 			this.page = page;
 			this.apply();
-		}));
+		}, reducedMotion));
 		this._register(addDisposableListener(area, 'wheel', event => this.onWheel(event), { passive: false }));
 		if (area !== player && !area.contains(player)) {
 			this._register(addDisposableListener(player, 'wheel', event => this.onWheel(event), { passive: false }));

@@ -16,6 +16,7 @@ import { ResourceLabels, IResourceLabel, IFileLabelOptions } from '../../../brow
 import { CountBadge } from '../../../../base/browser/ui/countBadge/countBadge.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
+import { baseHalfShownFile, onDidChangeBaseHalfShownPlace } from '../../../basehalf/navigation/common/basehalfShownPlace.js';
 import { tryOpenBaseHalfSourceControlRow } from '../../../basehalf/changes/common/basehalfSourceControlRows.js';
 import { baseHalfIsUnderBhFolder } from '../../../basehalf/workspace/common/basehalfBhFolder.js';
 import { IBaseHalfFileChangesService } from '../../../basehalf/changes/common/basehalfFileChanges.js';
@@ -1567,6 +1568,9 @@ export class SCMViewPane extends ViewPane {
 
 					// Add visible repositories
 					this.editorService.onDidActiveEditorChange(this.onDidActiveEditorChange, this, this.visibilityDisposables);
+					// BaseHalf: a file opens in Card Detail, which is no editor of the base: Source Control reveals the
+					// file it shows as `scm.autoReveal` says (the shown place and the workbench, rule 9).
+					onDidChangeBaseHalfShownPlace(this.baseHalfCanvasNavigationService)(this.onDidActiveEditorChange, this, this.visibilityDisposables);
 					this.scmViewService.onDidChangeVisibleRepositories(this.onDidChangeVisibleRepositories, this, this.visibilityDisposables);
 					this.onDidChangeVisibleRepositories({ added: this.scmViewService.visibleRepositories, removed: Iterable.empty() });
 
@@ -1776,7 +1780,8 @@ export class SCMViewPane extends ViewPane {
 			return;
 		}
 
-		const uri = EditorResourceAccessor.getOriginalUri(this.editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY });
+		const uri = EditorResourceAccessor.getOriginalUri(this.editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY })
+			?? baseHalfShownFile(this.baseHalfCanvasNavigationService); // BaseHalf: the file in Card Detail
 
 		if (!uri) {
 			return;

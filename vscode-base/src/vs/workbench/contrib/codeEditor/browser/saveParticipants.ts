@@ -35,6 +35,8 @@ import { IHostService } from '../../../services/host/browser/host.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { ITextFileEditorModel, ITextFileSaveParticipant, ITextFileSaveParticipantContext, ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { getModifiedRanges } from '../../format/browser/formatModified.js';
+// BaseHalf: a save keeps the white space of a note.
+import { baseHalfSaveParticipantExceptNotes } from '../../../basehalf/markdown/common/basehalfNoteSaveWhiteSpace.js';
 
 export class TrimWhitespaceParticipant implements ITextFileSaveParticipant {
 
@@ -453,11 +455,13 @@ export class SaveParticipantsContribution extends Disposable implements IWorkben
 	}
 
 	private registerSaveParticipants(): void {
-		this._register(this.textFileService.files.addSaveParticipant(this.instantiationService.createInstance(TrimWhitespaceParticipant)));
+		// BaseHalf: the three participants that change the white space of a file leave a note as it is.
+		// Two spaces at the end of a line are a line break in Markdown (formats of a note, rule 89).
+		this._register(this.textFileService.files.addSaveParticipant(baseHalfSaveParticipantExceptNotes(this.instantiationService.createInstance(TrimWhitespaceParticipant))));
 		this._register(this.textFileService.files.addSaveParticipant(this.instantiationService.createInstance(CodeActionOnSaveParticipant)));
 		this._register(this.textFileService.files.addSaveParticipant(this.instantiationService.createInstance(FormatOnSaveParticipant)));
-		this._register(this.textFileService.files.addSaveParticipant(this.instantiationService.createInstance(FinalNewLineParticipant)));
-		this._register(this.textFileService.files.addSaveParticipant(this.instantiationService.createInstance(TrimFinalNewLinesParticipant)));
+		this._register(this.textFileService.files.addSaveParticipant(baseHalfSaveParticipantExceptNotes(this.instantiationService.createInstance(FinalNewLineParticipant))));
+		this._register(this.textFileService.files.addSaveParticipant(baseHalfSaveParticipantExceptNotes(this.instantiationService.createInstance(TrimFinalNewLinesParticipant))));
 	}
 }
 

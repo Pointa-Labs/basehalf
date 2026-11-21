@@ -11,6 +11,7 @@ import { dirname, isEqualOrParent, relativePath } from '../../../../base/common/
 import { URI } from '../../../../base/common/uri.js';
 import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { localize } from '../../../../nls.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
@@ -99,7 +100,8 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IBaseHalfMediaEditService private readonly mediaEditService: IBaseHalfMediaEditService,
 		@IFileService private readonly fileService: IFileService,
-		@IHoverService private readonly hoverService: IHoverService
+		@IHoverService private readonly hoverService: IHoverService,
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
 		super();
 	}
@@ -247,7 +249,7 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 			return;
 		}
 		const window = getWindow(stage);
-		if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+		if (!this.accessibilityService.isMotionReduced()) {
 			stage.style.transition = ['left', 'top', 'width', 'height'].map(property => `${property} ${END_GLIDE_MILLISECONDS}ms cubic-bezier(0.25, 1, 0.5, 1)`).join(', ');
 		}
 		// A sound's editor closes over its bar as the room under it closes.
@@ -269,7 +271,7 @@ export class BaseHalfNoteMediaEditing extends Disposable {
 			return;
 		}
 		const window = getWindow(stage);
-		const glide = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+		const glide = !this.accessibilityService.isMotionReduced();
 		if (glide) {
 			stage.style.transition = ['left', 'top', 'width', 'height'].map(property => `${property} ${END_GLIDE_MILLISECONDS}ms cubic-bezier(0.25, 1, 0.5, 1)`).join(', ');
 		}

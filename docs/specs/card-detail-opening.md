@@ -129,7 +129,9 @@ rule 26).
 
 ### Motion and the window
 
-- With reduced motion (the system's setting, or `workbench.reduceMotion`),
+- With reduced motion (`workbench.reduceMotion`, whose `auto` is the
+  system's setting;
+  [architecture invariants](../harness/architecture-invariants.md#product-shell)),
   nothing grows or fades: Card Detail appears and goes in one frame, and
   still no frame shows it empty.
 - In a window that is not shown, Card Detail opens and closes at once.

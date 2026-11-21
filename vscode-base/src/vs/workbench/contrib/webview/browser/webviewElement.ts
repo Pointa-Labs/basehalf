@@ -244,6 +244,15 @@ export class WebviewElement extends Disposable implements IWebviewElement, Webvi
 			this.window?.dispatchEvent(new CustomEvent(webviewMouseActivityEvent, { detail: { screenX, screenY } }));
 		}));
 
+		// BaseHalf: the back and forward buttons of a mouse pressed in the page are sent from the page's element,
+		// where the window hears them as it hears them anywhere else and goes back or forward (the shown place and
+		// the workbench, rule 2). A page takes the pointer's events for itself, as it takes its keys.
+		this._register(this.on('did-mouse-back-forward', ({ type, button }) => {
+			if ((type === 'mousedown' || type === 'mouseup') && (button === 3 || button === 4)) {
+				this.element?.dispatchEvent(new MouseEvent(type, { button, bubbles: true, cancelable: true }));
+			}
+		}));
+
 		this._register(this.on('did-find', ({ didFind }) => {
 			this._hasFindResult.fire(didFind);
 		}));

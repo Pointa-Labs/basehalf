@@ -123,14 +123,12 @@
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--bh-card-folder-drop) 60%, transparent), 0 0 36px 10px color-mix(in srgb, var(--bh-card-folder-drop) 38%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-canvas-card.folder {
-		transition: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-canvas-card.folder {
+	transition: none;
+}
 
-	.monaco-workbench .basehalf-canvas-card.folder[data-basehalf-drop-target] {
-		scale: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-canvas-card.folder[data-basehalf-drop-target] {
+	scale: none;
 }
 
 @media (forced-colors: active) {

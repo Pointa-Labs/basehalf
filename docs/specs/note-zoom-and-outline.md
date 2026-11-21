@@ -240,7 +240,9 @@ Not in scope, and unchanged:
     page: they keep their size at every level, stand at the left edge of the
     view while a magnified page moves sideways, and the text under them never
     moves for them.
-20. With reduced motion (the system's setting, or `workbench.reduceMotion`),
+20. With reduced motion (`workbench.reduceMotion`, whose `auto` is the
+    system's setting;
+    [architecture invariants](../harness/architecture-invariants.md#product-shell)),
     the ticks and the panel come and go in one frame, and a click on a name
     scrolls at once.
 

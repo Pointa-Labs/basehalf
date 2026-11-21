@@ -12,7 +12,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { IBaseHalfFileTimesService } from '../../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { FileOperation, FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
+import { FileOperation, IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -33,6 +33,7 @@ import { baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/
 import { IBaseHalfMovedItemsService } from '../common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
+import { baseHalfUsesTrash } from '../../workspace/common/basehalfTrash.js';
 
 /** How often a window renews the mark of what it keeps (exact undo, "When the kept versions go to the Trash"). */
 const KEPT_MARK_RENEWAL_MS = 60_000;
@@ -613,7 +614,7 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 			await this.fileService.del(slot, { recursive: true });
 			return;
 		}
-		const trash = this.configurationService.getValue<boolean>('files.enableTrash') && this.fileService.hasCapability(slot, FileSystemProviderCapabilities.Trash);
+		const trash = baseHalfUsesTrash(this.configurationService, this.fileService, slot);
 		for (const item of items?.children ?? []) {
 			await this.discard(workspaceFolder, path, item.resource, trash);
 		}

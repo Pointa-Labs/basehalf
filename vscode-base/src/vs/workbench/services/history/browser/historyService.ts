@@ -34,6 +34,8 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { ILifecycleService, LifecyclePhase } from '../../lifecycle/common/lifecycle.js';
 import { ILogService, LogLevel } from '../../../../platform/log/common/log.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+// BaseHalf: the buttons of a mouse run Go Back and Go Forward.
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 
 interface ISerializedEditorHistoryEntry {
 	readonly editor: Omit<IResourceEditorInput, 'resource'> & { resource: string };
@@ -55,6 +57,9 @@ export class HistoryService extends Disposable implements IHistoryService {
 	declare readonly _serviceBrand: undefined;
 
 	private static readonly MOUSE_NAVIGATION_SETTING = 'workbench.editor.mouseBackForwardToNavigate';
+	// BaseHalf: the commands of Go Back and Go Forward (`browser/parts/editor/editorActions.ts`).
+	private static readonly GO_BACK_COMMAND = 'workbench.action.navigateBack';
+	private static readonly GO_FORWARD_COMMAND = 'workbench.action.navigateForward';
 	private static readonly NAVIGATION_SCOPE_SETTING = 'workbench.editor.navigationScope';
 
 	private readonly activeEditorListeners = this._register(new DisposableStore());
@@ -73,7 +78,9 @@ export class HistoryService extends Disposable implements IHistoryService {
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		// BaseHalf: the buttons of a mouse run Go Back and Go Forward.
+		@ICommandService private readonly commandService: ICommandService
 	) {
 		super();
 
@@ -168,17 +175,21 @@ export class HistoryService extends Disposable implements IHistoryService {
 		// but we also need to prevent mouse up from triggering the default
 		// which is to navigate in the browser history.
 
+		// BaseHalf: the buttons run the commands Go Back and Go Forward, which move through BaseHalf's history
+		// while a canvas or Card Detail is shown and through this one otherwise, so that the buttons go where
+		// the title bar's go (the shown place and the workbench, rule 1). Before, they moved through this
+		// history alone, which holds nothing while BaseHalf shows a place.
 		switch (event.button) {
 			case 3:
 				EventHelper.stop(event);
 				if (isMouseDown) {
-					this.goBack();
+					this.commandService.executeCommand(HistoryService.GO_BACK_COMMAND).catch(onUnexpectedError);
 				}
 				break;
 			case 4:
 				EventHelper.stop(event);
 				if (isMouseDown) {
-					this.goForward();
+					this.commandService.executeCommand(HistoryService.GO_FORWARD_COMMAND).catch(onUnexpectedError);
 				}
 
 				break;

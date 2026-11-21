@@ -52,8 +52,7 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		content: string,
 		editable: boolean,
 		surface: BaseHalfMarkdownRichSurface,
-		selection?: IBaseHalfMarkdownRichTextSelection,
-		reading?: { readonly reducedMotion: boolean }
+		selection?: IBaseHalfMarkdownRichTextSelection
 	): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.init',
@@ -63,8 +62,7 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			content,
 			editable,
 			surface,
-			...(selection ? { selection } : {}),
-			...(reading ? { reducedMotion: reading.reducedMotion } : {})
+			...(selection ? { selection } : {})
 		});
 	}
 

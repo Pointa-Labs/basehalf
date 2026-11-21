@@ -3,7 +3,9 @@
 Status: Draft (2026-11-02)
 Decision: [D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02),
 and [D113](../decisions.md#d113--a-picture-in-a-note-is-edited-where-the-note-shows-it-with-the-editor-of-its-card-new-2026-11-03)
-for editing a picture where the note shows it
+for editing a picture where the note shows it, and
+[D139](../decisions.md#d139--what-basehalf-draws-follows-the-settings-of-the-workbench-new-2026-11-21)
+for what a save keeps
 Related: [note rendering](note-rendering.md) (what the card and Preview show,
 and the blocks Rich cannot edit), [zoom and outline of a note](note-zoom-and-outline.md)
 (headings in a closed toggle), [copy, paste, and drop](copy-paste-and-drop.md)
@@ -794,6 +796,20 @@ start).
     every block it does not edit, byte for byte. An edit there drops the
     forms of this specification from that block, as those builds did.
 
+### What a save keeps
+
+89. **A save writes a note as its editor holds it.** The settings that
+    change the white space of a file when it is saved,
+    `files.trimTrailingWhitespace`, `files.insertFinalNewline`, and
+    `files.trimFinalNewlines`, never change a note: two spaces at the end
+    of a line are a line break in Markdown (rule 67), and the end of a note
+    is Rich's to write (rule 68). This holds for every way a note is saved:
+    Rich, Preview, Source, the card's editor, and what BaseHalf itself
+    writes into a note, such as a link that follows a rename. A note is a
+    file whose name ends in `.md` or `.markdown`, whatever language its
+    text has for the editor. The three settings keep working for every
+    other file ([the settings BaseHalf offers](settings-catalog.md)).
+
 ## Limits
 
 - L1. A column written `:--`, left-aligned on purpose, is written `---` once
@@ -1032,6 +1048,14 @@ this specification. Outside changes are merged meanwhile, as always.
 42. With a video's editor open, Space plays the part kept and Space again
     pauses it, and Escape goes back to the note; a press on the note's text
     goes back to the note too.
+43. With `files.trimTrailingWhitespace`, `files.insertFinalNewline`, and
+    `files.trimFinalNewlines` on, a note that holds a line ending in two
+    spaces and whose file ends without a line feed, changed by one letter
+    in another paragraph that is not its last, from Source, from Rich, and
+    from its card: the file read from the disk is the file as it was with
+    that letter in it, the two spaces and the end without a line feed
+    included. A `.txt` file changed by one letter in Source loses the
+    spaces and tabs at the ends of its lines and ends with one line feed.
 
 ## Verification
 
@@ -1104,6 +1128,15 @@ this specification. Outside changes are merged meanwhile, as always.
   2026-11-03, at a load of 11, 32.7 ms, 0 px, the handle 0.01 px over 56
   frames, and 57.7 ms at Done for the video, and 38.4 ms, 0 px, 0.01 px over
   60 frames, and 262 ms for the sound.
+- Criterion 43, and rule 89: a unit test in the window of the test runner
+  runs every save participant that the base registers on a note, by a save
+  of the user and by one that saves itself, and on a text and a code file
+  (`basehalfNoteSaveWhiteSpace.test.ts`); the `navigation` suite of the
+  smoke runs it in the real window from Rich and, for the text file, from
+  Source (`save-keeps-the-white-space-of-a-note`). In the real window on
+  2026-11-21, by hand: from Source, from Rich, and from the card, each file
+  read from the disk. Before the rule, Source and Rich wrote the note
+  without its two spaces and with a line feed at its end.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criterion 22.

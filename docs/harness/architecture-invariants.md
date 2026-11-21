@@ -149,6 +149,28 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   turns one way would not reach what the strip cuts off. The strip of the
   Agent Area's tabs keeps its place when it is drawn again, and brings the
   tab that becomes active into view.
+- **Whether BaseHalf animates is the workbench's setting** (D139).
+  `workbench.reduceMotion` decides: `on` never, `off` always, and `auto`,
+  its default, as the system's own preference says. With motion reduced,
+  nothing that BaseHalf draws glides, grows, spins, or pulses: a state shows
+  at once, and what is waited for shows that without moving. Everything
+  BaseHalf draws asks the workbench, and nothing asks the system. In the
+  window, a stylesheet styles under the class `monaco-reduce-motion` of the
+  workbench's root, and a script asks
+  `IAccessibilityService.isMotionReduced()`. In a page that the window
+  shows in a frame, a note in Rich, a PDF, and a book, a stylesheet styles
+  under the class `vscode-reduce-motion`, which the workbench keeps on the
+  body of every such page, and a script reads that class. A rule for reduced
+  motion wins over the rule that animates by its selector, never by being
+  the later one of two stylesheets. A change of the setting holds from the
+  next animation, in the window and in a page, without a reload. Where a
+  specification says "with reduced motion", it means this. A library inside
+  a page that asks the system by itself is not covered. A test fails on a
+  source of BaseHalf's that names the system's preference
+  (`basehalfReducedMotion.test.ts`), and the `navigation` suite of the
+  smoke reads what a folder's card, a connection handle, and the page of a
+  note do with the setting on and off
+  (`reduced-motion-follows-the-setting`).
 - Card Detail fades in and out where it is, over the canvas area: no frame
   shows it empty, and no frame draws anything of it outside the canvas
   area. Once open it takes the keyboard, and Escape closes it wherever in it
@@ -191,7 +213,7 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   back into stock VS Code navigation or layout.
 
 See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, D45, D65,
-D85, and D127 in [decisions.md](../decisions.md).
+D85, D127, and D139 in [decisions.md](../decisions.md).
 
 ## Content and graph truth
 

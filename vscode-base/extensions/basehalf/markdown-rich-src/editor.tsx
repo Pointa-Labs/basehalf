@@ -222,7 +222,6 @@ interface IIncomingInit {
 	readonly baseUri: string;
 	readonly surface: BaseHalfMarkdownRichSurface;
 	readonly selection?: IBaseHalfMarkdownRichTextSelection;
-	readonly reducedMotion?: boolean;
 	/** Arrival order; a payload older than the latest arrival is stale. */
 	readonly generation: number;
 }
@@ -233,7 +232,15 @@ interface IReadingAids {
 	readonly outline: BaseHalfNoteOutline;
 	/** Gives the document back its own way of finding the elements at a point. */
 	readonly restoreLookUp: () => void;
-	reducedMotion: boolean;
+}
+
+/**
+ * Whether the window reduces motion, by its setting `workbench.reduceMotion`: the workbench keeps the class on the
+ * body of every page it shows, and takes it away when the setting changes. The system's own preference is one of
+ * the setting's values, so nothing here asks the system.
+ */
+function motionReduced(): boolean {
+	return document.body.classList.contains('vscode-reduce-motion');
 }
 
 /** How far inside the view a point past it is looked up: clear of the scroll bars, which the browser finds at the view's edges. */
@@ -902,7 +909,7 @@ function MarkdownRichEditor(): JSX.Element {
 			picture.style.removeProperty('height');
 			size = { width: picture.offsetWidth, height: picture.offsetHeight };
 			hold(from);
-			if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+			if (!motionReduced()) {
 				picture.style.transition = 'width 200ms cubic-bezier(0.25, 1, 0.5, 1), height 200ms cubic-bezier(0.25, 1, 0.5, 1)';
 				void picture.offsetHeight;
 			}
@@ -1997,7 +2004,7 @@ function MarkdownRichEditor(): JSX.Element {
 	// The zoom and the outline of a note in Card Detail (zoom and outline of a
 	// note). They are made with the first init of Card Detail's page; another
 	// note shows at 100% (rule 8).
-	const ensureReadingAids = useCallback((anotherNote: boolean, motionReduced: boolean): void => {
+	const ensureReadingAids = useCallback((anotherNote: boolean): void => {
 		const scroll = scrollRef.current;
 		const page = scroll?.querySelector<HTMLElement>(':scope > .basehalf-markdown-rich-page');
 		if (!scroll || !page) {
@@ -2005,14 +2012,12 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 		const existing = readingAids.current;
 		if (existing) {
-			existing.reducedMotion = motionReduced;
 			if (anotherNote) {
 				existing.zoom.reset();
 			}
 			return;
 		}
 		const text = () => scroll.querySelector<HTMLElement>('.ProseMirror');
-		const reducedMotion = () => aids.reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		let outline: BaseHalfNoteOutline | undefined;
 		const zoom = new BaseHalfNoteZoom({
 			view: scroll,
@@ -2034,11 +2039,10 @@ function MarkdownRichEditor(): JSX.Element {
 				text,
 				headings: () => baseHalfNoteOutlineHeadings(text()),
 				label: 'Outline',
-				reducedMotion,
+				reducedMotion: motionReduced,
 				minMargin: BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES,
 			}),
 			restoreLookUp: lookUpWithinView(scroll),
-			reducedMotion: motionReduced,
 		};
 		readingAids.current = aids;
 	}, []);
@@ -2084,7 +2088,7 @@ function MarkdownRichEditor(): JSX.Element {
 		session.current.baseUri = payload.baseUri;
 		setRenderedNoteBase(payload.baseUri);
 		if (payload.surface === 'detail') {
-			ensureReadingAids(session.current.key !== payload.key, payload.reducedMotion ?? false);
+			ensureReadingAids(session.current.key !== payload.key);
 		}
 		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
 			.catch(() => false);
@@ -2184,8 +2188,7 @@ function MarkdownRichEditor(): JSX.Element {
 						baseUri: message.baseUri,
 						surface: message.surface,
 						generation: ++initGeneration.current,
-						...(message.selection ? { selection: message.selection } : {}),
-						...(message.reducedMotion !== undefined ? { reducedMotion: message.reducedMotion } : {})
+						...(message.selection ? { selection: message.selection } : {})
 					}).catch(reportError);
 					break;
 				case 'basehalf.markdownRich.zoomGesture':
