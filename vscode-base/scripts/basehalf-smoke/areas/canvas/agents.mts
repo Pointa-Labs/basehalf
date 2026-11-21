@@ -361,6 +361,25 @@ export async function assertAgentSeesSelection(page) {
 		throw new Error(`The record must stay out of git: ${gitStatusOfWorkspace()}`);
 	}
 
+	// Share the Selection, turned off, takes the record and the entry away at once and leaves the skill
+	// linked; turned on again, both are back (the selection agents can see, "The record").
+	await pane.click({ position: { x: 16, y: 16 } });
+	await expectSelection(`${header}selected: "folder"\npath: "."\n`, path.basename(workspacePath), 'the folder recorded before the selection stops being shared');
+	const settingsShared = fs.readFileSync(settingsPath, 'utf8');
+	fs.writeFileSync(settingsPath, JSON.stringify({ ...JSON.parse(settingsShared), 'basehalf.agents.shareSelection': false }, null, '\t'), 'utf8');
+	await waitUntil(() => readRecord() === undefined, 'the record to go once the selection is not shared', 10_000);
+	await page.waitForFunction(() => document.getElementById('basehalf.agentSelection') === null, null, { timeout: 10_000 });
+	// A selection made meanwhile is not recorded.
+	await readme.click();
+	await waitForCanvasCardSelection(page, 'README.md');
+	await page.waitForTimeout(600);
+	if (readRecord() !== undefined || !isLink(skillLink) || await entryShown()) {
+		throw new Error(`While the selection is not shared nothing may be recorded or shown, and the skill stays linked: ${JSON.stringify({ record: readRecord(), linked: isLink(skillLink), shown: await statusText() })}`);
+	}
+	fs.writeFileSync(settingsPath, settingsShared, 'utf8');
+	await expectSelection(`${header}selected: "card"\npath: "README.md"\n`, 'README', 'the selected card recorded once the selection is shared again');
+	await pane.click({ position: { x: 16, y: 16 } });
+
 	// Without the skill the record and the entry go: a removal answers the
 	// offer, so the entry does not show the offer either. The link and
 	// BaseHalf's own copy go with it.

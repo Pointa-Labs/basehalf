@@ -719,31 +719,48 @@ with the windows it was closed with.
    frame that shows the Agent Area, with the tab in front as it was. No
    session of the First Session appears and goes, the list of sessions to
    choose from does not show, and no pane shows a state of failure or the
-   word of a state while its session waits. A pane whose terminal starts
-   shows the terminal's background until the terminal draws.
-7. **A folder that is gone.** A terminal session whose folder no longer
+   word of a state while its session waits. A session that starts shows no
+   word either until its terminal is there: a shell is there within a few
+   frames, and a word that shows for that long is a flash. A pane whose
+   terminal starts shows the terminal's background until the terminal
+   draws. A tab without a name of the user's then takes the name of what
+   runs in it, as a new session's tab does.
+7. **The keyboard.** A window that opens leaves the keyboard where it is: a
+   session that starts with the window does not take it, also where the base
+   sends the keyboard to the Agent Area by itself. A session that starts
+   because its tab was chosen takes the keyboard once its terminal is there,
+   if it is still the session in front. Choosing a tab gives the keyboard to
+   the pane in front of that tab, whether its session starts or runs; the
+   field that renames a tab keeps the keyboard while it is open.
+8. **No session starts in a window that closes.** As the terminals of a
+   closing window end, the tabs behind them come in front; their sessions
+   stay as they are.
+9. **A folder that is gone.** A terminal session whose folder no longer
    exists, or is no longer a folder, starts in the workspace folder, as a
    new session does. A session that was in the workspace folder is kept as
    being there, not by its path.
-8. **Where it is kept.** The arrangement is kept with the window's own
-   state of the folder (the workspace's storage), on this machine, not in
-   the folder and not in `.bh/`. Each folder has its own. It is written
-   when the arrangement changes, within a fraction of a second: a tab or a
-   pane opens, closes, moves, or is renamed, a divider moves, another tab
-   or pane comes in front, a shell changes its folder, a program ends. So
-   it holds after BaseHalf ended without closing, as in a crash. It is not
-   written while the window closes: the sessions that end with the window
-   stay in it.
-9. **It holds through** Quit and a new start, Reload Window, closing the
-   window and opening the folder again, and another folder opened in the
-   same window, which has its own arrangement. The question before a
-   window closes with something running is as it was
-   ([Closing with something running](#closing-with-something-running)).
-10. **Off.** With the setting off, the Agent Area opens with no session, as
+10. **Where it is kept.** The arrangement is kept with the window's own
+    state of the folder (the workspace's storage), on this machine, not in
+    the folder and not in `.bh/`. Each folder has its own. It is written
+    when the arrangement changes, within a fraction of a second: a tab or a
+    pane opens, closes, moves, or is renamed, a divider moves, another tab
+    or pane comes in front, a shell changes its folder, a program ends. So
+    it holds after BaseHalf ended without closing, as in a crash. It is not
+    written while the window closes: the sessions that end with the window
+    stay in it.
+11. **It holds through** Quit and a new start, Reload Window, closing the
+    window and opening the folder again, and another folder opened in the
+    same window, which has its own arrangement. The question before a
+    window closes with something running is as it was
+    ([Closing with something running](#closing-with-something-running)).
+    Whether the Agent Area is shown is the base's to keep, and the base
+    writes it when a window closes: after BaseHalf ended without closing,
+    the Agent Area is shown or hidden as at the close before.
+12. **Off.** With the setting off, the Agent Area opens with no session, as
     before, and nothing is kept: turning the setting off removes what was
     kept for the folder. Turning it on keeps the arrangement as it stands.
     The sessions that are open do not change either way.
-11. **Every session of the Agent Area is started as one the base does not
+13. **Every session of the Agent Area is started as one the base does not
     keep.** The base keeps no process of a session through a reload, on
     this machine or on a remote one, and
     `terminal.integrated.enablePersistentSessions`,

@@ -189,8 +189,14 @@ export class BaseHalfAgentAreaTabStrip implements IDisposable {
 			if (e.button === 0) {
 				this.area.mutateTabs(s => selectAgentTab(s, tab.id));
 				// After the press has had its own effect: a press on a tab, which takes no keyboard, takes the
-				// keyboard away from wherever it is, also from the pane that was just given it.
-				mainWindow.setTimeout(() => void this.area.surface.focusActivePane(), 0);
+				// keyboard away from wherever it is, also from the pane that was just given it. Not once the
+				// second press of a double click has opened the field that renames a tab: the keyboard is
+				// the field's then.
+				mainWindow.setTimeout(() => {
+					if (this.editingTabId === undefined) {
+						void this.area.surface.focusActivePane();
+					}
+				}, 0);
 			}
 		});
 		el.addEventListener('dblclick', () => {

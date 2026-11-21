@@ -17,6 +17,9 @@ import { CommandsRegistry } from '../../../../../platform/commands/common/comman
 import '../../browser/basehalfAgentArea.contribution.js';
 import { BaseHalfAgentAreaService } from '../../browser/basehalfAgentAreaService.js';
 import { baseHalfCreateAgentAreaTerminalConfig, baseHalfRelaunchTerminalAfterExit } from '../../browser/basehalfAgentAreaTerminalConfig.js';
+import { baseHalfWindowEnding } from '../../browser/basehalfAgentAreaClosing.js';
+import { ShutdownReason } from '../../../../services/lifecycle/common/lifecycle.js';
+import { baseHalfAgentSessionCloseQuestion } from '../../common/basehalfAgentSessionClose.js';
 
 /**
  * Follows the order in which `TerminalInstance` handles a process exit with
@@ -109,6 +112,14 @@ suite('BaseHalfAgentAreaTerminalConfig', () => {
 		const terminalConfig = baseHalfCreateAgentAreaTerminalConfig(undefined, true) as IShellLaunchConfig;
 
 		assert.deepStrictEqual([codexConfig.args, terminalConfig.args], [undefined, undefined]);
+	});
+
+	test('the question before a window closes names what the answer does, also when another folder is opened in the window', () => {
+		const button = (reason: ShutdownReason) => baseHalfAgentSessionCloseQuestion(baseHalfWindowEnding(reason), ['sleep']).primaryButton;
+		assert.deepStrictEqual(
+			[button(ShutdownReason.CLOSE), button(ShutdownReason.QUIT), button(ShutdownReason.RELOAD), button(ShutdownReason.LOAD)],
+			['Close Window', 'Quit', 'Reload Window', 'Close Folder']
+		);
 	});
 
 	test('starts every session as one the base does not keep, with and without the command bridge', () => {

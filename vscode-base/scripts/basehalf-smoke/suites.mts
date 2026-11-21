@@ -91,6 +91,7 @@ import { assertProviderRequestsFromSharedProcess } from './areas/video/providerS
 import { assertNoPluginSurface, assertSequenceAddsGeneratedVideo, assertVideoWorkflowTemplate } from './areas/video/workflowTemplate.mts';
 import {
 	assertAgentAreaChoices,
+	assertAgentAreaReopensSessions,
 	assertAgentAreaTabStripMovesWithTheWheel,
 	assertAgentAreaTabsAndSplits,
 	assertAgentAreaTerminalCommand,
@@ -167,6 +168,7 @@ async function runWorkbenchSuite(page) {
 	await step('toggle-panel-remaps-to-agent-area', () => assertTogglePanelRemapsToAgentArea(page));
 	await step('agent-area-tabs-and-splits', () => assertAgentAreaTabsAndSplits(page));
 	await step('agent-area-tab-strip-moves-with-the-wheel', () => assertAgentAreaTabStripMovesWithTheWheel(page));
+	await step('agent-area-reopens-sessions', () => assertAgentAreaReopensSessions(page));
 	await step('source-control-git-provider', () => assertSourceControlPanel(page));
 	await step('source-control-changes-as-tree', () => assertSourceControlChangesAsTree(page));
 	await step('source-control-leaves-out-system-files', () => assertSourceControlLeavesOutSystemFiles(page));
