@@ -154,6 +154,15 @@ went with them. Run in the real window that day:
   know that position.
 - Making IDE companion integrations of TUI agents, such as Claude Code's or
   Gemini CLI's VS Code extension auto-connect, work under the new identity.
+- Three groups of the base's settings of a terminal, which stay pending in
+  [the settings BaseHalf offers](settings-catalog.md#pending-29): sessions
+  that are there again after the window reloads
+  (`terminal.integrated.enablePersistentSessions`, `persistentSession*`), a
+  split that starts where its session is (`terminal.integrated.splitCwd`),
+  and the suggestions of a shell (`terminal.integrated.suggest.*`).
+- A mark outside the Agent Area for a bell that rings while the Agent Area
+  is hidden.
+- The entries that extensions add to the base's menu of a terminal.
 
 ## Terminology
 
@@ -616,6 +625,18 @@ Accessibility Help.
   upgrade fails tests instead.
 - The edges read the cells, not the renderer, so they are the same when VS
   Code falls back to its DOM renderer.
+- The question before a close needs to know whether a shell has a child
+  process, which the base learns about a second after the last key. A close
+  within that second finds nothing running and asks nothing; the tab's Undo
+  still brings the session back.
+- A question that is open when its session's program ends closes nothing by
+  itself: after the answer the tabs are read again, and a session that is
+  gone is left out.
+- The name, the description, and the bell are read from the base's terminal:
+  its title and description, the title its program set, and the bell among
+  its statuses. If a base update renames them, the code no longer compiles.
+- A terminal whose program never sets a title, and an agent whose program
+  the base does not know, show the name they have without it.
 
 ## Acceptance criteria
 
