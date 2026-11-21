@@ -24,7 +24,8 @@ import { TerminalSettingId } from '../../../../../platform/terminal/common/termi
 import { accessibleViewCurrentProviderId, accessibleViewIsShown } from '../../../accessibility/browser/accessibilityConfiguration.js';
 import { AccessibilityHelpAction, AccessibleViewAction } from '../../../accessibility/browser/accessibleViewActions.js';
 import { ITerminalContribution, ITerminalInstance, ITerminalService, IXtermTerminal } from '../../../terminal/browser/terminal.js';
-import { registerTerminalAction } from '../../../terminal/browser/terminalActions.js';
+import { getBaseHalfActiveTerminalInstance, registerTerminalAction } from '../../../terminal/browser/terminalActions.js';
+import { IBaseHalfAgentAreaService } from '../../../../basehalf/agentArea/common/basehalfAgentArea.js';
 import { registerTerminalContribution, type ITerminalContributionContext } from '../../../terminal/browser/terminalExtensions.js';
 import { TerminalContextKeys } from '../../../terminal/common/terminalContextKey.js';
 import { TerminalAccessibilityCommandId } from '../common/terminal.accessibility.js';
@@ -78,10 +79,11 @@ export class TerminalAccessibleViewContribution extends Disposable implements IT
 		@IContextKeyService private readonly _contextKeyService: IContextKeyService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@ITerminalService private readonly _terminalService: ITerminalService,
+		@IBaseHalfAgentAreaService private readonly _baseHalfAgentAreaService: IBaseHalfAgentAreaService,
 	) {
 		super();
 		this._register(AccessibleViewAction.addImplementation(90, 'terminal', () => {
-			if (this._terminalService.activeInstance !== this._ctx.instance) {
+			if (!this._isActiveInstance()) {
 				return false;
 			}
 			this.show();
@@ -113,7 +115,7 @@ export class TerminalAccessibleViewContribution extends Disposable implements IT
 		addon.activate(xterm.raw);
 		this._xterm = xterm;
 		this._register(this._xterm.raw.onWriteParsed(async () => {
-			if (this._terminalService.activeInstance !== this._ctx.instance) {
+			if (!this._isActiveInstance()) {
 				return;
 			}
 			if (this._isTerminalAccessibleViewOpen() && this._xterm!.raw.buffer.active.baseY === 0) {
@@ -123,7 +125,7 @@ export class TerminalAccessibleViewContribution extends Disposable implements IT
 
 		const onRequestUpdateEditor = Event.latch(this._xterm.raw.onScroll);
 		this._register(onRequestUpdateEditor(() => {
-			if (this._terminalService.activeInstance !== this._ctx.instance) {
+			if (!this._isActiveInstance()) {
 				return;
 			}
 			if (this._isTerminalAccessibleViewOpen()) {
@@ -149,6 +151,15 @@ export class TerminalAccessibleViewContribution extends Disposable implements IT
 				this.show();
 			}
 		});
+	}
+
+	/**
+	 * BaseHalf: the terminal that the accessible view shows is the Agent Area's terminal with the keyboard, or
+	 * its terminal in front while the keyboard is in the view. The base's active instance is never a terminal of
+	 * the Agent Area (docs/specs/agent-area-terminal.md, The accessible view).
+	 */
+	private _isActiveInstance(): boolean {
+		return getBaseHalfActiveTerminalInstance(this._baseHalfAgentAreaService.activeTerminal, this._terminalService.activeInstance) === this._ctx.instance;
 	}
 
 	private _isTerminalAccessibleViewOpen(): boolean {
@@ -251,10 +262,8 @@ export class TerminalAccessibilityHelpContribution extends Disposable {
 
 		this._register(AccessibilityHelpAction.addImplementation(105, 'terminal', async accessor => {
 			const instantiationService = accessor.get(IInstantiationService);
-			const terminalService = accessor.get(ITerminalService);
 			const accessibleViewService = accessor.get(IAccessibleViewService);
-			const instance = await terminalService.getActiveOrCreateInstance();
-			await terminalService.revealActiveTerminal();
+			const instance = await baseHalfTerminalForAccessibility(accessor);
 			const terminal = instance?.xterm;
 			if (!terminal) {
 				return;
@@ -268,6 +277,22 @@ registerTerminalContribution(TerminalAccessibilityHelpContribution.ID, TerminalA
 // #endregion
 
 // #region Actions
+
+/**
+ * BaseHalf: the terminal that Accessibility Help and the accessible view act on: the Agent Area's terminal with
+ * the keyboard, else the base's active terminal, else the Agent Area's terminal in front. Where the base would
+ * create a terminal of its panel, which BaseHalf hides, a Terminal session of the Agent Area opens.
+ */
+async function baseHalfTerminalForAccessibility(accessor: ServicesAccessor): Promise<ITerminalInstance | undefined> {
+	const terminalService = accessor.get(ITerminalService);
+	const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+	const instance = getBaseHalfActiveTerminalInstance(agentAreaService.activeTerminal, terminalService.activeInstance);
+	if (instance) {
+		return instance;
+	}
+	await agentAreaService.createTerminalSession({ source: TerminalAccessibilityCommandId.FocusAccessibleBuffer });
+	return getBaseHalfActiveTerminalInstance(agentAreaService.activeTerminal, undefined);
+}
 
 class FocusAccessibleBufferAction extends Action2 {
 	constructor() {
@@ -290,8 +315,7 @@ class FocusAccessibleBufferAction extends Action2 {
 		});
 	}
 	override async run(accessor: ServicesAccessor, ...args: unknown[]): Promise<void> {
-		const terminalService = accessor.get(ITerminalService);
-		const terminal = await terminalService.getActiveOrCreateInstance();
+		const terminal = await baseHalfTerminalForAccessibility(accessor);
 		if (!terminal?.xterm) {
 			return;
 		}
@@ -311,8 +335,8 @@ registerTerminalAction({
 			weight: KeybindingWeight.WorkbenchContrib + 2
 		}
 	],
-	run: async (c) => {
-		const instance = c.service.activeInstance;
+	run: async (c, accessor) => {
+		const instance = getBaseHalfActiveTerminalInstance(accessor.get(IBaseHalfAgentAreaService).activeTerminal, c.service.activeInstance);
 		if (!instance) {
 			return;
 		}
@@ -331,8 +355,8 @@ registerTerminalAction({
 			weight: KeybindingWeight.WorkbenchContrib + 2
 		}
 	],
-	run: async (c) => {
-		const instance = c.service.activeInstance;
+	run: async (c, accessor) => {
+		const instance = getBaseHalfActiveTerminalInstance(accessor.get(IBaseHalfAgentAreaService).activeTerminal, c.service.activeInstance);
 		if (!instance) {
 			return;
 		}
