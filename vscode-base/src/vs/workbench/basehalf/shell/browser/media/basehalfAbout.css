@@ -16,12 +16,14 @@
 	outline: none;
 }
 
+/* The state of an update, in line with the title and the settings' blocks (Settings, "How Settings looks"). */
 .basehalf-about-content {
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
 	max-width: 620px;
-	margin-top: 18px;
+	margin-top: 8px;
+	padding: 0 14px;
 }
 
 /* The status element of the base, on a page and not in a card. */
