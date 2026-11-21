@@ -1,0 +1,161 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { BASEHALF_HIDDEN_COMMAND_FAMILIES, BASEHALF_KEPT_COMMANDS, baseHalfHiddenCommandError, getBaseHalfHiddenCommandFamily, isBaseHalfHiddenCommand } from '../../common/basehalfHiddenCommands.js';
+import { BASEHALF_HIDDEN_SURFACES, BASEHALF_REMAPPED_SURFACES } from '../../common/basehalfWorkbenchProfile.js';
+
+suite('BaseHalfHiddenCommands', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('names the family of a command BaseHalf does not have', () => {
+		assert.deepStrictEqual(
+			[
+				'workbench.action.chat.triggerSetup',
+				'workbench.action.chat.manageLanguageModelAuthentication',
+				'workbench.mcp.listServer',
+				'agentsVoice.resetOnboarding',
+				'workbench.action.openImagesInCarousel',
+				'workbench.action.tasks.runTask',
+				'debug.addConfiguration',
+				'workbench.action.debug.start',
+				'workbench.view.debug',
+				'notebook.cell.execute',
+				'testing.runAll',
+				'workbench.action.remote.showMenu',
+				'github.copyVscodeDevLinkFile',
+				'workbench.profiles.actions.manageProfiles',
+				'workbench.action.browser.open',
+				'workbench.view.extensions',
+				'workbench.actions.view.problems',
+				'files.openTimeline',
+				'outline.focus',
+				'mergeEditor.acceptMerge',
+				'search.action.openNewEditor',
+				'workbench.action.output.toggleOutput',
+				'workbench.panel.output.focus',
+				'workbench.action.positionPanelLeft',
+				'workbench.action.splitEditorRight',
+				'workbench.action.moveEditorToNextGroup',
+				'workbench.action.showMultipleEditorTabs',
+				'workbench.editSessions.actions.resetAuth',
+				'breadcrumbs.toggle',
+				'workbench.action.toggleSidebarPosition',
+				'workbench.action.activityBarLocation.bottom',
+				'toggle.window.commandCenter',
+				'workbench.action.toggleAutoSave',
+				'workbench.action.toggleLightDarkThemes',
+				'workbench.action.moveView',
+				'workbench.action.openWalkthrough',
+				'workbench.action.showInteractivePlayground'
+			].map(getBaseHalfHiddenCommandFamily),
+			[
+				'chat', 'chat', 'chat', 'chat', 'chat',
+				'tasks',
+				'debug', 'debug', 'debug',
+				'notebooks',
+				'testing',
+				'remote', 'remote',
+				'profiles',
+				'browser',
+				'marketplace',
+				'problems',
+				'timeline-and-outline', 'timeline-and-outline',
+				'merge-editor',
+				'search-editor',
+				'panel', 'panel', 'panel',
+				'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups',
+				'cloud',
+				'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape',
+				'welcome', 'welcome'
+			]
+		);
+	});
+
+	test('keeps the commands of BaseHalf\'s own surfaces', () => {
+		const kept = [
+			// Files, Source Control and Git, and Search.
+			'explorer.newFile', 'workbench.view.explorer', 'workbench.view.scm', 'workbench.view.search', 'git.commit', 'git.showOutput',
+			'merge-conflict.accept.current', 'workbench.action.findInFiles', 'search.action.openResult', 'search.action.replaceAll',
+			// The terminal's commands, which the Agent Area takes, and the panel's toggle, which opens and closes it.
+			'workbench.action.terminal.new', 'workbench.action.terminal.split', 'workbench.action.terminal.focus', 'workbench.action.terminal.clear',
+			'workbench.action.terminal.toggleTerminal', 'workbench.action.togglePanel',
+			// Source's editor.
+			'actions.find', 'editor.action.formatDocument', 'editor.fold', 'editor.action.insertCursorBelow', 'editor.action.insertSnippet',
+			'workbench.action.openSnippets', 'editor.action.marker.next', 'workbench.action.gotoSymbol', 'workbench.action.closeActiveEditor',
+			// The window and its settings.
+			'workbench.action.toggleZenMode', 'workbench.action.openGlobalKeybindings', 'workbench.action.selectTheme', 'workbench.action.openSettings',
+			'workbench.action.zoomIn', 'workbench.action.toggleSidebarVisibility', 'workbench.action.toggleAuxiliaryBar', 'workbench.action.customizeLayout',
+			// Output, which opens as a document, and what a developer needs.
+			'workbench.action.showOutputChannels', 'workbench.action.showLogs', 'workbench.action.output.show.main',
+			'workbench.action.reloadWindow', 'workbench.action.toggleDevTools', 'workbench.extensions.action.devtoolsExtensionHost',
+			// Installing an agent extension, Help, and the new file of the File menu.
+			'workbench.extensions.installExtension', 'workbench.action.showAboutDialog', 'workbench.action.openLicenseUrl', 'welcome.showNewFileEntries',
+			// The base's plumbing, which Git calls at a commit.
+			'_aiEdits.hasAiContributions', '_chat.editSessions.accept', '_open.mergeEditor',
+			// BaseHalf's own commands.
+			'basehalf.agentArea.toggle', 'basehalf.video.providers', 'pointa.basehalf-ai-video.createWorkflow'
+		];
+		assert.deepStrictEqual(kept.filter(isBaseHalfHiddenCommand), []);
+	});
+
+	test('hides the commands the hidden surfaces name, and none that BaseHalf remaps', () => {
+		assert.deepStrictEqual(
+			BASEHALF_HIDDEN_SURFACES.filter(surface => surface.kind === 'command' && !isBaseHalfHiddenCommand(surface.id)).map(surface => surface.id),
+			[]
+		);
+		assert.deepStrictEqual(
+			BASEHALF_REMAPPED_SURFACES.filter(surface => surface.kind === 'command' && isBaseHalfHiddenCommand(surface.id)).map(surface => surface.id),
+			[]
+		);
+	});
+
+	test('every family has a reason, and no command is listed twice', () => {
+		const seen = new Set<string>();
+		const problems: string[] = [];
+		for (const family of BASEHALF_HIDDEN_COMMAND_FAMILIES) {
+			if (!family.reason.trim()) {
+				problems.push(`${family.family} has no reason`);
+			}
+			if (!family.commands.length) {
+				problems.push(`${family.family} names no command`);
+			}
+			for (const command of family.commands) {
+				if (command.startsWith('_') && command.includes('*')) {
+					problems.push(`${command} names the base's plumbing by a pattern`);
+				}
+				if (seen.has(command)) {
+					problems.push(`${command} is listed twice`);
+				}
+				seen.add(command);
+			}
+		}
+		assert.deepStrictEqual(problems, []);
+		assert.strictEqual(new Set(BASEHALF_HIDDEN_COMMAND_FAMILIES.map(family => family.family)).size, BASEHALF_HIDDEN_COMMAND_FAMILIES.length);
+	});
+
+	test('a kept command is one a pattern would hide, and has its reason', () => {
+		const stale = BASEHALF_KEPT_COMMANDS.filter(kept => !kept.reason.trim() || !BASEHALF_HIDDEN_COMMAND_FAMILIES.some(family => family.commands.some(command => matches(command, kept.id))));
+		assert.deepStrictEqual(stale, []);
+		assert.deepStrictEqual(BASEHALF_KEPT_COMMANDS.filter(kept => isBaseHalfHiddenCommand(kept.id)), []);
+	});
+
+	test('a pattern matches whole ids only', () => {
+		assert.deepStrictEqual(
+			['merge.acceptAllInput1', 'merge-conflict.next', 'extensions.sort.name', 'extension.open', 'workbench.action.focusNextGroup', 'workbench.action.focusNextPart', 'xdebug.start', 'debug'].map(isBaseHalfHiddenCommand),
+			[true, false, true, false, true, false, false, false]
+		);
+	});
+
+	test('the error of a hidden command is the base\'s for a command that does not exist', () => {
+		assert.strictEqual(baseHalfHiddenCommandError('debug.addConfiguration').message, 'command \'debug.addConfiguration\' not found');
+	});
+});
+
+function matches(pattern: string, id: string): boolean {
+	const literal = pattern.split('*').map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'));
+	return new RegExp(`^${literal.join('.*')}$`).test(id);
+}

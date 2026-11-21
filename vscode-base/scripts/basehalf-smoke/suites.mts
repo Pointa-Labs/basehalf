@@ -98,7 +98,7 @@ import {
 	assertGlobalAuxiliaryToggleOpensAgentArea,
 	assertTogglePanelRemapsToAgentArea
 } from './areas/workbench/agentArea.mts';
-import { assertCompetingViewContainersHidden, assertHiddenSurfaceCommandsStayHidden, assertOpenEditorsHidden, assertStatusBarCurated } from './areas/workbench/hiddenSurfaces.mts';
+import { assertCompetingViewContainersHidden, assertHiddenSurfaceCommandsStayHidden, assertKeysOfHiddenCommandsOpenNothing, assertOpenEditorsHidden, assertOutputOpensOverTheCanvas, assertStatusBarCurated, assertTitleBarMenusHoldWhatBaseHalfHas } from './areas/workbench/hiddenSurfaces.mts';
 import { assertBaseHalfAboutPage, assertBaseHalfSettings, assertEverySettingHasAClass, assertProvidersPage } from './areas/workbench/settings.mts';
 import { assertGitBranchCheckoutQuickPick, assertSourceControlChangesAsTree, assertSourceControlLeavesOutSystemFiles, assertSourceControlPanel, assertSourceControlPublishBranchAction } from './areas/workbench/sourceControl.mts';
 import {
@@ -112,7 +112,7 @@ import {
 	assertTitleBarLocationOpensSearch
 } from './areas/workbench/startup.mts';
 import { app, workspacePath } from './context.mts';
-import { assertCanvasShowsWhatFilesShows, assertCardComesToAChangeInView, assertCardEditorFollowsSettings, assertCardKeepsItsPlace, assertCardReadsItsFileInItsEncoding, assertCardStandsAtWhatWasRead, assertViewsOfANoteGoOn, assertCodeCardFace, assertCodeCardWheel, assertEditingOnTheCard, assertExpandAndCommit, assertLargeFileKeepsItsHead, assertSourceIsTheEditor, prepareCodeCards } from './areas/workbench/codeCards.mts';
+import { assertCanvasShowsWhatFilesShows, assertCardComesToAChangeInView, assertCardEditorFollowsSettings, assertCardKeepsItsPlace, assertCardReadsItsFileInItsEncoding, assertCardStandsAtWhatWasRead, assertCodeCardFace, assertCodeCardWheel, assertEditingOnTheCard, assertExpandAndCommit, assertJsonHasItsLanguageService, assertLargeFileKeepsItsHead, assertSourceIsTheEditor, assertViewsOfANoteGoOn, prepareCodeCards } from './areas/workbench/codeCards.mts';
 import { commitFixtureChanges } from './fixture.mts';
 import { assertCanvasEdgeVisible, assertCanvasFolder } from './lib/canvas.mts';
 import { assertCardDetail, assertNativeBackOpensPreviousCanvas, assertNativeForwardOpensCardDetail, assertNoEditorTabFor } from './lib/cardDetail.mts';
@@ -157,6 +157,9 @@ async function runWorkbenchSuite(page) {
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
 	await step('statusbar-curated', () => assertStatusBarCurated(page));
 	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
+	await step('title-bar-menus-hold-what-basehalf-has', () => assertTitleBarMenusHoldWhatBaseHalfHas(page));
+	await step('keys-of-hidden-commands-open-nothing', () => assertKeysOfHiddenCommandsOpenNothing(page));
+	await step('output-opens-over-the-canvas', () => assertOutputOpensOverTheCanvas(page));
 	await step('agent-area-five-choices-command-unavailable-state', () => assertAgentAreaChoices(page));
 	await step('global-auxiliary-toggle-opens-agent-area', () => assertGlobalAuxiliaryToggleOpensAgentArea(page));
 	await step('agent-area-terminal-command-no-stock-panel', () => assertAgentAreaTerminalCommand(page));
@@ -198,6 +201,7 @@ async function runWorkbenchSuite(page) {
 	await step('card-reads-its-file-in-its-encoding', () => assertCardReadsItsFileInItsEncoding(page));
 	await step('code-card-expand-and-commit', () => assertExpandAndCommit(page));
 	await step('code-card-large-file', () => assertLargeFileKeepsItsHead(page));
+	await step('json-has-its-language-service', () => assertJsonHasItsLanguageService(page));
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 	await step('settings-every-setting-has-a-class', async () => assertEverySettingHasAClass());

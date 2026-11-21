@@ -35,6 +35,7 @@ import { MenuSettings, TitlebarStyle } from '../../../platform/window/common/win
 import { IPreferencesService } from '../../services/preferences/common/preferences.js';
 import { QuickInputAlignmentContextKey } from '../../../platform/quickinput/browser/quickInput.js';
 import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
+import { isBaseHalfHiddenCommand } from '../../basehalf/shell/common/basehalfHiddenCommands.js';
 
 // Register Icons
 const menubarIcon = registerIcon('menuBar', Codicon.layoutMenubar, localize('menuBarIcon', "Represents the menu bar"));
@@ -1489,32 +1490,17 @@ registerAction2(class CustomizeLayoutAction extends Action2 {
 				]
 			};
 		};
+		// BaseHalf: a row whose command BaseHalf does not have is left out, and a heading with no row under it (D141).
+		const section = (label: string, items: CustomizeLayoutItem[]): QuickPickItem[] => {
+			const shown = items.filter(item => !isBaseHalfHiddenCommand(item.id));
+			return shown.length ? [{ type: 'separator', label }, ...shown.map(toQuickPickItem)] : [];
+		};
 		return [
-			{
-				type: 'separator',
-				label: localize('toggleVisibility', "Visibility")
-			},
-			...ToggleVisibilityActions.map(toQuickPickItem),
-			{
-				type: 'separator',
-				label: localize('sideBarPosition', "Primary Side Bar Position")
-			},
-			...MoveSideBarActions.map(toQuickPickItem),
-			{
-				type: 'separator',
-				label: localize('panelAlignment', "Panel Alignment")
-			},
-			...AlignPanelActions.map(toQuickPickItem),
-			{
-				type: 'separator',
-				label: localize('quickOpen', "Quick Input Position")
-			},
-			...QuickInputActions.map(toQuickPickItem),
-			{
-				type: 'separator',
-				label: localize('layoutModes', "Modes"),
-			},
-			...MiscLayoutOptions.map(toQuickPickItem),
+			...section(localize('toggleVisibility', "Visibility"), ToggleVisibilityActions),
+			...section(localize('sideBarPosition', "Primary Side Bar Position"), MoveSideBarActions),
+			...section(localize('panelAlignment', "Panel Alignment"), AlignPanelActions),
+			...section(localize('quickOpen', "Quick Input Position"), QuickInputActions),
+			...section(localize('layoutModes', "Modes"), MiscLayoutOptions),
 		];
 	}
 
@@ -1590,7 +1576,10 @@ registerAction2(class CustomizeLayoutAction extends Action2 {
 
 				const resetSetting = (id: string) => {
 					const config = configurationService.inspect(id);
-					configurationService.updateValue(id, config.defaultValue);
+					// BaseHalf: a setting that has its default is not written, so nothing is written for one BaseHalf keeps at its own value (D137).
+					if (config.value !== config.defaultValue) {
+						configurationService.updateValue(id, config.defaultValue);
+					}
 				};
 
 				// Reset all layout options
@@ -1603,7 +1592,10 @@ registerAction2(class CustomizeLayoutAction extends Action2 {
 					resetSetting('window.menuBarVisibility');
 				}
 
-				commandService.executeCommand('workbench.action.alignPanelCenter');
+				// BaseHalf: there is no bottom panel to align (D141).
+				if (!isBaseHalfHiddenCommand('workbench.action.alignPanelCenter')) {
+					commandService.executeCommand('workbench.action.alignPanelCenter');
+				}
 				commandService.executeCommand('workbench.action.alignQuickInputTop');
 			}
 		}));

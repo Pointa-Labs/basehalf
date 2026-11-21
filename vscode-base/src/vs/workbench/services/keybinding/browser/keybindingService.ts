@@ -57,6 +57,7 @@ import { IUserKeybindingItem, KeybindingIO, OutputBuilder } from '../common/keyb
 import { IKeyboard, INavigatorWithKeyboard } from './navigatorKeyboard.js';
 import { getAllUnboundCommands } from './unboundCommands.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
+import { isBaseHalfHiddenCommand } from '../../../basehalf/shell/common/basehalfHiddenCommands.js';
 
 function isValidContributedKeyBinding(keyBinding: ContributedKeyBinding, rejects: string[]): boolean {
 	if (!keyBinding) {
@@ -441,7 +442,8 @@ export class WorkbenchKeybindingService extends AbstractKeybindingService {
 
 	protected _getResolver(): KeybindingResolver {
 		if (!this._cachedResolver) {
-			const defaults = this._resolveKeybindingItems(KeybindingsRegistry.getDefaultKeybindings(), true);
+			// BaseHalf: no key of the base or of an extension runs a command that BaseHalf does not have, so the key is free for what comes after it (D141).
+			const defaults = this._resolveKeybindingItems(KeybindingsRegistry.getDefaultKeybindings().filter(item => !item.command || !isBaseHalfHiddenCommand(item.command)), true);
 			const overrides = this._resolveUserKeybindingItems(this.userKeybindings.keybindings, false);
 			this._cachedResolver = new KeybindingResolver(defaults, overrides, (str) => this._log(str));
 		}

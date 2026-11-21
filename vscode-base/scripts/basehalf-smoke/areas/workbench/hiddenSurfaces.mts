@@ -6,7 +6,7 @@
 // What BaseHalf hides of VS Code: Open Editors, competing views, status bar items, and commands.
 
 import process from 'process';
-import { isExpectedCommandRow, tryRunCommand, visibleQuickInput } from '../../lib/quickInput.mts';
+import { isExpectedCommandRow, runCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 
 export async function assertOpenEditorsHidden(page) {
 	const headers = await page.locator('.pane-header h3.title').evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(text => text === 'Open Editors'));
@@ -16,7 +16,7 @@ export async function assertOpenEditorsHidden(page) {
 }
 
 export async function assertCompetingViewContainersHidden(page) {
-	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Debug Console', 'Testing', 'Test Results', 'Problems', 'Remote Explorer', 'Terminal'];
+	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Debug Console', 'Testing', 'Test Results', 'Problems', 'Output', 'Remote Explorer', 'Terminal'];
 	const started = Date.now();
 	let visibleForbidden = [];
 	while (Date.now() - started < 5_000) {
@@ -82,33 +82,116 @@ export async function assertStatusBarCurated(page) {
 }
 
 export async function assertHiddenSurfaceCommandsStayHidden(page) {
+	// A command of what BaseHalf does not have is not in the Command Palette (D141).
 	for (const command of [
 		'Extensions: Install Extensions',
 		'Extensions: Install from VSIX...',
-		'Extensions: Install Extension from Location...'
+		'Extensions: Install Extension from Location...',
+		'Extensions: Focus on Extensions View',
+		'Chat: Open Chat',
+		'Chat: Use AI Features with Copilot for free...',
+		'View: Show Run and Debug',
+		'Debug: Add Configuration...',
+		'Tasks: Run Task',
+		'View: Show Testing',
+		'Problems: Focus on Problems View',
+		'View: Toggle Output',
+		'View: Show Remote Explorer',
+		'Browser: Open Integrated Browser',
+		'Profiles: Switch Profile...',
+		'View: Split Editor Right',
+		'View: Toggle Breadcrumbs',
+		'View: Toggle Primary Side Bar Position'
 	]) {
 		await assertCommandAbsentFromPalette(page, command);
 	}
-	const hiddenSurfaceCommands = [
-		'Extensions: Focus on Extensions View',
-		'Chat: Open Chat',
-		'View: Show Run and Debug',
-		'Debug Console: Focus on Debug Console View',
-		'View: Show Testing',
-		'Problems: Focus on Problems View',
-		'View: Show Remote Explorer'
-	];
-	let exercisedCommands = 0;
-	for (const command of hiddenSurfaceCommands) {
-		console.error(`[basehalf-smoke] try hidden command ${command}`);
-		if (await tryRunCommand(page, command, { expectedBestRowText: command })) {
-			exercisedCommands++;
+	// Nor is any command that the palette lists under the category of a hidden family: a base update
+	// that adds one shows here.
+	for (const category of ['Tasks', 'Debug', 'Notebook', 'Test', 'Profiles', 'Browser', 'Chat', 'Voice', 'MCP', 'Remote', 'Problems', 'Merge Editor']) {
+		const listed = await commandsOfCategory(page, category);
+		if (listed.length) {
+			throw new Error(`The Command Palette lists commands of a family BaseHalf does not have: ${listed.join(' | ')}`);
+		}
+	}
+	// What the palette still lists is there: the check above did not pass on an empty list.
+	if (!(await commandsOfCategory(page, 'Git')).length) {
+		throw new Error('The Command Palette lists no Git command; the check of the hidden families checked nothing');
+	}
+	await assertCompetingViewContainersHidden(page);
+}
+
+async function commandsOfCategory(page, category) {
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+	const quickInput = visibleQuickInput(page);
+	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
+	await quickInput.fill(`>${category}: `);
+	await page.locator('.quick-input-list .monaco-list-row[role="option"]').first().waitFor({ state: 'visible', timeout: 15_000 });
+	await page.waitForTimeout(300);
+	const labels = await page.locator('.quick-input-list .monaco-list-row[role="option"] .label-name').evaluateAll(nodes => nodes.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim()));
+	await page.keyboard.press('Escape');
+	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	return labels.filter(label => label.startsWith(`${category}: `));
+}
+
+// The gear's menu and the Accounts menu of the title bar hold only what BaseHalf has (D141).
+export async function assertTitleBarMenusHoldWhatBaseHalfHas(page) {
+	const manage = await titleBarMenu(page, 'Manage');
+	for (const entry of ['Command Palette...', 'Settings', 'Keyboard Shortcuts', 'Snippets']) {
+		if (!manage.includes(entry)) {
+			throw new Error(`The gear's menu has no ${entry}: ${manage.join(' | ')}`);
+		}
+	}
+	const forbidden = manage.filter(entry => /^(Profiles?|Tasks)\b/.test(entry));
+	if (forbidden.length) {
+		throw new Error(`The gear's menu holds entries of what BaseHalf does not have: ${forbidden.join(' | ')}`);
+	}
+	const accounts = await titleBarMenu(page, 'Accounts');
+	const languageModel = accounts.filter(entry => /Language Model|Copilot|Cloud Changes/.test(entry));
+	if (languageModel.length) {
+		throw new Error(`The Accounts menu holds entries of what BaseHalf does not have: ${languageModel.join(' | ')}`);
+	}
+}
+
+async function titleBarMenu(page, name) {
+	await page.locator(`.titlebar-container [aria-label="${name}"]`).first().click();
+	const menu = page.locator('.monaco-menu .action-item .action-label');
+	await menu.first().waitFor({ state: 'visible', timeout: 10_000 });
+	const entries = await menu.evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(Boolean));
+	await page.keyboard.press('Escape');
+	await menu.first().waitFor({ state: 'hidden', timeout: 10_000 });
+	return entries;
+}
+
+// Output opens as a document over the canvas, and the bottom panel stays shut (D141).
+export async function assertOutputOpensOverTheCanvas(page) {
+	await runCommand(page, 'Git: Show Git Output');
+	const overlay = page.locator('.monaco-modal-editor-block');
+	await overlay.waitFor({ state: 'visible', timeout: 15_000 });
+	await overlay.locator('.monaco-editor .view-line').first().waitFor({ state: 'visible', timeout: 15_000 });
+	const panel = await page.locator('.part.panel').evaluateAll(nodes => nodes.some(node => getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0));
+	if (panel) {
+		throw new Error('Show Git Output opened the bottom panel');
+	}
+	await assertCompetingViewContainersHidden(page);
+	await page.keyboard.press('Escape');
+	await overlay.waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+// A key that the base gives to a surface BaseHalf does not have opens nothing (D141).
+export async function assertKeysOfHiddenCommandsOpenNothing(page) {
+	const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+	for (const key of [`${mod}+Shift+U`, `${mod}+Shift+M`, `${mod}+Shift+D`, `${mod}+Shift+X`, 'F5', `${mod}+Shift+B`]) {
+		await page.keyboard.press(key);
+		await page.waitForTimeout(400);
+		const panel = await page.locator('.part.panel').evaluateAll(nodes => nodes.some(node => getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0));
+		if (panel) {
+			throw new Error(`The key ${key} opened the bottom panel`);
 		}
 		await assertCompetingViewContainersHidden(page);
-		console.error(`[basehalf-smoke] pass hidden command ${command}`);
-	}
-	if (!exercisedCommands) {
-		throw new Error('Hidden surface runtime guard did not exercise any VS Code command palette entries');
+		const toasts = await page.locator('.notification-toast .notification-list-item-message').evaluateAll(nodes => nodes.map(node => node.textContent || ''));
+		if (toasts.some(text => /not found/.test(text))) {
+			throw new Error(`The key ${key} ran a command BaseHalf does not have: ${toasts.join(' | ')}`);
+		}
 	}
 }
 
@@ -123,6 +206,6 @@ async function assertCommandAbsentFromPalette(page, command) {
 	await page.keyboard.press('Escape');
 	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
 	if (!/^No matching/.test(rowText) && isExpectedCommandRow(rowText, command)) {
-		throw new Error(`Stock extension installation command is exposed in the BaseHalf command palette: ${command}`);
+		throw new Error(`The Command Palette lists a command BaseHalf does not have: ${command}`);
 	}
 }

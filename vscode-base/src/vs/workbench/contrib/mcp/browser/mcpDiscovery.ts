@@ -10,6 +10,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { mcpAccessConfig, McpAccessValue } from '../../../../platform/mcp/common/mcpManagement.js';
 import { observableConfigValue } from '../../../../platform/observable/common/platformObservableUtils.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
+import { ChatConfiguration } from '../../chat/common/constants.js';
 import { mcpDiscoveryRegistry } from '../common/discovery/mcpDiscovery.js';
 
 export class McpDiscovery extends Disposable implements IWorkbenchContribution {
@@ -22,12 +23,14 @@ export class McpDiscovery extends Disposable implements IWorkbenchContribution {
 		super();
 
 		const mcpAccessValue = observableConfigValue(mcpAccessConfig, McpAccessValue.All, configurationService);
+		// BaseHalf: while the base's AI features are off, nothing looks for tool servers, so a `.mcp.json` of the folder is an agent's own and is not read (D141).
+		const aiFeaturesDisabled = observableConfigValue(ChatConfiguration.AIDisabled, false, configurationService);
 		const store = this._register(new DisposableStore());
 
 		this._register(autorun(reader => {
 			store.clear();
 			const value = mcpAccessValue.read(reader);
-			if (value === McpAccessValue.None) {
+			if (value === McpAccessValue.None || aiFeaturesDisabled.read(reader)) {
 				return;
 			}
 			for (const descriptor of mcpDiscoveryRegistry.getAll()) {

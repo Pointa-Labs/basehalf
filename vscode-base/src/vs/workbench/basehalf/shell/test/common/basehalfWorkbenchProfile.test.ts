@@ -170,6 +170,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 				'workbench.panel.testResults',
 				'workbench.view.extension.test',
 				'workbench.panel.markers',
+				'workbench.panel.output',
 				'workbench.view.remote'
 			]
 		);
@@ -322,6 +323,12 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.typescript'), true);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.python'), true);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.typescript-language-features'), false);
+		// JSON's language service is the one that runs, with what tells it which files are settings (D142).
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.json-language-features'), true);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.configuration-editing'), true);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.css-language-features'), false);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.html-language-features'), false);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.npm'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.markdown'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.prompt'), false);
 		assert.strictEqual(BASEHALF_ALLOWED_EXTENSION_FAMILIES.find(family => family.family === 'languages')?.builtInExtensionIds.length, 46);
@@ -367,7 +374,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 		assert.deepStrictEqual(
 			BASEHALF_ALLOWED_EXTENSION_FAMILIES.map(family => family.family),
-			['theme', 'languages', 'git', 'media-preview', 'github', 'github-authentication', 'codex', 'claude']
+			['theme', 'languages', 'json', 'git', 'media-preview', 'github', 'github-authentication', 'codex', 'claude']
 		);
 	});
 

@@ -1,6 +1,6 @@
 # Built-in AI Video and no plugins
 
-Status: Active (2026-10-11), revised 2026-10-24 (D75) and 2026-10-25 (D76)
+Status: Active (2026-10-11), revised 2026-10-24 (D75), 2026-10-25 (D76), and 2026-11-21 (D142)
 Decisions: [D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11),
 [D75](../decisions.md#d75--ai-video-is-basehalfs-own-code-not-an-extension-new-2026-10-24),
 [D76](../decisions.md#d76--the-plugin-platform-is-removed-new-2026-10-25)
@@ -111,7 +111,10 @@ longer described anything the product does.
     BaseHalf says why where VS Code would show it. Of VS Code's own extensions
     it runs the theme, Git and GitHub, Merge Conflict and Media Preview (D123), and the 46
     that hold only a language and its grammar, with no code to run (D118). Markdown's and the prompt language's
-    are left out, so that a note has no colors. Language services are not run.
+    are left out, so that a note has no colors. Language services are not run, but for
+    one: JSON's, with the extension that tells it which JSON files are settings, key
+    bindings, and snippets (D142). It completes, formats, and marks mistakes in a
+    settings file, a `package.json`, and an agent's configuration, one file at a time.
     Only these ship ([what the package holds](what-the-package-holds.md)).
 11. BaseHalf installs nothing but the agent extensions, from the gallery by
     their exact identity. A file, a folder, or another extension from the

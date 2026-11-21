@@ -23,6 +23,12 @@ export const BASEHALF_LANGUAGE_EXTENSION_IDS: readonly string[] = [
 	'r', 'razor', 'restructuredtext', 'ruby', 'rust', 'scss', 'shaderlab', 'shellscript', 'sql', 'swift', 'typescript', 'vb', 'xml', 'yaml'
 ].map(name => `vscode.${name}`);
 
+/**
+ * The one language service that runs, JSON's (D142): the service itself, and the extension that tells
+ * it which JSON files are settings, key bindings, and snippets, and that these files may hold comments.
+ */
+export const BASEHALF_JSON_EXTENSION_IDS: readonly string[] = ['vscode.json-language-features', 'vscode.configuration-editing'];
+
 export const BASEHALF_GIT_EXTENSION_IDS: readonly string[] = ['vscode.git', 'vscode.git-base', 'vscode.merge-conflict'];
 
 /**
@@ -48,6 +54,7 @@ export const BASEHALF_ASSETS_EXTENSION_ID = 'pointa.basehalf';
 export const BASEHALF_PACKAGED_EXTENSION_IDS: ReadonlySet<string> = new Set([
 	...BASEHALF_THEME_EXTENSION_IDS,
 	...BASEHALF_LANGUAGE_EXTENSION_IDS,
+	...BASEHALF_JSON_EXTENSION_IDS,
 	...BASEHALF_GIT_EXTENSION_IDS,
 	...BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS,
 	...BASEHALF_GITHUB_EXTENSION_IDS,

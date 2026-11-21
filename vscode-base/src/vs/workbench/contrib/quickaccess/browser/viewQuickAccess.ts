@@ -22,6 +22,7 @@ import { KeybindingWeight } from '../../../../platform/keybinding/common/keybind
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
 import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
 import { IDebugService, REPL_VIEW_ID } from '../../debug/common/debug.js';
+import { isBaseHalfViewContainerOffered, isBaseHalfViewOffered } from '../../../basehalf/shell/common/basehalfOfferedViews.js';
 
 interface IViewQuickPickItem extends IPickerQuickAccessItem {
 	containerLabel: string;
@@ -103,7 +104,8 @@ export class ViewQuickAccessProvider extends PickerQuickAccessProvider<IViewQuic
 			const viewContainerModel = this.viewDescriptorService.getViewContainerModel(viewContainer);
 			const result: IViewQuickPickItem[] = [];
 			for (const view of viewContainerModel.allViewDescriptors) {
-				if (this.contextKeyService.contextMatchesRules(view.when)) {
+				// BaseHalf: a view it hides is not offered (D141).
+				if (this.contextKeyService.contextMatchesRules(view.when) && isBaseHalfViewOffered(viewContainer.id, view.id)) {
 					result.push({
 						label: view.name.value,
 						containerLabel: viewContainerModel.title,
@@ -214,6 +216,11 @@ export class ViewQuickAccessProvider extends PickerQuickAccessProvider<IViewQuic
 	}
 
 	private includeViewContainer(container: PaneCompositeDescriptor): boolean {
+		// BaseHalf: a view container it hides is not offered (D141).
+		if (!isBaseHalfViewContainerOffered(container.id)) {
+			return false;
+		}
+
 		const viewContainer = this.viewDescriptorService.getViewContainerById(container.id);
 		if (viewContainer?.hideIfEmpty) {
 			return this.viewDescriptorService.getViewContainerModel(viewContainer).activeViewDescriptors.length > 0;

@@ -40,6 +40,7 @@ import { CHAT_OPEN_ACTION_ID } from '../../chat/browser/actions/chatActions.js';
 import { ASK_QUICK_QUESTION_ACTION_ID } from '../../chat/browser/actions/chatQuickInputActions.js';
 import { IChatAgentService } from '../../chat/common/participants/chatAgents.js';
 import { ChatAgentLocation } from '../../chat/common/constants.js';
+import { isBaseHalfHiddenCommand } from '../../../basehalf/shell/common/basehalfHiddenCommands.js';
 
 export class CommandsQuickAccessProvider extends AbstractEditorCommandsQuickAccessProvider {
 
@@ -126,7 +127,8 @@ export class CommandsQuickAccessProvider extends AbstractEditorCommandsQuickAcce
 		}
 
 		return [
-			...this.getCodeEditorCommandPicks(),
+			// BaseHalf: the editor's own commands come from the editor, not from a menu; one BaseHalf does not have is left out here (D141).
+			...this.getCodeEditorCommandPicks().filter(pick => !isBaseHalfHiddenCommand(pick.commandId)),
 			...this.getGlobalCommandPicks()
 		].map(picks => ({
 			...picks,

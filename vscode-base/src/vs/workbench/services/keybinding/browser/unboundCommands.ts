@@ -7,6 +7,7 @@ import { CommandsRegistry, ICommandMetadata } from '../../../../platform/command
 import { isNonEmptyArray } from '../../../../base/common/arrays.js';
 import { EditorExtensionsRegistry } from '../../../../editor/browser/editorExtensions.js';
 import { MenuRegistry, MenuId, isIMenuItem } from '../../../../platform/actions/common/actions.js';
+import { isBaseHalfHiddenCommand } from '../../../basehalf/shell/common/basehalfHiddenCommands.js';
 
 export function getAllUnboundCommands(boundCommands: Map<string, boolean>): string[] {
 	const unboundCommands: string[] = [];
@@ -17,6 +18,9 @@ export function getAllUnboundCommands(boundCommands: Map<string, boolean>): stri
 		}
 		seenMap.set(id, true);
 		if (id[0] === '_' || id.indexOf('vscode.') === 0) { // private command
+			return;
+		}
+		if (isBaseHalfHiddenCommand(id)) { // BaseHalf: a command it does not have is not offered a key (D141)
 			return;
 		}
 		if (boundCommands.get(id) === true) {

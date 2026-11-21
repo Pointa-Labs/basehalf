@@ -8,11 +8,12 @@ import { VIEWLET_ID as FILES_VIEW_CONTAINER_ID, VIEW_ID as FILES_VIEW_ID } from 
 import { REPOSITORIES_VIEW_PANE_ID, HISTORY_VIEW_PANE_ID, VIEWLET_ID as SCM_VIEW_CONTAINER_ID, VIEW_PANE_ID as SCM_VIEW_ID } from '../../../contrib/scm/common/scm.js';
 import { DEBUG_PANEL_ID, REPL_VIEW_ID } from '../../../contrib/debug/common/debug.js';
 import { Markers } from '../../../contrib/markers/common/markers.js';
+import { OUTPUT_VIEW_ID } from '../../../services/output/common/output.js';
 import { Testing } from '../../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../../services/search/common/search.js';
-import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
+import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_JSON_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { BASEHALF_LOCKED_SETTINGS } from '../../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
@@ -26,7 +27,7 @@ export const BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY = 'workbench.statusba
 
 export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command' | 'statusbarEntry';
 export type BaseHalfSurfaceDisposition = 'primary' | 'remapped' | 'hidden';
-export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'remote' | 'chat';
+export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'output' | 'remote' | 'chat';
 
 export interface IBaseHalfWorkbenchSurface {
 	readonly id: string;
@@ -397,6 +398,13 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		reason: 'Problems view is hidden with its panel container while diagnostics are not a BaseHalf product surface.'
 	},
 	{
+		id: OUTPUT_VIEW_ID,
+		kind: 'viewContainer',
+		area: 'output',
+		source: 'src/vs/workbench/services/output/common/output.ts',
+		reason: 'Output is a view of the base\'s bottom panel, which the shell does not have; a channel of output opens as a document over the canvas (D141).'
+	},
+	{
 		id: 'workbench.view.remote',
 		kind: 'viewContainer',
 		area: 'remote',
@@ -426,7 +434,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'git' | 'media-preview' | 'github' | 'github-authentication' | 'codex' | 'claude';
+export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'json' | 'git' | 'media-preview' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -634,6 +642,14 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 		externalSlotIds: [],
 		source: 'extensions/<language>/package.json',
 		reason: 'A language and its grammar give a code card, an editor, and a diff the colors of the language. These extensions run no code.'
+	},
+	{
+		family: 'json',
+		builtInExtensionIds: BASEHALF_JSON_EXTENSION_IDS,
+		externalExtensionIds: [],
+		externalSlotIds: [],
+		source: 'extensions/json-language-features/package.json; extensions/configuration-editing/package.json',
+		reason: 'The one language service that runs (D142): a settings file, a package.json, and an agent\'s configuration are JSON, and the service completes, formats, and marks mistakes in one file at a time.'
 	},
 	{
 		family: 'git',
