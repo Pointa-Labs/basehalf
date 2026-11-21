@@ -279,8 +279,6 @@ base's voice service is not there.
    found`, and the command does not run.
 9. A command added to the base under the category of a hidden family, with
    an id that no pattern names, fails a unit test.
-13. View: Open View lists no Run and Debug, Extensions, Problems, Output
-    view, Terminal, Outline, or Timeline.
 10. With `chat.disableAIFeatures` on, the base starts no search for tool
     servers, at the start of a window and when `chat.mcp.access` changes.
 11. The product configuration has a `defaultChatAgent` whose five addresses
@@ -291,6 +289,8 @@ base's voice service is not there.
     it. The bottom panel does not open. The same holds for a channel picked
     in Output: Show Output Channels and for a log picked in Developer: Show
     Logs.
+13. View: Open View lists no Run and Debug, Extensions, Problems, Output
+    view, Terminal, Outline, or Timeline.
 
 ## Verification
 
