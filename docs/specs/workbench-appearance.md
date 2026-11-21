@@ -2,7 +2,8 @@
 
 Status: Active (2026-10-12)
 Related: [architecture invariants](../harness/architecture-invariants.md),
-roadmap tracks 8 and 9, public decisions D22 and D51,
+roadmap tracks 8 and 9, public decisions D22, D51, and D148,
+[light and dark](light-and-dark.md),
 [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md),
 [upstream record](../../vscode-base/BASEHALF_UPSTREAM.md)
 
@@ -42,8 +43,9 @@ In scope:
 
 Not in scope, and unchanged:
 
-- The palette of the canvas and of the Agent Area terminal. Both have a dark
-  palette of their own (see [Limits](#limits)).
+- The colors of what BaseHalf draws itself, the canvas and the Agent Area's
+  terminal among them, under a dark and under a light theme:
+  [light and dark](light-and-dark.md) owns them.
 - The behavior of Source Control, Files, and the Git extension. BaseHalf uses
   VS Code's implementation as it is, apart from
   [how Changes starts](../git-scm-github-gitgraph.md#the-changes-view)
@@ -56,9 +58,11 @@ Not in scope, and unchanged:
 ### Color theme
 
 1. The product color theme is VS Code's default dark theme, `Dark 2026`,
-   which is the default value of `workbench.colorTheme` in the base. BaseHalf
-   does not define a theme of its own. The theme files are those of VS Code
-   1.141; the terminal colors in them are BaseHalf's.
+   which is the default value of `workbench.colorTheme` in the base, and its
+   light theme is the base's default light one, `Light 2026`. BaseHalf does
+   not define a theme of its own. The theme files are those of VS Code
+   1.141, without the terminal colors: the terminal's palette is BaseHalf's,
+   by the kind of the theme ([light and dark](light-and-dark.md#the-terminal)).
 2. The built-in extension `vscode.theme-defaults` is admitted by the
    allowlist as the extension family `theme`, and only as the copy that ships
    inside the application.
@@ -67,14 +71,11 @@ Not in scope, and unchanged:
    has no theme.
 4. Other theme extensions stay blocked, the built-in ones included
    (`vscode.theme-monokai` and the like).
-5. `workbench.colorCustomizations` of the product profile still applies on
-   top of the theme. It carries the terminal palette only.
-6. A theme switch that the system makes by itself stays on a dark theme:
-   `workbench.preferredLightColorTheme` is `Dark 2026` and
-   `workbench.preferredHighContrastLightColorTheme` is `Default High
-   Contrast` in the product's configuration defaults. These are the themes
-   VS Code applies when it follows the system's light appearance or its
-   high-contrast setting.
+5. The product profile sets no `workbench.colorCustomizations`. A user's own
+   apply on top of the theme, to BaseHalf's colors as to the base's.
+6. A theme switch that the system makes by itself goes to the base's
+   defaults for each kind: BaseHalf sets none of the `workbench.preferred…`
+   themes ([light and dark](light-and-dark.md#following-the-system)).
 
 ### Card layout
 
@@ -125,25 +126,18 @@ Not in scope, and unchanged:
 
 - **Before the theme is loaded.** A window starts with the startup colors and
   switches to the theme when the extensions are registered, as in VS Code.
-  Both are the same dark scheme, so the switch is small.
+  Both are the same scheme of the same kind, so the switch is small.
 - **A window that has no saved layout yet.** The first window of a new
   profile has nothing to draw the cards from and shows a plain background
   until it has loaded.
 - **The theme extension is missing or fails to load.** The window keeps the
   startup colors, and status colors have no value. This is the former state
   of the product. The smoke step below fails in that case.
-- **A light theme is selected.** The default themes extension holds more
-  themes than `Dark 2026`, and `Preferences: Color Theme` in the command
-  palette lists them. See [Limits](#limits).
+- **A light theme is selected.** Everything BaseHalf draws has a light
+  palette ([light and dark](light-and-dark.md)).
 
 ## Limits
 
-- The canvas and the Agent Area terminal do not follow the color theme. With a
-  light theme selected, the sidebar, title bar, and status bar are light and
-  these two stay dark. A user reaches this only by choosing a light theme in
-  the command palette; no menu offers it, and the system cannot switch to it
-  (requirement 6). Making the canvas follow the theme is a design task of its
-  own and belongs to roadmap track 9.
 - These parts of VS Code 1.141's Modern UI are not in the product, because
   they need changes of the same release outside the layout:
   - translucent backgrounds of menus, the command palette, and other pop-ups

@@ -191,6 +191,19 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   smoke reads what a folder's card, a connection handle, and the page of a
   note do with the setting on and off
   (`reduced-motion-follows-the-setting`).
+- **A color of BaseHalf's is a color of the theme** (D148). Everything
+  BaseHalf draws takes its colors from the theme: a color of the base, or a
+  color BaseHalf registers in the base's color registry with a default for
+  each kind of theme (dark, light, high contrast dark, high contrast light),
+  all in `ui/common/basehalfColors.ts`. The window has each as
+  `--vscode-basehalf-<name>` and so has every page in a frame, and both get
+  the new values when the theme changes. The kind of the theme decides,
+  never its name: where a rule must differ beyond a color, the window styles
+  under the class of the kind on the workbench's root and a page under the
+  class the workbench keeps on its body. Nothing asks the system for its
+  appearance. No other source of BaseHalf's writes a literal color; a test
+  fails on one (`basehalfColors.test.ts` under `ui/test/node`).
+  [Light and dark](../specs/light-and-dark.md) holds the palette.
 - Card Detail fades in and out where it is, over the canvas area: no frame
   shows it empty, and no frame draws anything of it outside the canvas
   area. Once open it takes the keyboard, and Escape closes it wherever in it
