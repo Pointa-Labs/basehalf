@@ -189,7 +189,7 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 			'workbench.editor.doubleClickTabToToggleEditorGroupSizes', 'workbench.editor.splitSizing', 'workbench.editor.splitOnDragAndDrop',
 			'workbench.editor.openSideBySideDirection', 'workbench.editor.closeEmptyGroups', 'workbench.editor.limit.perEditorGroup', 'workbench.editor.autoLockGroups',
 			'workbench.editor.revealIfOpen', 'workbench.editor.enablePreviewFromQuickOpen', 'workbench.editor.markdownDefaultEditorInAgentsWindow',
-			'workbench.experimental.modernUIEditorTabStyle', 'window.density.editorTabHeight', 'window.doubleClickIconToClose', 'explorer.openEditors.*'
+			'window.density.editorTabHeight', 'window.doubleClickIconToClose', 'explorer.openEditors.*'
 		]
 	},
 	{

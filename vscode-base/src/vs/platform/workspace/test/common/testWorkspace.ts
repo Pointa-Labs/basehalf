@@ -5,7 +5,7 @@
 
 import { isLinux, isWindows } from '../../../../base/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
-import { toWorkspaceFolder, Workspace as BaseWorkspace, WorkspaceFolder } from '../../common/workspace.js';
+import { IWorkspace, toWorkspaceFolder, Workspace as BaseWorkspace, WorkspaceFolder } from '../../common/workspace.js';
 
 export class Workspace extends BaseWorkspace {
 	constructor(
@@ -23,4 +23,12 @@ export const TestWorkspace = testWorkspace(wsUri);
 
 export function testWorkspace(...resource: URI[]): Workspace {
 	return new Workspace('test-workspace', resource.map(toWorkspaceFolder));
+}
+
+/**
+ * Creates an `IWorkspace` fake, as release 1.147.0's helper of the same name does; this tree's `IWorkspace` has no
+ * uri of its own to derive.
+ */
+export function testIWorkspace(workspace: IWorkspace): IWorkspace {
+	return workspace;
 }
