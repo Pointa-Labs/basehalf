@@ -57,6 +57,7 @@ import './upkeep/browser/basehalfGitExclude.contribution.js';
 import './agentArea/browser/basehalfAgentSkill.contribution.js';
 import './agentArea/browser/basehalfAgentSelection.contribution.js';
 import './agentArea/browser/basehalfAgentArea.contribution.js';
+import './agentArea/browser/basehalfAgentAreaButton.contribution.js';
 import './agentArea/browser/basehalfAgentAreaTerminal.contribution.js';
 import './generation/browser/basehalfNodeCommandBridge.contribution.js';
 

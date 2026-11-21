@@ -3,13 +3,16 @@
 Status: Active (2026-10-14; a selected draft, 2026-10-22 for D63; text in a
 PDF or a book, 2026-10-25 for D81; the entry while the skill is not
 installed, 2026-10-26 for D83; a toggle's child, 2026-11-02 for D110; the
-Changes view, 2026-11-04 for D119)
+Changes view, 2026-11-04 for D119; the setting that shares the selection,
+2026-11-21 for D147)
 Decisions: [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
 [D81](../decisions.md),
 [D83](../decisions.md#d83--the-agent-skill-is-a-link-to-basehalfs-own-copy-which-follows-each-release-and-its-offer-stays-until-it-is-answered-new-2026-10-26),
-[D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02)
+[D110](../decisions.md#d110--what-rich-shows-of-a-note-is-what-its-file-keeps-and-rich-offers-nothing-the-file-cannot-keep-new-2026-11-02),
+[D147](../decisions.md#d147--a-folder-opens-with-the-arrangement-of-its-agent-area-and-every-session-starts-anew-new-2026-11-21)
 Related: [agent skill](agent-skill.md),
+[BaseHalf's Settings](settings-pages.md#agent-area),
 [PDFs and books](documents-and-books.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [canvas selection and arrangement](canvas-selection-and-arrangement.md),
@@ -124,9 +127,20 @@ the canvas or the note the user is in, and removes it from the others.
 - the [BaseHalf skill](agent-skill.md) is installed for at least one agent:
   its entry is a link to BaseHalf's own copy, which BaseHalf keeps at the
   text of its release ([agent skill](agent-skill.md#keeping-it-current));
+- the user shares the selection: `basehalf.agents.shareSelection`, Share
+  the Selection in BaseHalf's Settings, is on, as it is by default;
 - the window is a local desktop window;
 - the workspace folder is not marked with `.basehalf-no-workspace-setup`
   ([source-tree contract](spec-driven-development.md)).
+
+**Share the Selection.** The setting is what a user lets an agent read, and
+it is followed at once. Turned off, no record is written, the record of
+this window is removed, and so is one that a window which ended without
+closing left in a folder of this window; the entry of the status bar shows
+no selection, since agents can see none. Turned on, the record of what is
+selected now is written, and the entry shows it. The skill stays installed
+either way, with what it tells an agent about cards. The skill tells an
+agent what a missing record means ([agent skill](agent-skill.md#the-skill)).
 
 When one stops holding, BaseHalf removes the record. It also removes it when
 the window closes or the folder leaves the window, so a record that exists
@@ -215,9 +229,10 @@ are there already. It shows the icon and the text of the table above.
   offer. It is an entry of the status bar's own kind, with a command, as
   wide as its text, so that the pointer, the keyboard, and screen readers
   reach it as they reach any entry with a command.
-- The entry shows nothing in a marked folder, after a write failed, and
-  without the skill once the offer does not apply: after Don't Ask Again,
-  after Remove Agent Skill, or while the setting turns the offer off.
+- The entry shows nothing in a marked folder, after a write failed, while
+  Share the Selection is off, and without the skill once the offer does not
+  apply: after Don't Ask Again, after Remove Agent Skill, or while the
+  setting turns the offer off.
 
 ## The skill
 
@@ -236,6 +251,8 @@ The [agent skill](agent-skill.md#the-skill) describes the record:
 - Since D83 the installed skill is a link to BaseHalf's own copy, which
   takes each release's text without an offer, so a new version no longer
   takes the record away.
+- Version 16 (D147) says that the record is missing while the user does
+  not share the selection, and that an agent then asks what the user means.
 
 The [launch instruction](agent-launch-context.md) does not describe the
 record: without the skill there is no record.
@@ -309,8 +326,10 @@ last, or when the window gained focus since. When a write fails, it removes
 what it wrote before, so nothing is stored that the window does not show. It
 checks whether the skill is installed when it starts, when this window
 installs or removes the skill, and when the window gains focus; a check that
-ends after a later one is ignored. Each time it finds the skill missing, it
-removes records left in the folders of its window.
+ends after a later one is ignored. It reads `basehalf.agents.shareSelection`
+at each write and writes or removes at once when the setting changes. Each
+time it finds the skill missing or the setting off, it removes records left
+in the folders of its window.
 
 **Removing.** Before removing its record, the service reads the file and
 removes it only when it holds what this window wrote. Closing the window
@@ -379,6 +398,10 @@ entry of the offer are each added anew when the one replaces the other.
      another window wrote since;
    - a record left in the folder is removed once the skill is found missing;
      after a failed write no record is left and nothing is shown;
+   - with Share the Selection off no record is written though the skill is
+     linked, and nothing is shown; turning it off removes the record of the
+     window and one left in the folder, at once; turning it on writes the
+     record of what is selected, at once;
    - the entry: a selection with its own content and no command, the
      unanswered offer as the status bar's own entry with the command that
      shows it, nothing without either, and each kind added anew when it
@@ -424,6 +447,9 @@ entry of the offer are each added anew when the one replaces the other.
      differs from its focused style and is not transparent; a press on the
      page beside the document records the card again;
    - git shows nothing under `.bh/cache/`;
+   - with `basehalf.agents.shareSelection` turned off in the settings, the
+     record is gone and the entry shows nothing, with the skill still
+     linked; turned on again, the record and the entry are back;
    - **BaseHalf: Remove Agent Skill** removes the record, the links, and
      the copy, and the entry shows nothing, since a removal declines the
      offer.
@@ -431,7 +457,20 @@ entry of the offer are each added anew when the one replaces the other.
    automated: text selected in Card Detail's rich and source projections is
    recorded with its lines; the entry in the light and the dark theme; a
    second window on the same folder takes the record when it gains focus.
-8. Recorded once per release of the skill text: an agent that has the skill
+8. Recorded manual check of Share the Selection, in a real window whose
+   skill is linked in a home folder of its own: with a card selected, the
+   record and the entry are there; with the setting off both are gone and
+   the skill is still linked, and a card selected then is not recorded;
+   with it on again both are back for what is selected.
+
+   Recorded 2026-11-21 in a development build: the record read `selected:
+   "card"`, `path: "sub"`, and the entry "sub". Turned off, the record was
+   gone 313 ms after the settings file was written and the entry with it,
+   with the link in place; another card selected wrote nothing. Turned on,
+   the record of that card, `black-holes.md`, was there after 270 ms, and
+   the entry read "black-holes". BaseHalf's own copy held the text of
+   version 16.
+9. Recorded once per release of the skill text: an agent that has the skill
    and gets a request that names no file, with a record present, works on
    what the record names (see [recorded trials](#recorded-trials)).
 

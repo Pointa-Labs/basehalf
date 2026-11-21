@@ -16,8 +16,9 @@ export const BASEHALF_AGENT_SKILL_NAME = 'basehalf';
 export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** A whole number that grows whenever the skill text changes. BaseHalf's own
  * copy never takes the text of a lower version (agent skill, "Keeping it
- * current"). */
-export const BASEHALF_AGENT_SKILL_VERSION = '13';
+ * current"). Development builds wrote texts numbered 14 and 15 into that copy, so
+ * those numbers are not used again. */
+export const BASEHALF_AGENT_SKILL_VERSION = '16';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -26,18 +27,20 @@ export const BASEHALF_AGENT_SKILL_VERSION = '13';
  * the working folder: every session on the machine reads this text, and a
  * look above the working folder is one the agent has to ask the user for.
  */
-export const BASEHALF_AGENT_SKILL_DESCRIPTION = 'A folder that contains a hidden `.bh/` directory is a BaseHalf workspace. Before you read, write, move, or rename notes and files, check whether your working folder has `.bh/` (list hidden entries to see it), and use this skill if it does. Also use it when a Markdown note has an `upstream` list in its frontmatter, and when asked what a file is for, what it builds on (upstream), or what uses it (downstream). In such a workspace, also use it when a request does not say which file or text it is about, such as "this", "here", or "improve it": BaseHalf records what the user selected.';
+export const BASEHALF_AGENT_SKILL_DESCRIPTION = 'A folder that contains a hidden `.bh/` directory is a BaseHalf workspace. Before you read, write, move, or rename notes and files, check whether your working folder has `.bh/` (list hidden entries to see it), and use this skill if it does. Also use it when a Markdown note has an `upstream` list in its frontmatter, and when asked what a file is for, what it builds on (upstream), or what uses it (downstream). In such a workspace, also use it when a request does not say which file or text it is about, such as "this", "here", or "improve it": BaseHalf can record what the user selected.';
 
 /**
  * What the record of the user's selection is (the selection agents can see,
- * "The skill"). It says what the record means, not when to read it.
+ * "The skill"). It says what the record means, not when to read it, and it is
+ * true with the record missing: a user can stop sharing the selection and
+ * keep the skill.
  */
 export const BASEHALF_AGENT_SELECTION_SECTION: readonly string[] = [
 	'## What the user selected',
 	'',
 	'BaseHalf records what the user selected last in this workspace, in `.bh/cache/selection.yaml`. When the user\'s request does not say which file, card, or text it is about, such as "this", "here", or "improve it", it is about what they selected. When the request names something else, the request wins.',
 	'',
-	'The file exists only while BaseHalf is open with this workspace, and it changes whenever the user selects something else, also while you work. Read it again before you rely on it later. Never write it. Its fields:',
+	'The file exists only while BaseHalf is open with this workspace and the user shares the selection, which a setting of BaseHalf turns off. When there is no file, you cannot know what the user selected: ask what they mean. The file changes whenever the user selects something else, also while you work. Read it again before you rely on it later. Never write it. Its fields:',
 	'',
 	'- `selected` says what the user selected:',
 	'  - `folder`: nothing, on the canvas of the folder at `path`;',

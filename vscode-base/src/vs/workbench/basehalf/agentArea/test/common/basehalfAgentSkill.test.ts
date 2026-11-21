@@ -103,7 +103,7 @@ suite('BaseHalfAgentSkill', () => {
 			beforeTheFormats: body.indexOf(section) < body.indexOf(BASEHALF_AGENT_NOTE_FORMATS_SECTION.join('\n')),
 			missing: ['a tool of your own', 'the folder of the canvas the user works on', '`.bh/cache/selection.yaml`', '`folder`', 'ask the user'].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('image you make')
-		}, { version: '13', inBody: true, afterShared: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
+		}, { version: '16', inBody: true, afterShared: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('describes the record of what the user selected, and names the request it answers', () => {
@@ -112,19 +112,24 @@ suite('BaseHalfAgentSkill', () => {
 		assert.deepStrictEqual({
 			version: BASEHALF_AGENT_SKILL_VERSION,
 			// Only in a BaseHalf workspace, so that every other session is not sent looking.
-			namesTheRequest: BASEHALF_AGENT_SKILL_DESCRIPTION.includes('In such a workspace, also use it when a request does not say which file or text it is about'),
+			namesTheRequest: BASEHALF_AGENT_SKILL_DESCRIPTION.includes('In such a workspace, also use it when a request does not say which file or text it is about')
+				// It does not say that a record is there.
+				&& BASEHALF_AGENT_SKILL_DESCRIPTION.endsWith('BaseHalf can record what the user selected.'),
 			afterTheBadge: body.indexOf('## What the user selected') > body.indexOf('## A card\'s badge'),
 			missing: [
 				'`.bh/cache/selection.yaml`',
 				'it is about what they selected',
 				'the request wins',
 				'only while BaseHalf is open',
+				// True with the record missing: a user can stop sharing the selection and keep the skill.
+				'and the user shares the selection',
+				'When there is no file, you cannot know what the user selected: ask what they mean.',
 				'Never write it.',
 				'`selected`', '`folder`', '`card`', '`cards`', '`paths`', '`text`', '`path`', '`first_line`', '`last_line`', '`text_is_cut: true`',
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '13', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '16', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('tells agents where a note\'s files are, how to put one in and take one out, before the formats and outside the launch instruction (files in notes, rule 47)', () => {
@@ -145,7 +150,7 @@ suite('BaseHalfAgentSkill', () => {
 				'A selected file under `.bh/attachments/` belongs to the note whose links name its folder.',
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('attachments')
-		}, { version: '13', inBody: true, afterOwnImage: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
+		}, { version: '16', inBody: true, afterOwnImage: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('tells agents the formats a note keeps, each spelled as BaseHalf\'s writer writes it, last and outside the launch instruction (note formats, rule 86)', () => {
@@ -173,7 +178,7 @@ suite('BaseHalfAgentSkill', () => {
 			palette: ['gray `#9b9a97` and `#3f3e3b`', 'pink `#e36aaf` and `#62294b`'].filter(color => !section.includes(color)),
 			keepsOthers: section.includes('keeps any other spelling as written'),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('<u>')
-		}, { version: '13', last: true, notWritten: [], toggle: true, palette: [], keepsOthers: true, inLaunchInstruction: false });
+		}, { version: '16', last: true, notWritten: [], toggle: true, palette: [], keepsOthers: true, inLaunchInstruction: false });
 	});
 
 	test('links Claude Code\'s folder and the shared one to BaseHalf\'s own copy, and is offered until one of them is linked', () => {

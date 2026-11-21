@@ -9,7 +9,7 @@ import { BaseHalfAgentSessionKind, BaseHalfAgentSessionState, BaseHalfAgentLaunc
 import { DisposableStore, MutableDisposable, IDisposable, Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ITerminalInstance, ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { IBaseHalfAgentTabsState, BASEHALF_EMPTY_AGENT_TABS_STATE, mountedAgentPaneIds, activeAgentTab, agentTabForPane, focusAgentPane, removeAgentPane, splitActiveAgentPane, gotoAgentPaneDir, gotoAgentPaneRing, switchAgentTab, gotoAgentTab, lastAgentTab, resizeActiveAgentPane, equalizeAgentPanes, toggleAgentPaneZoom, closeActiveAgentPane, selectAgentTab, closeAgentTab, closeOtherAgentTabs, closeAgentTabsToRight, agentTabPaneIds, undoAgentClose, finalizeAgentClose, closingEntryPaneIds, moveAgentPane, createAgentTab } from '../common/basehalfAgentTabsModel.js';
+import { IBaseHalfAgentTabsState, BASEHALF_EMPTY_AGENT_TABS_STATE, mountedAgentPaneIds, liveAgentPaneIds, activeAgentTab, agentTabForPane, focusAgentPane, removeAgentPane, splitActiveAgentPane, gotoAgentPaneDir, gotoAgentPaneRing, switchAgentTab, gotoAgentTab, lastAgentTab, resizeActiveAgentPane, equalizeAgentPanes, toggleAgentPaneZoom, closeActiveAgentPane, selectAgentTab, closeAgentTab, closeOtherAgentTabs, closeAgentTabsToRight, agentTabPaneIds, undoAgentClose, finalizeAgentClose, closingEntryPaneIds, moveAgentPane, createAgentTab } from '../common/basehalfAgentTabsModel.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -34,7 +34,7 @@ import { mainWindow } from '../../../../base/browser/window.js';
 import { TerminalExitReason, TerminalSettingId } from '../../../../platform/terminal/common/terminal.js';
 import { stripIcons } from '../../../../base/common/iconLabels.js';
 import { IBaseHalfAgentSessionName, baseHalfAgentSessionName } from '../common/basehalfAgentSessionName.js';
-import { BASEHALF_AGENT_SESSION_NO_BELL, IBaseHalfAgentSessionBell, baseHalfAgentSessionBellLingered, baseHalfAgentSessionBellSeen } from '../common/basehalfAgentSessionBell.js';
+import { BASEHALF_AGENT_SESSION_NO_BELL, IBaseHalfAgentSessionBell, baseHalfAgentAreaButtonShowsBell, baseHalfAgentSessionBellAreaShown, baseHalfAgentSessionBellLingered, baseHalfAgentSessionBellSeen } from '../common/basehalfAgentSessionBell.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
 import { BaseHalfSplitDir, BaseHalfFocusDir, dropEdge } from '../common/basehalfAgentSplitTree.js';
 import { baseHalfSplitFolder } from '../common/basehalfAgentSplitFolder.js';
@@ -44,6 +44,9 @@ import { BaseHalfAgentAreaSurface } from './basehalfAgentAreaSurface.js';
 import { BaseHalfAgentAreaExtensionPanes } from './basehalfAgentAreaExtensionPanes.js';
 import { BaseHalfAgentAreaTerminalPanes } from './basehalfAgentAreaTerminalPanes.js';
 import { BaseHalfAgentAreaClosing } from './basehalfAgentAreaClosing.js';
+import { BaseHalfAgentAreaArrangement } from './basehalfAgentAreaArrangement.js';
+import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { IPathService } from '../../../services/path/common/pathService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -51,6 +54,8 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 // The Agent Area: its sessions in tabs and panes, each a terminal or an agent extension's view.
 
 export const BASEHALF_AGENT_AREA_FOCUSED_CONTEXT_KEY = new RawContextKey<boolean>('basehalfAgentAreaFocused', false);
+/** A session rang its bell while the Agent Area was hidden, and the area has not been shown since. */
+export const BASEHALF_AGENT_AREA_BELL_CONTEXT_KEY = new RawContextKey<boolean>('basehalfAgentAreaBell', false);
 
 const CLOSE_GRACE_MS = 6000;
 
@@ -72,6 +77,12 @@ export interface IBaseHalfRuntimeAgentSession {
 	/** The edges around the terminal's grid, which take the background of the nearest cell (D86). */
 	readonly edges: MutableDisposable<IDisposable>;
 	terminal?: ITerminalInstance;
+	/** The folder the session was given to start in; a terminal that runs says where it is now. */
+	folder?: string;
+	/** An extension created the terminal of the session: the arrangement a folder opens with leaves it out. */
+	createdByExtension?: boolean;
+	/** The keyboard was sent to the session while it waited to start: it takes it once it has started. */
+	takesKeyboard?: boolean;
 	/** The title that the program of the terminal set for it, while that program runs. */
 	programTitle?: string;
 	/** The bell of the session, as its tab shows it. */
@@ -103,6 +114,8 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	readonly terminalPanes = new BaseHalfAgentAreaTerminalPanes(this);
 	/** The question before sessions or the window close with something running */
 	readonly closing = new BaseHalfAgentAreaClosing(this);
+	/** The tabs and panes a folder opens with */
+	readonly arrangement = new BaseHalfAgentAreaArrangement(this);
 
 	declare readonly _serviceBrand: undefined;
 
@@ -128,6 +141,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	readonly empty: HTMLElement;
 	private readonly resizeObserver: ResizeObserver;
 	private readonly focusedContextKey: IContextKey<boolean>;
+	private readonly bellContextKey: IContextKey<boolean>;
 
 	tabsState: IBaseHalfAgentTabsState = BASEHALF_EMPTY_AGENT_TABS_STATE;
 	readonly runtime = new Map<string, IBaseHalfRuntimeAgentSession>();
@@ -159,18 +173,34 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		@IWorkspaceContextService public readonly workspaceContextService: IWorkspaceContextService,
 		@IDialogService public readonly dialogService: IDialogService,
 		@ICommandService public readonly commandService: ICommandService,
-		@ILifecycleService lifecycleService: ILifecycleService
+		@ILifecycleService lifecycleService: ILifecycleService,
+		@IStorageService public readonly storageService: IStorageService,
+		@IPathService public readonly pathService: IPathService
 	) {
 		super();
 
 		this._register(this.tabs);
-		// The name of an agent's session depends on this setting; the base draws a terminal's title again itself.
+		this._register(this.arrangement);
 		this._register(this.configurationService.onDidChangeConfiguration(event => {
+			// The name of an agent's session depends on this setting; the base draws a terminal's title again itself.
 			if (event.affectsConfiguration(TerminalSettingId.TabsAllowAgentCliTitle)) {
 				this.tabs.namesChanged();
 			}
+			if (event.affectsConfiguration(BaseHalfSetting.AgentRestoreSessions)) {
+				this.arrangement.settingChanged();
+			}
+			// With the bell off the base keeps none: the bells that show go at once.
+			if (event.affectsConfiguration(TerminalSettingId.EnableVisualBell) && this.configurationService.getValue(TerminalSettingId.EnableVisualBell) !== true) {
+				this.forgetBells();
+			}
 		}));
-		this._register(lifecycleService.onBeforeShutdown(event => event.veto(this.closing.vetoWindowClose(event.reason), 'veto.basehalfAgentArea')));
+		this._register(lifecycleService.onBeforeShutdown(event => {
+			// The arrangement of this moment is what the folder opens with: the terminals end as the window closes.
+			this.arrangement.windowCloses();
+			event.veto(this.closing.vetoWindowClose(event.reason), 'veto.basehalfAgentArea');
+		}));
+		this._register(lifecycleService.onShutdownVeto(() => this.arrangement.windowStays()));
+		this._register(lifecycleService.onWillShutdown(() => this.arrangement.windowCloses()));
 
 		const extensionAgentProvider = this.instantiationService.createInstance(BaseHalfViewContainerExtensionAgentProvider);
 		this._register(this.registerExtensionAgentProvider('extension-codex', extensionAgentProvider));
@@ -238,6 +268,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		this.resizeObserver.observe(this.body);
 
 		this.focusedContextKey = BASEHALF_AGENT_AREA_FOCUSED_CONTEXT_KEY.bindTo(contextKeyService);
+		this.bellContextKey = BASEHALF_AGENT_AREA_BELL_CONTEXT_KEY.bindTo(contextKeyService);
 		const focusTracker = this._register(trackFocus(this.root));
 		this._register(focusTracker.onDidFocus(() => {
 			this.focusedContextKey.set(true);
@@ -278,6 +309,19 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 			}
 			this.root.remove();
 		}));
+
+		// The folder opens with the tabs it was closed with, in the first frame that shows the Agent Area.
+		this.arrangement.restore();
+	}
+
+	/** Whether the window has opened with what it restores. */
+	get windowRestored(): boolean {
+		return this.layoutService.isRestored();
+	}
+
+	/** Whether the keyboard is in the Agent Area. */
+	get focused(): boolean {
+		return this.root.contains(this.root.ownerDocument.activeElement);
 	}
 
 	ownsTerminalProcess(persistentProcessId: number): boolean {
@@ -417,6 +461,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		const label = options.label ?? terminal.title ?? choice.label;
 		const shouldReveal = options.reveal !== false;
 		const session = this.createRuntimeSession(choice.kind, label, choice.description);
+		session.createdByExtension = true;
 		this.openPaneInNewTab(session.id, shouldReveal);
 		if (shouldReveal) {
 			await this.show(options.preserveFocus);
@@ -482,6 +527,12 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 			return;
 		}
 
+		if (session.state === 'waiting') {
+			// A session that waits to start starts when it comes into view.
+			await this.focusSession(session.id);
+			return;
+		}
+
 		if (session.terminal && !session.terminal.isDisposed) {
 			session.state = 'starting';
 			session.detail = 'Restarting';
@@ -516,6 +567,11 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		if (!await this.closing.confirmEnding([id], 'kill')) {
 			return;
 		}
+		this.endSession(id);
+	}
+
+	/** Ends a session at once; whether to ask was settled before. */
+	private endSession(id: string): void {
 		const session = this.runtime.get(id);
 		if (!session || session.closing) {
 			return;
@@ -543,6 +599,26 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 			return false;
 		}
 		await this.killSession(session.id);
+		return true;
+	}
+
+	showsTerminal(terminal: unknown): boolean {
+		return [...this.runtime.values()].some(session => session.terminal === terminal);
+	}
+
+	/**
+	 * Kill All Terminals: every terminal session ends, also one whose tab was closed and that has not ended
+	 * yet, after one question for all of them. A session that an agent's extension draws is no terminal.
+	 */
+	async killAllTerminalSessions(): Promise<boolean> {
+		const terminalSessions = () => [...this.runtime.values()].filter(session => !session.closing && !!session.terminal && !session.terminal.isDisposed);
+		if (!await this.closing.confirmEnding(terminalSessions().map(session => session.id), 'kill')) {
+			return false;
+		}
+		// Read again after the answer: a session may have ended meanwhile.
+		for (const session of terminalSessions()) {
+			this.endSession(session.id);
+		}
 		return true;
 	}
 
@@ -751,10 +827,10 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		this.disposeRuntimeSession(session, true);
 	}
 
-	createRuntimeSession(kind: BaseHalfAgentSessionKind, label: string, description: string): IBaseHalfRuntimeAgentSession {
+	createRuntimeSession(kind: BaseHalfAgentSessionKind, label: string, description: string, id: string = this.mintId('agent')): IBaseHalfRuntimeAgentSession {
 		const host = append(this.body, $('.basehalf-agent-area-session'));
 		const session: IBaseHalfRuntimeAgentSession = {
-			id: this.mintId('agent'),
+			id,
 			kind,
 			label,
 			description,
@@ -928,6 +1004,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	}
 
 	render(): void {
+		this.arrangement.startSessionsInView();
 		this.seeBells();
 		this.renderActiveSurfaceKind();
 		this.tabs.renderTabStrip();
@@ -935,6 +1012,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		this.surface.renderDividers();
 		this.surface.renderToasts();
 		this.surface.layoutVisiblePanes();
+		this.arrangement.changed();
 		this._onDidChangeSessions.fire(this.sessions);
 	}
 
@@ -948,7 +1026,12 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	 * bell, as if it rang at that moment.
 	 */
 	private seeBells(): void {
+		const areaShown = this.visible;
 		for (const session of this.runtime.values()) {
+			if (areaShown) {
+				// The tabs show the bells from now, not the title bar's button.
+				session.bell = baseHalfAgentSessionBellAreaShown(session.bell);
+			}
 			if (session.bell.unseen && this.sessionInView(session)) {
 				session.bell = baseHalfAgentSessionBellSeen(session.bell);
 				session.bellLingers.value = disposableTimeout(() => {
@@ -957,6 +1040,27 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 				}, Math.max(0, Number(this.configurationService.getValue(TerminalSettingId.BellDuration)) || 0));
 			}
 		}
+		this.showButtonBell();
+	}
+
+	/** A session's bell rang or ended: its tab and the title bar's button show it. */
+	bellsChanged(): void {
+		this.tabs.marksChanged();
+		this.showButtonBell();
+	}
+
+	/** The title bar's button shows a dot while a session that has a tab rang with the Agent Area hidden. */
+	private showButtonBell(): void {
+		const bells = liveAgentPaneIds(this.tabsState).map(paneId => this.runtime.get(paneId)?.bell ?? BASEHALF_AGENT_SESSION_NO_BELL);
+		this.bellContextKey.set(baseHalfAgentAreaButtonShowsBell(bells));
+	}
+
+	private forgetBells(): void {
+		for (const session of this.runtime.values()) {
+			session.bell = BASEHALF_AGENT_SESSION_NO_BELL;
+			session.bellLingers.clear();
+		}
+		this.bellsChanged();
 	}
 
 	private renderActiveSurfaceKind(): void {
@@ -1023,6 +1127,8 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 
 	stateLabel(state: BaseHalfAgentSessionState): string {
 		switch (state) {
+			case 'waiting':
+				return '';
 			case 'starting':
 				return 'Starting';
 			case 'exited':
@@ -1050,7 +1156,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		}
 	}
 
-	private mintId(prefix: string): string {
+	mintId(prefix: string): string {
 		return `basehalf-${prefix}-${BaseHalfAgentAreaService.nextId++}`;
 	}
 }

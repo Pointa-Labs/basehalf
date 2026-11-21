@@ -10,7 +10,7 @@ import path from 'path';
 import process from 'process';
 import { app, product, runRoot } from '../../context.mts';
 import { waitForAgentAreaTerminalPrompt } from '../../lib/agentArea.mts';
-import { runCommand } from '../../lib/quickInput.mts';
+import { runCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 import { waitForReading } from '../../lib/steps.mts';
 
 export async function assertAgentAreaChoices(page) {
@@ -842,4 +842,102 @@ async function assertAgentAreaGhosttySplitVisuals(page) {
 		const handle = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .basehalf-agent-pane-handle');
 		return handle instanceof HTMLElement && Number.parseFloat(getComputedStyle(handle).opacity) > 0;
 	}, null, { timeout: 15_000 });
+}
+
+/**
+ * A folder opens with the tabs and panes its Agent Area was closed with, and a session starts when it is first
+ * in view (Agent Area terminal, "The sessions a folder opens with", criterion 35). The window is reloaded, since
+ * the smoke's profile and fixture start from nothing; and Kill All Terminals ends every session with no
+ * question at the default of the setting.
+ */
+export async function assertAgentAreaReopensSessions(page) {
+	const tabs = () => page.locator('.basehalf-agent-tab').evaluateAll(elements => elements.map(element => ({
+		name: element.querySelector('.basehalf-agent-tab-label')?.textContent ?? '',
+		state: element.querySelector('.basehalf-agent-tab-state')?.textContent ?? '',
+		active: element.classList.contains('active')
+	})));
+	const newTerminal = async tabsThen => {
+		await runCommand(page, 'Terminal: Create New Terminal');
+		await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
+		await waitForReading(tabs, shown => shown.length === tabsThen && shown[tabsThen - 1].active, `a new terminal as tab ${tabsThen}`);
+		await page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first().waitFor({ state: 'visible', timeout: 20_000 });
+		await waitForAgentAreaTerminalPrompt(page);
+	};
+	const killAll = async () => {
+		await runCommand(page, 'Terminal: Kill All Terminals');
+		await page.waitForTimeout(500);
+		if (await page.locator('.monaco-dialog-box').count()) {
+			throw new Error('Kill All Terminals asked a question at the default of terminal.integrated.confirmOnKill.');
+		}
+	};
+
+	// Earlier steps leave sessions, in an Agent Area that is hidden: the arrangement of this step starts from none.
+	await killAll();
+
+	// A tab named by the user, a tab of two panes in front, and a tab that is closed again.
+	await newTerminal(1);
+	// The pointer goes to the tab first: a hover that an earlier step left open over the strip closes.
+	const firstTab = await page.locator('.basehalf-agent-tab').first().boundingBox();
+	await page.mouse.move(firstTab.x + firstTab.width / 2, firstTab.y + firstTab.height / 2);
+	await page.waitForTimeout(400);
+	await page.locator('.basehalf-agent-tab').first().dblclick();
+	const rename = page.locator('.basehalf-agent-tab-rename');
+	await rename.waitFor({ state: 'visible', timeout: 10_000 });
+	await rename.fill('Kept');
+	await rename.press('Enter');
+	await waitForReading(tabs, shown => shown[0]?.name === 'Kept', 'the tab to take the name it was given');
+	await newTerminal(2);
+	await runCommand(page, 'Split Agent Pane Right');
+	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 2, null, { timeout: 20_000 });
+	await newTerminal(3);
+	await page.locator('.basehalf-agent-tab.active .basehalf-agent-tab-close').click();
+	await dismissAgentToasts(page);
+	await waitForReading(tabs, shown => shown.length === 2 && shown[1].active, 'two tabs with the second in front after the third was closed');
+
+	await reloadWindow(page);
+
+	// The tabs are there under their names, with the one in front as it was and its two panes.
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 30_000 });
+	const restored = await waitForReading(tabs, shown => shown.length > 0, 'the Agent Area to open with its tabs after the reload', 30_000);
+	if (restored.length !== 2 || restored[0].name !== 'Kept' || restored[0].active || !restored[1].active || restored.some(tab => tab.state)) {
+		throw new Error(`After a reload the Agent Area must have the two tabs it had, the second in front, with no word of a state: ${JSON.stringify(restored)}`);
+	}
+	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active .xterm').length === 2, null, { timeout: 30_000 });
+	await waitForAgentAreaTerminalPrompt(page);
+	// The session of the tab that is not in front has not started.
+	const startedBehind = await page.locator('.basehalf-agent-area-session:not(.active) .xterm').count();
+	if (startedBehind !== 0 || await page.locator('.basehalf-agent-area-session').count() !== 3) {
+		throw new Error(`After a reload only the sessions of the tab in front may start: ${JSON.stringify({ startedBehind, sessions: await page.locator('.basehalf-agent-area-session').count() })}`);
+	}
+	// It starts when its tab is chosen.
+	await page.locator('.basehalf-agent-tab').first().click();
+	await page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first().waitFor({ state: 'visible', timeout: 20_000 });
+	await waitForAgentAreaTerminalPrompt(page);
+	if (await page.locator('.basehalf-agent-area-session .xterm').count() !== 3) {
+		throw new Error('The session of a tab that was chosen must start, and the others stay.');
+	}
+
+	await killAll();
+	await waitForReading(tabs, shown => shown.length === 0, 'no tab after Kill All Terminals');
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+/**
+ * Reloads the window with Developer: Reload Window and waits for the workbench and the canvas to show again.
+ * The command is run without waiting for Quick Input to close, which the reload takes with it.
+ */
+async function reloadWindow(page) {
+	await page.evaluate(() => {
+		globalThis.__basehalfSmokeBeforeReload = true;
+	});
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+	const quickInput = visibleQuickInput(page);
+	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
+	await quickInput.fill('>Developer: Reload Window');
+	const row = page.locator('.quick-input-list .monaco-list-row[role="option"]').first();
+	await waitForReading(async () => ((await row.getAttribute('aria-label')) ?? (await row.textContent()) ?? '').replace(/\s+/g, ' ').trim(), text => text.startsWith('Developer: Reload Window'), 'Quick Input to offer Developer: Reload Window');
+	await page.keyboard.press('Enter');
+	await waitForReading(() => page.evaluate(() => !globalThis.__basehalfSmokeBeforeReload && document.querySelector('.basehalf-canvas-workbench') !== null).catch(() => false), reloaded => reloaded, 'the window to reload', 60_000);
+	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 }

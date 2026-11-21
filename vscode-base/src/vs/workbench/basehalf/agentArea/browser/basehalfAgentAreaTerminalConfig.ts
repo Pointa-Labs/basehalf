@@ -43,10 +43,14 @@ const BASEHALF_SYNCHRONIZED_OUTPUT_ENV: ITerminalEnvironment = {
  * The Agent Area gives the terminal no name: a terminal with a name keeps it as its title, and one without is
  * named by `terminal.integrated.tabs.title` and hears the titles its program sets
  * (docs/specs/agent-area-terminal.md, The name of a session). A name that the creator gave stays.
+ *
+ * Every session starts as one the base does not keep (`isTransient`), with and without the command bridge: a
+ * folder opens with the arrangement of its sessions, and each process starts anew
+ * (docs/specs/agent-area-terminal.md, The sessions a folder opens with).
  */
 export function baseHalfCreateAgentAreaTerminalConfig(config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean, os: OperatingSystem = OS): ICreateTerminalOptions['config'] {
 	const baseHalfAgentAreaNodeCommandBridge = usesNodeRunBridge ? true : undefined;
-	const isTransient = baseHalfAgentAreaNodeCommandBridge ? true : undefined;
+	const isTransient = true;
 	if (!config) {
 		return { env: createAgentAreaTerminalEnv(os), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
 	}
@@ -76,7 +80,7 @@ export function baseHalfCreateAgentAreaTerminalConfig(config: ICreateTerminalOpt
 		env: createAgentAreaTerminalEnv(os, shellLaunchConfig.env),
 		hideFromUser: true,
 		baseHalfAgentAreaNodeCommandBridge,
-		isTransient: isTransient ?? shellLaunchConfig.isTransient
+		isTransient
 	};
 }
 

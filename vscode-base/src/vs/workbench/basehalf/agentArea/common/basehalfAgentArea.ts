@@ -83,7 +83,11 @@ export const BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS: readonly string[] = [
 ];
 
 export type BaseHalfAgentSessionKind = 'terminal' | 'tui-codex' | 'tui-claude' | 'extension-codex' | 'extension-claude';
-export type BaseHalfAgentSessionState = 'starting' | 'ready' | 'exited' | 'unavailable' | 'failed' | 'disposed';
+/**
+ * `waiting`: a session of the arrangement a folder opened with, which starts when it is first in view
+ * (docs/specs/agent-area-terminal.md, The sessions a folder opens with).
+ */
+export type BaseHalfAgentSessionState = 'waiting' | 'starting' | 'ready' | 'exited' | 'unavailable' | 'failed' | 'disposed';
 
 export interface IBaseHalfAgentSessionChoice {
 	readonly kind: BaseHalfAgentSessionKind;
@@ -385,6 +389,13 @@ export interface IBaseHalfAgentAreaService {
 	killSession(id: string): Promise<void>;
 	/** Kills the session that shows the given terminal, asking first as closing does. Resolves to false when no session shows it. */
 	killTerminalSession(terminal: unknown): Promise<boolean>;
+	/**
+	 * Kills every terminal session, asking once for all of them as closing does. Resolves to false when the
+	 * user kept them.
+	 */
+	killAllTerminalSessions(): Promise<boolean>;
+	/** Whether a session shows the given terminal. */
+	showsTerminal(terminal: unknown): boolean;
 	closeSession(id: string): Promise<void>;
 
 	// Tab strip + pane splits (Ghostty-style layout ported from the original dock)

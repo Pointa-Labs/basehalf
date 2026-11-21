@@ -1,12 +1,15 @@
-# Agent Area terminal identity, wheel input, scrollbar, the edges of its grid, and the settings it follows
+# Agent Area terminal identity, wheel input, scrollbar, the edges of its grid, the settings it follows, and the sessions a folder opens with
 
-Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13; the grid's width and the edges around it added 2026-10-27; the settings of a terminal that a session follows added 2026-11-21)
+Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13; the grid's width and the edges around it added 2026-10-27; the settings of a terminal that a session follows added 2026-11-21; the sessions a folder opens with, the First Session, the bell on the title bar's button, and Kill All Terminals added 2026-11-21)
 Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09),
 [D86](../decisions.md#d86--a-program-in-an-agent-area-terminal-reaches-the-edges-of-its-pane-new-2026-10-27),
-[D140](../decisions.md#d140--a-session-of-the-agent-area-follows-the-settings-of-a-terminal-new-2026-11-21)
+[D140](../decisions.md#d140--a-session-of-the-agent-area-follows-the-settings-of-a-terminal-new-2026-11-21),
+[D147](../decisions.md#d147--a-folder-opens-with-the-arrangement-of-its-agent-area-and-every-session-starts-anew-new-2026-11-21)
 Related: [D21](../decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30),
 [agent launch context](agent-launch-context.md),
-[the settings BaseHalf offers](settings-catalog.md)
+[the settings BaseHalf offers](settings-catalog.md),
+[BaseHalf's Settings](settings-pages.md#agent-area),
+[layout controls](layout-controls.md)
 
 ## Problem
 
@@ -123,6 +126,24 @@ went with them. Run in the real window that day:
 - Open in Integrated Terminal on a folder in Files showed nothing: it
   created a terminal of the base's panel, which BaseHalf hides.
 
+The Agent Area kept nothing of its sessions. Read in the code and run in the
+real window on 2026-11-21:
+
+- Its tabs and the panes of each tab were plain data in memory, and nothing
+  stored them. After every start, after Reload Window, and after a folder was
+  opened again, the Agent Area was as in a new folder: hidden, and with no
+  session once it was shown. A user who works with three agents side by side
+  in a folder arranged them again at every start.
+- A bell rung while the Agent Area was hidden showed nowhere until the area
+  was shown: only the tab drew it.
+- Kill All Terminals, with `terminal.integrated.confirmOnKill` as `always`
+  and `sleep 600` and `sleep 601` in two Terminal sessions, asked the base's
+  question, "Do you want to terminate the active terminal session?", once
+  for each terminal. An agent's session, which has no child process, was
+  ended with no question.
+- With another folder opened in the window while `sleep 600` ran, the
+  question's button said Close Window, and the window stayed.
+
 ## Goals
 
 - Agent Area terminals behave like a native terminal at the input and identity
@@ -140,6 +161,9 @@ went with them. Run in the real window that day:
   every size of the pane, and a shell looks as it did.
 - A setting of a terminal that BaseHalf lists does in a session of the Agent
   Area what it says.
+- A folder opens with the tabs and panes its Agent Area was closed with, and
+  a start costs the processes of one tab, however many tabs there are.
+- A bell reaches a user who has hidden the Agent Area.
 
 ## Non-goals
 
@@ -154,13 +178,17 @@ went with them. Run in the real window that day:
   know that position.
 - Making IDE companion integrations of TUI agents, such as Claude Code's or
   Gemini CLI's VS Code extension auto-connect, work under the new identity.
-- Two groups of the base's settings of a terminal, which stay pending in
-  [the settings BaseHalf offers](settings-catalog.md): sessions
-  that are there again after the window reloads
-  (`terminal.integrated.enablePersistentSessions`, `persistentSession*`),
-  and the suggestions of a shell (`terminal.integrated.suggest.*`).
-- A mark outside the Agent Area for a bell that rings while the Agent Area
-  is hidden.
+- Keeping the process of a session, or its text, through a reload or a
+  restart, as the base's persistent sessions do
+  (`terminal.integrated.enablePersistentSessions`, `persistentSession*`).
+  BaseHalf brings back the arrangement and starts every process anew (D147).
+- Telling an agent to continue what it did before. An agent's session starts
+  the agent's program as a new tab does.
+- The suggestions of a shell (`terminal.integrated.suggest.*`). The Agent
+  Area's terminal is for agents and for a plain shell: an agent's session has
+  no shell to suggest for, the extension that provides the suggestions does
+  not ship, and completion is the shell's own (D147).
+- A count of bells on the title bar's button, or a mark that moves.
 - The entries that extensions add to the base's menu of a terminal.
 
 ## Terminology
@@ -182,6 +210,9 @@ went with them. Run in the real window that day:
   terminal: a Terminal session, an agent's session that runs the agent's
   program in a terminal (Codex, Claude Code), and a terminal that an
   extension created. A session that an agent's extension draws is not one.
+- **Arrangement**: the tabs of the Agent Area in their order, and for each
+  tab its name, its panes with their split and sizes, and the session of
+  each pane by its kind and its folder.
 - **Background of a cell**: the color the terminal draws behind the cell: its
   palette entry or its RGB color, its foreground when the cell is drawn
   inverse, and the terminal's default background otherwise. The default
@@ -447,6 +478,13 @@ cursor, and the scrollback, works as in the base.
      the session ends without another question.
    - While a question about a session is open, another request to close that
      session does nothing.
+   - **Kill All Terminals** ends every terminal session at once, also one
+     whose tab was closed and whose six seconds have not ended. It asks
+     once for all of them, by rule 1: the question names the session in
+     which something runs, or says how many there are, and its button says
+     Kill Session or Kill Sessions. Cancel ends none. A session that an
+     agent's extension draws is no terminal and stays. The base asks no
+     question of its own.
 3. **Closing the window** follows `terminal.integrated.confirmOnExit`:
    closing the window, quitting, reloading the window, and opening another
    folder in it. `never` asks nothing. `always` asks when the Agent Area has
@@ -454,6 +492,12 @@ cursor, and the scrollback, works as in the base.
    A session whose tab was closed and whose six seconds have not ended
    counts. There is one question for the window, and Cancel keeps the window
    and every session. The base asks no question of its own about terminals.
+   The question's button names what the answer does: Close Window, Quit,
+   Reload Window, and, when another folder is opened in the window or its
+   folder is closed, Close Folder: the folder leaves the window, and its
+   sessions end with it. A session that waits to start
+   ([The sessions a folder opens with](#the-sessions-a-folder-opens-with))
+   has no terminal and no program, and no question counts it.
 4. **Defaults.** BaseHalf's default for `terminal.integrated.confirmOnExit`
    is `hasChildProcesses`: a window that closes takes an agent's run with
    it, nothing brings it back, and the key that closes a pane closes the
@@ -562,6 +606,19 @@ who shows the Agent Area again after hiding it.
    nothing.
 6. A bell changes only its mark on the tab: the strip is not drawn again
    ([The name of a session](#the-name-of-a-session), rule 6).
+7. **While the Agent Area is hidden**, a bell shows on the button of the
+   title bar that shows the Agent Area
+   ([layout controls](layout-controls.md)): a dot in the warning color of
+   the theme, the color of the bell on a tab, at the button's upper right.
+   It shows from the ring until the Agent Area is shown, and then the tab
+   shows the bell by rule 2. The dot has no count and does not move, and
+   the button keeps its place and its size. A session that ends while the
+   Agent Area is hidden takes its bell with it: the dot shows while a
+   session that rang is there. The button's name says that a session rang,
+   for a screen reader.
+8. With `terminal.integrated.enableVisualBell` off the base keeps no bell,
+   so no tab and no button shows one. When the setting is turned off, the
+   bells that show go at once, on the tabs and on the button.
 
 #### Open in Integrated Terminal
 
@@ -597,6 +654,118 @@ Integrated Terminal.
    the workspace folder, as every new session does.
 4. The folder is read before the pane appears, and the split is the same
    split otherwise: the same pane, tab, and keyboard.
+
+#### The First Session
+
+`basehalf.agent.defaultSession`, First Session in BaseHalf's Settings, says
+which session a new tab starts with: Codex, Claude Code, the panel of the
+Codex or of the Claude Code extension, or Terminal. BaseHalf's default is
+Codex.
+
+1. **A new tab starts with it**: the key of a new tab while the keyboard is
+   in the Agent Area, a double click on the strip beside its tabs, New
+   Agent Tab of a tab's menu, and the commands Toggle Agent Area and Toggle
+   Agent Area Terminal when they show an Agent Area that has no session.
+2. The button with the plus sign at the end of the strip lists the sessions,
+   and the one chosen starts. A split starts a Terminal session
+   ([The folder of a split](#the-folder-of-a-split)).
+3. The button of the title bar shows the Agent Area as it is. With no
+   session it shows the sessions to choose from, and starts none.
+4. A change of the setting holds for the next new tab. No session that is
+   open changes.
+
+#### The sessions a folder opens with
+
+`basehalf.agent.restoreSessions`, Reopen Sessions in BaseHalf's Settings,
+is on by default. With it on, a folder opens with the arrangement its Agent
+Area had when the folder was last open, as a terminal of the system opens
+with the windows it was closed with.
+
+1. **What comes back** is the arrangement: the tabs in their order; the
+   name a user gave a tab; the panes of each tab with their split and the
+   sizes the user gave them; the kind of each session, which is Terminal,
+   Codex, Claude Code, or the panel of an agent's extension; the folder
+   each terminal session was in; which tab was in front, and in each tab
+   which pane. Whether the Agent Area is shown is kept by the window, as
+   before.
+2. **Each session is a new process.** A terminal session starts its shell
+   or the agent's program anew, as a new tab does, in the folder it was in.
+   No text of the earlier process comes back. BaseHalf tells no agent to
+   continue anything: what an agent offers for that is the agent's own.
+3. **What does not come back**:
+   - a session the user closed. It leaves the arrangement when its tab or
+     pane closes, and is in it again after Undo;
+   - a session whose program has ended or could not start. What it showed
+     was the text of that program, which does not come back, and a program
+     the user ended is not started against them. A session that is started
+     again with Restart Pane is in the arrangement again. A tab all of
+     whose sessions are such does not come back, and a pane beside one that
+     is left out takes its room;
+   - a terminal that an extension created. The extension starts it again
+     when it wants it;
+   - a pane's zoom, the dot of unseen output, and a bell.
+4. **Sessions start when they are first in view.** A session is in view
+   while the Agent Area is shown and its tab is in front. At a start, the
+   sessions of the tab in front start, each pane of it. A tab that is not
+   in front shows its name, and its sessions start when the tab is chosen.
+   While the Agent Area is hidden, no session starts; they start when it is
+   shown. A folder closed with eight tabs starts the processes of one.
+5. **A session that waits to start** has a tab like any other. The tab
+   shows the name the user gave it, or the name of the session's kind:
+   Terminal, Codex, Claude Code. It shows no word of a state, no bell, and
+   no dot. Its tab can be chosen, moved, renamed, and closed. Closing it
+   asks nothing, since nothing runs in it.
+6. **Nothing flashes at a start.** The strip has its tabs in the first
+   frame that shows the Agent Area, with the tab in front as it was. No
+   session of the First Session appears and goes, the list of sessions to
+   choose from does not show, and no pane shows a state of failure or the
+   word of a state while its session waits. A session that starts shows no
+   word either until its terminal is there: a shell is there within a few
+   frames, and a word that shows for that long is a flash. A pane whose
+   terminal starts shows the terminal's background until the terminal
+   draws. A tab without a name of the user's then takes the name of what
+   runs in it, as a new session's tab does.
+7. **The keyboard.** A window that opens leaves the keyboard where it is: a
+   session that starts with the window does not take it, also where the base
+   sends the keyboard to the Agent Area by itself. A session that starts
+   because its tab was chosen takes the keyboard once its terminal is there,
+   if it is still the session in front. Choosing a tab gives the keyboard to
+   the pane in front of that tab, whether its session starts or runs; the
+   field that renames a tab keeps the keyboard while it is open.
+8. **No session starts in a window that closes.** As the terminals of a
+   closing window end, the tabs behind them come in front; their sessions
+   stay as they are.
+9. **A folder that is gone.** A terminal session whose folder no longer
+   exists, or is no longer a folder, starts in the workspace folder, as a
+   new session does. A session that was in the workspace folder is kept as
+   being there, not by its path.
+10. **Where it is kept.** The arrangement is kept with the window's own
+    state of the folder (the workspace's storage), on this machine, not in
+    the folder and not in `.bh/`. Each folder has its own. It is written
+    when the arrangement changes, within a fraction of a second: a tab or a
+    pane opens, closes, moves, or is renamed, a divider moves, another tab
+    or pane comes in front, a shell changes its folder, a program ends. So
+    it holds after BaseHalf ended without closing, as in a crash. It is not
+    written while the window closes: the sessions that end with the window
+    stay in it.
+11. **It holds through** Quit and a new start, Reload Window, closing the
+    window and opening the folder again, and another folder opened in the
+    same window, which has its own arrangement. The question before a
+    window closes with something running is as it was
+    ([Closing with something running](#closing-with-something-running)).
+    Whether the Agent Area is shown is the base's to keep, and the base
+    writes it when a window closes: after BaseHalf ended without closing,
+    the Agent Area is shown or hidden as at the close before.
+12. **Off.** With the setting off, the Agent Area opens with no session, as
+    before, and nothing is kept: turning the setting off removes what was
+    kept for the folder. Turning it on keeps the arrangement as it stands.
+    The sessions that are open do not change either way.
+13. **Every session of the Agent Area is started as one the base does not
+    keep.** The base keeps no process of a session through a reload, on
+    this machine or on a remote one, and
+    `terminal.integrated.enablePersistentSessions`,
+    `persistentSessionReviveProcess`, and `persistentSessionScrollback`
+    change nothing in BaseHalf.
 
 #### The accessible view
 
@@ -652,6 +821,21 @@ Accessibility Help.
   its statuses. If a base update renames them, the code no longer compiles.
 - A terminal whose program never sets a title, and an agent whose program
   the base does not know, show the name they have without it.
+- An arrangement that cannot be read, because what is kept is not what
+  BaseHalf writes, is left out: the Agent Area opens with no session. A
+  kind of session that this BaseHalf does not know is left out like a
+  session that ended.
+- A session that cannot start when it comes into view shows what a new
+  session shows then: the state of failure in its pane, with Restart
+  Session. It leaves the arrangement by rule 3 of
+  [The sessions a folder opens with](#the-sessions-a-folder-opens-with).
+- When the terminals of a window all end at once without the window
+  closing, as when the process that hosts them is lost, their sessions
+  leave the arrangement as ended sessions do.
+- The title bar's button draws the dot through the base's registry of
+  title bar items. If a base update no longer asks the registry for that
+  button, the button shows no dot and works as before; the tab still shows
+  the bell once the Agent Area is shown.
 
 ## Acceptance criteria
 
@@ -966,4 +1150,159 @@ Accessibility Help.
     `cd sub`: Split Pane Right at the default opens a session whose `pwd`
     is `sub`; with `workspaceRoot`, the workspace folder; with `initial`,
     the folder the first session started in.
+27. A unit test of the arrangement, from plain data, shows:
+    - what is kept of two tabs, one with three panes in two splits: the
+      order of the tabs, the name of a tab, each split with its direction
+      and its size, each session's kind and folder, the tab in front, and
+      in each tab the pane in front;
+    - what is left out: a tab and a pane that were closed and can still be
+      brought back with Undo, a session whose program ended or could not
+      start, a terminal that an extension created, and a pane's zoom; a tab
+      of only such sessions is left out, the pane beside one that is left
+      out takes its room, and the tab and the pane in front are then the
+      nearest that are kept;
+    - a folder that is the workspace folder is kept as none;
+    - what is kept reads back as the same arrangement, and what is restored
+      from it has the same tabs, panes, sizes, names, and sessions, with
+      new ids, and no closed tab, no dot of unseen output;
+    - text that is not an arrangement, an arrangement of another version,
+      and one with a kind of session that is not known are read as none or
+      without that session.
+28. A unit test of when a session starts shows: none while the Agent Area
+    is hidden; every pane of the tab in front, and of no other tab, once
+    the area is shown; the panes of another tab when it is chosen; and no
+    session a second time.
+29. A unit test of the bell shows the dot of the title bar's button: a ring
+    while the Agent Area is hidden shows it, also while its time on the tab
+    has ended; a ring while the area is shown does not, on a tab in front
+    or not; showing the area takes it away and leaves the bell of a tab
+    that is not in front. A unit test of the question shows Close Folder
+    for another folder opened in the window and Kill Sessions for several
+    sessions.
+30. A unit test of the launch configuration shows that every session of
+    the Agent Area starts as one the base does not keep, with and without
+    the command bridge.
+31. Recorded manual check, in a real window, with the window ended as in a
+    crash and started again with the same state each time: a folder with
+    three tabs, a Terminal session after `cd sub`, a tab named by the user
+    with three panes in two splits whose dividers were moved, and a Claude
+    Code session, the second tab in front. After the start: the same three
+    tabs in their order with the second in front, its panes at the sizes
+    they had, each with a new shell, the first pane's `pwd` the folder it
+    was in; in the first second after the start, sampled in every frame,
+    the strip never shows another set of tabs, the list of sessions to
+    choose from never shows, and no pane shows a state; only the processes
+    of the tab in front run, and the others start when their tab is
+    chosen. The same after Reload Window, after Quit, and after another
+    folder was opened in the window and this one again, the other folder
+    with its own arrangement. With the folder of a session removed
+    meanwhile, the session starts in the workspace folder. A session
+    closed before the end is not there, and neither is one whose program
+    had ended. With the setting off, the Agent Area opens with no session.
 
+    Recorded 2026-11-21 in a development build, driven over the debugging
+    port with real keys and pointer events, with a stand-in for the agents'
+    programs that writes a line each time it starts. The main process was
+    ended with a kill signal and started again with the same state; a
+    sampler read the Agent Area in every frame from 0.2 to 0.4 s of the
+    page, before the workbench was drawn. The dividers stood at 36% and at
+    70%.
+    - **After the end as in a crash.** The first frame that had the
+      workbench, 1.43 to 1.47 s into the page over six starts, had the
+      three tabs Terminal, Research in front, and Claude Code, with the
+      three panes at 104 by 797, 185 by 557, and 185 by 240 px, as before.
+      The panes showed the terminal's background for 5 or 6 frames and then
+      their terminals. No other state was sampled in the 3 to 6 s after: no
+      list of sessions, no word of a state, no other set of tabs. The
+      keyboard was not in the Agent Area. Three shells ran, with the prompt
+      of the third in `sub`; the stand-in had not started. Choosing the
+      first tab started a fourth shell in `sub`, with the keyboard in it;
+      choosing the third started the stand-in, with BaseHalf's launch
+      context, and the keyboard in it. With the Claude Code tab in front at
+      the end, the stand-in alone started.
+    - **Reload Window.** The first frame with the workbench, 1.10 s into
+      the page, had the tabs. The three shells of the window before were
+      gone and three new ones ran, and nothing else. A build before rule 8
+      started the stand-in of the next tab in the closing window and left
+      it running.
+    - **Quit and a new start**, with the Agent Area hidden at Quit: the
+      question was "“✳ claude” is still running." with Quit. After the
+      start the Agent Area was hidden and neither a shell nor the stand-in
+      ran. A click on the title bar's button showed the Agent Area with the
+      three tabs in its first frame, 62 ms after the click, and the
+      terminals 78 ms later.
+    - **Close Window**, and the folder opened again in the application that
+      stayed: the tabs in the first frame with the workbench, three shells.
+    - **Another folder opened in the window** had the Agent Area hidden and
+      no session. With one Terminal session made there and the first folder
+      opened in the window again, that folder had its three tabs in the
+      first frame, and the storage held one arrangement for each folder.
+    - **A folder that is gone.** With `sub` removed while BaseHalf was
+      ended, the first tab and the pane that were in `sub` started in the
+      workspace folder.
+    - **Closed and ended.** A pane that was closed was out of what the
+      storage kept 0.7 s later, with its Undo still offered, and was not
+      there after the start. The Claude Code session whose program had
+      ended, its tab saying Exited, was out of it likewise, and not there.
+    - **Off.** Turned off with two tabs open, what was kept was gone from
+      the storage and the tabs stayed; turned on, it was kept again. After
+      a start with it off the Agent Area showed the sessions to choose from
+      and no process ran.
+32. Recorded manual check, in a real window with a Terminal session that
+    rings its bell after a few seconds: with the Agent Area hidden, the
+    ring shows a dot on the title bar's button in the warning color, the
+    button where it was; the dot is there ten seconds later; showing the
+    Agent Area takes the dot away, and the tab shows the bell for its
+    time. A ring while the Agent Area is shown puts no dot on the button.
+    With `terminal.integrated.enableVisualBell` off no dot shows, and
+    turning it off takes a dot away at once.
+
+    Recorded 2026-11-21 in a development build, sampled in every frame,
+    with `sleep 4; printf '\a'` typed before the Agent Area was hidden: the
+    dot showed from the frame of the ring, 6 px wide, 2 px from the top and
+    from the right of the button, in rgb(229, 186, 125), the color of the
+    bell on a tab; the button stood at the same 22 by 22 px in every frame,
+    and its name read "Toggle Secondary Side Bar (⌥⌘B). A session rang its
+    bell." Ten seconds later the dot was there. In the frame that showed
+    the Agent Area the dot was gone and the tab showed the bell, for 1,006
+    ms. A ring with the Agent Area shown showed the bell on the tab for
+    1,000 ms and no dot. With the setting off a ring showed neither; turned
+    off while a dot showed, the dot went 252 ms after the settings file was
+    written, and the tab showed no bell when the Agent Area was shown. With
+    the sidebar at the right the button would stand at the left end; the
+    settings BaseHalf offers keep the sidebar at the left, so that place
+    was read in the code only.
+33. Recorded manual check, in a real window with `sleep 600` in two
+    Terminal sessions, an agent's session, and
+    `terminal.integrated.confirmOnKill` as `always`: Kill All Terminals
+    asks one question, "3 sessions are still running.", with Kill Sessions;
+    Cancel leaves all three; Kill Sessions ends them and both `sleep`. With
+    the setting as `editor` it ends the sessions with no question.
+
+    Recorded 2026-11-21 in a development build with `sleep 600`, `sleep
+    601`, and the stand-in for Claude Code: one question, "3 sessions are
+    still running.", with Cancel and Kill Sessions. After Cancel no second
+    question came and the three tabs and processes were there. After Kill
+    Sessions no tab, no session, and no `sleep` was left. At the default,
+    two sessions with `sleep` ended with no question. Before the change, on
+    the commit this work started from, the base asked "Do you want to
+    terminate the active terminal session?" once for each terminal.
+34. Recorded manual check, in a real window with `sleep 600` in a Terminal
+    session: opening another folder in the window asks with Close Folder;
+    Cancel keeps the folder and the session.
+
+    Recorded 2026-11-21 in a development build, with Open Folder drawn in
+    the window: the question said "“sleep” is still running." with Cancel
+    and Close Folder. After Cancel the window had its folder and the
+    session with `sleep`. After Close Folder the other folder opened with
+    its own arrangement, and the shell of the folder that closed was gone.
+35. The smoke test shows, in the `workbench` suite, with a tab named by the
+    user and a tab of two panes: after Reload Window the Agent Area has the
+    two tabs in their order under their names, with the tab in front as it
+    was and its two panes; the terminal of the tab that is not in front
+    starts only when its tab is chosen; a tab that was closed before the
+    reload is not there; and Kill All Terminals ends the sessions with no
+    question at the setting's default. The step's function was run eight
+    times against a development window on 2026-11-21, from an Agent Area
+    shown and hidden, with and without sessions left open; the suite was
+    not run.

@@ -7120,3 +7120,89 @@ card already had the rule that a heading of level 4 to 6 is not smaller than the
 - A card's Expand, and its double click on a note too long for the card's editor, name no form. A format chosen on such a
   card still opens Rich.
 - The magnifying of a page (D109), the outline, and Source are unchanged.
+
+## D147 — A folder opens with the arrangement of its Agent Area, and every session starts anew (NEW, 2026-11-21)
+
+**Decision.** With `basehalf.agent.restoreSessions` on, as it is by default, a folder opens with the arrangement its Agent
+Area had: the tabs in their order, the name a user gave a tab, each tab's panes with their split and sizes, the kind of
+each session, the folder each terminal session was in, and the tab and the pane in front. Each session is a new process.
+No text comes back, and BaseHalf tells no agent to continue anything. The sessions of the tab in front start when the
+Agent Area is first shown; the others start when their tab is chosen. See
+[Agent Area terminal](specs/agent-area-terminal.md#the-sessions-a-folder-opens-with).
+
+With it, in the same part of the product:
+
+- A session the user closed, a session whose program ended or could not start, and a terminal an extension created are
+  not in the arrangement.
+- The arrangement is kept in the workspace's storage, per folder, and written as it changes.
+- A bell that rings while the Agent Area is hidden shows as a dot on the title bar's button until the area is shown.
+- Kill All Terminals asks the Agent Area's question once for all sessions.
+- The question before a window closes says Close Folder when another folder is opened in the window.
+- `basehalf.agents.shareSelection` off removes the record of the selection and writes none; the skill's text, version 16,
+  says what a missing record means ([the selection agents can see](specs/selection-for-agents.md#the-record)).
+- `basehalf.agent.defaultSession` is specified in the row's words: a new tab starts with it.
+- Choosing a tab gives the keyboard to the pane in front of it. A session that starts with a window does not take the
+  keyboard; one that starts because its tab was chosen does.
+
+**Why.** The owner's request of D143: settings are for what only a user can choose, and the product is polished along the
+way. Read in the code and run in the real window on 2026-11-21:
+
+- The Agent Area stored nothing. Its tabs and split tree were plain data in memory, its ids came from a counter, and its
+  service had no storage. After every start the area was hidden and empty. A user who works with several agents side by
+  side in a folder arranged them again each time.
+- The plain data was already what a restore needs. Every transition of the tabs is a pure function over it, so what is
+  kept is the same tree without its ids, and a session is described by its kind and its folder.
+- Keeping a session's process through a reload is not a setting to turn on. A session's terminal is one the base hides
+  and does not keep, so the base's layout of terminals has no entry for it, and which process the bridge that runs
+  commands for a session belongs to is in the window's memory. And what would come back for an agent is unclear: its
+  program holds a conversation with a provider, not a state the terminal can keep.
+- A terminal of the system restores its windows and tabs and starts each shell anew. That is the meaning a user already
+  has for "reopen".
+
+Starting when first in view follows from the cost: an agent's session is a program that signs in and reads the folder,
+and a folder closed with eight tabs would start eight at once. One tab's processes is what the user looks at.
+
+Seen in the real window on the way: a press on a tab left the keyboard nowhere, since the press, which lands on what
+takes no keyboard, took it back from the pane that had just been given it; and with the first build of this decision a
+window that reloaded started the agent of the next tab while it closed, and left that process running. Both are rules
+of the specification now.
+
+A session whose program ended is left out because what its pane showed was that program's text, which does not come
+back, and starting a program the user ended acts against them. A session that could not start is left out with it: at
+the next start it would fail again, with its message, in a window the user had only opened.
+
+The dot on the button is the mark D140 set aside as the title bar's. An agent rings the bell when it needs the user, and
+a user who hid the Agent Area to work on the canvas is the one it has to reach.
+
+**The base's settings this settles.** Fifteen pending settings become unlisted, and nothing is pending:
+
+- `terminal.integrated.enablePersistentSessions`, `.persistentSessionReviveProcess`, and `.persistentSessionScrollback`:
+  BaseHalf brings back the arrangement and starts every process anew. Every session is started as one the base does not
+  keep, on this machine and on a remote one, so the three change nothing.
+- `terminal.integrated.suggest.*` (12): the Agent Area's terminal is for agents and for a plain shell. An agent's session
+  has no shell to suggest for, the extension that provides the suggestions does not ship
+  ([what the package holds](specs/what-the-package-holds.md)), and completion is the shell's own, as in a terminal of the
+  system.
+
+**Alternatives.**
+- *The base's persistent sessions*, attached to at a start. The obstacles above, and the text of an agent that looks
+  alive and is not.
+- *Starting every session at a start.* Eight agents start for a user who wanted to look at a note.
+- *Starting none until a tab is clicked*, also in the tab in front. The Agent Area would open on an empty pane with a
+  button, a step the product can do by itself.
+- *Bringing back a session whose program ended.* Set aside above.
+- *Telling an agent to continue*, by an argument of its program. Tuning an agent is a non-goal of the Agent Area; what an
+  agent offers for it is the agent's own, and the user can ask it.
+- *Keeping the arrangement in `.bh/`.* It is the state of a window on a machine, as the size of the sidebar is, and not
+  content of the folder; git would show it.
+- *A count on the button, or a mark that pulses.* One dot says a session wants the user; the tab says which.
+- *Removing the skill to stop the record.* It also takes away what the skill tells an agent about cards (D143).
+
+**Consequences.**
+- The catalog: 15 pending settings become unlisted; pending is empty.
+- The agent skill's text is version 16. Development builds wrote texts numbered 14 and 15 into BaseHalf's own copy, which
+  never takes a lower number, so the next number that every copy takes is 16.
+- One of the base's files carries a new change: Kill All Terminals goes to the Agent Area. The title bar's button gets
+  its dot through the base's registry of title bar items, with no change to the title bar.
+- Every session of the Agent Area is transient for the base, also without the command bridge.
+- The smoke's fixture starts from nothing, so its step of the arrangement reloads the window.

@@ -238,6 +238,9 @@ Done means:
   ([Agent Area terminal](specs/agent-area-terminal.md)).
 - A full-screen program's own background reaches the edges of its Agent Area
   pane, with no strip of another color beside or under it (D86).
+- A folder opens with the tabs and panes its Agent Area was closed with, each
+  session started anew when it is first in view (D147). The processes of
+  sessions are not kept through a reload.
 - Stock VS Code Agent/Chat/Copilot/Sessions UI does not leak into the product.
 
 ### 8. Extension Allowlist, Authentication, And Secrets

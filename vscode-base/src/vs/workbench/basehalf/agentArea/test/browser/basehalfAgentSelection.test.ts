@@ -13,12 +13,15 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
+import { ConfigurationTarget } from '../../../../../platform/configuration/common/configuration.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { testWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
 import { IHostService } from '../../../../services/host/browser/host.js';
 import { IWorkbenchLayoutService } from '../../../../services/layout/browser/layoutService.js';
 import { IStatusbarEntry, IStatusbarService } from '../../../../services/statusbar/browser/statusbar.js';
 import { TestContextService, TestLifecycleService } from '../../../../test/common/workbenchTestServices.js';
+import { BaseHalfSetting } from '../../../shell/common/basehalfConfiguration.js';
 import { baseHalfAgentSelectionResource, BaseHalfAgentSelectionService, BaseHalfAgentSelectionStatusContribution } from '../../browser/basehalfAgentSelection.contribution.js';
 import { BASEHALF_SHOW_AGENT_SKILL_OFFER_COMMAND_ID, IBaseHalfAgentSkillNotifier } from '../../browser/basehalfAgentSkill.contribution.js';
 import { BaseHalfAgentSelection, baseHalfAgentSelectionFor, IBaseHalfAgentSelectionInput, IBaseHalfAgentSelectionService, serializeBaseHalfAgentSelection } from '../../common/basehalfAgentSelection.js';
@@ -58,19 +61,31 @@ suite('BaseHalfAgentSelectionService', () => {
 		};
 		const focus = store.add(new Emitter<boolean>());
 		const lifecycle = store.add(new TestLifecycleService());
+		const configuration = new TestConfigurationService();
 		const service = store.add(new BaseHalfAgentSelectionService(
 			files,
 			skill as unknown as IBaseHalfAgentSkillService,
 			{ onDidChangeFocus: focus.event } as unknown as IHostService,
 			lifecycle,
 			new TestContextService(testWorkspace(notes, marked)),
-			new NullLogService()
+			new NullLogService(),
+			configuration
 		));
 		const read = async (folder: URI) => {
 			try {
 				return (await fileService.readFile(baseHalfAgentSelectionResource(folder))).value.toString();
 			} catch {
 				return undefined;
+			}
+		};
+		/** Share the Selection, as the user sets it. */
+		const setShares = async (shares: boolean) => {
+			await configuration.setUserConfiguration(BaseHalfSetting.AgentsShareSelection, shares);
+			configuration.onDidChangeConfigurationEmitter.fire({ affectsConfiguration: key => key === BaseHalfSetting.AgentsShareSelection, source: ConfigurationTarget.USER, affectedKeys: new Set([BaseHalfSetting.AgentsShareSelection]), change: { keys: [BaseHalfSetting.AgentsShareSelection], overrides: [] } });
+			// The service removes or writes the record by itself, with no wait for the selection to settle:
+			// nothing here asks it to.
+			for (let waited = 0; waited < 500 && (await read(notes) !== undefined) !== shares; waited++) {
+				await timeout(1);
 			}
 		};
 		const setSkill = async (next: BaseHalfAgentSkillState[]) => {
@@ -80,7 +95,7 @@ suite('BaseHalfAgentSelectionService', () => {
 		};
 		// The skill is read when the service starts.
 		await timeout(0);
-		return { fileService, service, lifecycle, read, setSkill, writes };
+		return { fileService, service, lifecycle, read, setSkill, setShares, writes };
 	}
 
 	const input = (workspaceFolder: URI, cards: IBaseHalfAgentSelectionInput['cards'] = []): IBaseHalfAgentSelectionInput => ({
@@ -173,6 +188,43 @@ suite('BaseHalfAgentSelectionService', () => {
 			{ afterStart, written, afterFailedWrite: await installed.read(notes), shown: installed.service.current },
 			{ afterStart: undefined, written: recordOf(input(notes)), afterFailedWrite: undefined, shown: undefined }
 		);
+	});
+
+	test('writes no record while the selection is not shared, and follows the setting at once', async () => {
+		const store = disposables.add(new DisposableStore());
+		const leftover = recordOf(input(notes, [{ path: 'old.md', isFolder: false }]));
+		const { service, read, setShares, fileService } = await setup(store, ['linked', 'linked']);
+		const selected = input(notes, [{ path: 'untitled.md', isFolder: false }]);
+		const steps: unknown[] = [];
+		const snapshot = async () => steps.push({ record: await read(notes), shown: service.current?.selected });
+
+		service.update(selected);
+		await service.flush();
+		await snapshot();
+
+		await setShares(false);
+		await snapshot();
+
+		// Nothing is written while it is off, though the skill is linked and the selection changes.
+		service.update(input(notes));
+		await service.flush();
+		await snapshot();
+
+		await setShares(true);
+		await snapshot();
+
+		// A record that is not this window's, left by a window that ended without closing, is removed too.
+		await fileService.writeFile(baseHalfAgentSelectionResource(notes), VSBuffer.fromString(leftover));
+		await setShares(false);
+		await snapshot();
+
+		assert.deepStrictEqual(steps, [
+			{ record: recordOf(selected), shown: 'card' },
+			{ record: undefined, shown: undefined },
+			{ record: undefined, shown: undefined },
+			{ record: recordOf(input(notes)), shown: 'folder' },
+			{ record: undefined, shown: undefined }
+		]);
 	});
 
 	test('removes its record when the window closes, but not a record another window wrote since', async () => {

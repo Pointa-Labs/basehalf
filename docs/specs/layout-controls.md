@@ -147,6 +147,11 @@ Not in scope, and unchanged:
   of the right group.
 - **Layout controls are switched off.** No control is shown at either end.
   Cmd+B, the View menu, and the command palette still work.
+- **A session rang its bell while the Agent Area is hidden.** The control of
+  the Agent Area shows a dot at its upper right, at either end of the title
+  bar, until the Agent Area is shown
+  ([Agent Area terminal](agent-area-terminal.md#the-bell), rule 7). The
+  control keeps its place, its size, and its command.
 
 ## Acceptance criteria
 

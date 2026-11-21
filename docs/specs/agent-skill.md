@@ -14,7 +14,10 @@ a book its chapter; installed as a link to BaseHalf's own copy, which
 follows every release, and offered until the user answers, 2026-10-26, D83;
 version 11, 2026-11-02, D110: the formats a note keeps; version 12,
 2026-11-03, D111: the files inside a note; version 13, 2026-11-04, D119: text
-selected in the earlier version of a file)
+selected in the earlier version of a file; version 16, 2026-11-21, D147: what
+a missing record of the selection means. Development builds wrote texts
+numbered 14 and 15 into BaseHalf's own copy, so those numbers are not used
+again)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
@@ -25,7 +28,8 @@ Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-s
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
 [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
 [D81](../decisions.md#d81--a-pdf-or-a-book-shows-its-cover-at-one-size-and-a-book-opens-to-be-read-new-2026-10-25),
-[D83](../decisions.md#d83--the-agent-skill-is-a-link-to-basehalfs-own-copy-which-follows-each-release-and-its-offer-stays-until-it-is-answered-new-2026-10-26)
+[D83](../decisions.md#d83--the-agent-skill-is-a-link-to-basehalfs-own-copy-which-follows-each-release-and-its-offer-stays-until-it-is-answered-new-2026-10-26),
+[D147](../decisions.md#d147--a-folder-opens-with-the-arrangement-of-its-agent-area-and-every-session-starts-anew-new-2026-11-21)
 Related: [agent launch context](agent-launch-context.md),
 [the selection agents can see](selection-for-agents.md),
 [reference graph](reference-graph.md),
@@ -92,7 +96,8 @@ its own, which the agents' folders link to
   builds on, and what uses it. Last, it says that in such a workspace the
   skill also applies to a request that does not say which file or text it
   is about, such as "this", "here", or "improve it", because BaseHalf
-  records what the user selected.
+  can record what the user selected. It does not say that a record is
+  there: the user may not share the selection.
 - `metadata.version`: a whole number, written as a string, that grows
   whenever the text changes. BaseHalf compares versions as numbers.
 
@@ -121,9 +126,13 @@ its own, which the agents' folders link to
    [the selection agents can see](selection-for-agents.md#the-record): where
    it is, that a request that does not say what it is about is about it, that
    the request wins when it names something else, that it exists only while
-   BaseHalf is open and changes with every selection, that agents never
-   write it, and what each field means. It is not in the launch
-   instruction: without the skill there is no record.
+   BaseHalf is open and the user shares the selection, that an agent which
+   finds no record cannot know what is selected and asks the user what they
+   mean, that the record changes with every selection, that agents never
+   write it, and what each field means. The text must be true with the
+   record missing: a user can stop sharing the selection and keep the skill
+   ([the selection agents can see](selection-for-agents.md#the-record)). It
+   is not in the launch instruction: without the skill there is no record.
 4. **The sections of the launch instruction**, word for word: where BaseHalf
    keeps its metadata, relationships, preserving relationships, and canvas
    workflows ([content contract](agent-launch-context.md#content-contract)).
@@ -379,7 +388,8 @@ the user's home folder.
    with the `.bh/` sign, asks about the working folder and not the folders
    above, mentions `upstream`, and names a request that does not say which
    file or text it is about. The body has "What the user selected" with
-   `.bh/cache/selection.yaml` and each of its fields. The body starts with how to tell a
+   `.bh/cache/selection.yaml` and each of its fields, and says what an
+   agent does when the record is missing. The body starts with how to tell a
    BaseHalf workspace. Its body names `.bh/mirror/<path>/badge.yaml`,
    `.bh/mirror/<path>/upstream.yaml`, `.bh/mirror/<path>/generation.yaml`,
    `made.yaml`, and the `upstream` frontmatter key, says that files can be
@@ -388,7 +398,7 @@ the user's home folder.
    contains every line of the launch instruction's shared sections, and has
    fewer than 500 lines. It names no `.bhnode` and no `--run-node`. It gives
    the forms of section 6, each spelled as the writer of formats of a note
-   writes it. Its version is `11`. Unit test.
+   writes it. Its version is `16`. Unit test.
 2. Installing writes BaseHalf's own copy with exactly the bundled bytes and
    links both entries to its folder, creating missing folders. The states
    are missing before and linked after. An earlier copy of BaseHalf's text
