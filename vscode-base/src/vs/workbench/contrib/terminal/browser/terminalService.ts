@@ -651,8 +651,11 @@ export class TerminalService extends Disposable implements ITerminalService {
 			}
 
 			// Persist terminal _processes_
+			// BaseHalf: the Agent Area asks, once, about every terminal session it shows: its own, which
+			// are background terminals here, and the ones extensions created, which it adopted.
+			const baseHalfAgentAreaAsks = true;
 			const shouldPersistProcesses = this._terminalConfigurationService.config.enablePersistentSessions && reason === ShutdownReason.RELOAD;
-			if (!shouldPersistProcesses) {
+			if (!shouldPersistProcesses && !baseHalfAgentAreaAsks) {
 				const hasDirtyInstances = (
 					(this._terminalConfigurationService.config.confirmOnExit === 'always' && this.foregroundInstances.length > 0) ||
 					(this._terminalConfigurationService.config.confirmOnExit === 'hasChildProcesses' && this.foregroundInstances.some(e => e.hasChildProcesses))

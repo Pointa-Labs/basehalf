@@ -170,7 +170,6 @@ export interface IBaseHalfAgentAreaSession {
  * as a launch failure and process exit means the agent session ended.
  */
 export interface IBaseHalfTuiSessionLaunchConfig {
-	readonly name: string;
 	readonly executable: string;
 	/** Launch-time context arguments; see {@link baseHalfTuiSessionLaunchConfig}. */
 	readonly args?: readonly string[];
@@ -217,7 +216,6 @@ export function baseHalfTuiSessionLaunchConfig(kind: BaseHalfAgentSessionKind, c
 	}
 
 	return {
-		name: choice.label,
 		executable: choice.terminalCommand,
 		...(baseHalfTuiSessionReceivesLaunchInstructions(kind, context)
 			? { args: [BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG, context.agentSkillInstalled ? BASEHALF_AGENT_LAUNCH_POINTER : BASEHALF_AGENT_LAUNCH_INSTRUCTIONS] }
@@ -385,6 +383,8 @@ export interface IBaseHalfAgentAreaService {
 	focusSession(id: string): Promise<void>;
 	restartSession(id: string): Promise<void>;
 	killSession(id: string): Promise<void>;
+	/** Kills the session that shows the given terminal, asking first as closing does. Resolves to false when no session shows it. */
+	killTerminalSession(terminal: unknown): Promise<boolean>;
 	closeSession(id: string): Promise<void>;
 
 	// Tab strip + pane splits (Ghostty-style layout ported from the original dock)

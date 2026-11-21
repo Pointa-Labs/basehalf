@@ -6724,6 +6724,71 @@ the shown place.
   over the view of an agent extension were not run; a swipe was sent to the window as the event the system sends, and
   the gesture itself was not made.
 
+## D140 — A session of the Agent Area follows the settings of a terminal (NEW, 2026-11-21)
+
+**Decision.** A terminal session of the Agent Area does what the base's settings of a terminal say, for closing, clicks, its
+name, its bell, and the accessible view. Closing sessions asks first as `terminal.integrated.confirmOnKill` says, with the
+Agent Area in the place of the base's panel, and closing the window as `terminal.integrated.confirmOnExit` says; an agent
+counts as running while its program runs. A secondary and a middle click follow `rightClickBehavior` and
+`middleClickBehavior`, and the terminal has a menu. A tab is named by `terminal.integrated.tabs.title`, by default the
+process in the terminal, and an agent's tab by the title its program sets when `tabs.allowAgentCliTitle` allows. The bell
+shows on the tab. Open in Integrated Terminal opens a Terminal session, and the accessible view reads the session's
+terminal. BaseHalf's defaults differ from the base's in two: `confirmOnExit` is `hasChildProcesses`, and
+`enableVisualBell` is on. See [Agent Area terminal](specs/agent-area-terminal.md#the-settings-of-a-terminal-that-a-session-follows).
+
+In detail:
+- `panel` and `always` ask before sessions close, and `editor` and `never` do not: BaseHalf has no terminal in the editor
+  area, and the Agent Area stands where the base's panel stood (D21).
+- An agent's session counts as running while its program runs, though it has no child process: the agent is the program
+  of its terminal, as if a shell had started it.
+- After the answer to close, the close goes on as without a question, with its Undo. One way to close, not two.
+- An agent's title stands in place of the agent's name, not beside it: three sessions of one agent are told apart by what
+  they do, as in any terminal. With the setting off the tab shows the agent's name, not the title template, which would
+  name it by its process.
+- A bell that rang out of view stays until the session is in view, and from then for `bellDuration`. The base shows a
+  bell for one second wherever it rang; a user who looks elsewhere would never see it.
+- The terminal's menu is the Agent Area's own, with the base's commands in it. The base's menu holds entries of its
+  panel, and extensions add to it.
+
+**Why.** D137 found 29 settings of a terminal that the Agent Area did not follow, and the owner's rule for them
+(2026-11-21): where the product is behind its settings, the product catches up. Each was first run in a real window. With
+`confirmOnKill` as `always` and `sleep 600` in a session, closing the tab asked nothing; six seconds later the question
+came, and Cancel left `sleep 600` running with no session. A Terminal session was named Terminal whatever ran in it. A
+secondary click showed no menu. Open in Integrated Terminal showed nothing. In screen reader mode the accessible view opened
+on a new terminal of the base's panel and not on the session.
+
+The cause is one: a session's terminal is created as one the base hides, so the base's groups and tabs, which did all of
+this, never see it. The base's terminal still does the work underneath: it computes the title and the description from
+the settings, keeps a bell among its statuses for `bellDuration`, plays the bell's signal, and pastes. The Agent Area
+gives the terminal no name of its own, reads those, and draws them.
+
+The two defaults follow from what an agent's run is. A window that closes takes the run with it and nothing brings it
+back, and the key that closes a pane closes the window when the keyboard is elsewhere; a closed session comes back with
+Undo for six seconds, so `confirmOnKill` keeps the base's default, which asks nothing here. An agent rings the bell when
+it needs the user, and a bell that shows nowhere reaches no one.
+
+**What was set aside.**
+- Moving a session's terminal into the base's groups, so that the base's own tabs logic applied. The base's panel would
+  show it, which D21 rules out.
+- The base asking its own question at exit beside the Agent Area's. Two questions for one close; the base's is off, and
+  the Agent Area asks about every terminal session it shows.
+- A default of `always` for `confirmOnKill`. The Undo already covers a careless close.
+- The bell beside the name. A mark that comes and goes there moves the name; the bell takes the place of the close
+  button and the activity dot, which the pointer brings back.
+- A mark outside the Agent Area for a bell that rings while the Agent Area is hidden. It belongs to the title bar's
+  button, which is not this decision's; the bell shows on the tab once the area is shown.
+
+**Consequences.**
+- 13 pending settings become advanced: `terminal.integrated.confirmOnExit`, `.confirmOnKill`, `.rightClickBehavior`,
+  `.middleClickBehavior`, `.tabs.title`, `.tabs.description`, `.tabs.separator`, `.tabs.allowAgentCliTitle`, `.enableBell`,
+  `.enableVisualBell`, `.bellDuration`, and the two of `.accessibleView*`; `terminal.explorerKind` and
+  `terminal.sourceControlRepositoriesKind`, which were listed, now do what they say.
+- 16 stay pending: sessions after a reload (`enablePersistentSessions`, `persistentSession*`), where a split starts
+  (`splitCwd`), and the suggestions of a shell (`terminal.integrated.suggest.*`).
+- Four of the base's files carry a change: the terminal service asks nothing at exit, Kill the Active Terminal Instance
+  and Open in Integrated Terminal go to the Agent Area, and the accessible view finds the session's terminal.
+- The smoke's profile sets `confirmOnExit` to `never`: it closes its window while programs of its steps run.
+
 ## D141 — A command of what BaseHalf does not have is in no list and does not run (NEW, 2026-11-21)
 
 **Decision.** The commands of the base that BaseHalf does not have are named in one list, by family, with a reason each. The

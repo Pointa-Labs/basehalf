@@ -74,6 +74,17 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   keeps no width for the scrollbar, and the space around it takes the
   background of the nearest cell, so a program's own background reaches the
   edges of its pane (D86).
+- A terminal session of the Agent Area follows the base's settings of a
+  terminal: closing a session or the window with something running asks
+  first, a secondary click shows the session's menu or copies and pastes,
+  the tab is named by what runs in the terminal or by the title an agent's
+  program sets, and the bell shows on the tab. The Agent Area gives a
+  terminal no name of its own, and it reads what the base's terminal
+  computes instead of computing it again. What the base would do with a
+  terminal of its own panel, such as Open in Integrated Terminal and the
+  accessible view, goes to a session of the Agent Area
+  ([Agent Area terminal](../specs/agent-area-terminal.md#the-settings-of-a-terminal-that-a-session-follows),
+  D140).
 - Context menus are drawn in the window by default (`window.menuStyle:
   custom`), as VS Code's Agents window does, on every platform. They follow
   the product theme, and canvas state shown while a menu is open, such as the

@@ -68,7 +68,7 @@ suite('BaseHalfAgentAreaTerminalConfig', () => {
 		const tui = baseHalfTuiSessionLaunchConfig('tui-claude', { isRemote: false, os: OperatingSystem.Macintosh, hasMarkedWorkspaceFolder: false });
 		assert.ok(tui?.args);
 
-		const config = baseHalfCreateAgentAreaTerminalConfig('Claude Code', { ...tui, args: [...tui.args], name: 'Claude Code' }, true) as IShellLaunchConfig;
+		const config = baseHalfCreateAgentAreaTerminalConfig({ ...tui, args: [...tui.args] }, true) as IShellLaunchConfig;
 
 		assert.deepStrictEqual({
 			executable: config.executable,
@@ -84,7 +84,7 @@ suite('BaseHalfAgentAreaTerminalConfig', () => {
 	});
 
 	test('declares synchronized output to Claude Code in the environment of every Agent Area terminal on macOS and Linux', () => {
-		const declared = (os: OperatingSystem, config?: IShellLaunchConfig) => (baseHalfCreateAgentAreaTerminalConfig('Terminal', config, false, os) as IShellLaunchConfig).env?.CLAUDE_CODE_FORCE_SYNC_OUTPUT;
+		const declared = (os: OperatingSystem, config?: IShellLaunchConfig) => (baseHalfCreateAgentAreaTerminalConfig(config, false, os) as IShellLaunchConfig).env?.CLAUDE_CODE_FORCE_SYNC_OUTPUT;
 
 		assert.deepStrictEqual({
 			macOS: declared(OperatingSystem.Macintosh),
@@ -105,14 +105,36 @@ suite('BaseHalfAgentAreaTerminalConfig', () => {
 		const codex = baseHalfTuiSessionLaunchConfig('tui-codex', { isRemote: false, os: OperatingSystem.Linux, hasMarkedWorkspaceFolder: false });
 		assert.ok(codex);
 
-		const codexConfig = baseHalfCreateAgentAreaTerminalConfig('Codex', { ...codex, args: undefined, name: 'Codex' }, true) as IShellLaunchConfig;
-		const terminalConfig = baseHalfCreateAgentAreaTerminalConfig('Terminal', undefined, true) as IShellLaunchConfig;
+		const codexConfig = baseHalfCreateAgentAreaTerminalConfig({ ...codex, args: undefined }, true) as IShellLaunchConfig;
+		const terminalConfig = baseHalfCreateAgentAreaTerminalConfig(undefined, true) as IShellLaunchConfig;
 
 		assert.deepStrictEqual([codexConfig.args, terminalConfig.args], [undefined, undefined]);
 	});
 
+	test('gives a terminal no name, so that its tab follows the settings, and keeps a name its creator gave', () => {
+		const claude = baseHalfTuiSessionLaunchConfig('tui-claude', { isRemote: false, os: OperatingSystem.Macintosh, hasMarkedWorkspaceFolder: true });
+		assert.ok(claude);
+		const name = (config: Parameters<typeof baseHalfCreateAgentAreaTerminalConfig>[0]) => (baseHalfCreateAgentAreaTerminalConfig(config, false) as IShellLaunchConfig).name;
+
+		assert.deepStrictEqual({
+			plain: name(undefined),
+			agent: name({ ...claude, args: undefined }),
+			shell: name({ executable: '/bin/zsh' }),
+			named: name({ executable: '/bin/zsh', name: 'Build' }),
+			profile: name({ profileName: 'zsh', path: '/bin/zsh', isDefault: true }),
+			profileThatNames: name({ profileName: 'Tools', path: '/bin/zsh', isDefault: false, overrideName: true })
+		}, {
+			plain: undefined,
+			agent: undefined,
+			shell: undefined,
+			named: 'Build',
+			profile: undefined,
+			profileThatNames: 'Tools'
+		});
+	});
+
 	suite('relaunch after an early exit', () => {
-		const relaunched: IShellLaunchConfig = { executable: 'claude', name: 'Claude Code' };
+		const relaunched: IShellLaunchConfig = { executable: 'claude' };
 
 		function exitingTerminal(): ExitingTerminal {
 			const terminal = new ExitingTerminal();

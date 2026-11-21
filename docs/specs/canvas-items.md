@@ -58,7 +58,10 @@ Read in the code and run in the real window on 2026-11-21:
    not ([workspace state](workspace-state-and-legacy-cleanup.md)).
 3. No name is left out by BaseHalf itself any more. A folder named `build`,
    `out`, `dist`, `target`, `vendor`, or `node_modules` has a card, as in
-   Files, and its canvas shows its entries by the same rule.
+   Files, and its canvas shows its entries by the same rule. The one such
+   name BaseHalf's default for `files.exclude` holds is `.vscode`, the
+   folder of a folder's own settings: it has no card and no row in Files
+   until a user turns the pattern off.
 4. A change of `files.exclude` is followed at once: the open canvas draws
    again, a card that the setting now leaves out goes, and one it no longer
    leaves out appears, at the place it had

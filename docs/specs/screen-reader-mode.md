@@ -55,6 +55,9 @@ idle 88% of the time.
 
 ## Non-goals
 
+- The accessible view of a terminal, which holds the terminal's text for a
+  screen reader: [Agent Area terminal](agent-area-terminal.md#the-accessible-view)
+  owns which terminal it shows.
 - Making the canvas readable by a screen reader.
 - Changing xterm.js.
 - Changing a profile that already holds `on`. That value is the user's

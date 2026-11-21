@@ -1,10 +1,12 @@
-# Agent Area terminal identity, wheel input, scrollbar, and the edges of its grid
+# Agent Area terminal identity, wheel input, scrollbar, the edges of its grid, and the settings it follows
 
-Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13; the grid's width and the edges around it added 2026-10-27)
+Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13; the grid's width and the edges around it added 2026-10-27; the settings of a terminal that a session follows added 2026-11-21)
 Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09),
-[D86](../decisions.md#d86--a-program-in-an-agent-area-terminal-reaches-the-edges-of-its-pane-new-2026-10-27)
+[D86](../decisions.md#d86--a-program-in-an-agent-area-terminal-reaches-the-edges-of-its-pane-new-2026-10-27),
+[D140](../decisions.md#d140--a-session-of-the-agent-area-follows-the-settings-of-a-terminal-new-2026-11-21)
 Related: [D21](../decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30),
-[agent launch context](agent-launch-context.md)
+[agent launch context](agent-launch-context.md),
+[the settings BaseHalf offers](settings-catalog.md)
 
 ## Problem
 
@@ -101,6 +103,26 @@ default and leaves the rest of a cell at the right and of a row at the
 bottom. It fills that space with its background color, or, when its padding
 color is set to extend, with the color of the nearest cell.
 
+The base has settings for what a terminal does beyond its text: whether
+closing it asks first, what a secondary click does, how its tab is named,
+and what its bell shows. On 2026-11-21 the audit of the settings
+([the settings BaseHalf offers](settings-catalog.md)) found that the Agent
+Area followed none of them. The Agent Area creates the terminal of a session
+as one the base hides from the user, so that the base's terminal panel never
+shows it. The base then counts it as a background terminal, in none of its
+terminal groups, and what the groups and the base's tabs did for a terminal
+went with them. Run in the real window that day:
+
+- With `terminal.integrated.confirmOnKill` as `always` and `sleep 600` in a
+  Terminal session, closing the tab asked nothing. Six seconds later, when
+  the session was destroyed, the question came, and Cancel left `sleep 600`
+  running with no session to show it.
+- A Terminal session was named Terminal whatever ran in it, and a title
+  that a program set showed nowhere.
+- A secondary click selected the word under it and showed no menu.
+- Open in Integrated Terminal on a folder in Files showed nothing: it
+  created a terminal of the base's panel, which BaseHalf hides.
+
 ## Goals
 
 - Agent Area terminals behave like a native terminal at the input and identity
@@ -116,6 +138,8 @@ color is set to extend, with the color of the nearest cell.
   terminal's own.
 - A program that paints its own background reaches the edges of its pane, at
   every size of the pane, and a shell looks as it did.
+- A setting of a terminal that BaseHalf lists does in a session of the Agent
+  Area what it says.
 
 ## Non-goals
 
@@ -130,6 +154,15 @@ color is set to extend, with the color of the nearest cell.
   know that position.
 - Making IDE companion integrations of TUI agents, such as Claude Code's or
   Gemini CLI's VS Code extension auto-connect, work under the new identity.
+- Three groups of the base's settings of a terminal, which stay pending in
+  [the settings BaseHalf offers](settings-catalog.md): sessions
+  that are there again after the window reloads
+  (`terminal.integrated.enablePersistentSessions`, `persistentSession*`), a
+  split that starts where its session is (`terminal.integrated.splitCwd`),
+  and the suggestions of a shell (`terminal.integrated.suggest.*`).
+- A mark outside the Agent Area for a bell that rings while the Agent Area
+  is hidden.
+- The entries that extensions add to the base's menu of a terminal.
 
 ## Terminology
 
@@ -146,6 +179,10 @@ color is set to extend, with the color of the nearest cell.
   as VS Code's `MouseWheelClassifier` classifies this terminal's wheel events.
 - **Grid**: the rectangle of the cells that the terminal shows, as many whole
   rows and columns as fit. **Edges**: the part of the pane outside the grid.
+- **Terminal session**: a session of the Agent Area whose pane is a
+  terminal: a Terminal session, an agent's session that runs the agent's
+  program in a terminal (Codex, Claude Code), and a terminal that an
+  extension created. A session that an agent's extension draws is not one.
 - **Background of a cell**: the color the terminal draws behind the cell: its
   palette entry or its RGB color, its foreground when the cell is drawn
   inverse, and the terminal's default background otherwise. The default
@@ -376,6 +413,194 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
    program and the terminal there, and what it does with these sequences is
    not verified.
 
+### The settings of a terminal that a session follows
+
+The base's settings of a terminal reach every terminal session, and no
+session that an agent's extension draws. A setting that is not named here
+and that the base reads inside the terminal itself, such as the font, the
+cursor, and the scrollback, works as in the base.
+
+#### Closing with something running
+
+1. **Something runs** in a terminal session when:
+   - it is an agent's session, and the agent's program has started and has
+     not ended. The agent is the program of its terminal, as if a shell had
+     started it;
+   - it is any other terminal session, and its shell has a child process, as
+     the base counts them. `terminal.integrated.ignoreProcessNames` applies
+     as in the base.
+2. **Closing sessions** follows `terminal.integrated.confirmOnKill`. The
+   Agent Area is where BaseHalf has its terminals, in the place of the
+   base's panel, and BaseHalf has no terminal in the editor area. So `panel`
+   and `always` ask before sessions in which something runs are closed, and
+   `never` and `editor` do not ask.
+   - Every way to close asks: the close button of a tab, a middle click on a
+     tab, Close Tab, Close Other Tabs, and Close Tabs to the Right, the keys
+     that close a pane or a tab, Kill Pane, Kill Active Agent Area Session,
+     and the base's Kill the Active Terminal Instance.
+   - The question comes before anything changes. It names the session in
+     which something runs, or says how many there are.
+   - Cancel changes nothing: each session keeps its tab, its pane, its
+     program, and the keyboard.
+   - After the answer to close, the close goes on as it does without a
+     question: the tab leaves the strip and a toast offers Undo for six
+     seconds, and a kill ends the session at once. When the six seconds end,
+     the session ends without another question.
+   - While a question about a session is open, another request to close that
+     session does nothing.
+3. **Closing the window** follows `terminal.integrated.confirmOnExit`:
+   closing the window, quitting, reloading the window, and opening another
+   folder in it. `never` asks nothing. `always` asks when the Agent Area has
+   a terminal session. `hasChildProcesses` asks when something runs in one.
+   A session whose tab was closed and whose six seconds have not ended
+   counts. There is one question for the window, and Cancel keeps the window
+   and every session. The base asks no question of its own about terminals.
+4. **Defaults.** BaseHalf's default for `terminal.integrated.confirmOnExit`
+   is `hasChildProcesses`: a window that closes takes an agent's run with
+   it, nothing brings it back, and the key that closes a pane closes the
+   window when the keyboard is elsewhere. The default for
+   `terminal.integrated.confirmOnKill` stays the base's `editor`, which asks
+   nothing in the Agent Area: a closed session comes back with Undo.
+
+#### Clicks
+
+1. A secondary click on the terminal of a session follows
+   `terminal.integrated.rightClickBehavior`:
+   - `default` shows the session's menu;
+   - `selectWord` selects the word under the pointer and shows the menu.
+     The terminal selects the word itself, and selects none while the
+     program tracks the mouse;
+   - `copyPaste` copies the selection and takes it away when there is one,
+     and pastes otherwise. It shows no menu;
+   - `paste` pastes and shows no menu;
+   - `nothing` shows no menu. The click goes to the program, as it does with
+     every value while the program tracks the mouse.
+
+   With Shift held, a secondary click shows the menu whatever the setting
+   says, as in the base.
+2. A middle click follows `terminal.integrated.middleClickBehavior`: `paste`
+   pastes, and `default` gives the terminal the keyboard and leaves the rest
+   to the system.
+3. The menu holds Copy, Paste, and Select All; Clear; Split Pane Right and
+   Split Pane Down; and Close Pane. Copy is disabled while the terminal has
+   no selection. Each item does what its key does, and the menu shows the
+   keys. The pane that was clicked is the pane in front, and the items act
+   on it. The menu is drawn as the window draws its menus
+   (`window.menuStyle`), where the tab's menu is drawn.
+4. A paste from a click or from the menu is the base's paste: files on the
+   clipboard are typed as their paths
+   ([copy, paste, and drop](copy-paste-and-drop.md)), and text of several
+   lines asks first as `terminal.integrated.enableMultiLinePasteWarning`
+   says.
+5. A click on the terminal's scrollbar does none of this.
+
+#### The name of a session
+
+1. A tab shows the name of its session, of the pane in front where the tab
+   has several, and after the name, dimmer, the session's description when
+   it has one.
+2. **A plain terminal**, which is a Terminal session or a terminal that an
+   extension created, is named by the base.
+   `terminal.integrated.tabs.title` gives the name, by default the process
+   that runs in the terminal. `terminal.integrated.tabs.description` gives
+   the description, by default the folder the shell is in when that is not
+   the folder of the workspace. `terminal.integrated.tabs.separator` stands
+   between their parts. With `terminal.integrated.tabs.allowAgentCliTitle`
+   on, a program in it that the base knows as an agent's names the tab with
+   the title it sets, as in the base. A terminal that was created with a
+   name of its own keeps that name. The Agent Area gives a terminal no name.
+   Until the terminal has a title, the tab says Terminal.
+3. **An agent's session** shows the title that the agent's program sets for
+   its terminal, in place of the agent's name, while
+   `terminal.integrated.tabs.allowAgentCliTitle` is on and the program runs.
+   Before the program has set a title, after it has ended, and with the
+   setting off, the tab shows the agent's name, Codex or Claude Code. The
+   title template names plain terminals only: it would name an agent's
+   session by its process. The description of an agent's session follows
+   `terminal.integrated.tabs.description` like that of any terminal.
+4. A name that the user gave the tab stands in place of all this, and the
+   tab then shows no description.
+5. A name is one line. Line breaks and tabs in it are dropped, the icons
+   that the base's templates write as `$(name)` are drawn as icons, and what
+   comes after 256 characters is cut.
+6. **A name does not move the strip.** The tabs share the strip's width
+   equally whatever their names say. A name longer than its tab ends in an
+   ellipsis; the description gives way before the name does, and the compact
+   density leaves it out. When a name or a description changes, only that
+   text changes, at the next frame: the strip is not drawn again, it keeps
+   its place, and its tabs keep their elements, so that a press, a double
+   click, a drag, and the rename field on a tab go on. Changes within one
+   frame are one change.
+7. The toast of a closed tab and the question before a close name the
+   session as its tab does.
+8. The tab's key, its state, its activity dot, and the scrolling of the
+   strip are unchanged.
+
+#### The bell
+
+An agent rings the bell of its terminal when it needs the user. The bell on
+the tab is how a user who looks at another session comes to know, and a user
+who shows the Agent Area again after hiding it.
+
+1. With `terminal.integrated.enableVisualBell` on, a bell that a program
+   rings shows on the tab of its session: a bell stands where the tab's
+   activity dot and its close button stand, and the close button returns
+   under the pointer. BaseHalf's default for the setting is on; the base's
+   is off.
+2. A session is **in view** while the Agent Area is shown and its tab is in
+   front. The bell of a session in view shows for
+   `terminal.integrated.bellDuration` milliseconds after the last ring. The
+   bell of a session that is not in view stays until the session comes into
+   view, and from then for the same time, as if it rang at that moment: a
+   second is too short for a user who is elsewhere.
+3. A tab with several panes shows the bell of any of them.
+4. The bell sounds as the base's signal says: the base plays
+   `accessibility.signals.terminalBell` for every ring of every terminal, in
+   view or not, and that setting says whether a sound is heard. The base
+   turns a value of the deprecated `terminal.integrated.enableBell` into
+   these two settings.
+5. As in the base, a ring within the first second of a terminal shows
+   nothing.
+6. A bell changes only its mark on the tab: the strip is not drawn again
+   ([The name of a session](#the-name-of-a-session), rule 6).
+
+#### Open in Integrated Terminal
+
+`terminal.explorerKind` and `terminal.sourceControlRepositoriesKind` say
+which terminal Open in Terminal starts from Files and from the repositories
+of Source Control. With `integrated` or `both`, their menus hold Open in
+Integrated Terminal.
+
+1. Open in Integrated Terminal opens a Terminal session of the Agent Area
+   whose shell starts in the folder: the folder that was chosen, the folder
+   of a file that was chosen, or the root of the repository. The Agent Area
+   shows, with the session in front and the keyboard in it.
+2. With several items chosen in Files, each folder among them gets one
+   session.
+3. No terminal of the base's panel is created. The entry goes the way the
+   terminal commands go that BaseHalf turns into sessions of the Agent Area.
+4. With `external`, Open in External Terminal starts the system's terminal
+   as in the base.
+
+#### The accessible view
+
+A screen reader cannot read the terminal's canvas
+([screen reader mode](screen-reader-mode.md)). The base offers the
+terminal's text in its accessible view, and help for the terminal's keys in
+Accessibility Help.
+
+1. Open Accessible View, Focus Accessible Terminal View, and Accessibility
+   Help act on the terminal of the session that has the keyboard. While the
+   keyboard is in the accessible view, they and the keys of the view act on
+   the terminal of the session in front. They create no terminal of the
+   base's panel. Focus Accessible Terminal View without a terminal session
+   opens a Terminal session first.
+2. The view holds the text of that terminal, and Escape returns the keyboard
+   to it.
+3. `terminal.integrated.accessibleViewPreserveCursorPosition` and
+   `terminal.integrated.accessibleViewFocusOnCommandExecution` work as in
+   the base.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -399,6 +624,18 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
   upgrade fails tests instead.
 - The edges read the cells, not the renderer, so they are the same when VS
   Code falls back to its DOM renderer.
+- The question before a close needs to know whether a shell has a child
+  process, which the base learns about a second after the last key. A close
+  within that second finds nothing running and asks nothing; the tab's Undo
+  still brings the session back.
+- A question that is open when its session's program ends closes nothing by
+  itself: after the answer the tabs are read again, and a session that is
+  gone is left out.
+- The name, the description, and the bell are read from the base's terminal:
+  its title and description, the title its program set, and the bell among
+  its statuses. If a base update renames them, the code no longer compiles.
+- A terminal whose program never sets a title, and an agent whose program
+  the base does not know, show the name they have without it.
 
 ## Acceptance criteria
 
@@ -528,3 +765,183 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
     panel of Codex reached the edges. With every row in a new color at about
     120 frames a second, the edges took 9 ms of the window's 593 ms of work
     over 4.6 s, and frames came at a median of 8.3 ms.
+14. A unit test of closing shows: something runs in an agent's session
+    whose program runs and in another terminal session whose shell has a
+    child process, and in no session that an extension draws; which values
+    of `terminal.integrated.confirmOnKill` and of
+    `terminal.integrated.confirmOnExit` ask, for sessions with and without
+    something running; and what the question says for one session and for
+    several. A unit test shows `hasChildProcesses` as BaseHalf's default for
+    `terminal.integrated.confirmOnExit`.
+15. Recorded manual check, in a real window with `sleep 600` in a Terminal
+    session:
+    - with `terminal.integrated.confirmOnKill` as `always`, the close button
+      of the tab, the key that closes a pane, Close Other Tabs from another
+      tab, and Kill Pane each ask before the tab leaves the strip; after
+      Cancel the tab, the pane, and `sleep 600` are there, and the terminal
+      takes what is typed; after the answer to close, the toast with Undo
+      shows, and the session ends six seconds later with no question;
+    - with the setting as `editor`, the tab closes with no question;
+    - with `terminal.integrated.confirmOnExit` at BaseHalf's default,
+      closing the window asks; after Cancel the window and the session are
+      as before; with a shell that runs nothing, the window closes with no
+      question; with `always` it asks also then, and with `never` never.
+
+    Recorded 2026-11-21 in a development build, driven over the debugging
+    port with real keys and pointer events, the question drawn in the
+    window: each of the four ways asked "“Terminal” is still running."
+    with the tab in the strip, and after Cancel the tab, the pane, the
+    keyboard in the terminal, and `sleep 600` were there, also when the
+    question came from the tab's menu. After Close Session the toast showed,
+    and 6.8 s later the session and `sleep 600` were gone with no question.
+    A tab whose shell ran nothing closed with no question, and so did
+    `sleep 601` with the setting as `editor`. Close Window asked at
+    BaseHalf's default with `sleep 600` running and kept the window after
+    Cancel; it closed the window with no question when the shell ran
+    nothing, and with `never` though `sleep 600` ran; with `always` it asked
+    "The Agent Area has an open session." for a shell that ran nothing.
+16. A unit test of clicks shows what a secondary click does for each value
+    of `terminal.integrated.rightClickBehavior`, with and without a
+    selection and with Shift, and what a middle click does for each value of
+    `terminal.integrated.middleClickBehavior`.
+17. Recorded manual check, in a real window with a Terminal session that
+    printed `hello world`:
+    - with `default`, a secondary click on a word shows the menu with its
+      seven items and their keys, with Copy disabled; Select All and then
+      Copy from the menu put the terminal's text on the clipboard; Paste
+      types the clipboard at the prompt; Clear leaves the prompt alone;
+    - with `selectWord`, the word is selected, and Copy from the menu copies
+      it;
+    - with `copyPaste`, a secondary click with a selection copies it and
+      shows no menu, and the next secondary click types it at the prompt;
+    - with `paste`, a secondary click types the clipboard and shows no menu;
+    - with `nothing`, a secondary click shows no menu and types nothing, and
+      with Shift held it shows the menu;
+    - a middle click types the clipboard with
+      `terminal.integrated.middleClickBehavior` as `paste`, and nothing with
+      `default`.
+
+    Recorded 2026-11-21 in a development build with real pointer events:
+    with `default` the menu held Copy ⌘C, disabled, Paste ⌘V, Select All ⌘A,
+    Clear ⌘K, Split Pane Right ⌘D, Split Pane Down ⇧⌘D, and Close Pane ⌘W,
+    and nothing was selected; after Select All, Copy put the whole text on
+    the clipboard, Paste typed `echo pasted` at the prompt, and Clear left
+    the prompt's row. With `selectWord` the click selected `hello`, and Copy
+    copied it. With `copyPaste` a click over the selected `world` copied it,
+    took the selection away, and showed no menu, and the next click typed
+    `world`. With `paste` a click typed the clipboard, with `nothing` it
+    typed nothing and showed no menu, and with Shift held it showed the
+    menu. A middle click typed the clipboard with `paste` and nothing with
+    `default`.
+18. A unit test of the name shows: a plain terminal named by the base's
+    title and description, and Terminal until it has a title; an agent's
+    session showing the title its program set when the setting allows, and
+    the agent's name before a title, with the setting off, and for a title
+    of blanks; a session that an extension draws keeping its own name; a
+    name of several lines and of 1,000 characters shown as one line of 256;
+    and a name the user gave a tab standing alone. A unit test of the launch
+    configuration shows that the Agent Area gives a terminal no name and
+    keeps a name its creator gave.
+19. Recorded manual check, in a real window with two tabs:
+    - a Terminal session is named `zsh`, `sleep` while `sleep 600` runs, and
+      `zsh` again after it is interrupted; after `cd sub` the tab shows
+      `sub` after the name;
+    - a title that a program sets shows with `${sequence}` as
+      `terminal.integrated.tabs.title`, and a template with
+      `${separator}` shows the separator of the settings;
+    - a title of 440 characters leaves the tabs' places and widths and the
+      strip's scroll width as they were, and ends in an ellipsis;
+    - 300 titles set within about three seconds leave the tabs' elements
+      and places as they were, with no tab added or removed, and a tab
+      renamed in its field meanwhile keeps what was typed;
+    - an agent's session shows the title its program set, the agent's name
+      with `terminal.integrated.tabs.allowAgentCliTitle` off, the title
+      again with it on, and the agent's name once the program has ended;
+      the question before closing it names it as the tab does.
+
+    Recorded 2026-11-21 in a development build with real keys, with a
+    stand-in for the agent's program that sets the title it is told: the
+    tab read `zsh`, `sleep`, `zsh`, then `zsh` with `sub`; `my title` with
+    `${sequence}`; `zsh · sub` with `/private/tmp/bh-s3-ws/sub` after it
+    for a title of `${process}${separator}${cwdFolder}`, a separator of
+    ` · `, and a description of `${cwd}`. With the long title the two tabs
+    stayed at 128 px each and the name showed 256 characters, cut by an
+    ellipsis. Over 300 titles the two tabs kept their elements, one layout
+    was sampled over every frame, and the strip gained and lost no tab;
+    `mine`, typed into the rename field during another 300 titles, was the
+    tab's name afterwards. The agent's tab read `✳ Claude Code`, `✳ Fix
+    the flaky test`, `Claude Code` with the setting off, the title again
+    with it on, and `Claude Code` with Exited after `quit`; the question
+    said "“✳ Fix the flaky test” is still running."
+20. A unit test of the bell shows: a ring in view shows until its time
+    ends; a ring out of view shows after its time has ended, until the
+    session comes into view and for the time of a bell after that; and a
+    session that comes into view while the bell still rings shows it until
+    both times have ended. A unit test shows on as
+    BaseHalf's default for `terminal.integrated.enableVisualBell`.
+21. Recorded manual check, in a real window with two Terminal sessions:
+    - `printf '\a'` in the session in front shows the bell on its tab and
+      takes it away after the duration, at the default and at
+      `terminal.integrated.bellDuration` of 3000;
+    - a bell rung in the session that is not in front, three seconds after
+      the other tab was chosen, shows on its tab, is still there ten
+      seconds later, and goes within the duration after the tab is chosen;
+    - a bell rung while the Agent Area is hidden shows on the tab in front
+      when the Agent Area is shown again, for the duration;
+    - with `terminal.integrated.enableVisualBell` off no bell shows;
+    - with `accessibility.signals.terminalBell` set to sound, a ring loads
+      the base's sound; the tabs keep their elements through a bell.
+
+    Recorded 2026-11-21 in a development build with its sound muted: the
+    bell of the session in front showed for 991 ms at the default and for
+    2,994 ms at a duration of 3000, in the warning color of the theme, and
+    the close button returned under the pointer. A bell rung in the other
+    session showed on its tab and was there ten seconds later; once its tab
+    was chosen it showed for another 1,035 ms. A bell rung while the Agent
+    Area was hidden showed for 1,012 ms once the area was shown. With the
+    setting off none showed. With `accessibility.signals.terminalBell` set
+    to sound, the base played `terminalBell.mp3` for a ring in view and for
+    one out of view, and nothing at the signal's default or with the sound
+    off. The tabs kept their elements throughout.
+22. Recorded manual check, in a real window whose folder holds a folder
+    `sub` and is a repository: Open in Integrated Terminal on `sub` in Files
+    opens a Terminal session in the Agent Area whose `pwd` is `sub`, with
+    the keyboard in it; on a file it opens one in the file's folder; and
+    from a repository of Source Control one in the repository's root. The
+    base's panel stays hidden, and the window answers half a minute later.
+
+    Recorded 2026-11-21 in a development build with real pointer events:
+    from `sub` in Files the tab read `zsh` with `sub` and `pwd` printed the
+    path of `sub`; from `scene.md` and from the repository's row in
+    Changes, shown with `scm.alwaysShowRepositories`, `pwd` printed the
+    folder's root; the keyboard was in the new session each time. Half a
+    minute later the window answered, with three sessions and no panel.
+    Before the change, on this branch, the entry from Files showed nothing,
+    and about ten seconds later the window no longer answered, its renderer
+    at a whole core; this was not run on the commit the branch started from.
+23. Recorded manual check, in a real window in screen reader mode with two
+    Terminal sessions that each printed a line of their own: the key of the
+    accessible view, pressed in the session in front, shows a view that
+    holds that session's line and not the other's, with the keyboard in the
+    view; Escape returns the keyboard to that terminal; the key of
+    Accessibility Help shows the terminal's help; after the other tab is
+    chosen, the view holds the other session's line. No shell is started by
+    any of this.
+
+    Recorded 2026-11-21 in a development build with
+    `editor.accessibilitySupport` on and real keys: the view opened from the
+    second session held `marker-two` and not `marker-one`, with the keyboard
+    in it, and Escape returned the keyboard to the terminal; Accessibility
+    Help showed the terminal's help; from the first session the view held
+    `marker-one` and not `marker-two`; no shell was added. With
+    `terminal.integrated.accessibleViewFocusOnCommandExecution` on, a
+    command that ran moved the keyboard into the view, which held its
+    output. Before the change the view opened on a new terminal of the
+    base's panel, which had started a shell of its own, and Escape left the
+    keyboard outside the session.
+24. The smoke test shows, in a Terminal session at the defaults: the tab
+    named by the process in it and not Terminal; on a system whose default
+    shows it, the terminal's menu with its seven items after a secondary
+    click; and a bell on the tab after `printf '\a'` that goes again, with
+    the tab the element it was.
+

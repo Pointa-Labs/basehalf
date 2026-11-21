@@ -222,6 +222,14 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['editor.accessibilitySupport'], 'off');
 	});
 
+	test('asks before a window closes with something running in the Agent Area', () => {
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.confirmOnExit'], 'hasChildProcesses');
+	});
+
+	test('shows the bell of a session on its tab', () => {
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.enableVisualBell'], true);
+	});
+
 	test('gives the Agent Area terminal the reference terminal\'s default font size and row height', () => {
 		assert.deepStrictEqual(
 			[BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.fontSize'], BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.lineHeight']],

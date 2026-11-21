@@ -137,9 +137,8 @@ export class BaseHalfAgentAreaSurface {
 	renderToasts(): void {
 		clearNode(this.area.toasts);
 		for (const entry of this.area.tabsState.closing) {
-			const name = entry.kind === 'tab'
-				? (entry.tab.titleOverride ?? this.area.runtime.get(entry.tab.activePaneId)?.label ?? 'Agent')
-				: (this.area.runtime.get(entry.paneId)?.label ?? 'Agent');
+			const session = this.area.runtime.get(entry.kind === 'tab' ? entry.tab.activePaneId : entry.paneId);
+			const name = (entry.kind === 'tab' ? entry.tab.titleOverride : undefined) ?? (session ? this.area.sessionName(session) : 'Agent');
 			const toast = append(this.area.toasts, $('.basehalf-agent-toast'));
 			const text = append(toast, $('span.basehalf-agent-toast-text'));
 			text.textContent = `Closed ${entry.kind === 'tab' ? 'tab' : 'pane'} “${name}”`;

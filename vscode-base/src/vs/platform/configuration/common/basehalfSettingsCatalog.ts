@@ -104,22 +104,25 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 	{ class: 'shown', family: 'Code font', patterns: ['editor.fontFamily', 'editor.fontSize', 'editor.wordWrap'] },
 	{ class: 'shown', family: 'Terminal font', patterns: ['terminal.integrated.fontFamily', 'terminal.integrated.fontSize'] },
 	{ class: 'shown', family: 'Updates', patterns: ['update.mode'] },
-	// Pending: the surface named in the specification owes them an answer.
+	// Advanced: they work as in the base.
 	{
-		class: 'pending', family: 'Agent Area: the name of a session', patterns: [
+		class: 'advanced', family: 'Agent Area: the name of a session', patterns: [
 			'terminal.integrated.tabs.title', 'terminal.integrated.tabs.description', 'terminal.integrated.tabs.separator', 'terminal.integrated.tabs.allowAgentCliTitle'
 		]
 	},
+	// Pending: the surface named in the specification owes them an answer.
 	{ class: 'pending', family: 'Agent Area: sessions after a reload', patterns: ['terminal.integrated.enablePersistentSessions', 'terminal.integrated.persistentSession*'] },
-	{ class: 'pending', family: 'Agent Area: the bell', patterns: ['terminal.integrated.enableBell', 'terminal.integrated.enableVisualBell', 'terminal.integrated.bellDuration'] },
-	{ class: 'pending', family: 'Agent Area: closing with a session running', patterns: ['terminal.integrated.confirmOnExit', 'terminal.integrated.confirmOnKill'] },
+	// Unlisted: they belong to what BaseHalf does not have.
+	{ class: 'unlisted', family: 'Agent Area: a setting of the bell the base retired', patterns: ['terminal.integrated.enableBell'] },
+	{ class: 'advanced', family: 'Agent Area: the bell', patterns: ['terminal.integrated.enableVisualBell', 'terminal.integrated.bellDuration'] },
+	{ class: 'advanced', family: 'Agent Area: closing with a session running', patterns: ['terminal.integrated.confirmOnExit', 'terminal.integrated.confirmOnKill'] },
 	{
-		class: 'pending', family: 'Agent Area: clicks, a split, the accessible view', patterns: [
-			'terminal.integrated.rightClickBehavior', 'terminal.integrated.middleClickBehavior', 'terminal.integrated.splitCwd', 'terminal.integrated.accessibleView*'
+		class: 'advanced', family: 'Agent Area: clicks and the accessible view', patterns: [
+			'terminal.integrated.rightClickBehavior', 'terminal.integrated.middleClickBehavior', 'terminal.integrated.accessibleView*'
 		]
 	},
+	{ class: 'pending', family: 'Agent Area: the folder of a split', patterns: ['terminal.integrated.splitCwd'] },
 	{ class: 'pending', family: 'Agent Area: suggestions of a shell', patterns: ['terminal.integrated.suggest.*'] },
-	// Advanced: they work as in the base.
 	{
 		class: 'advanced', family: 'JSON files: formatting, suggestions, and marks', patterns: [
 			'editor.formatOnSave', 'editor.formatOnSaveMode', 'editor.formatOnPaste', 'editor.defaultFormatter', 'editor.codeActionsOnSave', 'editor.suggest.showProperties',
@@ -129,7 +132,6 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 			'accessibility.signalOptions.experimental.delays.errorAtPosition'
 		]
 	},
-	// Unlisted: they belong to what BaseHalf does not have.
 	{ class: 'unlisted', family: 'JSON: a setting the base retired', patterns: ['json.colorDecorators.enable'] },
 	{ class: 'advanced', family: 'JSON', patterns: ['json.*'] },
 	{

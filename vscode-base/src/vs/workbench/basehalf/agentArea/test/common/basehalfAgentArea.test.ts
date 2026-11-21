@@ -73,13 +73,11 @@ suite('BaseHalfAgentArea', () => {
 	test('launches TUI agent sessions as the terminal process itself', () => {
 		const local = { isRemote: false, os: OperatingSystem.Linux, hasMarkedWorkspaceFolder: false };
 		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-codex', local), {
-			name: 'Codex',
 			executable: 'codex',
 			waitOnExit: 'Codex session ended. Press any key to close it, or restart it from its tab.',
 			hideFromUser: true
 		});
 		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-claude', local), {
-			name: 'Claude Code',
 			executable: 'claude',
 			args: ['--append-system-prompt', BASEHALF_AGENT_LAUNCH_INSTRUCTIONS],
 			waitOnExit: 'Claude Code session ended. Press any key to close it, or restart it from its tab.',

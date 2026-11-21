@@ -311,7 +311,9 @@
 }
 
 .monaco-workbench .basehalf-agent-tab-label {
-	min-width: 40px;
+	/* The name is the last to give way: the description and the state shrink far sooner. */
+	flex: 0 1 auto;
+	min-width: 0;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -319,8 +321,32 @@
 	font-weight: 500;
 }
 
+/* What the session's description says, after its name: it gives way before the name does. */
+.monaco-workbench .basehalf-agent-tab-description {
+	flex: 0 1000 auto;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	opacity: 0.6;
+}
+
+/* A name or a description that says nothing takes no room, and no gap. */
+.monaco-workbench .basehalf-agent-tab-label:empty,
+.monaco-workbench .basehalf-agent-tab-description:empty {
+	display: none;
+}
+
+/* An icon that the base's title template writes sits on the line of the name. */
+.monaco-workbench .basehalf-agent-tab-label .codicon,
+.monaco-workbench .basehalf-agent-tab-description .codicon {
+	font-size: 12px;
+	vertical-align: text-bottom;
+}
+
 /* Compact density: narrow tabs keep only the identifying label. */
 .monaco-workbench .basehalf-agent-area-tabs.compact .basehalf-agent-tab-shortcut,
+.monaco-workbench .basehalf-agent-area-tabs.compact .basehalf-agent-tab-description,
 .monaco-workbench .basehalf-agent-area-tabs.compact .basehalf-agent-tab-state {
 	display: none;
 }
@@ -330,7 +356,7 @@
 }
 
 .monaco-workbench .basehalf-agent-tab-state {
-	flex-shrink: 1;
+	flex-shrink: 20;
 	min-width: 0;
 	max-width: 68px;
 	overflow: hidden;
@@ -406,6 +432,30 @@
 
 .monaco-workbench .basehalf-agent-tab:hover .basehalf-agent-tab-indicator.has-activity .basehalf-agent-tab-activity,
 .monaco-workbench .basehalf-agent-tab.active .basehalf-agent-tab-indicator.has-activity .basehalf-agent-tab-activity {
+	opacity: 0;
+}
+
+/* The bell of a session stands in the same slot, in place of the dot and of the close button, which returns
+   under the pointer. The selector outranks the workbench's color for every icon. */
+.monaco-workbench .basehalf-agent-tab-indicator .basehalf-agent-tab-bell {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 13px;
+	color: var(--vscode-list-warningForeground);
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.1s ease-out;
+}
+
+.monaco-workbench .basehalf-agent-tab:not(:hover) .basehalf-agent-tab-indicator.has-bell .basehalf-agent-tab-bell {
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-agent-tab:not(:hover) .basehalf-agent-tab-indicator.has-bell .basehalf-agent-tab-activity,
+.monaco-workbench .basehalf-agent-tab:not(:hover) .basehalf-agent-tab-indicator.has-bell .basehalf-agent-tab-close {
 	opacity: 0;
 }
 
