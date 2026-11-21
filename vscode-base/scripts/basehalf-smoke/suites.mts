@@ -27,6 +27,7 @@ import { assertCanvasNoteInlineWysiwygEditor } from './areas/canvas/noteEditor.m
 import { assertCanvasNoteResizeWhileEditing } from './areas/canvas/noteResize.mts';
 import { assertCanvasNoteTitleLine, assertCanvasNoteTitleNamesFile } from './areas/canvas/noteTitle.mts';
 import { assertCardDetailNoteTitleLine } from './areas/cardDetail/noteTitleLine.mts';
+import { assertNoteHasOneTypography, assertNoteOpensInTheFormOfItsSetting, assertNoteTypographyIsFollowedAtOnce, prepareNoteTypography } from './areas/cardDetail/noteTypography.mts';
 import { assertCanvasNoteUndoAsksNothing } from './areas/canvas/noteUndo.mts';
 import { assertCanvasNoteLinksOpenTheirTargets, assertCanvasNoteMediaPlaysOnWhenDrawnAgain, assertCanvasNoteMediaReactAtRest, assertCanvasNotePaletteInBothAppearances, assertCanvasNotePictureEditsOnTheCard, assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
 import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
@@ -366,6 +367,10 @@ async function runCardDetailSuite(page) {
 	await step('preview-note-media-plays-on-when-drawn-again', () => assertPreviewNoteMediaPlaysOnWhenDrawnAgain(page));
 	await step('note-formats-media-asks-for-no-refused-address', () => assertNoteFormatsMediaAsksForNoRefusedAddress(page));
 	await step('note-title-line', () => assertCardDetailNoteTitleLine(page));
+	await step('note-typography-prepare', () => prepareNoteTypography(page));
+	await step('note-has-one-typography', () => assertNoteHasOneTypography(page));
+	await step('note-typography-is-followed-at-once', () => assertNoteTypographyIsFollowedAtOnce(page));
+	await step('note-opens-in-the-form-of-its-setting', () => assertNoteOpensInTheFormOfItsSetting(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, what happens to the files of the workspace, and the settings of the workbench that the surfaces of BaseHalf follow. */

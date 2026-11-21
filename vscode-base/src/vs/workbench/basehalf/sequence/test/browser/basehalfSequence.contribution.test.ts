@@ -8,6 +8,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { MenuRegistry } from '../../../../../platform/actions/common/actions.js';
 import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { BaseHalfCanvasTemplateRegistryService } from '../../../canvas/common/basehalfCanvasTemplateRegistry.js';
 import { BaseHalfCardDetailSurfaceRegistryService } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
@@ -20,7 +21,7 @@ suite('BaseHalfSequenceContribution', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('registers the Sequence view, the starter template, the capability for agents, and the commands, with the ids they had in the extension (D75)', () => {
-		const projections = store.add(new BaseHalfCardProjectionRegistryService());
+		const projections = store.add(new BaseHalfCardProjectionRegistryService(new TestConfigurationService()));
 		const surfaces = store.add(new BaseHalfCardDetailSurfaceRegistryService());
 		const templates = store.add(new BaseHalfCanvasTemplateRegistryService());
 		const capabilities = store.add(new BaseHalfAgentCapabilityRegistryService());

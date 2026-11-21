@@ -315,6 +315,12 @@ export class BaseHalfCanvasNoteEditing {
 		}
 	}
 
+	/** Whether the card of a note holds a format for Card Detail, which Rich applies when it opens. */
+	holdsMarkdownRichFormatCommands(resource: URI): boolean {
+		const resourceKey = this.view.uriIdentityService.extUri.getComparisonKey(resource);
+		return this.pendingMarkdownRichFormatCommands.some(pending => pending.resourceKey === resourceKey);
+	}
+
 	takeMarkdownRichFormatCommands(resource: URI): readonly BaseHalfMarkdownFormatCommand[] {
 		const resourceKey = this.view.uriIdentityService.extUri.getComparisonKey(resource);
 		const commands: BaseHalfMarkdownFormatCommand[] = [];

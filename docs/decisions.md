@@ -7052,3 +7052,71 @@ And after the change, in the same window:
   of the zoom menu has one frame.
 - How a mouse wheel feels was not measured, no mouse being at hand: a wheel that the system reports in small steps when
   turned slowly zooms slowly. The rate is one constant.
+
+## D145 — A note has one typography, which follows its font and its text size, and opens in the form the user chose (NEW, 2026-11-21)
+
+**Decision.** In Card Detail a note is set the same in Rich and in Preview: the font of `basehalf.notes.fontFamily`, or
+the font of the window without a value; text of `basehalf.notes.fontSize`, 16 px without a value; lines 1.5 times their
+text; a text at most 712 px wide with at least 85 px beside it; headings of 3, 2, and 1.3 times the text for the levels 1
+to 3 and of the size of the text for 4 to 6. Rich's values are the measure. The card shows the same note from afar: in
+the same font, at 13 px at a zoom of 100% whatever the text size. Code in a note is in `editor.fontFamily` on every
+surface. Both settings are followed at once, in an open Card Detail and on every note card of an open canvas, with the
+caret, the selection, and the place of the view kept. A note opens in the form of `basehalf.notes.openIn` wherever the
+opening names none ([note rendering](specs/note-rendering.md#the-typography-of-a-note)).
+
+**Why.** The owner's request of D143: settings are for a user to make the product their own, and the product is to be
+polished along the way. D143 found the defect that the two settings made visible: a font and a size are one value each
+only when a note has one typography. Measured in the real window on 2026-11-21, with a note of headings, lists, a table,
+code, and Chinese text, in a Card Detail of 1,130 px:
+
+- Rich drew the text at 16 px with lines of 24 px in a column of 712 px, Preview at 14 px with lines of 23.1 px in one of
+  760 px, and the card at 13 px in a list of fonts of its own. The first paragraph was four lines in Rich and three in
+  Preview. Narrower than 882 px, Rich kept 85 px beside the text and Preview 28.
+- The headings were 48, 32, and 20.8 px in Rich and 28, 21, and 16.4 px in Preview; a heading of level 6 was 12.8 px in
+  Rich and 9.4 px in Preview, under which the text was larger than its heading.
+- Code was in the browser's fixed font in Rich and in the window's fixed font in Preview and on the card; none was the
+  font the user sets for code.
+- The card's own list of fonts began with the system's font, so it looked like the window's on this system, and named
+  another font second, which a system without the first would use; the window's own list for a language with its own
+  script, as Chinese, was not in it.
+- A card's Expand and its double click named Rich for every note, so a setting for the form a note opens in would have
+  changed Files and the search only.
+
+Rich is the measure because a note is written there, and its sizes at 16 px are the ones its user has looked at. The two
+headings below the text size are the exception: at the smallest text size a heading of 0.8 would be 9.6 px, and the
+card already had the rule that a heading of level 4 to 6 is not smaller than the text (D54).
+
+**What was set aside.**
+- *A width of the text that grows with its size*, to keep the number of letters in a line. At 28 px that is 1,246 px,
+  wider than the half of a screen BaseHalf has; the page is magnified by a pinch for that (D109), and a column that keeps
+  its place does not jump sideways when the size changes.
+- *The text size on the card.* A card is the note from afar, and the zoom of the canvas is its size: a setting that
+  changed how much of a note a card of a given size shows would change every canvas a user has arranged.
+- *Preview kept wider in a narrow Card Detail*, where it has no handles of a block to make room for. The lines of a
+  paragraph would break at other words than in Rich, which is what one typography is to end.
+- *The font through the variables of a webview's theme.* The base gives a page the default font of the system, not the
+  font of the window for the user's language, and no size of a note. Rich gets the values with the note and in a message
+  when they change.
+- *Each surface reading the settings itself.* Three readers would be three places to forget a value or a limit; one
+  service reads them, keeps them on the element of the window, and says when they changed.
+- *Naming Rich wherever the canvas opens a note.* An opening names a form only when it carries something that only the
+  form can take, as a format chosen on a card; every other opening follows the setting.
+- *Remembering the form last used* (set aside in D143).
+
+**Consequences.**
+- Preview changes for every user: its text is 16 px, as Rich's, where it was 14, its column 712 px, and its headings
+  Rich's. Rich changes in the headings of level 5 and 6, which are the size of the text, and in the font of code.
+- The card of a note is in the font of the window, as before on this system, and in the user's font when one is set. Its
+  sizes are unchanged.
+- The stylesheets of the card and of Preview and Rich's page name no font and no text size of a note: they read the
+  properties `--basehalf-note-font-family`, `--basehalf-note-font-size`, and `--basehalf-note-code-font-family`.
+- The rules of Rich's page for a note on the canvas are gone: no such page is made since the card got an editor of its own.
+- What stood at fixed sizes beside the text follows the text size: the marks of a list, the box of a task, the handles
+  of a block, and the box of the reading aids. Beside a heading of level 4 to 6 the handles now stand at the heading's
+  line; they stood 15 px above it.
+- A table in Rich keeps its words whole, as on the card, and scrolls sideways when it is too wide: at 28 px it broke
+  "Temperature" after the u. A code block keeps its lines whole in Rich, which broke a long line, and in Preview, which
+  drew a code block without a box and without the indentation of its lines.
+- A card's Expand, and its double click on a note too long for the card's editor, name no form. A format chosen on such a
+  card still opens Rich.
+- The magnifying of a page (D109), the outline, and Source are unchanged.

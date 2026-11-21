@@ -7,9 +7,11 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, extname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { BASEHALF_RENDERABLE_CONTENT_EXTENSIONS } from '../../workspace/common/basehalfContentRendering.js';
+import { isBaseHalfMarkdownResource } from '../../workspace/common/basehalfItems.js';
 
 /**
  * Stable projection identifier persisted in navigation state. Identifiers are
@@ -19,6 +21,15 @@ import { BASEHALF_RENDERABLE_CONTENT_EXTENSIONS } from '../../workspace/common/b
 export type BaseHalfCardDetailProjection = string;
 
 export const DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION: BaseHalfCardDetailProjection = 'source';
+
+/**
+ * The setting of the form a note opens in (note rendering, rule 42). The
+ * shell registers it under this name, with these values; a test keeps the two
+ * the same.
+ */
+export const BASEHALF_NOTES_OPEN_IN_SETTING = 'basehalf.notes.openIn';
+/** The forms a note has: the projections the setting can name. */
+export const BASEHALF_NOTE_FORMS: readonly BaseHalfCardDetailProjection[] = ['rich', 'preview', DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION];
 
 export interface IBaseHalfCardProjectionSelector {
 	/** Lower-case extensions including the leading dot. Omit to match every file. */
@@ -104,7 +115,7 @@ export class BaseHalfCardProjectionRegistryService extends Disposable implements
 	private readonly _onDidChangeAvailability = this._register(new Emitter<void>());
 	readonly onDidChangeAvailability = this._onDidChangeAvailability.event;
 
-	constructor() {
+	constructor(@IConfigurationService private readonly configurationService: IConfigurationService) {
 		super();
 		for (const descriptor of BASEHALF_BUILTIN_CARD_PROJECTIONS) {
 			this.addProjection(descriptor);
@@ -137,8 +148,9 @@ export class BaseHalfCardProjectionRegistryService extends Disposable implements
 		return baseHalfCardProjectionsFor(resource, this.projections.values());
 	}
 
+	/** The setting is read at each opening, so the next opening follows a change of it (note rendering, rule 45). */
 	defaultProjection(resource: URI): BaseHalfCardDetailProjection {
-		return defaultBaseHalfCardProjectionFrom(resource, this.projections.values());
+		return baseHalfCardProjectionOpenedIn(resource, this.configurationService.getValue(BASEHALF_NOTES_OPEN_IN_SETTING), this.projections.values());
 	}
 
 	normalizeProjection(resource: URI, projection: BaseHalfCardDetailProjection | undefined): BaseHalfCardDetailProjection {
@@ -226,6 +238,24 @@ function defaultBaseHalfCardProjectionFrom(resource: URI, descriptors: Iterable<
 		}
 	}
 	return winner?.id ?? DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION;
+}
+
+/**
+ * The projection a file opens in when an opening names none (note rendering,
+ * rules 42 and 45). A note opens in the form `noteOpensIn` names, the value
+ * of the setting, when that is one of a note's forms and the note has it.
+ * Any other file, and a note with any other value, opens in the projection
+ * that the priorities of the projections give: Rich for a note.
+ */
+export function baseHalfCardProjectionOpenedIn(resource: URI, noteOpensIn: unknown, descriptors: Iterable<IBaseHalfCardProjectionDescriptor>): BaseHalfCardDetailProjection {
+	const all = [...descriptors];
+	if (isBaseHalfMarkdownResource(resource) && typeof noteOpensIn === 'string' && BASEHALF_NOTE_FORMS.includes(noteOpensIn)) {
+		const chosen = all.find(descriptor => descriptor.id === noteOpensIn);
+		if (chosen && baseHalfCardProjectionMatches(resource, chosen)) {
+			return chosen.id;
+		}
+	}
+	return defaultBaseHalfCardProjectionFrom(resource, all);
 }
 
 export function defaultBaseHalfCardDetailProjection(resource: URI): BaseHalfCardDetailProjection {

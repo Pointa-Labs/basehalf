@@ -24,7 +24,6 @@ import { IBaseHalfCanvasCardPick, IBaseHalfCanvasCardPickCard } from '../../comm
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from '../basehalfCanvasContextMenu.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { IBaseHalfCanvasPostCreateOwner, badgeType, cardDisplayName } from './basehalfCanvasViewShared.js';
-import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 const CARD_SELECTOR = '.basehalf-canvas-card[data-basehalf-card-path]';
 /** How far a press of Pick on Canvas may move and still be a click, in screen pixels. */
@@ -141,7 +140,10 @@ export class BaseHalfCanvasSelectionActions {
 			await this.view.canvasNavigationService.openCardDetail(currentItem.stat.resource, {
 				source: 'api',
 				pinned: true,
-				...(isBaseHalfMarkdownResource(currentItem.stat.resource) ? { projection: 'rich' as const } : {})
+				// An opening names a form only when it carries what only that form
+				// takes: a format chosen on the card, which Rich applies. Any other
+				// opening of a note follows the setting (note rendering, rules 42 and 43).
+				...(this.view.noteEditing.holdsMarkdownRichFormatCommands(currentItem.stat.resource) ? { projection: 'rich' as const } : {})
 			});
 		}
 	}

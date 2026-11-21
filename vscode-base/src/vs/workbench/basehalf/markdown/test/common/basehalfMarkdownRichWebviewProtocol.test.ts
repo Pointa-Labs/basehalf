@@ -24,6 +24,7 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			content: '# Doc\n',
 			editable: true,
 			surface: 'detail',
+			typography: { fontFamily: 'Charter, serif, sans-serif', fontSize: 18, codeFontFamily: 'Menlo, monospace' },
 			selection: {
 				startLineNumber: 3,
 				startColumn: 1,
@@ -487,6 +488,31 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.applyMediaChoices', key, href: 'pictures/photo.png', choices: step.after }), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.applyMediaChoices', key, href: 'pictures/photo.png' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.applyMediaChoices', key, href: '', choices: {} }), false);
+	});
+
+	test('carries the typography of a note with the note and when it changes, and no value a stylesheet cannot hold', () => {
+		const init = {
+			type: 'basehalf.markdownRich.init',
+			key: 'workspace\u0000doc.md',
+			resource: 'file:///workspace/doc.md',
+			baseUri: 'vscode-webview-resource://base/workspace/',
+			content: '# Doc\n',
+			editable: true,
+			surface: 'detail'
+		};
+		const typography = { fontFamily: 'Charter, sans-serif', fontSize: 16, codeFontFamily: 'Menlo, monospace' };
+		const change = { type: 'basehalf.markdownRich.typography', key: 'workspace\u0000doc.md' };
+		assert.deepStrictEqual([
+			isBaseHalfMarkdownRichHostMessage({ ...init, typography }),
+			isBaseHalfMarkdownRichHostMessage(init),
+			isBaseHalfMarkdownRichHostMessage({ ...change, typography }),
+			isBaseHalfMarkdownRichHostMessage(change),
+			isBaseHalfMarkdownRichHostMessage({ ...change, typography: { ...typography, fontSize: '16px' } }),
+			isBaseHalfMarkdownRichHostMessage({ ...change, typography: { ...typography, fontSize: 0 } }),
+			isBaseHalfMarkdownRichHostMessage({ ...change, typography: { ...typography, fontSize: Number.NaN } }),
+			isBaseHalfMarkdownRichHostMessage({ ...change, typography: { ...typography, fontFamily: '' } }),
+			isBaseHalfMarkdownRichHostMessage({ ...change, typography: { ...typography, codeFontFamily: undefined } })
+		], [true, false, true, false, false, false, false, false, false]);
 	});
 
 	test('rejects the retired focus mirror message from webviews', () => {
