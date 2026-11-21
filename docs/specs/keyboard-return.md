@@ -256,6 +256,18 @@ closing ends.
   the page itself: the editor of a note that was just made
   (`keyboardHome.gave`).
 
+### When the rule looks
+
+The rule looks 50 ms after the keyboard was lost to nothing, not at once.
+Much of BaseHalf takes a control away and puts another in its place that
+takes the keyboard a turn or a frame later: the name of Card Detail's file
+becomes a field, a toggle is drawn open. Looking at once, the rule found
+the keyboard on the page in between and gave it to Card Detail's view,
+whose taking is not undone by the field's: the field lost the keyboard
+again and closed. 50 ms is past the next frame and under what a user
+notices; a key pressed within it reaches the page, and the rule sends the
+keyboard before the base looks the key up, as before.
+
 ### A part that is drawn anew
 
 A part that takes its controls away to draw them anew, and gives the
