@@ -207,6 +207,18 @@ suite('ConfigurationEditing', () => {
 		assert.fail('Should fail with ERROR_CONFIGURATION_FILE_DIRTY error.');
 	});
 
+	// BaseHalf: a setting that BaseHalf keeps is not written, and its line may be removed (docs/specs/settings-catalog.md).
+	test('errors cases - a setting that BaseHalf keeps', async () => {
+		await testObject.writeConfiguration(EditableConfigurationTarget.USER_LOCAL, { key: 'window.commandCenter', value: undefined }, { donotNotifyError: true });
+		try {
+			await testObject.writeConfiguration(EditableConfigurationTarget.USER_LOCAL, { key: 'window.commandCenter', value: false }, { donotNotifyError: true });
+		} catch (error) {
+			assert.strictEqual(error.code, ConfigurationEditingErrorCode.ERROR_BASEHALF_LOCKED_CONFIGURATION);
+			return;
+		}
+		assert.fail('Should fail with ERROR_BASEHALF_LOCKED_CONFIGURATION');
+	});
+
 	test('errors cases - ERROR_POLICY_CONFIGURATION', async () => {
 		await runWithFakedTimers({ useFakeTimers: true }, async () => {
 			const promise = Event.toPromise(instantiationService.get(IConfigurationService).onDidChangeConfiguration);

@@ -31,6 +31,7 @@ import './shell/browser/basehalfReleaseNotes.contribution.js';
 import './shell/browser/basehalfAbout.contribution.js';
 import './shell/browser/basehalfHover.contribution.js';
 import './shell/browser/basehalfWorkbenchProfile.contribution.js';
+import './shell/browser/basehalfSettingsCatalog.contribution.js';
 import './navigation/browser/basehalfNavigation.contribution.js';
 import './canvas/basehalfCanvas.all.js';
 import './upkeep/browser/basehalfMirrorCascade.contribution.js';

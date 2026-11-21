@@ -8,11 +8,26 @@
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
-import { root } from '../../context.mts';
+import { logsPath, root } from '../../context.mts';
 import { chooseProviderKind, closeProvidersPage, openProvidersPage, readProviderEditor, readProviderKinds, readProviderLayout, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION } from '../../lib/providers.mts';
 import { runCommand } from '../../lib/quickInput.mts';
 import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
 import { waitForReading } from '../../lib/steps.mts';
+
+// Every setting that the base and the shipped extensions register has a class in the catalog (the settings
+// BaseHalf offers, criterion 1): the window names the ones without in its log, once its extensions are registered.
+export function assertEverySettingHasAClass() {
+	const logs = fs.readdirSync(logsPath, { recursive: true }).map(String).filter(file => path.basename(file) === 'renderer.log');
+	if (!logs.length) {
+		throw new Error(`No log of a window under ${logsPath}`);
+	}
+	for (const log of logs) {
+		const line = fs.readFileSync(path.join(logsPath, log), 'utf8').split('\n').find(candidate => candidate.includes('[BaseHalf] settings without a class:'));
+		if (line) {
+			throw new Error(`Settings without a class in the catalog: ${line.slice(line.indexOf('class:') + 6).trim()}`);
+		}
+	}
+}
 
 export async function assertBaseHalfSettingsCategory(page) {
 	await runCommand(page, 'Open Settings (UI)');
