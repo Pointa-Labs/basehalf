@@ -173,7 +173,10 @@ the stop after it, or with Shift to the stop before it.
   its place and its zoom, and no part of the window scrolls.
 - The canvas itself draws no ring. A card that takes the keyboard after a
   key shows the ring it shows when the keyboard reaches it otherwise; after
-  a press of the pointer it shows none
+  a press of the pointer it shows none. A press of the pointer anywhere on
+  the canvas also ends the ring of a card that a key had given one, the
+  card that is pressed among them: the browser alone keeps that ring until
+  the keyboard moves to another element. The next key shows it again
   ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
 - A window that is not in front takes no keyboard from another
   application: the place is ready when it comes to the front.
@@ -262,6 +265,11 @@ zone open and puts the keyboard into the description. Without this the
 keyboard was on the page for that turn, Card Detail's view took it by the
 rule above, and a view that takes the keyboard closes the Badge zone: the
 press opened nothing.
+
+The open Badge zone is also a part that keeps the keyboard that leaves it
+for nothing, as the Agent Area is: when a control in it is taken away or
+gives the keyboard up, the zone itself takes it, and stays open. It closes
+as before: by its toggle, by Escape, and by a press outside it.
 
 ## Acceptance criteria
 
