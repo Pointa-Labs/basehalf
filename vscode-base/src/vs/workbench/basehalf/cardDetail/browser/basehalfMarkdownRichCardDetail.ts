@@ -777,6 +777,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		if (!this.model || !this.modelWriteGate.acceptChange()) {
 			return;
 		}
+		// A text this editor did not send, from another program or another view of the note: what the editor wrote
+		// before it no longer answers for the file, and a save after it is judged against it alone (opening and
+		// closing Card Detail, "Escape closes Card Detail also while what was just typed is being written").
+		if (this.model.getValue() !== this.lastSentContent) {
+			this.lastAcceptedEditorContent = undefined;
+		}
 
 		this.updateStatus();
 		this.refreshAdhdOnFrontmatterChange();

@@ -29,6 +29,8 @@ export class BaseHalfMarkdownRichSaving {
 	/** Bodies of rich saves the host is writing now. */
 	private readonly pendingEditorSaveBodies: string[] = [];
 	private pendingProjectionSave: Promise<boolean> | undefined;
+	/** The save being written, after which the next one asked for is written. */
+	private saveQueue: Promise<void> = Promise.resolve();
 
 	constructor(private readonly detail: BaseHalfMarkdownRichCardDetail) { }
 
@@ -173,7 +175,18 @@ export class BaseHalfMarkdownRichSaving {
 		});
 	}
 
-	async handleSaveRequested(message: BaseHalfMarkdownRichSaveRequestedMessage, model: ITextModel): Promise<void> {
+	/**
+	 * The saves of this editor are written one at a time, in the order they were asked for: a save that comes while
+	 * another is written finds the file, and what this editor wrote, as the other left them (opening and closing Card
+	 * Detail, "Escape closes Card Detail also while what was just typed is being written").
+	 */
+	handleSaveRequested(message: BaseHalfMarkdownRichSaveRequestedMessage, model: ITextModel): Promise<void> {
+		const run = this.saveQueue.then(() => this.writeRequestedSave(message, model));
+		this.saveQueue = run.catch(() => undefined);
+		return run;
+	}
+
+	private async writeRequestedSave(message: BaseHalfMarkdownRichSaveRequestedMessage, model: ITextModel): Promise<void> {
 		const bridge = this.detail.bridge;
 		if (!bridge) {
 			return;
