@@ -51,6 +51,8 @@ export class BaseHalfCanvasKeyboardHome {
 		}, true));
 		store.add(DOM.addDisposableListener(ownerDocument, DOM.EventType.KEY_DOWN, event => {
 			this.tabbing = event.key === 'Tab' ? { backward: event.shiftKey } : undefined;
+			// The user works where the keyboard is: it stands in for nothing any more.
+			this.given = undefined;
 			// A key on the page itself, should the keyboard still be there: the rule sends the keyboard
 			// before the base looks the key up, so the key acts where the keyboard belongs.
 			if (event.target === ownerDocument.body) {
@@ -58,7 +60,18 @@ export class BaseHalfCanvasKeyboardHome {
 			}
 		}, true));
 		store.add(DOM.addDisposableListener(ownerDocument, DOM.EventType.KEY_UP, () => { this.tabbing = undefined; }, true));
-		store.add(DOM.addDisposableListener(ownerDocument, DOM.EventType.POINTER_DOWN, () => { this.tabbing = undefined; }, true));
+		store.add(DOM.addDisposableListener(ownerDocument, DOM.EventType.POINTER_DOWN, event => {
+			this.tabbing = undefined;
+			this.given = undefined;
+			// A press on the blank canvas makes the canvas itself the place, also while it has the keyboard already.
+			const target = event.target;
+			if ((DOM.isHTMLElement(target) || DOM.isSVGElement(target)) && this.view.cards.contains(target) && !target.closest('.react-flow__node')) {
+				const { keyboardOn } = this.view.keys.placeOf(target);
+				if (keyboardOn === 'canvas' || keyboardOn === 'scene') {
+					this.home = undefined;
+				}
+			}
+		}, true));
 		store.add(this.view.dialogService.onWillShowDialog(() => { this.openDialogs++; }));
 		store.add(this.view.dialogService.onDidShowDialog(() => { this.openDialogs = Math.max(0, this.openDialogs - 1); }));
 		store.add(toDisposable(() => {
@@ -87,7 +100,11 @@ export class BaseHalfCanvasKeyboardHome {
 		this.give();
 	}
 
-	/** The card of `resource` is the place from now on: what it showed over itself, as the editor of its name, is about to go. */
+	/**
+	 * The card of `resource` is the place from now on. What has the keyboard now is about to go: the
+	 * editor of the card's name, or the card itself, which is drawn anew under its new name. The card of
+	 * `resource` takes the keyboard then, once it is drawn.
+	 */
 	setHome(resource: URI): void {
 		this.home = resource;
 	}
@@ -122,14 +139,15 @@ export class BaseHalfCanvasKeyboardHome {
 		if (!DOM.isHTMLElement(target) && !DOM.isSVGElement(target)) {
 			return;
 		}
+		// What this part gives the keyboard to is no new place: the canvas itself may only stand in for a card that is not drawn yet.
+		if (this.giving) {
+			return;
+		}
 		if (target !== this.given) {
 			this.given = undefined;
 		}
 		this.leftPart = undefined;
 		if (this.isEmptyGroup(target)) {
-			if (this.giving) {
-				return;
-			}
 			const tabbing = this.tabbing;
 			if (tabbing && this.passTabOn(target, tabbing.backward)) {
 				return;
@@ -198,6 +216,7 @@ export class BaseHalfCanvasKeyboardHome {
 			homeCardShown: !!homeCard
 		});
 		this.giving = true;
+		this.given = undefined;
 		try {
 			switch (taker) {
 				case 'nothing':

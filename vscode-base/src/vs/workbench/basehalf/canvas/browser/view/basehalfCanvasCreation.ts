@@ -949,10 +949,10 @@ export class BaseHalfCanvasCreation {
 				await this.commitCanvasInlineEdit(edit, fileNameOf(name));
 				this.view.lastCanvasContextMenu = undefined;
 				this.view.requestRender();
-				// Enter gives the keyboard to the renamed card, as Escape does to the
-				// card whose name was edited (where the keyboard returns).
+				// After Enter the card has the keyboard, as after Escape (where the keyboard
+				// returns): it is drawn anew under its new name, and takes the keyboard then.
 				if (enterOwner && this.view.isCanvasPostCreateOwnerCurrent(enterOwner)) {
-					this.view.keyboardHome.giveToCardOf(joinPath(edit.parent, fileNameOf(name)));
+					this.view.keyboardHome.setHome(joinPath(edit.parent, fileNameOf(name)));
 				}
 			} catch (error) {
 				this.view.inlineEdit = edit;
