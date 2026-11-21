@@ -255,5 +255,11 @@ the real window, a development build of 0.7.0:
   path read from the title bar. Before the change, every title was the
   workspace's name. The system's own list of windows was not looked at,
   and a rename of the file in Card Detail (rule 13) was not run.
+- The `navigation` suite of the smoke runs criteria 1 and 2
+  (`mouse-buttons-go-back-and-forward`, the buttons sent over the debugging
+  protocol to a note, the canvas, and Files), criteria 4 and 5 with
+  `explorer.autoReveal` off (`files-reveal-the-file-in-card-detail`), and
+  criteria 7 and 9 (`window-title-names-the-shown-place`), on files of its
+  own.
 - Not verified: the buttons over a PDF, over a book, whose text is in a
   frame inside its page, and over the view of an agent extension.

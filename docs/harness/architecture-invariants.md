@@ -165,7 +165,12 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   the later one of two stylesheets. A change of the setting holds from the
   next animation, in the window and in a page, without a reload. Where a
   specification says "with reduced motion", it means this. A library inside
-  a page that asks the system by itself is not covered.
+  a page that asks the system by itself is not covered. A test fails on a
+  source of BaseHalf's that names the system's preference
+  (`basehalfReducedMotion.test.ts`), and the `navigation` suite of the
+  smoke reads what a folder's card, a connection handle, and the page of a
+  note do with the setting on and off
+  (`reduced-motion-follows-the-setting`).
 - Card Detail fades in and out where it is, over the canvas area: no frame
   shows it empty, and no frame draws anything of it outside the canvas
   area. Once open it takes the keyboard, and Escape closes it wherever in it

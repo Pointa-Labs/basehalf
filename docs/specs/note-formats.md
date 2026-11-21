@@ -1051,11 +1051,11 @@ this specification. Outside changes are merged meanwhile, as always.
 43. With `files.trimTrailingWhitespace`, `files.insertFinalNewline`, and
     `files.trimFinalNewlines` on, a note that holds a line ending in two
     spaces and whose file ends without a line feed, changed by one letter
-    in another line from Source, from Rich, and from its card: the file
-    read from the disk still holds the two spaces, and it gains no line
-    feed at its end from Source and from the card. A `.txt` file changed by
-    one letter in Source loses the spaces and tabs at the ends of its lines
-    and ends with one line feed.
+    in another paragraph that is not its last, from Source, from Rich, and
+    from its card: the file read from the disk is the file as it was with
+    that letter in it, the two spaces and the end without a line feed
+    included. A `.txt` file changed by one letter in Source loses the
+    spaces and tabs at the ends of its lines and ends with one line feed.
 
 ## Verification
 
@@ -1128,6 +1128,15 @@ this specification. Outside changes are merged meanwhile, as always.
   2026-11-03, at a load of 11, 32.7 ms, 0 px, the handle 0.01 px over 56
   frames, and 57.7 ms at Done for the video, and 38.4 ms, 0 px, 0.01 px over
   60 frames, and 262 ms for the sound.
+- Criterion 43, and rule 89: a unit test in the window of the test runner
+  runs every save participant that the base registers on a note, by a save
+  of the user and by one that saves itself, and on a text and a code file
+  (`basehalfNoteSaveWhiteSpace.test.ts`); the `navigation` suite of the
+  smoke runs it in the real window from Rich and, for the text file, from
+  Source (`save-keeps-the-white-space-of-a-note`). In the real window on
+  2026-11-21, by hand: from Source, from Rich, and from the card, each file
+  read from the disk. Before the rule, Source and Rich wrote the note
+  without its two spaces and with a line feed at its end.
 - `npm run basehalf:fidelity` covers criterion 2 with the corpus files
   `note-formats.md` and `boundaries.md` and the pass that types one letter.
 - In the real window, by hand, recorded with numbers: criterion 22.
