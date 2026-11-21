@@ -264,13 +264,16 @@ the title it had when the edit began.
   not renamed when it appears, when it is rewritten, or when the user changes
   its text below the title. Its file follows its title from the first time
   the user changes the title in BaseHalf. This holds while the note is open
-  too: a title that another program writes into a note that Card Detail or
-  the editor on its card holds is, from then on, the title the edit began
-  with, so letting the note go renames nothing, and a title the user types
-  after it is followed. A save of an editor of BaseHalf is the user's; every
-  other change of the file is another program's. Before, closing Card Detail
-  renamed a note after the title an agent had written into it while it was
-  open (2026-11-22).
+  too. A save of an editor of BaseHalf is the user's; every other change of
+  the file is another program's. A title that another program writes into a
+  note that Card Detail or the editor on its card holds becomes the title the
+  edit began with once the editor takes it up, that is, when the editor's
+  next save carries it; a title the user types after it is followed. An
+  editor that keeps its own text over it, as Keep my edits does, leaves the
+  edit's title as it was, so that save renames nothing either. While no
+  editor has saved since another program changed the title, letting the
+  note go renames nothing. Before, closing Card Detail renamed a note after
+  the title an agent had written into it while it was open (2026-11-22).
 - **A rename by name** (the rename editor, the title of Card Detail, Files)
   changes the name only. Title and name agree again the next time the title
   is changed.
@@ -448,6 +451,10 @@ The title line and the text under it (D136)
     program with the title `Beta`: a line typed under the title and Escape
     leave the file named `alpha.md`. Opened again, its title changed to
     `Gamma` and Escape give `Gamma.md`.
+33. `alpha.md`, titled `Alpha`, open in Card Detail with a line being typed
+    under the title, rewritten by another program with the title `Beta`:
+    Keep my edits and Escape leave the file named `alpha.md`, holding
+    `# Alpha`.
 
 ## Verification
 
