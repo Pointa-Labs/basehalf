@@ -6984,15 +6984,17 @@ part of the product no list showed. Read in the code and pressed in the real win
   were in the base's list of keys.
 - Keyboard Shortcuts, from the gear's menu, opened in the editor area: it took the place of the canvas, and Escape did
   not close it. The base opens it in the editor group it was asked from, and in BaseHalf that group is under the canvas.
-- Keyboard Shortcuts listed 1,852 rows. Among them were the commands of inline suggestions, which have no provider; 66
+- Keyboard Shortcuts listed 1,852 rows. Among them were 15 commands of inline suggestions, which have no provider; 66
   actions of the Extensions view by their bare ids; and commands of Run and Debug and of the base's chat. D141 had read
-  the two lists Keyboard Shortcuts is made from, and the palette, and had not opened it.
+  the two lists Keyboard Shortcuts is made from, and the palette, and had not opened it. After the change it lists
+  1,752: 112 commands are gone, and the 19 of the canvas have come.
 
 The weight of the change is that nothing a user does at the default keys changes. Before any code changed, each of 19
 keys was pressed with the real keyboard in 27 places of the window that take keys: on the blank canvas, on selected and
 unselected cards of each kind, in the toolbars, in a card's name, in a note and a code card being edited, in the prompts
 of a draft and of a badge, in the menu of the zoom control, in Card Detail, in Files, and in Quick Open. What each press
-changed was written down, and the same presses were made after.
+changed was written down, and the same presses were made after: of 511, 510 changed the same, and one differed in a
+class of the note's editor that comes and goes with the moment of the reading.
 
 **How a key reaches its command.** The base looks a key up when the key press reaches the window, after every element
 under the keyboard has had it. The keys of the canvas acted earlier: before the controls of the canvas and before the
@@ -7033,8 +7035,10 @@ from the element under the keyboard and from the selection as the scene holds it
   Shift+Command+D, nor F2, Enter, Space, Delete, and Backspace with a modifier held, but for Command+Backspace.
 - Where Move Card acts, an arrow key that a user took from it does nothing: the canvas library never moves a card.
 - The editor of a note on its card keeps Alt+F10 for its toolbar as a key of its own, with its other keys.
-- Keyboard Shortcuts and the key bindings file open in the overlay. Under the base's smoke driver they open in the
-  editor area, as the advanced list does.
+- Keyboard Shortcuts, the key bindings file, and the default key bindings open in the overlay. Under the base's smoke
+  driver they open in the editor area, as the advanced list does. After the overlay closes the keyboard is on the editor
+  group under the canvas, as after Settings closes: giving it to the canvas is work for the shell.
+- The editor of a card's name keeps every key, as before: the canvas does not have the keyboard while a name is edited.
 - Two more families are hidden, inline suggestions and what only a language service other than JSON's makes, and four
   earlier families name what Keyboard Shortcuts still listed of them. The Command Palette loses Snooze Inline
   Suggestions and Cancel Snooze Inline Suggestions.

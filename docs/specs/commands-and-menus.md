@@ -63,9 +63,9 @@ the palette and the menus:
   the advanced list open in the overlay over the canvas.
 - **Keyboard Shortcuts still listed commands of what BaseHalf does not
   have**: "Accept Inline Completion" and 14 more of inline suggestions,
-  which have no provider; 68 actions of the Extensions view by their bare
-  ids; the commands of the views of Run and Debug; and commands of the
-  base's chat that the palette never listed. D141 read the two lists
+  which have no provider; 66 actions of the Extensions view and 3 of an
+  extension's page, by their bare ids; the commands of the views of Run and
+  Debug; and commands of the base's chat that the palette never listed. D141 read the two lists
   Keyboard Shortcuts is made from and did not open it.
 - **Keyboard Shortcuts listed none of the keys of the canvas**
   ([the keys of the canvas](canvas-keys.md)).
@@ -175,8 +175,9 @@ BaseHalf it is where a user sees and changes the keys of the product.
 - **It lists BaseHalf's own commands** under the category BaseHalf, the
   keys of the canvas among them ([the keys of the canvas](canvas-keys.md)).
   A key changed there is in effect at once.
-- The key bindings file, which Keyboard Shortcuts opens from its title, opens
-  in the overlay too.
+- The key bindings file, which Keyboard Shortcuts opens from its title, and
+  the default key bindings, which the Command Palette opens, open in the
+  overlay too.
 
 ## Output
 
@@ -302,11 +303,12 @@ base's voice service is not there.
   Open View, whose rows are views, asks the hidden surfaces
   (`shell/common/basehalfOfferedViews.ts`).
 - **Keyboard Shortcuts in the overlay**: the base opens Keyboard Shortcuts
-  and the key bindings file in the editor group they were asked from. A
-  marked change in `services/preferences/browser/preferencesService.ts`
-  sends them to the overlay unless that group is the overlay's already,
-  under the base's own conditions for the overlay: `workbench.editor.useModal`,
-  which is locked at `some`, and not while the base's smoke driver runs.
+  and the key bindings file in the editor group they were asked from, and
+  the default key bindings in the active group. Two marked changes in
+  `services/preferences/browser/preferencesService.ts` send them to the
+  overlay unless the group is the overlay's already, under the base's own
+  conditions for the overlay: `workbench.editor.useModal`, which is locked
+  at `some`, and not while the base's smoke driver runs.
 - Nothing of a hidden feature is removed from the build (D122, D137).
 
 ## Acceptance criteria
@@ -357,7 +359,8 @@ base's voice service is not there.
 14. Keyboard Shortcuts of the gear's menu, its key, Preferences: Open
     Keyboard Shortcuts of the Command Palette, and Keyboard Shortcuts… of
     Settings each show Keyboard Shortcuts in the overlay, with the canvas in
-    view behind it; Escape closes it, and the canvas has the keyboard.
+    view behind it, and Escape closes it. Preferences: Open Default Keyboard
+    Shortcuts (JSON) opens in the overlay too.
 15. Keyboard Shortcuts lists no command whose id a hidden family names:
     none of inline suggestions, of the Extensions view, of the views of Run
     and Debug, or of the base's chat. It lists the commands of the canvas
@@ -411,6 +414,34 @@ base's voice service is not there.
   search again: one start before the change, none after. That the base asks
   nothing of GitHub with a session was read in the code and not run: no
   session of a real account was used.
+- Unit tests for Keyboard Shortcuts: the families of what it still listed
+  (`basehalfHiddenCommands.test.ts`), and where the base opens it, from a
+  group of the main part with the overlay on and off
+  (`preferencesService.test.ts`).
+- The workbench suite of the smoke, `canvas-keys-are-commands`: Keyboard
+  Shortcuts lists the commands of the canvas and none of inline
+  suggestions, of the Extensions view, or of the views of Run and Debug.
+  Under the smoke driver it stands in the editor area, as the advanced list
+  does.
+- Run in the real window on 2026-11-21 for criteria 14 to 16, in a folder
+  without git. Before: Keyboard Shortcuts of the gear's menu stood in the
+  editor area, the canvas was not in view, and Escape did not close it; its
+  list had 1,852 rows. After: from the gear's menu, from Keyboard Shortcuts…
+  of Settings (in place of Settings), from its key, and from the Command
+  Palette it stood in the overlay with the cards in view around it, and
+  Escape closed it each time; the default key bindings opened in the overlay.
+  Its list had 1,752 rows: 123 rows of 112 commands were gone (15 commands of
+  inline suggestions, 15 of parameter hints, inlay hints, renaming a symbol,
+  and linked editing, 66 actions of the Extensions view and 3 of an
+  extension's page, 5 of the views of Run and Debug, 7 of the base's chat,
+  and the peek of a test), and 25 rows of the 19 commands of the canvas had
+  come. The rows were read by scrolling the list; the ids, from the two
+  lists the editor is made from, which gave 1,845 and 1,747 rows: 7 rows of
+  the editor before and 5 after are not told by their ids. Tidy Canvas given
+  Alt+T by a double click on its row was in the key bindings file and
+  tidied at once. After Escape the keyboard is on the editor group under the
+  canvas, as after Settings closes, not on the canvas: a press on the canvas
+  gives it the keyboard.
 - Run in the real window on 2026-11-21 for criteria 4 and 5 of the required
   behavior: the default key bindings, opened as JSON, were searched for the
   ids of Tasks, Start Debugging, splitting an editor, Toggle Output, and the

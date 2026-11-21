@@ -262,10 +262,56 @@ the keyboard.
 ## Verification
 
 - Unit tests of the table and the rule (`basehalfCanvasKeys.test.ts`):
-  every command's condition over the places of criterion 5, the keys of the
-  table, and the arrow keys the scene stops.
-- The real window, before and after, with real keys in each place of
-  criterion 5 (`keys-matrix`): what each of 19 keys changed, compared.
-- The smoke's canvas suites press the default keys (zoom, Delete, F2,
-  Enter, Escape) and keep passing; a step of the workbench suite changes a
-  key in the key bindings file and presses it.
+  where each command's key acts over 28 places, that no key has two commands
+  in one place, the commands with their default keys, and the arrow keys the
+  canvas view stops. Tidy Canvas runs as the feature's command
+  (`basehalfCanvasTidy.contribution.test.ts`).
+- The smoke's canvas suites press the default keys (zoom in the zoom menu,
+  Delete, F2, Enter, Escape, Shift+Alt+F) and are unchanged. A step of the
+  workbench suite, `canvas-keys-are-commands`, reads the commands in
+  Keyboard Shortcuts, gives Zoom Canvas In a key in the key bindings file,
+  presses it, and takes it away again.
+- Run in the real window on 2026-11-21 for criterion 5, before any code
+  changed and after, with the real keyboard (`page.keyboard`): 19 keys (the
+  four of zoom, the arrow keys and one with Shift, the duplicate key, Delete,
+  Backspace, F2, Enter, Space, Shift+Alt+F, Alt+F10, Escape, and a letter) in
+  27 places, 511 presses: Enter and Space were not pressed in the toolbar
+  of a video, where they would capture a frame. For each press, what changed
+  was written down: the
+  zoom of the canvas and of the window, the cards and their places, the
+  selection, the connections, Card Detail, the element with the keyboard,
+  the text under the caret, the editors on cards, the question of Tidy
+  Canvas, menus, Quick Open, dialogs, and the files of the folder. 510
+  presses changed the same before and after. One differed in a class of the
+  note's editor that hides its selection while it takes the keyboard, which
+  comes and goes with the moment of the reading.
+- The places: the blank canvas; a selected note, video, and code card; two
+  selected cards; a selected connection; a note, a code, a video, and a
+  draft card that has the keyboard and is not selected; a card with the
+  keyboard while another is selected; the toolbar of a note, a code card, a
+  video, and two cards; a card's name, a note, and a code card being edited;
+  the prompt of a draft and of a badge; the Tidy Canvas button; the field
+  of the zoom menu; Card Detail with a code file in Source, and with a note
+  and a video while Files has the keyboard; Files; and Quick Open.
+- What the first run showed and the code had not said: the editor of a
+  card's name keeps every key, so the zoom keys do nothing there; and after
+  Escape ends the editing of a note on its card the keyboard is on the page
+  itself, where the zoom keys zoom the window.
+- Run in the real window for the keys with other modifiers, in five places,
+  before and after: the 21 presses that differ are the ones "The commands"
+  names: Control+=, Control+D, and Shift+Command+D act no more, nor F2,
+  Enter, Space, and Delete with Shift or Command held. With Shift, Enter and
+  Space now only reach the canvas library, which adds the card to the
+  selection or takes it out. Command+Backspace deletes as before.
+- Run in the real window for criteria 1 and 6 to 9: Keyboard Shortcuts
+  listed the nineteen commands by their names with their keys; Tidy Canvas
+  given Alt+T there tidied at Alt+T, did not at Shift+Alt+F, typed in a note
+  edited on its card, and the tooltip read "Tidy Canvas (⌥T)"; with the
+  keys of the delete and of Move Card Left removed in the key bindings file,
+  Delete and Backspace deleted nothing and Left moved nothing while Right
+  moved the card; Zoom Canvas In given Alt+Z zoomed at once, the menu of the
+  zoom control read "Zoom In ⌥Z" and took the key; Fit Canvas to Screen
+  given Alt+G fitted; the palette listed the five commands of the view, and
+  with a card selected the three of the selection; Zoom Canvas In, Rename
+  Card, and Duplicate Selected Cards ran from it; it listed no Move Card and
+  no Open Card.
