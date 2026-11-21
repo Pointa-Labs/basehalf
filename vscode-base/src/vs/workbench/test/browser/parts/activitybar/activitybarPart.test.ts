@@ -34,6 +34,7 @@ interface ILayoutTestHarness {
 	lastLayoutDimensions?: Dimension;
 	options: { orientation: ActionsOrientation };
 	compositeBar: { layout: (dimension: Dimension) => void };
+	recomputeSizesIfVisible(): void;
 }
 
 // `super.layout()` resolves through the prototype chain, so calling the extracted method
@@ -686,6 +687,7 @@ suite('ActivitybarPart', () => {
 			globalActivities: { actionHeight: itemHeight, actionGap: gap },
 			options: { orientation: ActionsOrientation.VERTICAL },
 			compositeBar: { layout: dimension => { laidOut = dimension; } },
+			recomputeSizesIfVisible: () => { },
 		}, ActivitybarPart.FLOATING_ACTIVITYBAR_WIDTH, 300);
 
 		return laidOut!.height;
@@ -722,6 +724,7 @@ suite('ActivitybarPart', () => {
 			globalActivities: undefined,
 			options: { orientation: ActionsOrientation.HORIZONTAL },
 			compositeBar: { layout: dimension => { laidOut = dimension; } },
+			recomputeSizesIfVisible: () => { },
 		}, 300, 35);
 
 		assert.deepStrictEqual(laidOut, new Dimension(265, 35));

@@ -47,7 +47,8 @@ the session that did it; `reference/vscode` holds both tags).
 - `src/vs/workbench/browser/parts/paneCompositeBar.ts`: merged; BaseHalf's
   hidden commands stay.
 - `src/vs/workbench/browser/parts/activitybar/activitybarPart.ts`: only the
-  configuration service handed to the composite bar.
+  configuration service handed to the composite bar; its test only the
+  composite bar's `recomputeSizesIfVisible` on the harness of `layout`.
 - `src/vs/platform/workspace/test/common/testWorkspace.ts`: `testIWorkspace`,
   which returns its argument, as this tree's `IWorkspace` has no uri.
 - `src/vs/workbench/contrib/modernUI/test/browser/modernUI.contribution.test.ts`
