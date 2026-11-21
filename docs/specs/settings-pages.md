@@ -4,6 +4,9 @@ Status: Active (2026-11-21; replaces the pages BaseHalf drew inside the
 Settings editor of the base, 2026-10-21)
 Decisions: [D137](../decisions.md#d137--every-setting-has-one-of-five-classes-and-a-setting-nothing-follows-is-work-not-waste-new-2026-11-21)
 made Settings BaseHalf's own;
+[D143](../decisions.md#d143--a-setting-of-basehalfs-own-is-a-choice-only-the-user-can-make-and-settings-has-a-page-for-each-part-of-the-product-new-2026-11-21)
+gave it a page for each part of the product and the settings of BaseHalf's
+own;
 [D49](../decisions.md#d49--the-state-of-an-update-is-a-page-in-settings-not-a-card-new-2026-10-12)
 put the About page in Settings,
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
@@ -19,10 +22,13 @@ Providers page holds), [app update](app-update.md#where-an-update-shows)
 (what the About page holds), [generation cards](generation-cards.md#the-panel)
 (Set Up and Providers… of the panel)
 
-This specification owns BaseHalf's Settings: its pages, what the General page
-lists and how a setting is changed there, how Settings opens, also at a page,
-and how the Settings editor of the base is reached. What the Providers and
-the About page hold is owned by the specifications linked above.
+This specification owns BaseHalf's Settings: its pages, which settings each
+page lists and under which names, how a setting is changed there, how
+Settings opens, also at a page, and how Keyboard Shortcuts and the Settings
+editor of the base are reached. What a setting does is owned by the
+specification of the surface it changes, named in the tables below. What the
+Providers and the About page hold is owned by the specifications linked
+above.
 
 ## Problem
 
@@ -43,22 +49,45 @@ Measured in the real window on 2026-11-21:
   scope that did nothing for them, and the Providers page had 379 of the
   overlay's 692 points of height: its key field was cut off at first sight.
 
+Read in the code and seen in the real window later that day, with Settings
+BaseHalf's own and one page of eleven rows:
+
+- **What a user would set was fixed, or kept nowhere.** The magnet of the
+  canvas, Snap to Cards, was on again after every start. The mouse wheel
+  moved the canvas and could not zoom it. A note had four sizes and three
+  fonts of its text, in Rich 16 px, in Preview 14 px, on its card 13 px in
+  another font, in Source the code's, and none could be chosen. A note
+  always opened in Rich. The record of the selection that agents read could
+  be stopped only by removing the skill. The Agent Area was empty after
+  every start.
+- **The keys of the canvas were in no list.** Keyboard Shortcuts opened in
+  the place of the canvas, and nothing in Settings led to it.
+- **One page held what belongs to four parts of the product**, six sections
+  of one to four rows.
+
 ## Terms
 
 - **Settings**: BaseHalf's Settings, an overlay in the middle of the window.
-- **Page**: General, Providers, or About.
+- **Page**: General, Canvas, Notes, Agent Area, Providers, or About.
+- **A setting of BaseHalf's own**: one whose name starts with `basehalf.`.
 - **The advanced list**: the Settings editor of the base, which lists the
   shown and the advanced settings of the catalog
   ([the settings BaseHalf offers](settings-catalog.md)).
 
 ## The pages
 
-Settings has a list of its pages at the left, **General**, **Providers**,
-and **About**, and shows the page chosen beside it. Under the list, at the
-bottom, is **Advanced Settings…**.
+Settings has a list of its pages at the left and shows the page chosen
+beside it: **General**, **Canvas**, **Notes**, **Agent Area**,
+**Providers**, and **About**. A page is a part of the product by the name
+the product has for it. Under the list, at the bottom, are **Keyboard
+Shortcuts…** and **Advanced Settings…**.
 
-- Settings has no search and no choice of a scope: it holds twelve settings
-  and two pages.
+- Settings has no search and no choice of a scope: it holds the settings a
+  user would look for, on the page of what they change.
+- **Every setting of BaseHalf's own is on a page**, and the pages hold the
+  shown settings of the catalog and no other
+  ([the settings BaseHalf offers](settings-catalog.md)). BaseHalf has no
+  setting of its own that only the advanced list holds.
 - A page is drawn when it is first shown and stays while Settings is open:
   what was typed in it is there when the page is chosen again, but for a
   credential that was typed and not set, which is cleared when its page is
@@ -67,29 +96,86 @@ bottom, is **Advanced Settings…**.
   page. Settings that is open, or stands behind the advanced list, shows the
   page it has when it is asked for again without one.
 
-## The General page
+## What earns a setting
 
-The shown settings of the catalog, by what they belong to, each under a name
-of BaseHalf's own. `update.mode` is on the About page.
+A setting of BaseHalf's own is a choice that only the user can make (D143).
+It has a row when all of these hold:
 
-| Section | Name | Setting | Control | The line under the name |
+1. **People differ in it, and BaseHalf cannot tell which they are**: what
+   they hold in the hand, how well they see, what they like to look at, what
+   they let an agent read.
+2. **It belongs to what BaseHalf is for**: the canvas, notes, agents. A
+   choice that only matters after a rare accident is not a setting; BaseHalf
+   handles the accident.
+3. **Its effect is in view at once**, in the window as it stands.
+4. **Its words need no knowledge of how BaseHalf is built.**
+
+What fails the first is decided by BaseHalf and stays fixed. What BaseHalf
+can do by itself is done without a setting. A control of the product that
+stays set, as the magnet of the canvas, is a setting too, and the control
+and its row are one value.
+
+## The settings of each page
+
+The shown settings of the catalog, each under a name of BaseHalf's own.
+`update.mode` is on the About page. The last column names the
+specification that owns what the setting does.
+
+### General
+
+| Section | Name | Setting | Control | The line under the name | Owned by |
+| --- | --- | --- | --- | --- | --- |
+| Window | Zoom | `window.zoomLevel` | choice, by percentage | none | the base |
+| Code | Font | `editor.fontFamily` | text | none | [code cards](code-cards.md) |
+| Code | Font Size | `editor.fontSize` | number | In Source. A code card keeps its size. | code cards |
+| Code | Wrap Long Lines | `editor.wordWrap` | choice: Off, On | In Source. | code cards |
+| Files | Show the .bh Folder | `basehalf.files.showHiddenFolder` | switch | It holds the files of notes and the records of cards. | [workspace state](workspace-state-and-legacy-cleanup.md) |
+
+### Canvas
+
+One group, without a section's name.
+
+| Name | Setting | Control | The line under the name | Owned by |
 | --- | --- | --- | --- | --- |
-| Window | Zoom | `window.zoomLevel` | choice, by percentage | none |
-| Canvas | Zoom of a New Folder | `basehalf.canvas.defaultZoom` | choice, by percentage | The largest zoom at which a folder first shows all its cards. |
-| Notes | Reading Aids | `basehalf.editor.readingMode` | switch | Keywords stand out, and a paragraph can be marked as read. |
-| Code | Font | `editor.fontFamily` | text | none |
-| Code | Font Size | `editor.fontSize` | number | In Source. A code card keeps its size. |
-| Code | Wrap Long Lines | `editor.wordWrap` | choice: Off, On | In Source. |
-| Files | Show the .bh Folder | `basehalf.files.showHiddenFolder` | switch | It holds the files of notes and the records of cards. |
-| Agent Area | First Session | `basehalf.agent.defaultSession` | choice of the sessions | Started when the Agent Area opens with no session. |
-| Agent Area | Terminal Font | `terminal.integrated.fontFamily` | text, empty: Same as Code | none |
-| Agent Area | Terminal Font Size | `terminal.integrated.fontSize` | number | none |
-| Agent Area | Offer the BaseHalf Skill | `basehalf.agents.offerSkill` | switch | The skill tells agents what is selected and how cards connect. |
+| Zoom of a New Folder | `basehalf.canvas.defaultZoom` | choice, by percentage | The largest zoom at which a folder first shows all its cards. | [workspace state](workspace-state-and-legacy-cleanup.md) |
+| Mouse Wheel | `basehalf.canvas.wheel` | choice: Moves the Canvas, Zooms | A pinch zooms either way, and a drag with the middle or the right button moves the canvas. | [canvas wheel gestures](canvas-wheel-gestures.md) |
+| Snap to Cards | `basehalf.canvas.snap` | switch | A card that is moved or resized lines up with the cards near it. | [canvas selection and arrangement](canvas-selection-and-arrangement.md) |
+| Background | `basehalf.canvas.background` | choice: Lines, Dots, Plain | none | [workbench appearance](workbench-appearance.md) |
+| Play Videos Under the Pointer | `basehalf.canvas.playVideosOnHover` | switch | Without sound. | [generation cards](generation-cards.md) |
+
+### Notes
+
+One group, without a section's name.
+
+| Name | Setting | Control | The line under the name | Owned by |
+| --- | --- | --- | --- | --- |
+| Font | `basehalf.notes.fontFamily` | choice: Default, Serif, Monospace | On the card and in Card Detail. | [note rendering](note-rendering.md) |
+| Text Size | `basehalf.notes.fontSize` | number, 12 to 28 | In Card Detail. On the canvas, a card's text follows the zoom. | note rendering |
+| Opens In | `basehalf.notes.openIn` | choice: Rich, Preview, Source | none | note rendering |
+| Reading Aids | `basehalf.editor.readingMode` | switch | Keywords stand out, and a paragraph can be marked as read. | note rendering |
+
+The font is a list of fonts, as the code's: Default is no value, the font of
+the window; Serif and Monospace are lists BaseHalf names; any other list,
+written in a settings file, is listed as it is written.
+
+### Agent Area
+
+| Section | Name | Setting | Control | The line under the name | Owned by |
+| --- | --- | --- | --- | --- | --- |
+| Sessions | First Session | `basehalf.agent.defaultSession` | choice of the sessions | A new tab starts with it. | [Agent Area terminal](agent-area-terminal.md) |
+| Sessions | Reopen Sessions | `basehalf.agent.restoreSessions` | switch | A folder opens with the tabs and panes it was closed with, each started anew. | Agent Area terminal |
+| Terminal | Font | `terminal.integrated.fontFamily` | text, empty: Same as Code | none | Agent Area terminal |
+| Terminal | Font Size | `terminal.integrated.fontSize` | number | none | Agent Area terminal |
+| Agents | Offer the BaseHalf Skill | `basehalf.agents.offerSkill` | switch | The skill tells agents what is selected and how cards connect. | [agent skill](agent-skill.md) |
+| Agents | Share the Selection | `basehalf.agents.shareSelection` | switch | Agents with the skill can read which cards and which text are selected. | agent skill |
+
+## How a setting is changed
 
 - **A setting is a row**: its name at the left, its control at the right.
   A row has a line under its name only where the name does not say what the
   setting changes or where, and never more than one line. The settings of a
-  section stand in one box under the section's name.
+  section stand in one box under the section's name; a page whose settings
+  are one group shows the box under the page's name.
 - **A control shows the value in effect** and changes it at once: a switch
   and a choice when they are used, a text and a number when the field is
   left or Enter is pressed. No button saves.
@@ -165,6 +251,14 @@ For every opening:
   shows none. A text field shows its focus by its border.
 - Each page's elements have ids of their own.
 
+## Keyboard Shortcuts
+
+**Keyboard Shortcuts…** opens Keyboard Shortcuts of the base in the overlay,
+in place of Settings, as Keyboard Shortcuts of the gear's menu does. It
+lists the commands of BaseHalf, those of the canvas among them, each with
+its key, and a key is changed there
+([commands and menus](commands-and-menus.md)).
+
 ## The advanced list
 
 - **Advanced Settings…** opens the Settings editor of the base in the
@@ -191,8 +285,13 @@ For every opening:
 - `shell/browser/basehalfSettingsEditor.ts`: Settings, an editor of the
   window that opens in its overlay; `basehalfSettingsEditorInput.ts`: what
   an opening asks for travels with it, so the first drawing holds the page.
-- `shell/browser/basehalfGeneralSettingsPage.ts`: the General page and the
-  row of a setting, which About uses for `update.mode`.
+- `shell/browser/basehalfShownSettings.ts`: the settings of each page, with
+  their names, lines, and controls. `shell/browser/basehalfSettingsListPage.ts`:
+  a page that lists settings, and the row of a setting, which About uses for
+  `update.mode`.
+- `shell/common/basehalfConfiguration.ts` registers every setting of
+  BaseHalf's own, also one that a feature below the shell reads: the feature
+  reads the value from the configuration, by its name.
 - `ui/browser/basehalfSettingsPage.ts`: what a page is, so that a feature
   below the shell can be one: `generation/browser/basehalfVideoProvidersPage.ts`;
   and `shell/browser/basehalfAbout.ts`.
@@ -209,9 +308,11 @@ For every opening:
 ## Acceptance criteria
 
 1. Settings of the gear's menu, Settings… clicked in the application menu,
-   and the key open BaseHalf's Settings at General, in the overlay: the list holds
-   General, Providers, About, and Advanced Settings…, and the page holds the
-   eleven rows of the table in its order, with these names and lines.
+   and the key open BaseHalf's Settings at General, in the overlay: the list
+   holds General, Canvas, Notes, Agent Area, Providers, About, and under
+   them Keyboard Shortcuts… and Advanced Settings…; each of the four pages
+   of settings holds the rows of its table in its order, with these names
+   and lines.
 2. A switch, a choice, a text, and a number changed on General are in the
    user's settings file within a second, and what they change follows: the
    zoom of the window, the font size of Source. Set back to the default, the
@@ -229,7 +330,7 @@ For every opening:
 6. With Settings open at General, Providers of the application menu shows
    Providers in place of General. A name typed in the form of Add Provider
    is there when the page is chosen again; a key typed and not set is not.
-7. In the list, Arrow Down from General shows Providers and keeps the focus
+7. In the list, Arrow Down from General shows Canvas and keeps the focus
    in the list; Enter puts it into the page; Escape closes Settings from the
    list and from a page.
 8. Clicking a page, or a control on it, draws no focus ring; a control the
@@ -242,12 +343,18 @@ For every opening:
     Up of the voice menu, open Providers at the card's type with the card's
     provider selected and in view in the list; the command Providers opens
     it at Image, or where it is when Settings shows it already (D107).
+11. Every registered setting whose name starts with `basehalf.` has a row on
+    a page, and a page has no row of a setting that is not shown in the
+    catalog. A unit test fails otherwise.
+12. Keyboard Shortcuts… shows Keyboard Shortcuts in the overlay; the canvas
+    stays in view behind it, and Escape closes it.
 
 ## Verification
 
 - The real-window check of criteria 1 to 9, from a disposable workspace.
-- Unit tests: the rows of General and their settings are the shown settings
-  of the catalog but `update.mode` (`basehalfGeneralSettingsPage.test.ts`);
+- Unit tests: the rows of the four pages and their settings are the shown
+  settings of the catalog but `update.mode`, and every setting of
+  BaseHalf's own is among them (`basehalfSettingsListPage.test.ts`);
   the opening at a type and a provider of the Providers page
   (`basehalfVideoProvidersPage.test.ts`); the type that each panel and the
   voice menu open at (`basehalfVideoNodePanel.test.ts`,

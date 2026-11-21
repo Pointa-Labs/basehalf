@@ -6902,3 +6902,63 @@ one file at a time; it keeps no project in memory, which is what D121 gave to an
 - A schema that a file names by `$schema` is downloaded, from the domains `json.schemaDownload.trustedDomains` lists.
 - The second extension also holds the base's export of a profile to GitHub, which starts only for a profile, and BaseHalf
   has none (D141); and the schemas of `tasks.json` and `launch.json`, which complete files BaseHalf does nothing with.
+
+## D143 — A setting of BaseHalf's own is a choice only the user can make, and Settings has a page for each part of the product (NEW, 2026-11-21)
+
+**Decision.** BaseHalf's Settings has a page for each part of the product, by the name the product has for it: General,
+Canvas, Notes, Agent Area, then Providers and About. A setting of BaseHalf's own has a row when people differ in it and
+BaseHalf cannot tell which they are (what they hold in the hand, how well they see, what they like to look at, what they
+let an agent read), when it belongs to what BaseHalf is for, when its effect is in view at once, and when its words need
+no knowledge of how BaseHalf is built ([BaseHalf's Settings](specs/settings-pages.md#what-earns-a-setting)). Every
+setting of BaseHalf's own is on a page: none is kept for the advanced list. Nine settings join the five:
+
+- Canvas: what the mouse wheel does (`basehalf.canvas.wheel`), Snap to Cards (`basehalf.canvas.snap`), the background
+  (`basehalf.canvas.background`), and whether a video plays under the pointer (`basehalf.canvas.playVideosOnHover`).
+- Notes: the font (`basehalf.notes.fontFamily`), the size of the text (`basehalf.notes.fontSize`), and the form a note
+  opens in (`basehalf.notes.openIn`).
+- Agent Area: whether a folder opens with the sessions it was closed with (`basehalf.agent.restoreSessions`), and
+  whether agents can read the selection (`basehalf.agents.shareSelection`).
+
+**Why.** The owner, after the catalog (D137) and the surfaces that came to follow the base's settings (D138 to D142):
+"设置呢，是允许用户充分自定义化、个性化，这是设置的用处。所以说你要自主地找到产品的修改方向与设计设置。这些可以同步进行，把我们的
+产品整个打磨得更好", and before it: "你可以根据我们这个产品增加一些体现自身特色的设置，把它们整合到一起来进行深入考量".
+
+The catalog had sorted the base's 1,483 settings, and BaseHalf's own were five. Read in the code and seen in the real
+window, what a user would want to choose was in three states, none of them a setting:
+
+- **Fixed where people differ.** The mouse wheel moved the canvas and a pinch zoomed it, which suits a trackpad and not a
+  mouse with a wheel. A note's text had one size. The background was lines.
+- **Kept nowhere.** The magnet of the canvas was on again after every start; a note opened in Rich whatever form it was
+  left in; the Agent Area was empty after every start.
+- **All or nothing.** The record of the selection could be stopped only by removing the skill, which also takes away
+  what the skill tells an agent about cards.
+
+And one defect that a setting made visible: a note had four typographies, 16 px in Rich, 14 px in Preview, 13 px in
+another font on its card, and the code's font in Source. A font and a size for a note are one value each only when the
+note has one typography, so the note gets one first ([note rendering](specs/note-rendering.md)).
+
+The test for a setting is the first condition. BaseHalf decides what it can decide, and does by itself what it can do by
+itself (D44, D82): a setting that stands in for a decision the product should make is a cost to every user who never
+changes it. What is left is what only the user knows. That is why the nine are about the hand, the eye, taste, and what
+an agent may read, and why none of them tunes a mechanism.
+
+**Alternatives.**
+- *One page, General, with more sections.* It had six sections of one to four rows for eleven settings; twenty in nine
+  sections would be a list to scroll with no place to look first. The parts of the product are places a user already
+  knows.
+- *A search box.* For twenty settings on four pages a search answers nothing a page's name does not; the advanced list
+  has the search for the 749 settings of the base.
+- *Settings of BaseHalf's own in the advanced list only*, for the less usual ones. Then a user who looks for "why does
+  the wheel not zoom" has to know the base's editor. Fourteen settings fit on four pages.
+- *Remembering in place of a setting*, for the form a note opens in: the form last used. A note opened once in Source to
+  look at its marks would turn every note to Source; a setting says what a user means for all notes.
+- *Keeping the processes of sessions through a reload*, the base's persistent sessions. Decided in the Agent Area's own
+  decision of this round: what is restored is the arrangement, as a terminal of the system restores its windows.
+
+**Consequences.**
+- The catalog's rule that names every `basehalf.*` setting shown is the whole rule for BaseHalf's own: a unit test
+  fails on one without a row.
+- Each of the nine is built by the specification that owns its surface, in a decision of its own (D144 to D147).
+- Settings gains Keyboard Shortcuts… under its pages; the keys of the canvas become commands that Keyboard Shortcuts
+  lists (D146).
+- `basehalf.agent.defaultSession` says what it does: the session a new tab starts with.
