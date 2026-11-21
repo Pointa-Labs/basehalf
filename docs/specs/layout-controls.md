@@ -1,7 +1,8 @@
 # Layout controls
 
-Status: Active (2026-10-13, revised 2026-10-24)
-Decision: [D56](../decisions.md), [D72](../decisions.md), [D96](../decisions.md) (Edit and Done of media)
+Status: Active (2026-10-13, revised 2026-10-24 and 2026-11-21)
+Decision: [D56](../decisions.md), [D72](../decisions.md), [D96](../decisions.md) (Edit and Done of media),
+[D150](../decisions.md) (the names of the controls, and the panel's command)
 Related: [workbench appearance](workbench-appearance.md) (the cards that the
 controls show and hide), [architecture invariants](../harness/architecture-invariants.md)
 (product shell), roadmap tracks 1, 2, and 9
@@ -48,16 +49,16 @@ In scope:
 
 Not in scope, and unchanged:
 
-- The commands themselves, their icons, tooltips, and keyboard shortcuts.
-  They are VS Code's: `workbench.action.toggleSidebarVisibility` (Cmd+B),
-  `workbench.action.toggleAuxiliaryBar` (Option+Cmd+B), and
-  `workbench.action.togglePanel` (Cmd+J), which opens and closes the Agent
-  Area. Cmd+J and the panel's command in the command palette stay.
+- The commands themselves, their icons, and keyboard shortcuts. They are
+  VS Code's: `workbench.action.toggleSidebarVisibility` (Cmd+B) and
+  `workbench.action.toggleAuxiliaryBar` (Option+Cmd+B). Their names are
+  BaseHalf's, Toggle Sidebar and Toggle Agent Area, wherever a user reads
+  them ([the commands and menus BaseHalf has](commands-and-menus.md#the-words-of-the-shell),
+  D150).
 - The other entries of the title bar's right group.
-- The rest of the View menu, and the command palette, which also hold the
-  commands.
-- Customize Layout, which is reached from the command palette and lists the
-  panel among the parts.
+- The rest of the View menu, the command palette, and Customize Layout,
+  which also hold the commands
+  ([the commands and menus BaseHalf has](commands-and-menus.md)).
 - Auxiliary windows. They show no layout controls, as before.
 
 ## Terms
@@ -67,8 +68,11 @@ Not in scope, and unchanged:
   draws.
 - **Right group**: the toolbar at the right end of the title bar.
 - **Left side part**: the part at the left edge of the window. It is the
-  sidebar. A user who sets `workbench.sideBar.location` to `right` has the
-  Agent Area there instead, and the sidebar is then the **right side part**.
+  sidebar, and the **right side part** is the Agent Area, in every window:
+  BaseHalf keeps `workbench.sideBar.location` at `left`
+  ([the settings BaseHalf offers](settings-catalog.md), D137). The base
+  registers the controls by side, for both values of the setting, and
+  BaseHalf leaves that registration as it is.
 
 ## Requirements
 
@@ -121,14 +125,16 @@ Not in scope, and unchanged:
 
 11. The title bar holds no control of the panel, whatever the settings of
     the layout controls. In the right group the control of the Agent Area
-    is the first layout control. With the sidebar on the right, the control
-    of the sidebar is the only one.
+    is the first layout control.
 12. The View menu's Appearance submenu holds no entry for the panel, and
     neither does the menu that the title bar shows when
-    `workbench.layoutControl.type` is `menu`. Secondary Side Bar is the
-    entry of the Agent Area.
-13. The panel's command keeps Cmd+J and its entry in the command palette,
-    and still opens and closes the Agent Area.
+    `workbench.layoutControl.type` is `menu`. Agent Area is the entry of
+    the Agent Area.
+13. The panel's command is hidden, as every command of the panel is (D150):
+    it is in no list and does not run. Cmd+J, the key it had, is a key of
+    Toggle Agent Area Terminal, which does what the key did: it shows the
+    Agent Area with a session, and hides it
+    ([the commands and menus BaseHalf has](commands-and-menus.md#one-command-for-one-thing)).
 
 ## States and failure
 
@@ -142,9 +148,6 @@ Not in scope, and unchanged:
   level 0.
 - **macOS before 26.** The window buttons are smaller and end 9 px earlier.
   The control is at the same place, so the distance is 18 px.
-- **The sidebar is on the right.** The control at the left end is the one of
-  the Agent Area, and the control of the sidebar is the last layout control
-  of the right group.
 - **Layout controls are switched off.** No control is shown at either end.
   Cmd+B, the View menu, and the command palette still work.
 - **A session rang its bell while the Agent Area is hidden.** The control of
@@ -156,7 +159,7 @@ Not in scope, and unchanged:
 ## Acceptance criteria
 
 1. In a new window the left end of the title bar holds exactly one button,
-   "Toggle Primary Side Bar". On macOS, not in full screen, its left edge is
+   "Toggle Sidebar". On macOS, not in full screen, its left edge is
    80 px from the left edge of the window. At the middle of the button, the
    button is the topmost element.
 2. The right group holds no button for the sidebar.
@@ -164,24 +167,26 @@ Not in scope, and unchanged:
    the button's rectangle is the same in both states.
 4. With a card open in Card Detail, the header holds no button that shows or
    hides the sidebar, and the button of criterion 1 is where it was.
-5. With `workbench.sideBar.location` set to `right`, the left end holds
-   "Toggle Secondary Side Bar" and the right group holds "Toggle Primary
-   Side Bar".
+5. The menu of the left end holds the control of the sidebar and the menu
+   of the right group the control of the Agent Area while
+   `workbench.sideBar.location` is `left`, the value BaseHalf keeps. The
+   base's registration for `right` is read by a unit test only.
 6. With `workbench.layoutControl.enabled` set to `false`, the left end holds
    no button.
 7. In a new window the right group holds no "Toggle Panel" button, and
-   "Toggle Secondary Side Bar" is its first layout control.
+   "Toggle Agent Area" is its first layout control.
 8. The View menu's Appearance submenu and the layout control menu hold no
    entry for the panel. Cmd+J hides the Agent Area, and a second Cmd+J
-   shows it.
+   shows it. The Command Palette lists no command of the panel.
 
 ## Verification
 
 - `basehalfLayoutControls.test.ts`: the menu that holds each control for
   both values of `workbench.sideBar.location`, and the settings that hide
   the control (requirements 1, 7, 10, and 11; criteria 5 and 6). The
-  menus that hold the panel's command, and its keybinding (requirements 12
-  and 13; criterion 8 without the window).
+  menus that hold the panel's command (requirement 12), and the keys of
+  Toggle Agent Area Terminal (requirement 13; criterion 8 without the
+  window).
 - `npm run basehalf:smoke`, step `layout-control-at-the-left-end`: criteria
   1 to 3 and 7 in the running window. Step
   `card-detail-holds-no-layout-control`: criterion 4.
@@ -191,7 +196,9 @@ Not in scope, and unchanged:
     buttons cover the same rows, and the last window button ends at 71 px.
   - Requirement 8: in a window 620 px wide the control keeps its place and
     size and the breadcrumb is shortened.
-  - Criteria 5 and 6 in the running window, by changing the settings.
+  - Criterion 6 in the running window, by changing the setting. Criterion 5
+    was measured then with the sidebar at the right, which the catalog has
+    locked since (D137).
 - Not measured in a real window:
   - Requirement 3. The window was not put into full screen. With the class
     that the layout sets on a full-screen window, the control is at 8 px.

@@ -3,7 +3,9 @@
 Status: Active (2026-11-21)
 Decision: [D141](../decisions.md#d141--a-command-of-what-basehalf-does-not-have-is-in-no-list-and-does-not-run-new-2026-11-21),
 [D146](../decisions.md#d146--the-keys-of-the-canvas-are-commands-and-keyboard-shortcuts-opens-over-the-canvas-new-2026-11-21)
-for Keyboard Shortcuts
+for Keyboard Shortcuts,
+[D150](../decisions.md#d150--the-shell-says-sidebar-and-agent-area-and-one-thing-has-one-command-new-2026-11-21)
+for the words of the shell
 Related: [the settings BaseHalf offers](settings-catalog.md),
 [the keys of the canvas](canvas-keys.md),
 [architecture invariants](../harness/architecture-invariants.md#product-shell),
@@ -14,8 +16,9 @@ Related: [the settings BaseHalf offers](settings-catalog.md),
 This specification owns which commands of the base BaseHalf has: what the
 Command Palette lists, what the menus hold, which keys run a command, what
 Keyboard Shortcuts lists and where it opens, and what happens when something
-executes a command by its id. It also owns where output shows, since
-BaseHalf has no bottom panel. The keys of BaseHalf's own canvas are owned by
+executes a command by its id. It owns the words the shell uses for the
+parts of the window, wherever the base names them. It also owns where
+output shows, since BaseHalf has no bottom panel. The keys of BaseHalf's own canvas are owned by
 [the keys of the canvas](canvas-keys.md). Which settings BaseHalf
 offers is owned by [the settings BaseHalf offers](settings-catalog.md); what
 each of BaseHalf's own surfaces does with its commands is owned by the
@@ -70,6 +73,47 @@ the palette and the menus:
 - **Keyboard Shortcuts listed none of the keys of the canvas**
   ([the keys of the canvas](canvas-keys.md)).
 
+Seen in the real window once more that day, after Keyboard Shortcuts had
+come to list what BaseHalf has:
+
+- **The shell named the parts by the base's words.** The two buttons of the
+  title bar read "Toggle Primary Side Bar (⌘B)" and "Toggle Secondary Side
+  Bar (⌥⌘B)". Customize Layout listed "Primary Side Bar" and "Secondary Side
+  Bar". The Command Palette listed eleven commands under these names, Open
+  View grouped its rows under "Side Bar" and "Secondary Side Bar", the
+  context menus said "Hide Primary Side Bar", and a screen reader heard
+  "Secondary Side Bar shown". Every specification, and every command of
+  BaseHalf's own, calls the part at the right the Agent Area and the part at
+  the left the sidebar. The base's files hold the two names 76 times in 13
+  files.
+- **One thing had several commands.** Five commands showed and hid the Agent
+  Area under five names: "View: Toggle Secondary Side Bar Visibility",
+  "BaseHalf: Toggle Agent Area", "BaseHalf: Toggle Agent Area Terminal",
+  "View: Toggle Panel Visibility", and "View: Toggle Terminal". With one
+  editor group, nine commands "in Group" did what the same command without
+  the words does.
+- **A command froze the window.** "View: Toggle Terminal" opens the base's
+  terminal view in the bottom panel. BaseHalf closes that view when it
+  opens, the command opened it again, and the window stopped answering,
+  with its memory growing, until it was killed. Reproduced twice.
+- **Keyboard Shortcuts listed BaseHalf's own commands by bare ids**: 29
+  commands, among them the commands of the canvas's menus
+  (`basehalf.canvas.copy`, `basehalf.canvas.cut`, …), which take what the
+  menu was opened on and do nothing from a key, and six that have a key and
+  no name (`basehalf.cardDetail.close`).
+- **Commands of what BaseHalf does not have were still listed**: 24 of
+  comment threads, which no extension of BaseHalf's provides; 10 of the
+  Refactor Preview, a view of the bottom panel; the terminal's Attach to
+  Session, Detach Session, and Clear Previous Session History, which belong
+  to the base's kept sessions (D147).
+- **Menus that the base draws by itself held entries that led nowhere.**
+  The context menu of the sidebar's icons offered Extensions and Run and
+  Debug, a Move To submenu, and "Move Primary Side Bar Right", which runs a
+  hidden command. The list of languages offered "Search Marketplace
+  Extensions for '.json'...", which runs a hidden command and so does
+  nothing. D141 had the menu service leave out hidden commands; these menus
+  are not made by it.
+
 ## Terms
 
 - **The base**: the workbench BaseHalf is built on, and its extensions that
@@ -79,6 +123,59 @@ the palette and the menus:
   pattern of ids.
 - **The base's plumbing**: a command whose id starts with `_`. The base's
   parts and its extensions call it, and almost none is offered in a list.
+
+## The words of the shell
+
+The base has names for the parts of its window, and BaseHalf has its own
+for the parts it keeps. A user reads BaseHalf's.
+
+| The base's words | BaseHalf's |
+| --- | --- |
+| Primary Side Bar, Side Bar | Sidebar |
+| Secondary Side Bar | Agent Area |
+| Toggle Primary Side Bar Visibility | Toggle Sidebar |
+| Toggle Secondary Side Bar Visibility | Toggle Agent Area |
+
+Inside a sentence the left part is written "sidebar", as the
+specifications write it.
+
+1. **Every place where a user reads a name of the base's shows BaseHalf's
+   words**: the buttons of the title bar and their tooltips, the application
+   menu, the gear's menu, every context menu, the Command Palette, Keyboard
+   Shortcuts, Customize Layout, Open View, what a screen reader hears when a
+   part is shown or hidden, and the description of a setting in the advanced
+   list.
+2. **A name of the base's that a user reads nowhere stays as it is**: the
+   id of a command, the name of a setting, a context key in a condition of
+   Keyboard Shortcuts, and the name of a command BaseHalf does not have.
+3. **A word that BaseHalf's users know by the base's name stays**: Command
+   Palette, Keyboard Shortcuts, Source Control, Status Bar, Explorer for the
+   view of files and folders, and editor for the editor of text that Source
+   is.
+4. **A part BaseHalf does not have has no word**: its commands are hidden
+   ([hidden families](#hidden-families)). BaseHalf has no panel, so no list
+   names one.
+
+### One command for one thing
+
+A user does not see two commands that do one thing under two names.
+
+- **The Agent Area is shown and hidden by Toggle Agent Area.** It is the
+  command of the title bar's button, of View › Appearance, and of Customize
+  Layout, with the key the button's tooltip shows, Option+Command+B. The
+  Command Palette and Keyboard Shortcuts list it once, under View.
+  BaseHalf's own command of the same name is gone.
+- **Toggle Agent Area Terminal** stays: it shows the Agent Area with a
+  session in it, starting the First Session when there is none, and gives it
+  the keyboard ([Agent Area terminal](agent-area-terminal.md#the-first-session)).
+  It has the two keys that show a terminal in the base, Control+Backquote
+  and Command+J.
+- The panel's toggle, which BaseHalf had made a third name for the same,
+  and the toggle of the base's terminal view are hidden with the panel.
+- **A command "in Group" is hidden where the same command without the
+  words is listed**, since there is one editor group: Close All Editors,
+  Open Next Editor, Open Previous Editor, Open Next and Previous Recently
+  Used Editor, Show All Editors By Most Recently Used, and Save All stay.
 
 ## Which commands BaseHalf has
 
@@ -93,8 +190,8 @@ nothing typed.
 
 | Family | What it holds | Listed | Why BaseHalf does not have it |
 | --- | --- | --- | --- |
-| Editor tabs and groups | splitting, new groups, moving an editor or a group, the editor layouts, pinning, locking a group, the tab bar, the place of the editor actions, an editor or a terminal in a window of its own, hiding the editor area | 85 | a file opens in Card Detail, and there is one editor group without tabs |
-| The bottom panel | focusing, moving, aligning, and maximizing the panel, the Output view with its filters, the terminal view of the panel | 19 | the shell has no bottom panel; [output](#output) opens as a document |
+| Editor tabs and groups | splitting, new groups, moving an editor or a group, the editor layouts, pinning, locking a group, the tab bar, the place of the editor actions, an editor or a terminal in a window of its own, hiding the editor area; the commands "in Group" that a command without the words does, closing the editors to the left or to the right of a tab, and the first and the last editor of a group (D150) | 85 | a file opens in Card Detail, and there is one editor group without tabs |
+| The bottom panel | focusing, moving, aligning, and maximizing the panel, the Output view with its filters, the terminal view of the panel; the panel's toggle, the toggle of the base's terminal view, and the Refactor Preview (D150) | 19 | the shell has no bottom panel; [output](#output) opens as a document |
 | Tasks | `workbench.action.tasks.*` | 14 | D137: an agent runs a folder's commands in the Agent Area |
 | Debug | `debug.*`, `workbench.debug.*`, `workbench.action.debug.*`, `editor.debug.*`, the debug console, and the three commands that debug a window in a new one | 13 | no debugger ships |
 | Profiles | `workbench.profiles.actions.*` | 9 | D137: one set of settings |
@@ -114,6 +211,14 @@ nothing typed.
 
 | Inline suggestions and inline edits | `editor.action.inlineSuggest.*`, Accept Inline Completion of the accessible view | 2 | no provider: the base's chat extension makes them, and it does not run; their settings are unlisted in the catalog |
 | What a language service other than JSON's makes | parameter hints, inlay hints, renaming a symbol, linked editing | 0 | no language service runs but JSON's (D142), which makes none of them; their settings are unlisted in the catalog |
+| Comment threads | adding a comment, moving between threads, the Comments view and its filters | 0 | a thread comes from an extension that provides comments, and BaseHalf runs none; the comments of code, Toggle Line Comment and the like, are the editor's own and stay |
+| The terminal's kept sessions | Attach to Session, Detach Session, Clear Previous Session History | 3 | BaseHalf brings back the arrangement of the Agent Area and starts every session anew (D147) |
+
+The last two families were named by D150, which also added to four earlier
+ones: the shape of the shell has the two commands that step through the
+views of the Agent Area, which has one; the Marketplace has Product Icon
+Theme, since a product icon theme comes only from an extension that
+BaseHalf does not install.
 
 The families with 0 were not listed in this window and were reachable by a
 key, a menu, or their id. The last two families were named when Keyboard
@@ -179,9 +284,39 @@ BaseHalf it is where a user sees and changes the keys of the product.
 - **It lists BaseHalf's own commands** under the category BaseHalf, the
   keys of the canvas among them ([the keys of the canvas](canvas-keys.md)).
   A key changed there is in effect at once.
+- **It names the commands in BaseHalf's words**
+  ([the words of the shell](#the-words-of-the-shell)), as the Command
+  Palette does.
+- **A command of BaseHalf's own is listed by its name, never by its id.**
+  One that has a key has a name. One that has neither a key nor an entry
+  of the Command Palette is not listed: it is a command of a menu, which
+  takes what the menu was opened on and would do nothing from a key, or a
+  command that BaseHalf's parts call. The commands of the base that the
+  base lists by their ids, as `cursorDown`, stay as the base lists them.
 - The key bindings file, which Keyboard Shortcuts opens from its title, and
   the default key bindings, which the Command Palette opens, open in the
   overlay too.
+
+## The menus
+
+- **The gear's menu** holds Command Palette…, Settings, Keyboard Shortcuts,
+  Themes with Color Theme and File Icon Theme, and Layout Density with
+  Default and Compact, and the entries of an update.
+- **Snippets is a command of the Command Palette.** Configure Snippets
+  makes snippets for code, a tool of Source that few use: the gear's menu
+  and the Preferences menu of the application menu do not hold it, and the
+  Command Palette and Keyboard Shortcuts do. A command of this kind is
+  named in a list of its own, beside the hidden families.
+- **A context menu holds no hidden command and reads in BaseHalf's words,
+  whoever makes it.** The base draws some context menus itself, without the
+  menu service: the menu of the sidebar's icons, of the sidebar's title, and
+  of a part. What holds for a menu of the menu service holds for them: an
+  entry whose command is hidden is left out, a submenu that is left empty
+  goes, and the names are BaseHalf's.
+- **The context menu of the sidebar's icons** holds no Move To: a view
+  stays in its part.
+- **An entry that leads to what BaseHalf does not have is not shown.** The
+  list of languages does not offer to search the Marketplace.
 
 ## Output
 
@@ -273,7 +408,19 @@ base's voice service is not there.
    Search, and Agent with their views, and the channels of output. It lists
    no hidden view, not the base's terminal panel, and not the container of
    an agent extension, which the Agent Area hosts.
-9. **A new command of a hidden family is hidden before it ships.** A check
+9. **The words** ([the words of the shell](#the-words-of-the-shell)). The
+   base's words and BaseHalf's are one table (`BASEHALF_WORDS`), and one
+   function gives a text in BaseHalf's words. The menu service applies it
+   to every item it hands out, the context menu service to every entry it
+   shows, Keyboard Shortcuts to the name of every row, and the advanced list
+   to the description of a setting. Where the base draws a name itself, the
+   same function is called at that place.
+10. **A command of the Command Palette only** is in no menu but the
+    palette's.
+11. **A command of BaseHalf's own that has a key has a name.** The window
+    names such a command without a name in its log, and the smoke fails on
+    the line.
+12. **A new command of a hidden family is hidden before it ships.** A check
    fails when the base registers a command under a category of a hidden
    family and no pattern names it. The check runs in the window, which holds
    every registration of the base: the window names such commands in its
@@ -299,6 +446,35 @@ base's voice service is not there.
 - **The base's chat**: the search for tool servers is one contribution of
   the base (`contrib/mcp/browser/mcpDiscovery.ts`); a marked change makes it
   follow `chat.disableAIFeatures`. The addresses are in `product.json`.
+- **The words** are `shell/common/basehalfWords.ts`, which imports
+  nothing. BaseHalf's menu service hands out an item whose name holds a
+  word of the base's as a copy with BaseHalf's words: its title, its short
+  title, its tooltip, the title it has while it is on, and its description.
+  Everything that draws from the menu service follows: the title bar, the
+  application menu, the gear's menu, the Command Palette, and the menus of
+  the views.
+- **Context menus**: BaseHalf's context menu service
+  (`shell/electron-browser/basehalfContextMenuService.ts`) takes the place
+  of the base's, as the menu service does. Every context menu of the
+  window is shown by it, so the menus the base draws itself are served
+  there: `shell/common/basehalfContextMenuActions.ts` leaves out the entries
+  whose id is a hidden command, and gives the others BaseHalf's words.
+- **Marked changes in the base's files for the words**, a line each, where
+  the base draws a name itself or reads one from a registry without the
+  menu service: the name of a row of Keyboard Shortcuts, the description of
+  a setting in the Settings editor, the rows of Customize Layout, the
+  groups of Open View, and what the layout and the two toggles say to a
+  screen reader.
+- **Marked changes for entries that lead nowhere**: the context menu of the
+  sidebar's icons makes no Move To, and the list of languages makes no
+  entry for the Marketplace.
+- **Keyboard Shortcuts and BaseHalf's own commands**: the base's list of
+  commands without a key leaves out a command of BaseHalf's own that the
+  Command Palette has no entry for
+  (`shell/common/basehalfHiddenCommands.ts`, `isBaseHalfOwnCommand`). A
+  command of BaseHalf's that has a key gets its name from an entry of the
+  Command Palette, one that never holds where the palette should not list
+  it ([the keys of the canvas](canvas-keys.md)).
 - **Five marked changes in the base's files** ask the list, a line or a few
   each: the keybinding service leaves the default keys of hidden commands
   out of its resolver; the list of commands without a key leaves them out;
@@ -330,17 +506,17 @@ base's voice service is not there.
    Profiles and no Tasks; Help holds no Welcome, no walkthrough, and no
    Editor Playground.
 3. The gear's menu holds Command Palette, Settings, Keyboard Shortcuts,
-   Snippets, Themes, and Layout Density, and the entries of an update. The
-   Accounts menu holds no entry of a language model.
+   Themes, and Layout Density, and the entries of an update; Themes holds
+   Color Theme and File Icon Theme. It holds no Snippets and no Product
+   Icon Theme. The Accounts menu holds no entry of a language model.
 4. The context menu of a file in Files holds no Open Timeline, no entry of
    chat, of testing, or of the integrated browser, and no Share.
 5. The context menu of the title bar holds Navigation Controls and Layout
    Controls, and no entry that writes a locked setting.
-6. Customize Layout lists Primary Side Bar, Secondary Side Bar, and Status
-   Bar under Visibility, the place of the quick input, and the modes, and
-   nothing for the place of the side bar or the alignment of a panel. It has
-   no row Panel: BaseHalf has no panel, and the command of that row shows
-   and hides the Agent Area, which the row Secondary Side Bar does.
+6. Customize Layout lists Sidebar, Agent Area, and Status Bar under
+   Visibility, the place of the quick input, and the modes, and nothing for
+   the place of the side bar or the alignment of a panel. It has no row
+   Panel: BaseHalf has no panel.
 7. The keys that the base gives to Output, Problems, Run and Debug,
    Extensions, Start Debugging, and Run Build Task open nothing and show no
    message.
@@ -373,6 +549,45 @@ base's voice service is not there.
     under BaseHalf.
 16. A key given to a command in Keyboard Shortcuts is in the key bindings
     file and runs the command at once.
+
+17. The button at the left end of the title bar reads "Toggle Sidebar"
+    with its key, and the layout button of the right group "Toggle Agent
+    Area" with its key. No button of the title bar reads "Side Bar".
+18. With nothing typed, the Command Palette lists no command whose name
+    holds "Side Bar" or "Panel". It lists View: Toggle Sidebar, View:
+    Toggle Agent Area, View: Focus into Agent Area, and View: Maximize
+    Agent Area. Keyboard Shortcuts lists no row whose name holds "Side
+    Bar".
+19. The Command Palette lists one command named Toggle Agent Area, and
+    Keyboard Shortcuts one, with Option+Command+B. Toggle Agent Area
+    Terminal has Control+Backquote and Command+J. Command+J shows the Agent
+    Area with a session and hides it again.
+20. "Toggle Terminal" of the base is in no list, and executing
+    `basehalf.internal.terminal.toggleView` or `workbench.action.togglePanel`
+    fails as a command that does not exist. The window keeps answering.
+21. Open View groups its rows under Sidebar and Agent Area.
+22. The context menu of the sidebar's icons holds no Extensions, no Run and
+    Debug, no Move To, no entry for the place of the side bar, and reads
+    "Hide Sidebar". The context menu of the sidebar's title reads "Hide
+    Sidebar".
+23. Hiding and showing the Agent Area and the sidebar says "Agent Area
+    hidden", "Agent Area shown", "Sidebar hidden", and "Sidebar shown" to a
+    screen reader.
+24. Keyboard Shortcuts lists no row that starts with `basehalf.` or
+    `pointa.`: no command of BaseHalf's own by its id. It lists BaseHalf:
+    New Note, Close Card Detail, Go to Next Change in Changes, Go to
+    Previous Change in Changes, Close Changes, and Stop Editing Code on
+    Card with their keys.
+25. Keyboard Shortcuts and the Command Palette list no command of comment
+    threads, of the Refactor Preview, or of the terminal's kept sessions,
+    no command "in Group", and no Close Editors to the Left. Toggle Line
+    Comment and Toggle Block Comment stay.
+26. With a JSON file in Source, Change Language Mode lists no entry that
+    names the Marketplace.
+27. The Preferences menu of the application menu holds no Configure
+    Snippets; the Command Palette lists Snippets: Configure Snippets.
+28. In the advanced list, the description of a setting that names the
+    sidebar or the Agent Area by the base's words reads in BaseHalf's.
 
 ## Verification
 

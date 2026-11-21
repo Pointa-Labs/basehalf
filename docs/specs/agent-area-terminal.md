@@ -664,13 +664,17 @@ Codex.
 
 1. **A new tab starts with it**: the key of a new tab while the keyboard is
    in the Agent Area, a double click on the strip beside its tabs, New
-   Agent Tab of a tab's menu, and the commands Toggle Agent Area and Toggle
-   Agent Area Terminal when they show an Agent Area that has no session.
+   Agent Tab of a tab's menu, and the command Toggle Agent Area Terminal,
+   by Control+Backquote, Command+J, or the Command Palette, when it shows
+   an Agent Area that has no session.
 2. The button with the plus sign at the end of the strip lists the sessions,
    and the one chosen starts. A split starts a Terminal session
    ([The folder of a split](#the-folder-of-a-split)).
 3. The button of the title bar shows the Agent Area as it is. With no
-   session it shows the sessions to choose from, and starts none.
+   session it shows the sessions to choose from, and starts none. The
+   button's command is Toggle Agent Area, the one command by that name
+   ([the commands and menus BaseHalf has](commands-and-menus.md#one-command-for-one-thing),
+   D150): its key and the Command Palette do what the button does.
 4. A change of the setting holds for the next new tab. No session that is
    open changes.
 
