@@ -81,6 +81,13 @@
 	outline-offset: 2px;
 }
 
+/* A ring is for the keyboard: after a press of the pointer a card draws none, until a key is pressed (where the
+ * keyboard returns). */
+.monaco-workbench .basehalf-canvas-workbench[data-pointer-input] .basehalf-canvas-card:focus-visible,
+.monaco-workbench .basehalf-canvas-workbench[data-pointer-input] .react-flow__node-basehalf-card:focus-visible .basehalf-canvas-card {
+	outline: none;
+}
+
 @media (forced-colors: active) {
 	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.selected:not(:focus-visible),
 	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.marquee-selected:not(:focus-visible),

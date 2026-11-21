@@ -1177,6 +1177,24 @@ export class BaseHalfCanvasBadgeEditor {
 		this.view.detailBadgeDisposables.add(listener);
 	}
 
+	/**
+	 * The open Badge zone of Card Detail takes the keyboard that left one of its controls for nothing, and so
+	 * stays open (where the keyboard returns, "A part that is drawn anew"). False when the zone is not open.
+	 */
+	takeDetailBadgeKeyboard(): boolean {
+		const zone = this.view.detailBadgeZone;
+		if (!this.view.detailBadgeOpen || !this.view.canvasNavigationService.state.cardDetail) {
+			return false;
+		}
+		if (!zone.contains(zone.ownerDocument.activeElement)) {
+			// Its body, or the zone itself while the body is being drawn.
+			const taker = zone.querySelector<HTMLElement>('.basehalf-card-detail-badge-body') ?? zone;
+			taker.tabIndex = -1;
+			taker.focus({ preventScroll: true });
+		}
+		return zone.contains(zone.ownerDocument.activeElement);
+	}
+
 	closeDetailBadgePopover(cardDetail: IBaseHalfCardDetailState, restoreFocus: boolean): void {
 		if (!this.view.detailBadgeOpen) {
 			return;

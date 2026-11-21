@@ -50,6 +50,10 @@ export class BaseHalfCanvasKeyboardHome {
 			}
 		}, true));
 		store.add(DOM.addDisposableListener(ownerDocument, DOM.EventType.KEY_DOWN, event => {
+			// A key shows a card's ring again, should a press of the pointer have ended it.
+			if (event.key !== 'Shift' && event.key !== 'Control' && event.key !== 'Alt' && event.key !== 'Meta') {
+				root.removeAttribute('data-pointer-input');
+			}
 			this.tabbing = event.key === 'Tab' ? { backward: event.shiftKey } : undefined;
 			// The user works where the keyboard is: it stands in for nothing any more.
 			this.given = undefined;
@@ -61,6 +65,9 @@ export class BaseHalfCanvasKeyboardHome {
 		}, true));
 		store.add(DOM.addDisposableListener(ownerDocument, DOM.EventType.KEY_UP, () => { this.tabbing = undefined; }, true));
 		store.add(DOM.addDisposableListener(ownerDocument, DOM.EventType.POINTER_DOWN, event => {
+			// A ring is for the keyboard: a press of the pointer ends the ring of a card that a key gave one,
+			// which the browser alone keeps until the keyboard moves to another element.
+			root.setAttribute('data-pointer-input', '');
 			this.tabbing = undefined;
 			this.given = undefined;
 			// A press on the blank canvas makes the canvas itself the place, also while it has the keyboard already.

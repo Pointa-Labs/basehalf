@@ -654,6 +654,11 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.keys.start());
 		// The keyboard is always somewhere that answers (where the keyboard returns).
 		this._register(this.keyboardHome.start());
+		// The open Badge zone of Card Detail keeps the keyboard that leaves one of its controls for nothing.
+		this._register(this.keyboardPartsService.registerPart({
+			element: this.detailBadgeZone,
+			take: async () => this.badgeEditor.takeDetailBadgeKeyboard()
+		}));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (this.keys.ran(event)) {
 				// Enter or Space ran its command and went on to the canvas library: the base's key bindings do not run it again.

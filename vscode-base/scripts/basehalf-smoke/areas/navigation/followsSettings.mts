@@ -331,8 +331,7 @@ export async function assertLightAndDark(page) {
 	const read = () => page.evaluate(selector => {
 		const root = getComputedStyle(document.querySelector('.monaco-workbench')!);
 		const background = (element: Element | null) => element ? getComputedStyle(element).backgroundColor : undefined;
-		// A probe drawn with a variable reads as the browser computes that variable: one spelling for both.
-		const probe = document.body.appendChild(document.createElement('div'));
+		const probe = document.querySelector('.monaco-workbench')!.appendChild(document.createElement('div'));
 		const computed = (name: string) => { probe.style.backgroundColor = `var(${name})`; return getComputedStyle(probe).backgroundColor; };
 		const values = {
 			kind: [...document.querySelector('.monaco-workbench')!.classList].filter(name => ['vs', 'vs-dark', 'hc-black', 'hc-light'].includes(name)).join(),
