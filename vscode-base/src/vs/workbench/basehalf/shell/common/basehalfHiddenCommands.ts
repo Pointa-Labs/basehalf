@@ -23,6 +23,7 @@ export type BaseHalfHiddenCommandFamilyId =
 	| 'panel'
 	| 'editor-tabs-and-groups'
 	| 'cloud'
+	| 'welcome'
 	| 'shell-shape';
 
 export interface IBaseHalfHiddenCommandFamily {
@@ -340,6 +341,22 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 		commands: ['workbench.editSessions.*', 'workbench.userDataSync.*', 'workbench.userData.actions.*', 'workbench.action.continueOn.*'],
 		paletteCategories: ['Cloud Changes', 'Settings Sync'],
 		reason: 'No service is configured that would keep changes or settings in the cloud.'
+	},
+	{
+		family: 'welcome',
+		commands: [
+			'workbench.action.openWalkthrough',
+			'welcome.showAllWalkthroughs',
+			'welcome.goBack',
+			'welcome.markStep*',
+			'walkthroughs.*',
+			'resetGettingStartedProgress',
+			'workbench.action.showInteractivePlayground',
+			'workbench.action.interactivePlayground.*',
+			'workbench.action.getStartedWithAccessibilityFeatures'
+		],
+		paletteCategories: [],
+		reason: 'An empty window shows the Welcome page by itself, and in a folder BaseHalf closes it, so opening it there does nothing; a walkthrough and the editor playground are the base\'s own tutorials, and the playground would cover the canvas.'
 	},
 	{
 		family: 'shell-shape',

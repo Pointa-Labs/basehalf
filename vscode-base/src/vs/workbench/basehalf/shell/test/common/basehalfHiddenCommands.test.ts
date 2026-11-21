@@ -48,7 +48,9 @@ suite('BaseHalfHiddenCommands', () => {
 				'toggle.window.commandCenter',
 				'workbench.action.toggleAutoSave',
 				'workbench.action.toggleLightDarkThemes',
-				'workbench.action.moveView'
+				'workbench.action.moveView',
+				'workbench.action.openWalkthrough',
+				'workbench.action.showInteractivePlayground'
 			].map(getBaseHalfHiddenCommandFamily),
 			[
 				'chat', 'chat', 'chat', 'chat', 'chat',
@@ -67,7 +69,8 @@ suite('BaseHalfHiddenCommands', () => {
 				'panel', 'panel', 'panel',
 				'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups',
 				'cloud',
-				'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape'
+				'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape',
+				'welcome', 'welcome'
 			]
 		);
 	});
@@ -89,8 +92,8 @@ suite('BaseHalfHiddenCommands', () => {
 			// Output, which opens as a document, and what a developer needs.
 			'workbench.action.showOutputChannels', 'workbench.action.showLogs', 'workbench.action.output.show.main',
 			'workbench.action.reloadWindow', 'workbench.action.toggleDevTools', 'workbench.extensions.action.devtoolsExtensionHost',
-			// Installing an agent extension, and Help.
-			'workbench.extensions.installExtension', 'workbench.action.showAboutDialog', 'workbench.action.openLicenseUrl',
+			// Installing an agent extension, Help, and the new file of the File menu.
+			'workbench.extensions.installExtension', 'workbench.action.showAboutDialog', 'workbench.action.openLicenseUrl', 'welcome.showNewFileEntries',
 			// The base's plumbing, which Git calls at a commit.
 			'_aiEdits.hasAiContributions', '_chat.editSessions.accept', '_open.mergeEditor',
 			// BaseHalf's own commands.

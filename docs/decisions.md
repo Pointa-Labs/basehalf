@@ -6590,7 +6590,7 @@ names no address of the service of the base's chat. See
 
 **Why.** D137 gave every setting a class and left the commands to a decision of their own: "the commands and menu entries of
 what BaseHalf does not have go". Measured on 2026-11-21 in the real window, with a folder under git open, the Command
-Palette listed 679 commands with nothing typed. 188 of them belonged to what BaseHalf does not have: 85 arranged editors in
+Palette listed 679 commands with nothing typed. 193 of them belonged to what BaseHalf does not have: 85 arranged editors in
 groups and tabs, 19 the bottom panel, 14 were Tasks, 13 Debug. One wrote `chat.disableAIFeatures: false`. The application
 menu had a Run menu with one dead entry. BaseHalf had hidden the views by closing them after they opened, and its list of
 hidden surfaces named five commands that no code read. With the lock of D137, a command that only writes a locked setting
@@ -6617,8 +6617,8 @@ would end in a refusal.
   which of its commands a session follows is the Agent Area's to decide.
 
 **Consequences.**
-- The Command Palette lists 492 commands. The application menu has no Run menu, and no entry for tasks, profiles, the
-  panel, the editor layouts, or a place of the shell that BaseHalf keeps.
+- The Command Palette lists 486 commands. The application menu has no Run menu, and no entry for tasks, profiles, the
+  panel, the editor layouts, or a place of the shell that BaseHalf keeps. Open View lists only the views BaseHalf shows.
 - A key that ran a hidden command is free.
 - Show Git Output, Show Output Channels, Show Logs, and a channel an extension shows open over the canvas; nothing opens
   the bottom panel. A channel does not follow its last line while it is open.
@@ -6626,6 +6626,6 @@ would end in a refusal.
   about a plan of the base's chat: read in the code, not run with a real account.
 - A unit test loads the base's registrations of the hidden families and fails on a command of their categories that no
   pattern names, so a base update names its new commands before it ships.
-- Four lines of the base's files ask the list: the keybinding resolver, the list of commands without a key, the Command
-  Palette's editor commands, and Customize Layout.
+- Five places of the base's files ask the list: the keybinding resolver, the list of commands without a key, the Command
+  Palette's editor commands, Customize Layout, and Open View.
 - Nothing of a hidden feature leaves the build (D122).

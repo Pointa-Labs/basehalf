@@ -21,7 +21,7 @@ specification of the surface.
 Measured on 2026-11-21 in the real window of a development build, with a
 folder under git open:
 
-- **The Command Palette listed 679 commands, and 188 of them belonged to
+- **The Command Palette listed 679 commands, and 193 of them belonged to
   what BaseHalf does not have.** BaseHalf hid the views of the base that it
   does not have by closing them after they opened. Their features were still
   loaded, and their commands were still offered: 14 of Tasks, Debug: Add
@@ -86,6 +86,7 @@ nothing typed.
 | Remote | the remote menu, forwarded ports, the connection, the links to the base's web editor | 3 | BaseHalf opens local folders |
 | The Marketplace | the Extensions view and its lists, Start Extension Bisect, Browse Color Themes in Marketplace | 3 | D45 and D76: BaseHalf installs only the agent extensions |
 | Problems | the Problems view and its filters | 3 | a view of the bottom panel; the marks show in Source |
+| Welcome in a folder | Help: Welcome, Open Walkthrough, Get Started with Accessibility Features, the editor playground | 5 | an empty window shows the Welcome page by itself, and in a folder BaseHalf closes it; a walkthrough and the playground are the base's own tutorials |
 | Timeline and Outline | `timeline.*`, Open Timeline, `outline.*` | 2 | hidden views: the Graph of Source Control shows a file's commits |
 | The Search Editor | opening search results in an editor | 0 | it would cover the canvas |
 | Cloud changes and settings sync | `workbench.editSessions.*`, `workbench.userDataSync.*` | 0 | no service is configured |
@@ -99,16 +100,16 @@ key, a menu, or their id.
 | --- | --- | --- |
 | Git, Source Control, Merge Conflict, Publish to GitHub | 95 | Source Control and the Changes view |
 | Terminal | 73 | the Agent Area: its terminals are the base's, and the commands that make one make a session there ([Agent Area terminal](agent-area-terminal.md)) |
-| View: the side bars, zoom, Zen Mode, full screen, closing and stepping through editors | 67 | the shell, and the one editor group under Card Detail |
+| View: the side bars, zoom, Zen Mode, full screen, closing and stepping through editors | 66 | the shell, and the one editor group under Card Detail |
 | No category: the editor's own, Go to, the clipboard, Quick Open, the window | 62 | Source, the canvas, and the window |
 | BaseHalf, Agent, About | 53 | the Agent Area, the canvas, Providers, About |
-| Developer | 51 | Reload Window, Toggle Developer Tools, the logs, and the like |
+| Developer | 50 | Reload Window, Toggle Developer Tools, the logs, and the like |
 | File, Workspaces, Explorer, Create | 36 | Files |
-| Help, Notifications, Accounts, Output, Local History, Shell Command, and four single commands | 28 | the window, and [output](#output) |
+| Help, Notifications, Accounts, Output, Local History, Shell Command, and two single commands | 24 | the window, and [output](#output) |
 | Preferences, Snippets | 19 | Settings, Keyboard Shortcuts, Color Theme, and snippets in Source |
 | Search | 7 | Search |
 
-After the change the palette lists 492 commands, under 491 names.
+After the change the palette lists 486 commands, under 485 names.
 
 - **The terminal's commands stay as a family.** An Agent Area terminal is a
   terminal of the base, and a command that acts on the active terminal acts
@@ -118,8 +119,8 @@ After the change the palette lists 492 commands, under 491 names.
 - **Stepping through editors stays.** Source Control opens a deleted file and
   the files of a commit in the one editor group, and Next Editor and Close
   Editor work there.
-- **Welcome and its walkthroughs stay.** An empty window shows the Welcome
-  page.
+- **The Welcome page of an empty window stays**, with its New File entry.
+  Only the commands that open it or a walkthrough in a folder are hidden.
 - **Go to Next Problem stays.** The marks of a mistake show in Source.
 - **The base's plumbing stays.** Git asks `_aiEdits.*` at every commit. No
   pattern names plumbing; the one such command that the palette offers,
@@ -210,7 +211,11 @@ base's voice service is not there.
 7. **Customize Layout** lists a row only for a command BaseHalf has, and a
    heading only above a row. Its Restore Defaults writes no setting that has
    its default already.
-8. **A new command of a hidden family is hidden before it ships.** A check
+8. **Open View** lists the views BaseHalf shows: Explorer, Source Control,
+   Search, and Agent with their views, and the channels of output. It lists
+   no hidden view, not the base's terminal panel, and not the container of
+   an agent extension, which the Agent Area hosts.
+9. **A new command of a hidden family is hidden before it ships.** A check
    fails when the base registers a command under a category of a hidden
    family and no pattern names it.
 
@@ -233,11 +238,13 @@ base's voice service is not there.
 - **The base's chat**: the search for tool servers is one contribution of
   the base (`contrib/mcp/browser/mcpDiscovery.ts`); a marked change makes it
   follow `chat.disableAIFeatures`. The addresses are in `product.json`.
-- **Four marked changes in the base's files**, each one line that asks the
-  list: the keybinding service leaves the default keys of hidden commands
+- **Five marked changes in the base's files** ask the list, a line or a few
+  each: the keybinding service leaves the default keys of hidden commands
   out of its resolver; the list of commands without a key leaves them out;
   the Command Palette leaves out the editor's own commands that are hidden;
-  and Customize Layout, whose rows are not a menu, leaves out its rows.
+  Customize Layout, whose rows are not a menu, leaves out its rows; and
+  Open View, whose rows are views, asks the hidden surfaces
+  (`shell/common/basehalfOfferedViews.ts`).
 - Nothing of a hidden feature is removed from the build (D122, D137).
 
 ## Acceptance criteria
@@ -252,7 +259,8 @@ base's voice service is not there.
    holds no entry for the place of the side bar, the activity bar, the
    panel, the tab bar, the editor actions, or breadcrumbs; File holds no
    Auto Save, no Share, and no New Window with Profile; Preferences holds no
-   Profiles and no Tasks.
+   Profiles and no Tasks; Help holds no Welcome, no walkthrough, and no
+   Editor Playground.
 3. The gear's menu holds Command Palette, Settings, Keyboard Shortcuts,
    Snippets, Themes, and Layout Density, and the entries of an update. The
    Accounts menu holds no entry of a language model.
@@ -270,6 +278,8 @@ base's voice service is not there.
    found`, and the command does not run.
 9. A command added to the base under the category of a hidden family, with
    an id that no pattern names, fails a unit test.
+13. View: Open View lists no Run and Debug, Extensions, Problems, Output
+    view, Terminal, Outline, or Timeline.
 10. With `chat.disableAIFeatures` on, the base starts no search for tool
     servers, at the start of a window and when `chat.mcp.access` changes.
 11. The product configuration has a `defaultChatAgent` whose five addresses
@@ -302,12 +312,15 @@ base's voice service is not there.
   canvas.
 - Measured in the real window on 2026-11-21, before and after, in the same
   folder: the Command Palette with nothing typed, 679 commands before and
-  492 after; the application menu, File 26 entries and 21, View 50 and 21,
-  Go 38 and 26, Run 1 and no menu, Terminal 12 and 4, Preferences 8 and 6,
-  Edit, Selection, and Help unchanged; the gear's menu, 9 entries and 7; the
+  486 after; the application menu with its submenus, File 26 entries and
+  21, View 50 and 21, Go 38 and 26, Run 1 and no menu, Terminal 12 and 4,
+  Help 10 and 6, Preferences 8 and 6, Edit and Selection unchanged; the
+  gear's menu, 8 entries and 6; the
   Accounts menu, 2 and 1; the context menu of the title bar and Customize
-  Layout as criteria 5 and 6 say; and the eight keys of criterion 7, pressed
-  with the keyboard in Files.
+  Layout as criteria 5 and 6 say; Open View as criterion 13 says; and the
+  keys of criterion 7, pressed with the keyboard in Files. The application
+  menu after the change was read from what the window sends to the main
+  process, which draws it; before, from the menu bar itself.
 - Run in the real window on 2026-11-21 for criterion 12: Git: Show Git
   Output, Main picked in Show Output Channels, and Window picked in Show
   Logs each opened in the overlay under the channel's name, with the newest
