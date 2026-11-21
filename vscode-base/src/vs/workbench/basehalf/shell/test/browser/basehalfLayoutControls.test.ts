@@ -76,6 +76,8 @@ suite('BaseHalf layout controls', () => {
 			cmdJ: KeybindingsRegistry.getDefaultKeybindingsForOS(OperatingSystem.Macintosh)
 				.filter(item => item.keybinding?.getHashCode() === cmdJ && !item.when)
 				.map(item => item.command)
+				// Of the layout's commands: BaseHalf's own command with the key is registered by the Agent Area.
+				.filter(command => command === PANEL || command === AGENT_AREA || command === SIDEBAR)
 		}, {
 			panel: ['CommandPalette'],
 			agentArea: ['TitleBarLeft', 'LayoutControlMenu', 'LayoutControlMenuSubmenu', 'MenubarAppearanceMenu', 'CommandPalette'],

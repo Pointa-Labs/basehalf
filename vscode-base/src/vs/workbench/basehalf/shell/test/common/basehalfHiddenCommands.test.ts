@@ -82,7 +82,17 @@ suite('BaseHalfHiddenCommands', () => {
 				'editor.action.nextCommentThreadAction',
 				'workbench.actions.workbench.panel.comments.toggleResolvedComments',
 				'workbench.action.terminal.attachToSession',
-				'workbench.action.terminal.clearPreviousSessionHistory'
+				'workbench.action.terminal.clearPreviousSessionHistory',
+				'terminal.toggleVisibility',
+				'terminal.focus',
+				'workbench.action.openEditorAtIndex3',
+				'workbench.action.focusOtherSideEditor',
+				'workbench.action.toggleWindowAlwaysOnTop',
+				'workbench.action.enableCompactAuxiliaryWindow',
+				'workbench.action.resetViewLocations',
+				'workbench.scm.history.resetViewLocation',
+				'workbench.view.explorer.resetViewContainerLocation',
+				'workbench.action.unifiedQuickAccess'
 			].map(getBaseHalfHiddenCommandFamily),
 			[
 				'chat', 'chat', 'chat', 'chat', 'chat',
@@ -114,7 +124,11 @@ suite('BaseHalfHiddenCommands', () => {
 				'shell-shape',
 				'marketplace',
 				'comment-threads', 'comment-threads', 'comment-threads', 'comment-threads',
-				'terminal-kept-sessions', 'terminal-kept-sessions'
+				'terminal-kept-sessions', 'terminal-kept-sessions',
+				'panel', 'panel',
+				'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups',
+				'shell-shape', 'shell-shape', 'shell-shape',
+				'chat'
 			]
 		);
 	});
@@ -136,6 +150,9 @@ suite('BaseHalfHiddenCommands', () => {
 			// The parts of the window, and what the base's image preview does in the editor of a deleted picture.
 			'workbench.action.focusSideBar', 'workbench.action.focusAuxiliaryBar', 'workbench.action.maximizeAuxiliaryBar', 'workbench.action.nextSideBarView',
 			'workbench.action.focusActivityBar', 'workbench.action.selectIconTheme', 'imagePreview.zoomIn',
+			// Hiding a view of a part and showing it again, the terminal's own commands, and the windows of the product.
+			'workbench.scm.history.toggleVisibility', 'workbench.scm.history.removeView', 'workbench.action.terminal.focusNext', 'workbench.action.switchWindow',
+			'workbench.action.toggleFullScreen', 'workbench.action.quickOpen', 'workbench.action.showCommands',
 			// The window and its settings.
 			'workbench.action.toggleZenMode', 'workbench.action.openGlobalKeybindings', 'workbench.action.selectTheme', 'workbench.action.openSettings',
 			'workbench.action.zoomIn', 'workbench.action.toggleSidebarVisibility', 'workbench.action.toggleAuxiliaryBar', 'workbench.action.customizeLayout',

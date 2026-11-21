@@ -110,7 +110,11 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'keywordActivation.*',
 			'scm.input.triggerSetup',
 			'scm.editor.triggerSetup',
-			'workbench.scm.action.graph.addHistoryItem*ToChat'
+			'workbench.scm.action.graph.addHistoryItem*ToChat',
+			// The quick access of the base's agents, which Quick Open turns to only with the base's AI features on (D150).
+			'workbench.action.unifiedQuickAccess',
+			'workbench.action.showCommandsQuickAccess',
+			'workbench.action.showFilesQuickAccess'
 		],
 		paletteCategories: ['Chat', 'Inline Chat', 'MCP', 'Voice', 'Agent Sessions', 'Agent Plugins'],
 		reason: 'The Agent Area is BaseHalf\'s surface for agents. The base\'s chat, its agents, its tool servers, its voice input, and its setup are off, and none of their commands turns them on.'
@@ -288,7 +292,8 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.output.activeOutputLogLevel*',
 			'workbench.action.openActiveLogOutputFile*',
 			'workbench.action.saveActiveLogOutputAs',
-			'terminal.focus',
+			// The base's terminal view of the panel, by the commands the base makes for every view.
+			'terminal.*',
 			'workbench.action.terminal.focusTabs',
 			'workbench.action.terminal.moveToTerminalPanel',
 			// The panel's toggle, which BaseHalf had made one more name for showing the Agent Area, and the toggle of
@@ -379,8 +384,16 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.lastEditorInGroup',
 			// A group among several.
 			'workbench.action.closeGroup',
+			'workbench.action.closeEditorsAndGroup',
 			'workbench.action.focus*GroupWithoutWrap',
-			'layoutEditorGroups'
+			'layoutEditorGroups',
+			// The place of an editor among the tabs, the sides of an editor that is split in its group, and the
+			// window of an editor that has one of its own.
+			'workbench.action.openEditorAtIndex*',
+			'workbench.action.focus*SideEditor',
+			'workbench.action.*CompactAuxiliaryWindow',
+			'workbench.action.*WindowAlwaysOnTop',
+			'workbench.action.switchToMainWindow'
 		],
 		paletteCategories: [],
 		reason: 'A file opens in Card Detail, and there is one editor group without tabs: BaseHalf takes a split back, and a tab, a pinned editor, or an editor in a window of its own has no place to show.'
@@ -437,7 +450,12 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.moveModalEditorToWindow',
 			// The Agent Area has one view: there is no next one to step to (D150).
 			'workbench.action.nextAuxiliaryBarView',
-			'workbench.action.previousAuxiliaryBarView'
+			'workbench.action.previousAuxiliaryBarView',
+			// No view leaves its place, so none has a place to be put back to.
+			'workbench.action.resetViewLocations',
+			'workbench.action.resetFocusedViewLocation',
+			'*.resetViewLocation',
+			'*.resetViewContainerLocation'
 		],
 		paletteCategories: [],
 		reason: 'Each only changes what BaseHalf keeps as it is: it writes a setting that BaseHalf keeps at its own value (D137), needs one at another value, as the tabs of the system\'s windows do, switches to a theme BaseHalf never switches to, or moves a view out of its place.'
