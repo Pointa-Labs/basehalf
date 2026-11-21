@@ -9,9 +9,9 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { readCanvasCardNumber } from './creation.mts';
-import { logsPath, opts, root, workspacePath } from '../../context.mts';
-import { canvasCardGrip, emptyCanvasPoint, openCanvasZoomMenu, zoomCanvas } from '../../lib/canvas.mts';
-import { waitUntil } from '../../lib/steps.mts';
+import { logsPath, opts, root, userDataDir, workspacePath } from '../../context.mts';
+import { canvasCardGrip, emptyCanvasPoint, openCanvasZoomMenu, readCanvasView, setCanvasZoomPercent, zoomCanvas } from '../../lib/canvas.mts';
+import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 // Moves the pointer that holds a card down from a point until no folder
 // would take the card where it is let go (dropping into a folder).
@@ -24,6 +24,237 @@ async function movePointerOffFolders(page, x, y) {
 		await page.mouse.move(x, y + offset, { steps: 2 });
 		await page.waitForTimeout(32);
 	}
+}
+
+/** Runs `run` with `values` added to the settings of the workspace, and puts the settings back. */
+async function withWorkspaceSettings(page, values, run) {
+	const settings = path.join(workspacePath, '.vscode', 'settings.json');
+	const before = fs.readFileSync(settings, 'utf8');
+	fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(before), ...values }, null, '\t'), 'utf8');
+	try {
+		// The window reads a changed settings file within about a second.
+		await page.waitForTimeout(1_500);
+		await run();
+	} finally {
+		fs.writeFileSync(settings, before, 'utf8');
+		await page.waitForTimeout(1_500);
+	}
+}
+
+/** One event of the wheel at a point, with the zoom key held or not; then the view once it has settled. */
+async function wheelOnCanvas(page, point, deltaX, deltaY, zoomKey = false) {
+	const key = process.platform === 'darwin' ? 'Meta' : 'Control';
+	await page.mouse.move(point.x, point.y);
+	if (zoomKey) {
+		await page.keyboard.down(key);
+	}
+	try {
+		await page.mouse.wheel(deltaX, deltaY);
+		// The view moves in the frame of the event.
+		await page.waitForTimeout(100);
+	} finally {
+		if (zoomKey) {
+			await page.keyboard.up(key);
+		}
+	}
+	// A gesture of the wheel ends 150 ms after its last event: the next event of these steps is a new one.
+	await page.waitForTimeout(300);
+	return readCanvasView(page);
+}
+
+/** How a view differs from the one before it: how far it moved, by what factor it zoomed, and how far the place under `point` moved. */
+function viewChange(before, after, point) {
+	const place = view => ({ x: (point.x - view.x) / view.zoom, y: (point.y - view.y) / view.zoom });
+	return {
+		dx: Math.round((after.x - before.x) * 10) / 10,
+		dy: Math.round((after.y - before.y) * 10) / 10,
+		factor: Math.round(after.zoom / before.zoom * 10_000) / 10_000,
+		placeUnderThePointer: Math.round(Math.hypot(place(after).x - place(before).x, place(after).y - place(before).y) * after.zoom * 10) / 10
+	};
+}
+
+// Canvas wheel gestures, criteria 18 to 20 (D144): a gesture of the wheel on
+// empty canvas moves the canvas or zooms it about the pointer as the setting
+// says, the zoom key makes it the other, and a drag with the middle button
+// moves the canvas with either value.
+export async function assertCanvasWheelFollowsItsSetting(page) {
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-value').blur();
+	const point = await emptyCanvasPoint(page);
+	// 100 pixels down make the canvas 2^-0.2 as large.
+	const smaller = 0.8706;
+	const read = async (wheelZooms) => {
+		const seen = {};
+		let before = await readCanvasView(page);
+		for (const [name, zoomKey] of [['wheel', false], ['wheelWithTheZoomKey', true]]) {
+			const after = await wheelOnCanvas(page, point, 0, 100, zoomKey);
+			seen[name] = viewChange(before, after, point);
+			// Back, so that each reading starts from the same view.
+			before = await wheelOnCanvas(page, point, 0, -100, zoomKey);
+		}
+		// A sideways event, as the wheel with Shift sends, moves the canvas sideways.
+		const sideways = await wheelOnCanvas(page, point, 100, 0);
+		seen.sideways = viewChange(before, sideways, point);
+		before = await wheelOnCanvas(page, point, -100, 0);
+		// A drag with the middle button moves the canvas.
+		await page.mouse.move(point.x, point.y);
+		await page.mouse.down({ button: 'middle' });
+		await page.mouse.move(point.x + 40, point.y + 30, { steps: 5 });
+		await page.mouse.up({ button: 'middle' });
+		await page.waitForTimeout(300);
+		const dragged = await readCanvasView(page);
+		seen.middleButton = viewChange(before, dragged, point);
+		await page.mouse.move(point.x + 40, point.y + 30);
+		await page.mouse.down({ button: 'middle' });
+		await page.mouse.move(point.x, point.y, { steps: 5 });
+		await page.mouse.up({ button: 'middle' });
+		await page.waitForTimeout(300);
+		const moves = change => change.factor === 1 && change.dx === 0 && change.dy === -100;
+		const zooms = change => Math.abs(change.factor - smaller) < 0.0005 && change.placeUnderThePointer <= 1;
+		const expected = wheelZooms ? zooms(seen.wheel) && moves(seen.wheelWithTheZoomKey) : moves(seen.wheel) && zooms(seen.wheelWithTheZoomKey);
+		if (!expected || seen.sideways.factor !== 1 || seen.sideways.dx !== -100 || seen.sideways.dy !== 0
+			|| seen.middleButton.factor !== 1 || seen.middleButton.dx !== 40 || seen.middleButton.dy !== 30) {
+			throw new Error(`With the wheel that ${wheelZooms ? 'zooms' : 'moves the canvas'}, a gesture of the wheel did not do what the setting says: ${JSON.stringify(seen)}`);
+		}
+	};
+	await read(false);
+	await withWorkspaceSettings(page, { 'basehalf.canvas.wheel': 'zoom' }, () => read(true));
+	// Without a reload, the canvas follows the setting put back.
+	await read(false);
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+}
+
+// Canvas selection and arrangement, criteria 39, 40, and 42 (D144): the magnet
+// and the setting Snap to Cards are one value, and the magnet on and off
+// differ to the eye.
+export async function assertCanvasMagnetIsItsSetting(page) {
+	const magnet = page.locator('.basehalf-canvas-snap-toggle:visible');
+	const userSettings = path.join(userDataDir, 'User', 'settings.json');
+	const inUserSettings = () => JSON.parse(fs.readFileSync(userSettings, 'utf8'))['basehalf.canvas.snap'];
+	const look = () => magnet.evaluate(button => {
+		const style = getComputedStyle(button);
+		return { pressed: button.getAttribute('aria-pressed'), name: button.getAttribute('aria-label'), color: style.color, background: style.backgroundColor };
+	});
+	// The pointer away from it: its ground under the pointer is the ground of every button there.
+	const away = await emptyCanvasPoint(page);
+	await page.mouse.move(away.x, away.y);
+	// A color of the button changes over 100 ms.
+	await page.waitForTimeout(250);
+	const on = await look();
+	if (on.pressed !== 'true' || on.name !== 'Snap to Cards' || inUserSettings() !== undefined) {
+		throw new Error(`The magnet starts on, as its setting, and is named Snap to Cards: ${JSON.stringify({ on, setting: inUserSettings() })}`);
+	}
+	// A click turns it off in the same task, and the setting is in the user's settings file within a second.
+	const atTheClick = await magnet.evaluate(button => {
+		button.click();
+		return button.getAttribute('aria-pressed');
+	});
+	await waitUntil(() => inUserSettings() === false, 'the click on the magnet to write basehalf.canvas.snap into the user\'s settings', 5_000);
+	await page.mouse.move(away.x, away.y);
+	await page.waitForTimeout(250);
+	const off = await look();
+	if (atTheClick !== 'false' || off.pressed !== 'false' || (off.color === on.color && off.background === on.background)) {
+		throw new Error(`The magnet off must show at once and look other than on: ${JSON.stringify({ atTheClick, on, off })}`);
+	}
+	// The setting changed in a settings file changes the magnet: the workspace's wins over the user's.
+	await withWorkspaceSettings(page, { 'basehalf.canvas.snap': true }, async () => {
+		await waitForReading(look, seen => seen.pressed === 'true', 'the magnet to follow the setting that a settings file turned on');
+	});
+	await waitForReading(look, seen => seen.pressed === 'false', 'the magnet to follow the setting put back');
+	// A second click turns it on, and a value equal to the default is written as no value.
+	await magnet.click();
+	await waitUntil(() => inUserSettings() === undefined, 'the second click on the magnet to take basehalf.canvas.snap out of the user\'s settings', 5_000);
+	if ((await look()).pressed !== 'true') {
+		throw new Error('The magnet did not turn on again');
+	}
+	await page.mouse.move(away.x, away.y);
+}
+
+// Workbench appearance, criteria B1, B4, and B5 (D144): the canvas draws
+// lines, dots, or nothing behind its cards as the setting says, without a
+// reload, and the dots are 2 screen pixels across and 40 to 80 apart.
+export async function assertCanvasBackgroundFollowsItsSetting(page) {
+	const drawn = () => page.evaluate(() => {
+		const dots = document.querySelector('[data-testid="canvas-background-dots"]');
+		return {
+			lines: document.querySelector('.basehalf-canvas-cards .react-flow__background') !== null,
+			dots: dots instanceof HTMLCanvasElement ? { gap: Number(dots.dataset.basehalfDotGap), between: Number(dots.dataset.basehalfDotsBetween) } : null
+		};
+	});
+	// The pixels of the dots as they are drawn: the boxes of the lit pixels that touch, and how strong each is.
+	const dotShapes = () => page.evaluate(() => {
+		const canvas = document.querySelector('[data-testid="canvas-background-dots"]');
+		if (!(canvas instanceof HTMLCanvasElement)) {
+			return null;
+		}
+		const { width, height } = canvas;
+		const data = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+		const lit = (x, y) => data[(y * width + x) * 4 + 3];
+		const seen = new Uint8Array(width * height);
+		const shapes = new Set();
+		let dots = 0;
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				if (lit(x, y) === 0 || seen[y * width + x]) {
+					continue;
+				}
+				// One dot: the lit pixels that touch, its box, and its strongest pixel.
+				let left = x, right = x, top = y, bottom = y, strongest = 0;
+				const next = [[x, y]];
+				seen[y * width + x] = 1;
+				while (next.length) {
+					const [atX, atY] = next.pop();
+					strongest = Math.max(strongest, lit(atX, atY));
+					left = Math.min(left, atX);
+					right = Math.max(right, atX);
+					top = Math.min(top, atY);
+					bottom = Math.max(bottom, atY);
+					for (const [besideX, besideY] of [[atX + 1, atY], [atX - 1, atY], [atX, atY + 1], [atX, atY - 1]]) {
+						if (besideX >= 0 && besideY >= 0 && besideX < width && besideY < height && !seen[besideY * width + besideX] && lit(besideX, besideY) !== 0) {
+							seen[besideY * width + besideX] = 1;
+							next.push([besideX, besideY]);
+						}
+					}
+				}
+				// A dot that the edge of the drawing cuts is not whole.
+				if (left === 0 || top === 0 || right === width - 1 || bottom === height - 1) {
+					continue;
+				}
+				dots++;
+				shapes.add(`${(right - left + 1) / devicePixelRatio}x${(bottom - top + 1) / devicePixelRatio} at ${strongest}`);
+			}
+		}
+		return { dots, shapes: [...shapes].sort() };
+	});
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	const lines = await drawn();
+	if (!lines.lines || lines.dots) {
+		throw new Error(`The canvas draws lines behind its cards unless the setting says otherwise: ${JSON.stringify(lines)}`);
+	}
+	await withWorkspaceSettings(page, { 'basehalf.canvas.background': 'dots' }, async () => {
+		const whole = await waitForReading(drawn, seen => !seen.lines && seen.dots !== null, 'the canvas to draw dots as the setting says');
+		const shapes = await dotShapes();
+		// At 100% the dots are 40 flow pixels apart with none between, each 2 screen pixels across and alike.
+		if (whole.dots.gap !== 40 || whole.dots.between !== 0 || !shapes || shapes.dots < 4 || shapes.shapes.length !== 1 || !shapes.shapes[0].startsWith('2x2 ')) {
+			throw new Error(`At 100% the dots are 40 pixels apart, 2 pixels across, and alike: ${JSON.stringify({ whole, shapes })}`);
+		}
+		// At 150% they are 60 screen pixels apart, with a fainter dot halfway.
+		await setCanvasZoomPercent(page, 150);
+		const between = await waitForReading(drawn, seen => seen.dots?.gap === 40 && Math.abs(seen.dots.between - 0.5) < 0.001, 'the dots between to show half at 150%');
+		const betweenShapes = await dotShapes();
+		if (!betweenShapes || betweenShapes.shapes.length !== 2 || betweenShapes.shapes.some(shape => !shape.startsWith('2x2 '))) {
+			throw new Error(`At 150% whole dots and fainter dots between them are drawn, each 2 pixels across: ${JSON.stringify({ between, betweenShapes })}`);
+		}
+		await zoomCanvas(page, 'reset');
+		await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	});
+	await withWorkspaceSettings(page, { 'basehalf.canvas.background': 'plain' }, async () => {
+		await waitForReading(drawn, seen => !seen.lines && seen.dots === null, 'the canvas to draw nothing behind its cards as the setting says');
+	});
+	await waitForReading(drawn, seen => seen.lines && seen.dots === null, 'the canvas to draw lines again once the setting is put back');
 }
 
 export async function assertCanvasZoomControls(page) {

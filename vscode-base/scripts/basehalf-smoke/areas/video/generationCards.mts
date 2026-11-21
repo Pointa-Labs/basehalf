@@ -193,6 +193,7 @@ export async function runGenerationCardSteps(page) {
 	await step('video-card-detail-shows-what-made-it', () => assertCardDetailShowsWhatMadeIt(page));
 	await step('video-capture-frames', () => assertCaptureFrames(page));
 	await step('video-card-keeps-its-player', () => assertCardKeepsItsPlayer(page));
+	await step('video-under-the-pointer-follows-its-setting', () => assertVideoUnderThePointerFollowsItsSetting(page));
 	await step('video-card-player-gestures', () => assertCardPlayerGestures(page));
 	await step('video-file-panel-shows-what-made-it', () => assertFilePanelShowsWhatMadeIt(page));
 	await step('video-canvas-refuses-inputs', () => assertCanvasRefusesInputs(page));
@@ -1708,6 +1709,53 @@ async function assertCaptureFrames(page) {
 		await waitUntil(() => JSON.stringify(readUpstreamSidecar(`${GENERATION_FOLDER}/${name}`)) === JSON.stringify([VIDEO]), `${name} to be connected from ${VIDEO}`, 10_000);
 	}
 	await assertCanvasEdgeVisible(page, VIDEO, `${GENERATION_FOLDER}/${frames[1][1]}`);
+}
+
+// Criterion 106 (D144): with Play Videos Under the Pointer off, the pointer on
+// a video card plays nothing and Play plays the video; a video that the
+// pointer started pauses when the setting is turned off, without a reload; and
+// turned on again with the pointer on the card, the video plays.
+async function assertVideoUnderThePointerFollowsItsSetting(page) {
+	const settings = path.join(workspacePath, '.vscode', 'settings.json');
+	const before = fs.readFileSync(settings, 'utf8');
+	const read = () => readCardVideoPlayer(page, VIDEO);
+	await clickBlankCanvas(page);
+	const away = await emptyCanvasPoint(page);
+	await page.mouse.move(away.x, away.y);
+	const picture = await cardVideoPicturePoint(page, VIDEO);
+	// The test video lasts two seconds: it plays from its start, so that it does not end in this step.
+	await seekCardVideo(page, VIDEO, 0);
+	try {
+		await page.mouse.move(picture.x, picture.y, { steps: 4 });
+		await waitForReading(read, seen => seen?.paused === false && seen.muted, 'the pointer on the card to play its video');
+		fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(before), 'basehalf.canvas.playVideosOnHover': false }, null, '\t'), 'utf8');
+		await waitForReading(read, seen => seen?.paused === true && seen.controls === 'shown', 'the video that the pointer started to pause when the setting is turned off');
+		// The pointer comes onto the card again: nothing plays, and the controls show.
+		await page.mouse.move(away.x, away.y, { steps: 4 });
+		await seekCardVideo(page, VIDEO, 0);
+		await page.mouse.move(picture.x, picture.y, { steps: 4 });
+		await page.waitForTimeout(600);
+		const resting = await read();
+		if (!resting?.paused || resting.controls !== 'shown') {
+			throw new Error(`With Play Videos Under the Pointer off, the pointer on the card plays nothing and shows its controls: ${JSON.stringify(resting)}`);
+		}
+		// Play plays it, and the pointer leaving a card that is not selected pauses it.
+		await canvasCard(page, VIDEO).locator('.basehalf-canvas-video-player-button.play').click();
+		await waitForReading(read, seen => seen?.paused === false, 'Play to play the video while the pointer plays nothing');
+		await page.mouse.move(away.x, away.y, { steps: 4 });
+		await waitForReading(read, seen => seen?.paused === true, 'the pointer leaving a card that is not selected to pause its video');
+		// Turned on again with the pointer on the card: the video plays.
+		await seekCardVideo(page, VIDEO, 0);
+		await page.mouse.move(picture.x, picture.y, { steps: 4 });
+		await page.waitForTimeout(300);
+		fs.writeFileSync(settings, before, 'utf8');
+		await waitForReading(read, seen => seen?.paused === false, 'the video under the pointer to play when the setting is turned on again');
+	} finally {
+		fs.writeFileSync(settings, before, 'utf8');
+		await page.mouse.move(away.x, away.y, { steps: 4 });
+		// The window reads a changed settings file within about a second.
+		await page.waitForTimeout(1_500);
+	}
 }
 
 // "The card": the card changes in place when its card information changes. A
