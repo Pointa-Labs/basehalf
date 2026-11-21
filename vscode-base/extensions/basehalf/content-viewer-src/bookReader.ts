@@ -533,6 +533,17 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 
 function onSectionLoad(doc: Document): void {
 	doc.addEventListener('keydown', onKeydown);
+	// The back and forward buttons of a mouse go back and forward wherever the pointer is (the shown place and the
+	// workbench, rule 2). The window hears them from this page by itself, and not from the book's text, which is
+	// a frame inside the page: the page tells the window, which takes them as pressed on the page.
+	for (const type of ['mousedown', 'mouseup'] as const) {
+		doc.addEventListener(type, event => {
+			if (event.isTrusted && (event.button === 3 || event.button === 4)) {
+				event.preventDefault();
+				vscode.postMessage({ type: 'basehalf.book.mouseButton', event: type, button: event.button });
+			}
+		}, { capture: true });
+	}
 	for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 		doc.addEventListener(type, onInteraction, { capture: true, passive: true });
 	}

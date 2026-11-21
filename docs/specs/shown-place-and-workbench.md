@@ -179,7 +179,12 @@ the real window, a development build of 0.7.0:
   reports its keys: the page's frame posts the button, and the webview
   element sends a mouse event of that button from its own element, where
   the history service hears it
-  (`contrib/webview/browser/pre/index.html`, `webviewElement.ts`).
+  (`contrib/webview/browser/pre/index.html`, `webviewElement.ts`). The
+  text of a book is a frame inside its page, which the page's frame does
+  not hear: the book reader's page tells Card Detail of the two buttons
+  there, and Card Detail sends the same mouse event from the page's place
+  (`basehalf.book.mouseButton`). In both cases the history service alone
+  reads the setting.
 
 ## Acceptance criteria
 
@@ -261,5 +266,10 @@ the real window, a development build of 0.7.0:
   `explorer.autoReveal` off (`files-reveal-the-file-in-card-detail`), and
   criteria 7 and 9 (`window-title-names-the-shown-place`), on files of its
   own.
-- Not verified: the buttons over a PDF, over a book, whose text is in a
-  frame inside its page, and over the view of an agent extension.
+- In the real window the same day: the back button over a PDF, and over
+  the text of a book, each to the place before and forward again, and with
+  the setting off no change over the book's text. Before the book's page
+  told Card Detail of the buttons, the back button did nothing over a
+  book's text and went back over the bar above it.
+- Not verified: the buttons over the view of an agent extension, and over
+  a frame that a page of another extension puts inside itself.

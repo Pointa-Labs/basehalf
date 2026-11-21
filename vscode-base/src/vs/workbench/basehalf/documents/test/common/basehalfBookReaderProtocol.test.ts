@@ -66,4 +66,20 @@ suite('BaseHalfBookReaderProtocol', () => {
 			undefined
 		]);
 	});
+
+	test('takes the back and forward buttons of a mouse over the text of a book, and no other button', () => {
+		assert.deepStrictEqual([
+			baseHalfBookReaderMessage({ type: 'basehalf.book.mouseButton', event: 'mousedown', button: 3, extra: true }),
+			baseHalfBookReaderMessage({ type: 'basehalf.book.mouseButton', event: 'mouseup', button: 4 }),
+			baseHalfBookReaderMessage({ type: 'basehalf.book.mouseButton', event: 'mousedown', button: 0 }),
+			baseHalfBookReaderMessage({ type: 'basehalf.book.mouseButton', event: 'click', button: 3 }),
+			baseHalfBookReaderMessage({ type: 'basehalf.book.mouseButton', event: 'mousedown', button: '3' })
+		], [
+			{ type: 'basehalf.book.mouseButton', event: 'mousedown', button: 3 },
+			{ type: 'basehalf.book.mouseButton', event: 'mouseup', button: 4 },
+			undefined,
+			undefined,
+			undefined
+		]);
+	});
 });

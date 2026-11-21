@@ -778,6 +778,12 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			case 'basehalf.book.userInteraction':
 				this.onDocumentInteraction();
 				return;
+			case 'basehalf.book.mouseButton':
+				// The back or the forward button of a mouse over the book's text: the window hears it as pressed
+				// on the page, where the base's history service decides by its setting (the shown place and the
+				// workbench, rule 2).
+				this.webviewHost.dispatchEvent(new MouseEvent(message.event, { button: message.button, bubbles: true, cancelable: true }));
+				return;
 			case 'basehalf.book.viewState':
 				this.bookViewState = message.state;
 				this.storageService.store(this.bookViewStateStorageKey(resource), message.state, StorageScope.WORKSPACE, StorageTarget.MACHINE);

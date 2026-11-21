@@ -6652,6 +6652,8 @@ the shown place.
   the file in Card Detail too.
 - A test fails on a source of BaseHalf's that asks the system for reduced motion, and on one that reads
   `files.enableTrash` itself.
+- The text of a book is a frame inside its page, which the page's own frame does not hear: the book reader tells Card
+  Detail of the two buttons there, and the window takes them as pressed on the page.
 - Not covered: a library inside the page of Rich asks the system for reduced motion by itself; the buttons of a mouse
-  over a PDF, over the text of a book, which is a frame inside its page, and over the view of an agent extension were
-  not run; a swipe was sent to the window as the event the system sends, and the gesture itself was not made.
+  over the view of an agent extension were not run; a swipe was sent to the window as the event the system sends, and
+  the gesture itself was not made.
