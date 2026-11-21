@@ -7,7 +7,7 @@ import { CommandsRegistry, ICommandMetadata } from '../../../../platform/command
 import { isNonEmptyArray } from '../../../../base/common/arrays.js';
 import { EditorExtensionsRegistry } from '../../../../editor/browser/editorExtensions.js';
 import { MenuRegistry, MenuId, isIMenuItem } from '../../../../platform/actions/common/actions.js';
-import { isBaseHalfHiddenCommand } from '../../../basehalf/shell/common/basehalfHiddenCommands.js';
+import { isBaseHalfHiddenCommand, isBaseHalfOwnCommand } from '../../../basehalf/shell/common/basehalfHiddenCommands.js';
 
 export function getAllUnboundCommands(boundCommands: Map<string, boolean>): string[] {
 	const unboundCommands: string[] = [];
@@ -27,6 +27,9 @@ export function getAllUnboundCommands(boundCommands: Map<string, boolean>): stri
 			return;
 		}
 		if (!includeCommandWithArgs) {
+			if (isBaseHalfOwnCommand(id)) { // BaseHalf: a command of its own that the Command Palette has no entry for has no name to be listed by (D150)
+				return;
+			}
 			const command = CommandsRegistry.getCommand(id);
 			if (command && typeof command.metadata === 'object'
 				&& isNonEmptyArray((<ICommandMetadata>command.metadata).args)) { // command with args

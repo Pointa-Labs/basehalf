@@ -150,7 +150,7 @@ suite('BaseHalfCanvasKeys', () => {
 	test('the commands and their default keys', () => {
 		assert.deepStrictEqual(BASEHALF_CANVAS_KEY_COMMANDS.map(command => `${command.title.value}: ${keysOf(command, OperatingSystem.Macintosh).join(', ') || 'no key'}${command.palette ? '; in the palette' : ''}`), [
 			'Zoom Canvas In: cmd+=, shift+cmd+=, cmd+numpad_add; in the palette',
-			'Zoom Canvas Out: cmd+-, cmd+numpad_subtract; in the palette',
+			'Zoom Canvas Out: cmd+-, shift+cmd+-, cmd+numpad_subtract; in the palette',
 			'Zoom Canvas to 100%: cmd+0, cmd+numpad0; in the palette',
 			'Fit Canvas to Screen: no key; in the palette',
 			'Tidy Canvas: shift+alt+f; in the palette',
@@ -171,8 +171,8 @@ suite('BaseHalfCanvasKeys', () => {
 		]);
 		// Where the system has no Command key, the keys are the same with Control, and Delete has no third key.
 		assert.deepStrictEqual(
-			[BaseHalfCanvasCommandId.ZoomIn, BaseHalfCanvasCommandId.DuplicateSelection, BaseHalfCanvasCommandId.DeleteSelection].map(id => keysOf(getBaseHalfCanvasKeyCommand(id)!, OperatingSystem.Windows).join(', ')),
-			['ctrl+=, ctrl+shift+=, ctrl+numpad_add', 'ctrl+d', 'delete, backspace']
+			[BaseHalfCanvasCommandId.ZoomIn, BaseHalfCanvasCommandId.ZoomOut, BaseHalfCanvasCommandId.DuplicateSelection, BaseHalfCanvasCommandId.DeleteSelection].map(id => keysOf(getBaseHalfCanvasKeyCommand(id)!, OperatingSystem.Windows).join(', ')),
+			['ctrl+=, ctrl+shift+=, ctrl+numpad_add', 'ctrl+-, ctrl+shift+-, ctrl+numpad_subtract', 'ctrl+d', 'delete, backspace']
 		);
 		assert.strictEqual(new Set(BASEHALF_CANVAS_KEY_COMMANDS.map(command => command.id)).size, BASEHALF_CANVAS_KEY_COMMANDS.length);
 		assert.strictEqual(getBaseHalfCanvasKeyCommand('workbench.action.zoomIn'), undefined);

@@ -157,13 +157,6 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		reason: 'Terminal kill should update Agent Area session lifecycle without reopening the stock terminal panel.'
 	},
 	{
-		id: 'workbench.action.togglePanel',
-		kind: 'command',
-		area: 'agent-area',
-		source: 'src/vs/workbench/browser/parts/panel/panelActions.ts',
-		reason: 'The stock panel shell should not become BaseHalf\'s right-side surface; terminal sessions live in Agent Area.'
-	},
-	{
 		id: 'workbench.action.files.openFile',
 		kind: 'command',
 		area: 'canvas',

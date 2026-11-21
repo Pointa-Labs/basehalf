@@ -26,7 +26,9 @@ export type BaseHalfHiddenCommandFamilyId =
 	| 'welcome'
 	| 'shell-shape'
 	| 'inline-suggestions'
-	| 'language-service-features';
+	| 'language-service-features'
+	| 'comment-threads'
+	| 'terminal-kept-sessions';
 
 export interface IBaseHalfHiddenCommandFamily {
 	readonly family: BaseHalfHiddenCommandFamilyId;
@@ -207,6 +209,8 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'extension.bisect.*',
 			'workbench.action.browseColorThemesInMarketplace',
 			'workbench.extensions.actions.gallery.signIn',
+			// A product icon theme comes only from an extension, and BaseHalf installs none that has one (D150).
+			'workbench.action.selectProductIconTheme',
 			// The actions of the Extensions view and of an extension's page, which Keyboard Shortcuts still
 			// listed by their ids (D146). What a developer needs of the extension host is kept, below.
 			'workbench.extensions.action.*',
@@ -286,9 +290,16 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.saveActiveLogOutputAs',
 			'terminal.focus',
 			'workbench.action.terminal.focusTabs',
-			'workbench.action.terminal.moveToTerminalPanel'
+			'workbench.action.terminal.moveToTerminalPanel',
+			// The panel's toggle, which BaseHalf had made one more name for showing the Agent Area, and the toggle of
+			// the base's terminal view, which opened the view BaseHalf closes until the window stopped answering (D150).
+			'workbench.action.togglePanel',
+			'basehalf.internal.terminal.toggleView',
+			// The Refactor Preview, a view of the panel.
+			'refactorPreview',
+			'refactorPreview.*'
 		],
-		paletteCategories: [],
+		paletteCategories: ['Refactor Preview'],
 		reason: 'BaseHalf\'s shell has no bottom panel: terminals are in the Agent Area, and output opens as a document over the canvas.'
 	},
 	{
@@ -351,7 +362,25 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.terminal.moveToEditor',
 			'workbench.action.terminal.moveIntoNewWindow',
 			'workbench.action.terminal.newInNewWindow',
-			'workbench.action.terminal.killEditor'
+			'workbench.action.terminal.killEditor',
+			// With one group, a command "in Group" does what the same command without the words does (D150).
+			'workbench.action.closeEditorsInGroup',
+			'workbench.action.nextEditorInGroup',
+			'workbench.action.previousEditorInGroup',
+			'workbench.action.open*RecentlyUsedEditorInGroup',
+			'workbench.action.quickOpen*RecentlyUsedEditorInGroup',
+			'workbench.action.showEditorsInActiveGroup',
+			'workbench.action.showEditorsInGroup',
+			'workbench.files.action.saveAllInGroup',
+			// The order of tabs, which BaseHalf does not show.
+			'workbench.action.closeEditorsToTheLeft',
+			'workbench.action.closeEditorsToTheRight',
+			'workbench.action.firstEditorInGroup',
+			'workbench.action.lastEditorInGroup',
+			// A group among several.
+			'workbench.action.closeGroup',
+			'workbench.action.focus*GroupWithoutWrap',
+			'layoutEditorGroups'
 		],
 		paletteCategories: [],
 		reason: 'A file opens in Card Detail, and there is one editor group without tabs: BaseHalf takes a split back, and a tab, a pinned editor, or an editor in a window of its own has no place to show.'
@@ -405,7 +434,10 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.moveFocusedView',
 			// Settings and Output stand in the overlay: moved out of it, they would stand over the canvas as editors.
 			'workbench.action.moveModalEditorToMain',
-			'workbench.action.moveModalEditorToWindow'
+			'workbench.action.moveModalEditorToWindow',
+			// The Agent Area has one view: there is no next one to step to (D150).
+			'workbench.action.nextAuxiliaryBarView',
+			'workbench.action.previousAuxiliaryBarView'
 		],
 		paletteCategories: [],
 		reason: 'Each only changes what BaseHalf keeps as it is: it writes a setting that BaseHalf keeps at its own value (D137), needs one at another value, as the tabs of the system\'s windows do, switches to a theme BaseHalf never switches to, or moves a view out of its place.'
@@ -436,6 +468,43 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 		],
 		paletteCategories: [],
 		reason: 'Parameter hints, inlay hints, renaming a symbol, and linked editing come from a language service, and JSON\'s, the one that runs (D142), makes none of them (D137 has their settings as unlisted).'
+	},
+	{
+		family: 'comment-threads',
+		commands: [
+			'comments.*',
+			'commentsClearFilterText',
+			'commentsFocusFilter',
+			'commentsFocusViewFromFilter',
+			'workbench.action.addComment',
+			'workbench.action.collapseAllComments',
+			'workbench.action.expandAllComments',
+			'workbench.action.expandUnresolvedComments',
+			'workbench.action.focusCommentOnCurrentLine',
+			'workbench.action.hideComment',
+			'workbench.action.toggleCommenting',
+			'workbench.panel.comments*',
+			'workbench.actions.workbench.panel.comments.*',
+			'editor.action.nextCommentThreadAction',
+			'editor.action.previousCommentThreadAction',
+			'editor.action.nextCommentedRangeAction',
+			'editor.action.previousCommentedRangeAction',
+			'editor.action.nextCommentingRange',
+			'editor.action.previousCommentingRange',
+			'editor.action.submitComment'
+		],
+		paletteCategories: ['Comments'],
+		reason: 'A thread of comments comes from an extension that provides comments, and BaseHalf runs none. The comments of code, Toggle Line Comment and the like, are the editor\'s own and stay.'
+	},
+	{
+		family: 'terminal-kept-sessions',
+		commands: [
+			'workbench.action.terminal.attachToSession',
+			'workbench.action.terminal.detachSession',
+			'workbench.action.terminal.clearPreviousSessionHistory'
+		],
+		paletteCategories: [],
+		reason: 'The base keeps the process of a terminal through a reload. BaseHalf brings back the arrangement of the Agent Area and starts every session anew (D147), so there is no kept session to attach to.'
 	}
 ];
 
@@ -451,6 +520,30 @@ export const BASEHALF_KEPT_COMMANDS: readonly IBaseHalfKeptCommand[] = [
 	{ id: 'workbench.extensions.action.saveExtensionHostProfile', reason: 'The profiler of the extension host, a developer\'s tool.' },
 	{ id: 'workbench.extensions.action.openExtensionHostProfile', reason: 'The profiler of the extension host, a developer\'s tool.' }
 ];
+
+/**
+ * Commands that BaseHalf has and that no menu holds but the Command Palette's (D150): a tool that few use is
+ * found by its name, not beside what everyone uses. Keyboard Shortcuts lists it like any other command.
+ */
+export const BASEHALF_PALETTE_ONLY_COMMANDS: readonly IBaseHalfKeptCommand[] = [
+	{ id: 'workbench.action.openSnippets', reason: 'Configure Snippets makes snippets for code, a tool of Source: it is not beside Settings in the gear\'s menu and the Preferences menu.' }
+];
+
+const PALETTE_ONLY_COMMAND_IDS = new Set<string>(BASEHALF_PALETTE_ONLY_COMMANDS.map(command => command.id));
+
+/** Whether the command is in no menu but the Command Palette's. */
+export function isBaseHalfPaletteOnlyCommand(commandId: string): boolean {
+	return PALETTE_ONLY_COMMAND_IDS.has(commandId);
+}
+
+/**
+ * Whether the command is one of BaseHalf's own, by its id. Keyboard Shortcuts lists such a command by its name:
+ * one that has neither a key nor an entry of the Command Palette is a command of a menu, which takes what the
+ * menu was opened on, or one that BaseHalf's parts call, and is not listed (D150).
+ */
+export function isBaseHalfOwnCommand(commandId: string): boolean {
+	return commandId.startsWith('basehalf.') || commandId.startsWith('pointa.');
+}
 
 const KEPT_COMMAND_IDS = new Set<string>(BASEHALF_KEPT_COMMANDS.map(command => command.id));
 const HIDDEN_COMMAND_IDS = new Map<string, BaseHalfHiddenCommandFamilyId>();

@@ -7,13 +7,17 @@ import assert from 'assert';
 import { timeout } from '../../../../../base/common/async.js';
 import { Emitter } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
+import { decodeKeybinding } from '../../../../../base/common/keybindings.js';
 import { OperatingSystem } from '../../../../../base/common/platform.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IShellLaunchConfig } from '../../../../../platform/terminal/common/terminal.js';
-import { BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID, baseHalfTuiSessionLaunchConfig } from '../../common/basehalfAgentArea.js';
+import { baseHalfTuiSessionLaunchConfig } from '../../common/basehalfAgentArea.js';
 import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
 import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
+import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { TerminalCommandId } from '../../../../contrib/terminal/common/terminal.js';
 import '../../browser/basehalfAgentArea.contribution.js';
 import { BaseHalfAgentAreaService } from '../../browser/basehalfAgentAreaService.js';
 import { baseHalfCreateAgentAreaTerminalConfig, baseHalfRelaunchTerminalAfterExit } from '../../browser/basehalfAgentAreaTerminalConfig.js';
@@ -63,8 +67,20 @@ suite('BaseHalfAgentAreaTerminalConfig', () => {
 		// No other unit test evaluates these modules; a fault of one of them at load would show only in a window.
 		assert.deepStrictEqual({
 			service: typeof BaseHalfAgentAreaService,
-			toggle: typeof CommandsRegistry.getCommand(BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID)?.handler
+			toggle: typeof CommandsRegistry.getCommand(TerminalCommandId.Toggle)?.handler
 		}, { service: 'function', toggle: 'function' });
+	});
+
+	test('one command of BaseHalf\'s shows the Agent Area with a session, with the two keys that show a terminal in the base', () => {
+		const keys = [KeyMod.WinCtrl | KeyCode.Backquote, KeyMod.CtrlCmd | KeyCode.KeyJ].map(key => decodeKeybinding(key, OperatingSystem.Macintosh)?.getHashCode());
+		assert.deepStrictEqual({
+			// BaseHalf's own Toggle Agent Area is gone: the base's toggle of the part has the name (D150).
+			own: CommandsRegistry.getCommand('basehalf.agentArea.toggle'),
+			keys: KeybindingsRegistry.getDefaultKeybindingsForOS(OperatingSystem.Macintosh)
+				.filter(item => item.command === TerminalCommandId.Toggle)
+				.map(item => keys.indexOf(item.keybinding?.getHashCode()))
+				.sort()
+		}, { own: undefined, keys: [0, 1] });
 	});
 
 	test('passes the Claude Code launch instruction through to the terminal launch configuration', () => {

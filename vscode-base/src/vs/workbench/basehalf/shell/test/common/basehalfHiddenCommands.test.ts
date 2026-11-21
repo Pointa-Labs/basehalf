@@ -63,7 +63,26 @@ suite('BaseHalfHiddenCommands', () => {
 				'workbench.action.edits.submit',
 				'scm.input.triggerSetup',
 				'workbench.scm.action.graph.addHistoryItemToChat',
-				'editor.closeTestPeek'
+				'editor.closeTestPeek',
+				// What the shell still listed under another name, or of what BaseHalf does not have (D150).
+				'workbench.action.togglePanel',
+				'basehalf.internal.terminal.toggleView',
+				'refactorPreview',
+				'refactorPreview.apply',
+				'workbench.action.closeEditorsInGroup',
+				'workbench.action.openNextRecentlyUsedEditorInGroup',
+				'workbench.action.quickOpenLeastRecentlyUsedEditorInGroup',
+				'workbench.action.closeEditorsToTheLeft',
+				'workbench.action.focusAboveGroupWithoutWrap',
+				'workbench.files.action.saveAllInGroup',
+				'workbench.action.nextAuxiliaryBarView',
+				'workbench.action.selectProductIconTheme',
+				'workbench.action.addComment',
+				'comments.reply',
+				'editor.action.nextCommentThreadAction',
+				'workbench.actions.workbench.panel.comments.toggleResolvedComments',
+				'workbench.action.terminal.attachToSession',
+				'workbench.action.terminal.clearPreviousSessionHistory'
 			].map(getBaseHalfHiddenCommandFamily),
 			[
 				'chat', 'chat', 'chat', 'chat', 'chat',
@@ -89,7 +108,13 @@ suite('BaseHalfHiddenCommands', () => {
 				'marketplace', 'marketplace',
 				'debug',
 				'chat', 'chat', 'chat',
-				'testing'
+				'testing',
+				'panel', 'panel', 'panel', 'panel',
+				'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups',
+				'shell-shape',
+				'marketplace',
+				'comment-threads', 'comment-threads', 'comment-threads', 'comment-threads',
+				'terminal-kept-sessions', 'terminal-kept-sessions'
 			]
 		);
 	});
@@ -99,12 +124,18 @@ suite('BaseHalfHiddenCommands', () => {
 			// Files, Source Control and Git, and Search.
 			'explorer.newFile', 'workbench.view.explorer', 'workbench.view.scm', 'workbench.view.search', 'git.commit', 'git.showOutput',
 			'merge-conflict.accept.current', 'workbench.action.findInFiles', 'search.action.openResult', 'search.action.replaceAll',
-			// The terminal's commands, which the Agent Area takes, and the panel's toggle, which opens and closes it.
+			// The terminal's commands, which the Agent Area takes.
 			'workbench.action.terminal.new', 'workbench.action.terminal.split', 'workbench.action.terminal.focus', 'workbench.action.terminal.clear',
-			'workbench.action.terminal.toggleTerminal', 'workbench.action.togglePanel',
+			'workbench.action.terminal.toggleTerminal', 'workbench.action.terminal.kill', 'workbench.action.terminal.relaunch',
 			// Source's editor.
 			'actions.find', 'editor.action.formatDocument', 'editor.fold', 'editor.action.insertCursorBelow', 'editor.action.insertSnippet',
 			'workbench.action.openSnippets', 'editor.action.marker.next', 'workbench.action.gotoSymbol', 'workbench.action.closeActiveEditor',
+			// The comments of code, and the editors of the one group.
+			'editor.action.commentLine', 'editor.action.blockComment', 'editor.action.addCommentLine', 'workbench.action.closeAllEditors',
+			'workbench.action.nextEditor', 'workbench.action.openNextRecentlyUsedEditor', 'workbench.action.closeOtherEditors', 'workbench.action.files.saveAll',
+			// The parts of the window, and what the base's image preview does in the editor of a deleted picture.
+			'workbench.action.focusSideBar', 'workbench.action.focusAuxiliaryBar', 'workbench.action.maximizeAuxiliaryBar', 'workbench.action.nextSideBarView',
+			'workbench.action.focusActivityBar', 'workbench.action.selectIconTheme', 'imagePreview.zoomIn',
 			// The window and its settings.
 			'workbench.action.toggleZenMode', 'workbench.action.openGlobalKeybindings', 'workbench.action.selectTheme', 'workbench.action.openSettings',
 			'workbench.action.zoomIn', 'workbench.action.toggleSidebarVisibility', 'workbench.action.toggleAuxiliaryBar', 'workbench.action.customizeLayout',
@@ -119,7 +150,7 @@ suite('BaseHalfHiddenCommands', () => {
 			// The base's plumbing, which Git calls at a commit.
 			'_aiEdits.hasAiContributions', '_chat.editSessions.accept', '_open.mergeEditor',
 			// BaseHalf's own commands.
-			'basehalf.agentArea.toggle', 'basehalf.video.providers', 'pointa.basehalf-ai-video.createWorkflow'
+			'basehalf.agentArea.newTab', 'basehalf.video.providers', 'pointa.basehalf-ai-video.createWorkflow'
 		];
 		assert.deepStrictEqual(kept.filter(isBaseHalfHiddenCommand), []);
 	});

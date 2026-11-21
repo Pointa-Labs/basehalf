@@ -21,6 +21,7 @@ import { isEmptyObject, isString } from '../../../../base/common/types.js';
 import { IExtensionService } from '../../extensions/common/extensions.js';
 import { ExtensionIdentifier, ExtensionIdentifierMap, IExtensionDescription } from '../../../../platform/extensions/common/extensions.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { toBaseHalfWords } from '../../../basehalf/shell/common/basehalfWords.js';
 
 export const KEYBINDING_ENTRY_TEMPLATE_ID = 'keybinding.entry.template';
 
@@ -278,7 +279,7 @@ export class KeybindingsEditorModel extends EditorModel {
 			keybinding: keybindingItem.resolvedKeybinding,
 			keybindingItem,
 			command,
-			commandLabel: KeybindingsEditorModel.getCommandLabel(menuCommand, editorActionLabel),
+			commandLabel: toBaseHalfWords(KeybindingsEditorModel.getCommandLabel(menuCommand, editorActionLabel)), // BaseHalf: a row names its command in BaseHalf's words (D150)
 			commandDefaultLabel: KeybindingsEditorModel.getCommandDefaultLabel(menuCommand),
 			when: keybindingItem.when ? keybindingItem.when.serialize() : '',
 			source

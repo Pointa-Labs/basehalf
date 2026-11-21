@@ -79,7 +79,6 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.split'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.focus'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.kill'), 'remapped');
-		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.togglePanel'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openAndPassFocus'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openToSide'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openWith'), 'remapped');
@@ -141,8 +140,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 				'workbench.action.terminal.split',
 				'workbench.action.terminal.toggleTerminal',
 				'workbench.action.terminal.focus',
-				'workbench.action.terminal.kill',
-				'workbench.action.togglePanel'
+				'workbench.action.terminal.kill'
 			]
 		);
 	});

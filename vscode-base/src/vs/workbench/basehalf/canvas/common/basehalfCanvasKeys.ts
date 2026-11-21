@@ -230,7 +230,8 @@ export const BASEHALF_CANVAS_KEY_COMMANDS: readonly IBaseHalfCanvasKeyCommand[] 
 	{
 		id: BaseHalfCanvasCommandId.ZoomOut,
 		title: localize2('basehalf.canvas.command.zoomOut', "Zoom Canvas Out"),
-		keys: { primary: KeyMod.CtrlCmd | KeyCode.Minus, secondary: [KeyMod.CtrlCmd | KeyCode.NumpadSubtract] },
+		// Every key of the window's zoom out (`workbench.action.zoomOut`), as Zoom Canvas In has every key of its zoom in.
+		keys: { primary: KeyMod.CtrlCmd | KeyCode.Minus, secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Minus, KeyMod.CtrlCmd | KeyCode.NumpadSubtract] },
 		when: whenCanvasFocus,
 		palette: canvasShown
 	},

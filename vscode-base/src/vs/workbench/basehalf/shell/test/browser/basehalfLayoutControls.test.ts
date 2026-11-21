@@ -13,6 +13,7 @@ import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/k
 import '../../../../browser/actions/layoutActions.js';
 import '../../../../browser/parts/auxiliarybar/auxiliaryBarActions.js';
 import '../../../../browser/parts/panel/panelActions.js';
+import { isBaseHalfHiddenCommand } from '../../common/basehalfHiddenCommands.js';
 
 const SIDEBAR = 'workbench.action.toggleSidebarVisibility';
 const AGENT_AREA = 'workbench.action.toggleAuxiliaryBar';
@@ -64,7 +65,7 @@ suite('BaseHalf layout controls', () => {
 		});
 	});
 
-	test('the panel has no control in the title bar or the View menu, and keeps Cmd+J', () => {
+	test('the panel has no control in the title bar or the View menu, and its command is hidden with its key', () => {
 		const menusOf = (command: string) => [MenuId.TitleBarLeft, MenuId.LayoutControlMenu, MenuId.LayoutControlMenuSubmenu, MenuId.MenubarAppearanceMenu, MenuId.CommandPalette]
 			.filter(menu => MenuRegistry.getMenuItems(menu).some(item => isIMenuItem(item) && item.command.id === command))
 			.map(menu => menu.id);
@@ -80,6 +81,9 @@ suite('BaseHalf layout controls', () => {
 			agentArea: ['TitleBarLeft', 'LayoutControlMenu', 'LayoutControlMenuSubmenu', 'MenubarAppearanceMenu', 'CommandPalette'],
 			cmdJ: [PANEL]
 		});
+		// What the base registers for the panel reaches no user: the menu service and the key bindings leave out a
+		// hidden command, and Command+J is a key of Toggle Agent Area Terminal (D150).
+		assert.deepStrictEqual([PANEL, AGENT_AREA, SIDEBAR].map(isBaseHalfHiddenCommand), [true, false, false]);
 	});
 
 	test('the control at the left end follows the settings of the layout controls', () => {

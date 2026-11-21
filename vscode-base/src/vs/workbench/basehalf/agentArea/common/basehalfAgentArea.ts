@@ -20,7 +20,6 @@ export const IBaseHalfAgentAreaService = createDecorator<IBaseHalfAgentAreaServi
 export const BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID = 'basehalf.agentArea';
 export const BASEHALF_AGENT_AREA_VIEW_ID = 'basehalf.agentArea.view';
 
-export const BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID = 'basehalf.agentArea.toggle';
 export const BASEHALF_AGENT_AREA_NEW_TERMINAL_COMMAND_ID = 'basehalf.agentArea.newTerminal';
 export const BASEHALF_AGENT_AREA_NEW_CODEX_TUI_COMMAND_ID = 'basehalf.agentArea.newCodexTui';
 export const BASEHALF_AGENT_AREA_NEW_CLAUDE_TUI_COMMAND_ID = 'basehalf.agentArea.newClaudeTui';

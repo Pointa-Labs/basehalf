@@ -23,6 +23,7 @@ import { IUserDataProfileService } from '../../../services/userDataProfile/commo
 import { AGENTS_WINDOW_SETTING_TAG, ENABLE_EXTENSION_TOGGLE_SETTINGS, ENABLE_LANGUAGE_FILTER, MODIFIED_SETTING_TAG, POLICY_SETTING_TAG, REQUIRE_TRUSTED_WORKSPACE_SETTING_TAG, compareTwoNullableNumbers, wordifyKey } from '../common/preferences.js';
 import { SettingsTarget } from './preferencesWidgets.js';
 import { ITOCEntry, tocData } from './settingsLayout.js';
+import { toBaseHalfWords } from '../../../basehalf/shell/common/basehalfWords.js';
 
 export const ONLINE_SERVICES_SETTING_TAG = 'usesOnlineServices';
 
@@ -223,9 +224,9 @@ export class SettingsTreeSettingElement extends SettingsTreeElement {
 		if (this.setting.description.length > SettingsTreeSettingElement.MAX_DESC_LINES) {
 			const truncatedDescLines = this.setting.description.slice(0, SettingsTreeSettingElement.MAX_DESC_LINES);
 			truncatedDescLines.push('[...]');
-			this.description = truncatedDescLines.join('\n');
+			this.description = toBaseHalfWords(truncatedDescLines.join('\n')); // BaseHalf: a description names the parts in BaseHalf's words (D150)
 		} else {
-			this.description = this.setting.description.join('\n');
+			this.description = toBaseHalfWords(this.setting.description.join('\n')); // BaseHalf: as above (D150)
 		}
 	}
 

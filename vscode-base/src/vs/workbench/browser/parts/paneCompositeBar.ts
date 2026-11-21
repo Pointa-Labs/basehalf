@@ -31,6 +31,7 @@ import { GestureEvent } from '../../../base/browser/touch.js';
 import { IPaneCompositePart } from './paneCompositePart.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
+import { isBaseHalfHiddenCommand } from '../../basehalf/shell/common/basehalfHiddenCommands.js';
 
 interface IPlaceholderViewContainer {
 	readonly id: string;
@@ -169,7 +170,10 @@ export class PaneCompositeBar extends Disposable {
 			}
 		}
 
-		actions.push(new SubmenuAction('moveToMenu', localize('moveToMenu', "Move To"), moveActions));
+		// BaseHalf: a view stays in its part, so the menu offers no other part to move it to (D150).
+		if (!isBaseHalfHiddenCommand('workbench.action.moveView')) {
+			actions.push(new SubmenuAction('moveToMenu', localize('moveToMenu', "Move To"), moveActions));
+		}
 
 		// Reset Location
 		if (defaultLocation !== currentLocation) {
