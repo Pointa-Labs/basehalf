@@ -6527,3 +6527,52 @@ line of its own, and the card's editor showed a title line only as the single li
 - Card Detail shows no handles beside the title line.
 - The name in Card Detail's header still follows the title only when Card Detail closes (open, named in the
   specification).
+
+## D137 — Every setting has one of five classes, and a setting nothing follows is work, not waste (NEW, 2026-11-21)
+
+**Decision.** Each of the 1,474 settings the base registers has one class. BaseHalf's own Settings shows twelve under its own
+names. The Settings editor of the base stays as the advanced list, and holds only the settings that do something in BaseHalf.
+49 settings that the shell, the canvas, and saving rest on are locked: BaseHalf's value holds in every process, whatever a
+settings file says. A setting that nothing reads is unlisted only when a decision, or the absence of what it tunes, says why;
+when nothing says why, it is pending: a surface of BaseHalf's owes it an answer, and it is listed once the surface follows
+it. Tasks, the integrated browser, and profiles are not BaseHalf's. No language service runs (D118, D121), with JSON's
+as the one exception, by a decision of its own. See [the settings BaseHalf offers](specs/settings-catalog.md).
+
+**Why.** On 2026-11-21 the owner wrote that Settings, its looks and its use alike, read as made by a template ("AI 味都太浓了"),
+and, before any redesign: "VS Code 的一些设置与我们这个产品其实是耦合的。我们要搞清楚 VS Code 设置相关的代码，哪些我们用不上了，
+哪些还用得上". Read from the registry of a real window, 5 of the settings were BaseHalf's, Settings opened on the editor's
+font size and Format On Save, and 705 settings changed nothing. Three settings, run in the window, took the product apart:
+the location left the title bar, the Agent Area covered the whole window, and a panel covered a note that was opened under it.
+BaseHalf had set 39 defaults of the base to keep its shell, and a default holds only until a settings file says otherwise.
+
+A first table had four classes and counted every setting that did nothing as dead. The owner answered: "VS Code 它是代码编辑器，
+我们还是有代码功能的，肯定还有一部分是我们的产品落后于设置了，我们有的产品功能是需要的". Read again by that, 29 of them named
+what a surface of BaseHalf's has and does not follow, because of how the surface was built and not because anyone chose so:
+an Agent Area terminal stays out of the base's terminal groups, and its name, its bell, its question before closing, and
+its menu went with the groups. And settings that are listed were ignored where BaseHalf drew its own surface: the editor on
+a code card reads none of the user's editor settings but the font, and the canvas leaves out folders by a list of names of
+its own. The owner then left the open choices to me: "你来决定吧".
+
+**Alternatives.**
+- The Settings editor of the base left as it is behind an entry named Advanced. It would keep the 49 settings that take the
+  shell apart within reach, and list 676 that do nothing.
+- Four classes, with everything unread unlisted. It would have written off what the product owes its settings.
+- Keeping the shell by defaults, as before. A default is the first thing a settings file overrides, and the main process,
+  which reads the window's settings before a window exists, never sees a default the workbench registers.
+- Leaving the three settings of the shell's shape to the user. Another arrangement works in the base, but BaseHalf is
+  described, drawn, and tested in one.
+- Every language service, or the one for TypeScript. It keeps a process that analyzes a whole project, which is the question
+  D121 gave to an agent. JSON's reads one file at a time, and JSON is what a settings file and an agent's configuration are.
+- Tasks, the integrated browser, and profiles as features. An agent runs a folder's commands in the Agent Area, a page opens
+  in the system's browser beside BaseHalf, and one product with one arrangement has one set of settings.
+- Taking the code of the hidden features out of the build. D122 set it aside, and nothing here needs it: a setting leaves
+  the lists without its feature leaving the build.
+
+**Consequences.**
+- [BaseHalf's pages in Settings](specs/settings-pages.md) become a Settings of BaseHalf's own, and the two pages leave the
+  Settings editor of the base.
+- The defaults of the product profile that are locked move into the catalog.
+- A check names every setting without a class, so a base update classifies its new settings before it ships.
+- The Agent Area, the code card, the canvas, and the other surfaces of the catalog's table follow their settings, each by a
+  decision of its own.
+- The commands and menu entries of what BaseHalf does not have go, by a decision of their own.
