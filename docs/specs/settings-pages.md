@@ -1,12 +1,15 @@
 # BaseHalf's Settings
 
 Status: Active (2026-11-21; replaces the pages BaseHalf drew inside the
-Settings editor of the base, 2026-10-21)
+Settings editor of the base, 2026-10-21; 2026-11-22, D152: drawn as the
+base's Settings, without boxes)
 Decisions: [D137](../decisions.md#d137--every-setting-has-one-of-five-classes-and-a-setting-nothing-follows-is-work-not-waste-new-2026-11-21)
 made Settings BaseHalf's own;
 [D143](../decisions.md#d143--a-setting-of-basehalfs-own-is-a-choice-only-the-user-can-make-and-settings-has-a-page-for-each-part-of-the-product-new-2026-11-21)
 gave it a page for each part of the product and the settings of BaseHalf's
 own;
+[D152](../decisions.md#d152--settings-is-drawn-as-the-bases-settings-blocks-on-the-page-no-boxes-new-2026-11-22)
+gave it the look of the base's Settings;
 [D49](../decisions.md#d49--the-state-of-an-update-is-a-page-in-settings-not-a-card-new-2026-10-12)
 put the About page in Settings,
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
@@ -177,11 +180,10 @@ written in a settings file, is listed as it is written.
 
 ## How a setting is changed
 
-- **A setting is a row**: its name at the left, its control at the right.
-  A row has a line under its name only where the name does not say what the
-  setting changes or where, and never more than one line. The settings of a
-  section stand in one box under the section's name; a page whose settings
-  are one group shows the box under the page's name.
+- **A setting is a block** of its name, a line about it, and its control,
+  drawn as in [How Settings looks](#how-settings-looks). It has a line only
+  where the name does not say what the setting changes or where, and never
+  more than one line.
 - **A control shows the value in effect** and changes it at once: a switch
   and a choice when they are used, a text and a number when the field is
   left or Enter is pressed. No button saves.
@@ -204,6 +206,51 @@ written in a settings file, is listed as it is written.
   `window.zoomLevel`, as the row does: BaseHalf's default for
   `window.zoomPerWindow` is off, so a zoom holds in every window and shows
   in Settings.
+
+## How Settings looks
+
+Settings is drawn as the Settings editor of the base is in VS Code 1.147,
+measured side by side on 2026-11-22 (D152), and draws no boxes: no frame
+around a section or a page, and no line between settings.
+
+- **The list of pages** is a list of names, 22 px a line, 13 px: the page
+  shown is in bold, and a name under the pointer has the background of a
+  row under the pointer. Keyboard Shortcuts… and Advanced Settings… stand at
+  its foot in the color of descriptions. A line of the border's color
+  stands between the list and the page.
+- **A page** starts with its name, 26 px at weight 600. A section of a page
+  has its name at 22 px, at weight 600.
+- **A setting** is a block, 12 px of room above, 18 px below, and 14 px at
+  each side: its name, 13 px at weight 600 in `settings.headerForeground`;
+  under it the line about it, 13 px, in the color of text at 0.9 opacity;
+  and 9 px under that its control. A block under the pointer has
+  `settings.rowHoverBackground`, with corners of 6 px; a block with the
+  keyboard in a control of it has `settings.focusedRowBackground` and an
+  outline of `settings.focusedRowBorder` while the keyboard shows its ring.
+- **A setting that is on or off** is the base's check box: 18 px, corners of
+  3 px, in `settings.checkboxBackground`, `settings.checkboxBorder`, and
+  `settings.checkboxForeground`, with a check mark when it is on. The line
+  about the setting stands beside it, 9 px to its right, and a press on the
+  line changes it too. Before, a switch stood at the right of the row.
+- **A choice** is a field 320 px wide and 26 px high, with corners of 4 px,
+  in `settings.dropdownBackground`, `settings.dropdownBorder`, and
+  `settings.dropdownForeground`; the system draws its list. **A number** is
+  a field 200 px wide, **a text** 420 px wide, both 26 px high with corners
+  of 4 px, in the colors of `settings.numberInput*` and
+  `settings.textInput*`.
+- **A changed setting**, one that the user's or the folder's settings file
+  sets, has the base's mark at its left: a line 2 px wide in
+  `settings.modifiedItemIndicator`, 5 px from the block's left edge, from
+  15 px below its top to 18 px above its bottom.
+- **The Providers page** keeps its two columns, the list of providers at the
+  left and the provider chosen at the right, without a frame: a line of the
+  border's color stands between them. The card types above the list, and the
+  regions of a provider, are tabs as the base's User and Workspace are: 13 px
+  at weight 600, corners of 4 px, the chosen one in
+  `modernTab.activeBackground` and `modernTab.activeForeground`, another
+  under the pointer in `modernTab.hoverBackground`. A provider of the list
+  is its name and the line under it, the provider chosen in bold on the
+  background of a row under the pointer.
 
 ## Opening Settings
 
@@ -354,10 +401,19 @@ its key, and a key is changed there
     catalog. A unit test fails otherwise.
 12. Keyboard Shortcuts… shows Keyboard Shortcuts in the overlay; the canvas
     stays in view behind it, and Escape closes it.
+13. No element of Settings, the Providers page among its pages, has a
+    border but the fields, the check boxes, the buttons as the theme draws
+    them, the line beside the list of pages, and the line between the
+    Providers page's columns. The sizes,
+    paddings, and colors of [How Settings looks](#how-settings-looks) are
+    those read from the window, in the dark and the light theme, and a
+    press on the line beside a check box changes its setting.
 
 ## Verification
 
-- The real-window check of criteria 1 to 9, from a disposable workspace.
+- The real-window check of criteria 1 to 9 and 13, from a disposable
+  workspace; for criterion 13 the computed styles of both products were read
+  side by side, VS Code 1.147.0 on a profile of its own.
 - Unit tests: the rows of the four pages and their settings are the shown
   settings of the catalog but `update.mode`, and every setting of
   BaseHalf's own is among them (`basehalfSettingsListPage.test.ts`);

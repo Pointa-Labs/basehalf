@@ -7546,3 +7546,18 @@ chosen icon on a rounded square of its own, apart from the Sidebar.
 
 **Left out**, as with 1.141: the editor tab logic of the release (BaseHalf shows no editor tabs), translucent pop-ups,
 and the files of the Agents window. Three upstream tests that read their results are skipped.
+
+## D152 — Settings is drawn as the base's Settings: blocks on the page, no boxes (NEW, 2026-11-22)
+
+**Decision.** BaseHalf's Settings keeps its pages and its controls' rules (D137 to D143) and takes the look of the base's
+Settings at 1.147: the list of pages is a list of names, the page shown in bold; a page's title is 26 px and a section's
+22 px; a setting is a block with its name, the line about it, and its control under them; a setting that is on or off is
+a check box with that line beside it; a block under the pointer has the background of a row, and a setting with a value
+of the user's or the folder's has the base's mark of a changed setting at its left. The Providers page keeps its lists and
+loses its frame: the card types and the regions are tabs as the base's User and Workspace are. See
+[Settings pages](specs/settings-pages.md#how-settings-looks).
+
+**Why.** The owner, 2026-11-22: learn the base's Settings too, "do not make a pile of boxes". Seen in the window: every
+section of General, Canvas, Notes, and Agent Area stood in a bordered box with lines between its rows, the switches were
+those of a phone, the page shown in the list was a filled rounded box, and the Providers page was a box with a tinted
+column and a segmented control in it. The base draws none of these.
