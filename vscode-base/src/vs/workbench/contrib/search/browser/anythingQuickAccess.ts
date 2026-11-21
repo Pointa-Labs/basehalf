@@ -17,7 +17,7 @@ import { IPathService } from '../../../services/path/common/pathService.js';
 import { URI } from '../../../../base/common/uri.js';
 import { toLocalResource, dirname, basenameOrAuthority } from '../../../../base/common/resources.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { FileOperation, IFileService } from '../../../../platform/files/common/files.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { DisposableStore, IDisposable, toDisposable, MutableDisposable, Disposable } from '../../../../base/common/lifecycle.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
@@ -211,9 +211,17 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		this.workspaceSymbolsQuickAccess = this._register(instantiationService.createInstance(SymbolsQuickAccessProvider));
 		this.editorSymbolsQuickAccess = this.instantiationService.createInstance(GotoSymbolQuickAccessProvider);
 
-		// BaseHalf: a file that came or went is not in the cache of the search before (title bar location, requirement 12).
+		// BaseHalf: a file that came or went is not in the cache of the search before (title bar location, requirement
+		// 12): BaseHalf's own at once, another program's when the watcher reports it; git's own folder, which the search
+		// does not list, aside.
+		const listed = (resource: URI) => !/(^|\/)\.git(\/|$)/.test(resource.path);
 		this._register(this.fileService.onDidFilesChange(event => {
-			if (event.gotAdded() || event.gotDeleted()) {
+			if (event.rawAdded.some(listed) || event.rawDeleted.some(listed)) {
+				this.filesCameOrWent = true;
+			}
+		}));
+		this._register(this.fileService.onDidRunOperation(event => {
+			if (event.operation !== FileOperation.WRITE && listed(event.resource)) {
 				this.filesCameOrWent = true;
 			}
 		}));
