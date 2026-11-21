@@ -263,7 +263,14 @@ the title it had when the edit began.
   whatever its heading says: `how-they-form.md` with `## How they form` is
   not renamed when it appears, when it is rewritten, or when the user changes
   its text below the title. Its file follows its title from the first time
-  the user changes the title in BaseHalf.
+  the user changes the title in BaseHalf. This holds while the note is open
+  too: a title that another program writes into a note that Card Detail or
+  the editor on its card holds is, from then on, the title the edit began
+  with, so letting the note go renames nothing, and a title the user types
+  after it is followed. A save of an editor of BaseHalf is the user's; every
+  other change of the file is another program's. Before, closing Card Detail
+  renamed a note after the title an agent had written into it while it was
+  open (2026-11-22).
 - **A rename by name** (the rename editor, the title of Card Detail, Files)
   changes the name only. Title and name agree again the next time the title
   is changed.
@@ -437,6 +444,10 @@ The title line and the text under it (D136)
     back and a redo empties it again, the same with the two changes made
     in one step, and an undo of the heading's deletion gives back the empty
     title line above it.
+32. `alpha.md`, titled `Alpha`, open in Card Detail, rewritten by another
+    program with the title `Beta`: a line typed under the title and Escape
+    leave the file named `alpha.md`. Opened again, its title changed to
+    `Gamma` and Escape give `Gamma.md`.
 
 ## Verification
 
