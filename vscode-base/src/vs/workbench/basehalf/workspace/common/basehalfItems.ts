@@ -3,14 +3,14 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { basename, extname } from '../../../../base/common/resources.js';
+import { extname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { IFileStat } from '../../../../platform/files/common/files.js';
 import { isBaseHalfRenderableContentResource } from './basehalfContentRendering.js';
 
 // What BaseHalf knows of an item of a workspace by its path alone: whether it
-// is a note or media, the name BaseHalf shows for it, the icon of its kind, and
-// whether BaseHalf shows it at all. Every feature reads items this way.
+// is a note or media, the name BaseHalf shows for it, and the icon of its kind.
+// Every feature reads items this way. Which entries are items is in
+// `basehalfItemRules.ts`.
 
 //#region Notes, media, and the names BaseHalf shows
 
@@ -101,101 +101,6 @@ export function baseHalfItemIcon(name: string, isFolder: boolean): BaseHalfItemK
 		return 'code';
 	}
 	return 'generic';
-}
-
-//#endregion
-
-//#region The items BaseHalf shows
-
-const SKIP_NAMES = new Set([
-	'.git',
-	'.bh',
-	'.DS_Store',
-	'Thumbs.db',
-	'.idea',
-	'.vscode',
-	'.turbo',
-	'.next',
-	'.nuxt',
-	'.svelte-kit',
-	'node_modules',
-	'dist',
-	'build',
-	'out',
-	'__pycache__',
-	'.pytest_cache',
-	'target',
-	'vendor'
-]);
-
-const HIDDEN_FILE_NAMES = new Set([
-	'.DS_Store',
-	'Thumbs.db',
-	'desktop.ini'
-]);
-
-const AGENT_HINT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
-
-/** Whether the canvas shows the entry as a card: `rootLevel` for an entry of the workspace folder itself. */
-export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): boolean {
-	const name = basename(stat.resource);
-	if (stat.isDirectory) {
-		return !SKIP_NAMES.has(name);
-	}
-
-	if (!stat.isFile) {
-		return false;
-	}
-
-	if (rootLevel && AGENT_HINT_FILES.has(name)) {
-		return false;
-	}
-
-	return !HIDDEN_FILE_NAMES.has(name);
-}
-
-/**
- * Whether the canvas could show the item at `relativePath` below a workspace
- * folder: every segment of the path is one the canvas shows as a card.
- */
-export function baseHalfIsCanvasEligiblePath(workspaceFolder: URI, relativePath: string, isDirectory: boolean): boolean {
-	const segments = relativePath.split('/');
-	let current = workspaceFolder;
-	for (let position = 0; position < segments.length; position++) {
-		current = URI.joinPath(current, segments[position]);
-		const directory = position < segments.length - 1 || isDirectory;
-		const stat: IFileStat = { resource: current, name: segments[position], isFile: !directory, isDirectory: directory, isSymbolicLink: false, children: undefined };
-		if (!isBaseHalfCanvasEntry(stat, position === 0)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-/** Directory names the canvas never shows as cards (and never walks into). */
-export const BASEHALF_CANVAS_SKIP_NAMES: ReadonlySet<string> = SKIP_NAMES;
-
-/**
- * Whether every segment of a workspace-relative path is one the canvas could
- * show as a card, by name alone (the same rules as {@link isBaseHalfCanvasEntry}).
- */
-export function isBaseHalfCanvasPathEligible(relativePath: string, isDirectory: boolean): boolean {
-	if (!relativePath) {
-		return false;
-	}
-	const segments = relativePath.split('/');
-	return segments.every((name, index) => {
-		if (!name) {
-			return false;
-		}
-		if (index < segments.length - 1 || isDirectory) {
-			return !SKIP_NAMES.has(name);
-		}
-		if (index === 0 && AGENT_HINT_FILES.has(name)) {
-			return false;
-		}
-		return !HIDDEN_FILE_NAMES.has(name);
-	});
 }
 
 //#endregion

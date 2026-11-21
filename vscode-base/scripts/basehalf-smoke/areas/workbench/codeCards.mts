@@ -977,6 +977,38 @@ export async function assertCardEditorFollowsSettings(page) {
 	await page.waitForTimeout(1_000);
 }
 
+/** A folder named as a build or a dependency folder has a card, and what `files.exclude` leaves out has none, at once (the items a canvas shows). */
+export async function assertCanvasShowsWhatFilesShows(page) {
+	const names = ['build', 'node_modules', 'left-out'];
+	const settings = inWorkspace('.vscode/settings.json');
+	const before = fs.readFileSync(settings, 'utf8');
+	try {
+		for (const name of names) {
+			fs.mkdirSync(inWorkspace(`${FOLDER}/${name}`), { recursive: true });
+			fs.writeFileSync(inWorkspace(`${FOLDER}/${name}/note.md`), '# Note\n');
+		}
+		for (const name of names) {
+			await cardOf(page, `${FOLDER}/${name}`).waitFor({ state: 'attached', timeout: 15_000 });
+		}
+		fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(before), 'files.exclude': { '**/left-out': true } }, null, '\t'));
+		await cardOf(page, `${FOLDER}/left-out`).waitFor({ state: 'detached', timeout: 15_000 });
+		const kept = await Promise.all(['build', 'node_modules'].map(name => cardOf(page, `${FOLDER}/${name}`).count()));
+		if (kept.join() !== '1,1') {
+			throw new Error(`files.exclude must take only the card it names: ${kept.join()}`);
+		}
+		fs.writeFileSync(settings, before);
+		await cardOf(page, `${FOLDER}/left-out`).waitFor({ state: 'attached', timeout: 15_000 });
+	} finally {
+		fs.writeFileSync(settings, before);
+		for (const name of names) {
+			fs.rmSync(inWorkspace(`${FOLDER}/${name}`), { recursive: true, force: true });
+		}
+	}
+	for (const name of names) {
+		await cardOf(page, `${FOLDER}/${name}`).waitFor({ state: 'detached', timeout: 15_000 });
+	}
+}
+
 /** Expand opens Card Detail at the card's place, and a commit takes the marks and leaves the text and the place. */
 export async function assertExpandAndCommit(page) {
 	const box = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();

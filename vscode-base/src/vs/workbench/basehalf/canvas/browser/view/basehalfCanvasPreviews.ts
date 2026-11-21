@@ -32,6 +32,7 @@ import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, badgeType, baseHalfBadgeResourceIden
 import { baseHalfCodePreviewLines, baseHalfCodePreviewLinesFor } from '../../common/basehalfCanvasCodePreview.js';
 import { TokenizationRegistry } from '../../../../../editor/common/languages.js';
 import { PLAINTEXT_LANGUAGE_ID } from '../../../../../editor/common/languages/modesRegistry.js';
+import { BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, baseHalfShownEntries } from '../../../workspace/common/basehalfItemRules.js';
 import { isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 
 /**
@@ -318,8 +319,9 @@ export class BaseHalfCanvasPreviews {
 				// canvas without the removed card; avoid surfacing that expected race.
 				return { kind: 'unavailable', text: 'Preview unavailable' };
 			}
-			const children = (stat.children ?? [])
-				.filter(child => child.isDirectory || child.isFile)
+			// What the folder's own canvas shows.
+			const workspaceFolder = this.view.getCurrentFolder()?.workspaceFolder;
+			const children = baseHalfShownEntries(workspaceFolder ? this.view.itemRules.of(workspaceFolder) : BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, item.path, stat.children ?? [])
 				.sort((a, b) => {
 					if (a.isDirectory !== b.isDirectory) {
 						return a.isDirectory ? -1 : 1;

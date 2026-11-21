@@ -156,7 +156,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	}
 	// Let the provider's debounced change events for the fixture settle first.
 	await timeout(20);
-	const configuration = new TestConfigurationService({ files: { autoSave: settings.autoSave ?? 'afterDelay', exclude: { hidden: true } } });
+	const configuration = new TestConfigurationService({ files: { autoSave: settings.autoSave ?? 'afterDelay', exclude: { hidden: true } }, search: { exclude: { '**/node_modules': true } } });
 	const instantiationService = workbenchInstantiationService({ fileService: () => fileService, configurationService: () => configuration }, disposables);
 	instantiationService.stub(IWorkspaceContextService, new TestContextService(testWorkspace(folder)));
 	const search = new FakeSearchService(fileService);
@@ -283,6 +283,7 @@ suite('BaseHalfReferenceIndexService', () => {
 			'clip.mp4': 'video',
 			'.bh/mirror/clip.mp4/upstream.yaml': 'upstream:\n  - b.md\n  - notes/a.md\n',
 			'node_modules/pkg/readme.md': '---\nupstream:\n  - b.md\n---\n',
+			'build/report.md': '---\nupstream:\n  - b.md\n  - node_modules/pkg/readme.md\n---\n',
 			'outputs/run/copy.md': '---\nupstream:\n  - b.md\n---\n',
 			'CLAUDE.md': '---\nupstream:\n  - b.md\n---\n',
 			'hidden/note.md': '---\nupstream:\n  - b.md\n---\n'
@@ -293,6 +294,8 @@ suite('BaseHalfReferenceIndexService', () => {
 			'markdown:b.md',
 			'markdown:break.md',
 			'markdown:broken.md',
+			// A folder with the name of a build folder is a folder as any other.
+			'markdown:build/report.md',
 			'markdown:hidden/note.md',
 			'markdown:notes/a.md',
 			'markdown:notes/b.md',
@@ -304,11 +307,16 @@ suite('BaseHalfReferenceIndexService', () => {
 			'sidecar:missing.pdf:missingNode',
 			'sidecar:notes/a.md:wrongOwner'
 		]);
-		// Excluded by the canvas rules, not by `files.exclude`.
+		// What Search leaves out is not read; what `files.exclude` hides is.
 		assert.ok(harness.search.queries.every(query => query.folderQueries.every(folderQuery => folderQuery.disregardIgnoreFiles && folderQuery.ignoreSymlinks)));
 		assert.ok(harness.search.queries.every(query => !JSON.stringify(query.excludePattern).includes('hidden')));
 
-		assert.deepStrictEqual(index.getDownstream(harness.node('b.md')).map(entry => entry.node.relativePath), ['clip.mp4', 'hidden/note.md', 'notes/a.md', 'outputs/run/copy.md']);
+		assert.deepStrictEqual(index.getDownstream(harness.node('b.md')).map(entry => entry.node.relativePath), ['build/report.md', 'clip.mp4', 'hidden/note.md', 'notes/a.md', 'outputs/run/copy.md']);
+		// An entry may name an item that is not followed: it is valid, and the item's own list is not read.
+		assert.deepStrictEqual(
+			[(await index.resolveUpstream(harness.node('build/report.md'))).entries.map(entry => `${entry.path}:${entry.status}`), index.getStore(harness.node('node_modules/pkg/readme.md'))?.read.items.length],
+			[['b.md:valid', 'node_modules/pkg/readme.md:valid'], undefined]
+		);
 		assert.deepStrictEqual(index.getDownstream(harness.node('notes/a.md')).map(entry => [entry.node.relativePath, entry.storeKind]), [['clip.mp4', 'sidecar'], ['docs', 'sidecar']]);
 
 		const view = await index.resolveUpstream(harness.node('notes/a.md'));

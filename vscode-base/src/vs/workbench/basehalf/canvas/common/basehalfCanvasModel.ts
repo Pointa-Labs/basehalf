@@ -8,7 +8,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IFileStat } from '../../../../platform/files/common/files.js';
 import { baseHalfRenderableContentKind } from '../../workspace/common/basehalfContentRendering.js';
 import type { BaseHalfGenerationKind } from '../../generation/common/basehalfGenerationInfo.js';
-import { isBaseHalfCanvasEntry } from '../../workspace/common/basehalfItems.js';
+import { BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, baseHalfShownEntries, IBaseHalfItemRules } from '../../workspace/common/basehalfItemRules.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;
 export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH = 300;
@@ -282,6 +282,8 @@ export interface IBaseHalfCanvasModelOptions {
 	readonly appearingUpstream?: ReadonlyMap<string, readonly string[]>;
 	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
 	readonly pathKey?: (path: string) => string;
+	/** The settings that decide which entries have a card. Without them only what is never an item is left out. */
+	readonly rules?: IBaseHalfItemRules;
 	/**
 	 * Paths of rows that BaseHalf chose and whose items are gone. The next save
 	 * removes them, so their places are open for a card that appears.
@@ -290,8 +292,7 @@ export interface IBaseHalfCanvasModelOptions {
 }
 
 export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHalfCanvasModelOptions): IBaseHalfCanvasFolderModel {
-	const eligibleChildren = (folder.children ?? [])
-		.filter(child => isBaseHalfCanvasEntry(child, options.rootLevel))
+	const eligibleChildren = baseHalfShownEntries(options.rules ?? BASEHALF_ITEM_RULES_WITHOUT_SETTINGS, options.folderRelativePath ?? '', folder.children ?? [], options.rootLevel)
 		.sort((a, b) => {
 			if (a.isDirectory !== b.isDirectory) {
 				return a.isDirectory ? -1 : 1;

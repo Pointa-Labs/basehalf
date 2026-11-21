@@ -39,7 +39,7 @@ import {
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { baseHalfCanvasSceneEdgeId } from './basehalfCanvasViewShared.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfSourceTreeMarker.js';
-import { isBaseHalfCanvasEntry } from '../../../workspace/common/basehalfItems.js';
+import { baseHalfIsFollowedPath, baseHalfShownEntries } from '../../../workspace/common/basehalfItemRules.js';
 
 /**
  * Connections on the canvas: reading them from the reference graph,
@@ -84,8 +84,8 @@ export class BaseHalfCanvasConnections {
 		const refusals = new Map<string, string>();
 		const appearingUpstream = new Map<string, readonly string[]>();
 		const readAppearing = appearing !== undefined && appearing.size <= BASEHALF_CANVAS_CHILD_LIMIT;
-		const rootLevel = folder.relativePath.length === 0;
-		const children = (stat.children ?? []).filter(child => isBaseHalfCanvasEntry(child, rootLevel));
+		const rules = this.view.itemRules.of(folder.workspaceFolder);
+		const children = baseHalfShownEntries(rules, folder.relativePath, stat.children ?? []);
 		const siblingPaths = children.map(child => baseHalfCanvasChildPath(folder.relativePath, basename(child.resource)));
 		const marked = await baseHalfIsWorkspaceFolderMarked(this.view.fileService, folder.workspaceFolder);
 		const identity = this.view.upstreamIdentity(folder.workspaceFolder);
@@ -97,7 +97,7 @@ export class BaseHalfCanvasConnections {
 		await Promise.all(children.map(async (child, index) => {
 			const path = siblingPaths[index];
 			const node = this.view.workspaceNode(folder.workspaceFolder, path, child.isDirectory ? 'folder' : 'file');
-			const refusal = this.canvasUpstreamRefusal(node, basename(child.resource), marked);
+			const refusal = this.canvasUpstreamRefusal(node, basename(child.resource), marked, baseHalfIsFollowedPath(rules, path, child.isDirectory));
 			if (refusal) {
 				refusals.set(path, refusal);
 			}
@@ -205,9 +205,13 @@ export class BaseHalfCanvasConnections {
 	}
 
 	/** Why a card can never receive a connection right now, if it cannot. */
-	private canvasUpstreamRefusal(node: IBaseHalfUpstreamActionNode, name: string, marked: boolean): string | undefined {
+	private canvasUpstreamRefusal(node: IBaseHalfUpstreamActionNode, name: string, marked: boolean, followed: boolean): string | undefined {
 		if (marked && baseHalfUpstreamStoreKind(node.relativePath, node.kind === 'folder') === 'sidecar') {
 			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", name);
+		}
+		if (!followed) {
+			// Its list would not be read: the reference index leaves out what Search leaves out (the items a canvas shows).
+			return localize('basehalf.canvas.connect.notSearched', "{0} is in a folder that Search leaves out.", name);
 		}
 		return undefined;
 	}

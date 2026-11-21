@@ -46,22 +46,31 @@ import {
 	IBaseHalfCanvasCard,
 	IBaseHalfCanvasItemRelationships
 } from '../../common/basehalfCanvasModel.js';
-import { isBaseHalfCanvasEntry, isBaseHalfCanvasPathEligible } from '../../../workspace/common/basehalfItems.js';
+import { baseHalfItemRules } from '../../../workspace/common/basehalfItemRules.js';
 
 suite('BaseHalfCanvasModel', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('filters tooling folders, junk files, and root agent hints', () => {
+	test('shows what Files shows: no card for what is never an item or what files.exclude leaves out', () => {
 		const root = folder('/workspace', [
 			folder('/workspace/src'),
+			folder('/workspace/build'),
 			folder('/workspace/node_modules'),
+			folder('/workspace/drafts'),
+			folder('/workspace/.bh'),
+			folder('/workspace/.git'),
 			file('/workspace/README.md'),
 			file('/workspace/AGENTS.md'),
 			file('/workspace/.DS_Store')
 		]);
 
-		assert.deepStrictEqual(baseHalfCanvasItemsFromStat(root, true).map(item => item.name), ['src', 'README.md']);
-		assert.strictEqual(isBaseHalfCanvasEntry(file('/workspace/notes/AGENTS.md'), false), true);
+		assert.deepStrictEqual({
+			withoutSettings: baseHalfCanvasItemsFromStat(root, true).map(item => item.name),
+			withSettings: baseHalfCanvasModelFromStat(root, { rootLevel: true, rules: baseHalfItemRules({ 'drafts': true, '**/node_modules': true }) }).items.map(item => item.name)
+		}, {
+			withoutSettings: ['build', 'drafts', 'node_modules', 'src', 'README.md'],
+			withSettings: ['build', 'src', 'README.md']
+		});
 	});
 
 	test('sorts folders first then files alphabetically', () => {
@@ -416,18 +425,6 @@ suite('BaseHalfCanvasModel', () => {
 
 		assert.strictEqual(model.items.some(item => item.path === '301.md'), true);
 		assert.strictEqual(model.truncated, 2);
-	});
-
-	test('checks canvas eligibility of every path segment by name', () => {
-		assert.deepStrictEqual([
-			isBaseHalfCanvasPathEligible('docs/a.md', false),
-			isBaseHalfCanvasPathEligible('node_modules/x/a.md', false),
-			isBaseHalfCanvasPathEligible('.bh/mirror', true),
-			isBaseHalfCanvasPathEligible('CLAUDE.md', false),
-			isBaseHalfCanvasPathEligible('docs/CLAUDE.md', false),
-			isBaseHalfCanvasPathEligible('docs/.DS_Store', false),
-			isBaseHalfCanvasPathEligible('', true)
-		], [true, false, false, false, true, false, false]);
 	});
 
 	test('chooses default edge anchors from relative card geometry', () => {

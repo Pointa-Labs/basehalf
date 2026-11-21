@@ -11,6 +11,7 @@ import { hash } from '../../../../base/common/hash.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { joinPath, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { FileChangesEvent, FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -23,11 +24,11 @@ import { BaseHalfCanvasItemKind } from '../../canvas/common/basehalfCanvasModel.
 import { readBaseHalfFileRange } from '../../workspace/common/basehalfFileRange.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfComputeFileFingerprint, baseHalfMovedItemPath, baseHalfRecognizeMovedItems, IBaseHalfFileFingerprint, IBaseHalfFollowedItem, IBaseHalfMovedItem } from './basehalfMovedItems.js';
-import { BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES, IBaseHalfReferenceIndexService } from '../../references/common/basehalfReferenceIndex.js';
+import { IBaseHalfReferenceIndexService } from '../../references/common/basehalfReferenceIndex.js';
 import { baseHalfIsDraftInformation } from '../../generation/common/basehalfGenerationDraft.js';
 import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../generation/common/basehalfGenerationInfo.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
-import { baseHalfIsCanvasEligiblePath } from '../../workspace/common/basehalfItems.js';
+import { BaseHalfItemRulesReader, baseHalfIsFollowedPath } from '../../workspace/common/basehalfItemRules.js';
 
 export const IBaseHalfMovedItemsService = createDecorator<IBaseHalfMovedItemsService>('baseHalfMovedItemsService');
 
@@ -354,6 +355,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 	private readonly _onDidChangeSettled = this._register(new Emitter<void>());
 
 	private readonly folders = new Map<string, FolderSnapshot>();
+	private readonly itemRules: BaseHalfItemRulesReader;
 	private readonly limiter = this._register(new Limiter<void>(READ_CONCURRENCY));
 
 	constructor(
@@ -364,9 +366,17 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		@IEnvironmentService private readonly environmentService: Pick<IEnvironmentService, 'workspaceStorageHome'>,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: Pick<IBaseHalfCanvasMirrorService, 'readCanvas'>,
 		@IBaseHalfReferenceIndexService private readonly referenceIndexService: Pick<IBaseHalfReferenceIndexService, 'getState' | 'getStores' | 'onDidChange'>,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IConfigurationService configurationService: IConfigurationService
 	) {
 		super();
+		this.itemRules = this._register(new BaseHalfItemRulesReader(configurationService));
+		// Search leaves out other folders: what is followed from now on is listed anew, and nothing is recognized as moved by that.
+		this._register(this.itemRules.onDidChangeFollowed(() => {
+			for (const state of this.folders.values()) {
+				void this.enqueue(state, () => this.compareWithDisk(state, true));
+			}
+		}));
 		this._register(this.contextService.onDidChangeWorkspaceFolders(event => {
 			for (const removed of event.removed) {
 				this.close(removed.uri);
@@ -1581,7 +1591,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 
 	//#region Snapshot paths
 
-	/** Lists every file the canvas could show, or nothing when there are too many. */
+	/** Lists every file BaseHalf follows (the items a canvas shows), or nothing when there are too many. */
 	private async list(state: FolderSnapshot): Promise<string[] | undefined> {
 		const query: IFileQuery = {
 			type: QueryType.File,
@@ -1593,7 +1603,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				disregardParentIgnoreFiles: true,
 				ignoreSymlinks: true
 			}],
-			excludePattern: Object.fromEntries(BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES.map(name => [`**/${name}`, true])),
+			excludePattern: this.itemRules.of(state.folder).walkExclude,
 			maxResults: BASEHALF_MOVED_ITEMS_ITEM_LIMIT + 1
 		};
 		const complete = await this.searchService.fileSearch(query, CancellationToken.None);
@@ -1611,7 +1621,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 	}
 
 	private isEligible(state: FolderSnapshot, path: string, isDirectory: boolean): boolean {
-		return path !== '.bh' && !path.startsWith('.bh/') && baseHalfIsCanvasEligiblePath(state.folder, path, isDirectory);
+		return baseHalfIsFollowedPath(this.itemRules.of(state.folder), path, isDirectory);
 	}
 
 	private resource(state: FolderSnapshot, path: string): URI {
@@ -1751,9 +1761,10 @@ class DefaultBaseHalfMovedItemsService extends BaseHalfMovedItemsService {
 		@IEnvironmentService environmentService: IEnvironmentService,
 		@IBaseHalfCanvasMirrorService canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfReferenceIndexService referenceIndexService: IBaseHalfReferenceIndexService,
-		@ILogService logService: ILogService
+		@ILogService logService: ILogService,
+		@IConfigurationService configurationService: IConfigurationService
 	) {
-		super(BASEHALF_MOVED_ITEMS_TIMING, fileService, searchService, contextService, environmentService, canvasMirrorService, referenceIndexService, logService);
+		super(BASEHALF_MOVED_ITEMS_TIMING, fileService, searchService, contextService, environmentService, canvasMirrorService, referenceIndexService, logService, configurationService);
 	}
 }
 
