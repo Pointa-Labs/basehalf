@@ -11,8 +11,9 @@ item), [architecture invariants](../harness/architecture-invariants.md#product-s
 
 This specification owns what the parts of the workbench that follow the
 base's active editor follow in BaseHalf: going back and forward with the
-buttons of a mouse and with a swipe. What the title bar draws of the shown
-place is owned by [the location in the title bar](title-bar-location.md).
+buttons of a mouse and with a swipe, and the file that Files and Source
+Control reveal. What the title bar draws of the shown place is owned by
+[the location in the title bar](title-bar-location.md).
 
 ## Problem
 
@@ -33,6 +34,12 @@ the real window, a development build of 0.7.0:
   `workbench.editor.swipeToNavigate` on, a swipe opens the base's
   previously used editor. Run from the Command Palette on a note in Card
   Detail, that command changed nothing.
+- **Files and Source Control did not reveal the file in Card Detail.** With
+  `explorer.autoReveal` and `scm.autoReveal` on, their defaults, a note of
+  a closed folder opened from the search left Files as it was, its folders
+  closed and no row selected, and a changed note opened the same way left
+  its row in Source Control unselected. Selecting a card and opening a
+  folder's canvas changed nothing in Files either, which stays so.
 
 ## Terms
 
@@ -73,7 +80,45 @@ the real window, a development build of 0.7.0:
    cannot be saved keeps Card Detail open
    ([architecture invariants](../harness/architecture-invariants.md#content-and-graph-truth)).
 
+### Files and Source Control
+
+6. **Files reveals the file in Card Detail.** When Card Detail comes to
+   show a file, whatever opened it, the canvas, the search, Search, a link,
+   Go Back, or an agent, Files selects the file's row, as
+   `explorer.autoReveal` says: with `true`, its default, Files opens the
+   folders above the file and scrolls the row into view when it is not in
+   view; with `focusNoScroll` it selects the row without scrolling; with
+   `false` it does nothing. A file that `explorer.autoRevealExclude` names,
+   or that lies in a folder it names, is not revealed. Files does the same
+   when it comes into view while Card Detail shows a file.
+7. **A canvas reveals nothing.** While a canvas is shown, Files keeps the
+   selection it has: opening a folder's canvas, selecting cards, and closing
+   Card Detail change nothing in Files. A folder shown as a canvas is the
+   last part of the path in the title bar, and the cards of a canvas are
+   not rows that Files could select one of.
+8. **Source Control reveals the file in Card Detail.** With
+   `scm.autoReveal` on, its default, the row of the file that Card Detail
+   comes to show is selected and scrolled into view, in the last group that
+   lists the file. A file without a row there changes nothing, and with the
+   setting off nothing is selected.
+9. **The keyboard stays where it is.** Revealing a file selects a row and
+   never moves the keyboard into Files or Source Control.
+10. **An editor of the base comes first.** While an editor of the base
+    covers the canvas, Files and Source Control follow that editor, as in
+    the base.
+
 ## Implementation boundaries
+
+- `navigation/common/basehalfShownPlace.ts` answers what the shown place
+  is to the base: the file that Card Detail shows, the folder whose canvas
+  is shown, and an event for a change of either. It answers nothing while
+  an editor of the base covers the canvas. A part of the base that follows
+  the active editor asks it where the base has no active editor, and
+  nothing else of BaseHalf's: the explorer view (`selectActiveFile`) and
+  the view of Source Control (`onDidActiveEditorChange`), each at the one
+  place where it reads the active editor's file. Everything the two
+  settings do, the folders that open, the excluded files, the scrolling, is
+  the base's own code after that place.
 
 - The base's history service hears the buttons of a mouse on the window
   (`services/history/browser/historyService.ts`), and the main process
@@ -103,6 +148,16 @@ the real window, a development build of 0.7.0:
    to the window on a note in Card Detail shows the place before it, and a
    swipe to the right the note again.
 
+4. With the default settings and the folders of Files closed, a note
+   inside a folder of a folder, opened from the search: Files shows both
+   folders open and the note's row selected, and the keyboard is in the
+   note. After Escape, on the canvas, the row is still selected.
+5. With `explorer.autoReveal` false, or with the note's folder in
+   `explorer.autoRevealExclude`, the same open leaves Files as it was.
+6. With Source Control in view and two changed notes, opening one from the
+   search selects its row, and opening the other its row; an unchanged file
+   leaves the selection; with `scm.autoReveal` false the selection stays.
+
 ## Verification
 
 - Unit tests in the window of the test runner
@@ -122,5 +177,11 @@ the real window, a development build of 0.7.0:
   the right; with the setting off, the window does not listen for it. The
   gesture itself, three fingers on a trackpad, was not made: no tool makes
   it.
+- Unit tests in Node (`basehalfShownPlace.test.ts`): a canvas shows a
+  folder and no file, Card Detail a file over its canvas, an editor of the
+  base over the canvas neither, and both kinds of change are told.
+- In the real window on 2026-11-21: criteria 4, 5, and 6, the rows read
+  from Files and from Source Control. Before the change, the same opens
+  selected nothing. `focusNoScroll` was read in the code and not run.
 - Not verified: the buttons over a PDF, over a book, whose text is in a
   frame inside its page, and over the view of an agent extension.
