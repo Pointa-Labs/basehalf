@@ -12,6 +12,6 @@ export const SUITE_LIST = [
 	{ name: 'workbench', description: 'The window at startup, the surfaces BaseHalf hides, the Agent Area, Source Control, and Settings.' },
 	{ name: 'canvas', description: 'The canvas: creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, snapping, and the covers of PDFs and books.' },
 	{ name: 'cardDetail', description: 'Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the editors of a video, an image, and a sound; back and forward from it.' },
-	{ name: 'navigation', description: 'Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace.' },
+	{ name: 'navigation', description: 'Quick Text Search, the Explorer, back and forward between folders and cards, what happens to the files of the workspace, and the settings of the workbench that BaseHalf's surfaces follow.' },
 	{ name: 'video', description: 'Generation cards of images, videos, and sounds: drafts, the panel, the voice menu, generations against the local test provider, Providers, the starter template, and Sequence.' }
 ];

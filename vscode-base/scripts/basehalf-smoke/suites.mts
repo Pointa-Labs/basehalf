@@ -83,6 +83,7 @@ import {
 	assertMarkdownRichUndoStopsAtLoad
 } from './areas/cardDetail/richEditor.mts';
 import { assertCanvasBreadcrumbsRemoved, assertCanvasContainsCard, assertMarkdownRichRevealsText } from './areas/navigation/navigation.mts';
+import { assertFilesRevealTheFileInCardDetail, assertMouseButtonsGoBackAndForward, assertReducedMotionFollowsTheSetting, assertSaveKeepsTheWhiteSpaceOfANote, assertWindowTitleNamesTheShownPlace, prepareFollowsSettings } from './areas/navigation/followsSettings.mts';
 import { assertExplorerRenameCascadesMirror, assertExplorerShowsBhFolderBySetting, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
 import { runAudioCardSteps } from './areas/video/audioCards.mts';
 import { assertLandingLeftNoPartialFile, runGenerationCardSteps } from './areas/video/generationCards.mts';
@@ -355,7 +356,7 @@ async function runCardDetailSuite(page) {
 	await step('note-title-line', () => assertCardDetailNoteTitleLine(page));
 }
 
-/** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */
+/** Quick Text Search, the Explorer, back and forward between folders and cards, what happens to the files of the workspace, and the settings of the workbench that BaseHalf's surfaces follow. */
 async function runNavigationSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('quick-text-search-readme-routing', () => quickOpen(page, '%needle-basehalf-routing'));
@@ -386,6 +387,12 @@ async function runNavigationSuite(page) {
 	await step('migration-moves-seeded-legacy-pair', () => assertMigrationMovesSeededLegacyPair(page));
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('explorer-shows-bh-by-setting', () => assertExplorerShowsBhFolderBySetting(page));
+	await step('follows-settings-prepare', () => prepareFollowsSettings(page));
+	await step('files-reveal-the-file-in-card-detail', () => assertFilesRevealTheFileInCardDetail(page));
+	await step('window-title-names-the-shown-place', () => assertWindowTitleNamesTheShownPlace(page));
+	await step('mouse-buttons-go-back-and-forward', () => assertMouseButtonsGoBackAndForward(page));
+	await step('save-keeps-the-white-space-of-a-note', () => assertSaveKeepsTheWhiteSpaceOfANote(page));
+	await step('reduced-motion-follows-the-setting', () => assertReducedMotionFollowsTheSetting(page));
 	await step('nothing-installed-after-session', () => assertWorkspaceOpenInstallsNothing());
 }
 
