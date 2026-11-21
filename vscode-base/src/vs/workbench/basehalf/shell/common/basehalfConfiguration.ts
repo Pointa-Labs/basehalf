@@ -6,6 +6,7 @@
 import { localize } from '../../../../nls.js';
 import { ConfigurationScope, IConfigurationNode } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { BASEHALF_AGENT_SESSION_CHOICES, BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind } from '../../agentArea/common/basehalfAgentArea.js';
+import { BASEHALF_NOTES_OPEN_IN_SETTING } from '../../cardDetail/common/basehalfCardDetail.js';
 import { BASEHALF_FILES_SHOW_HIDDEN_FOLDER_SETTING } from '../../workspace/common/basehalfBhFolder.js';
 
 export const BaseHalfSetting = {
@@ -17,7 +18,7 @@ export const BaseHalfSetting = {
 	CanvasPlayVideosOnHover: 'basehalf.canvas.playVideosOnHover',
 	NotesFontFamily: 'basehalf.notes.fontFamily',
 	NotesFontSize: 'basehalf.notes.fontSize',
-	NotesOpenIn: 'basehalf.notes.openIn',
+	NotesOpenIn: BASEHALF_NOTES_OPEN_IN_SETTING,
 	FilesShowHiddenFolder: BASEHALF_FILES_SHOW_HIDDEN_FOLDER_SETTING,
 	AgentDefaultSession: 'basehalf.agent.defaultSession',
 	AgentRestoreSessions: 'basehalf.agent.restoreSessions',
