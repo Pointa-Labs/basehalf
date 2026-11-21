@@ -62,6 +62,8 @@ export class BaseHalfCanvasBadgeEditor {
 	private readonly badgeDescriptionSaveStates = new Map<string, BaseHalfBadgeDescriptionSaveState>();
 	private canvasBadgeRefreshAfterFocusLeaves = false;
 	private pendingCanvasBadgeFocus: { readonly path: string; readonly target: BaseHalfCanvasBadgeFocusTarget } | undefined;
+	/** The body of Card Detail's Badge zone as last drawn; the zone may have been cleared since. */
+	private detailBadgeBody: HTMLElement | undefined;
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -1089,7 +1091,7 @@ export class BaseHalfCanvasBadgeEditor {
 			return;
 		}
 
-		const body = append(this.view.detailBadgeZone, $('.basehalf-card-detail-badge-body'));
+		const body = this.detailBadgeBody = append(this.view.detailBadgeZone, $('.basehalf-card-detail-badge-body'));
 		body.id = bodyId;
 		body.tabIndex = -1;
 		body.setAttribute('role', 'dialog');
@@ -1188,7 +1190,8 @@ export class BaseHalfCanvasBadgeEditor {
 		}
 		if (!zone.contains(zone.ownerDocument.activeElement)) {
 			// Its body, or the zone itself while the body is being drawn.
-			const taker = zone.querySelector<HTMLElement>('.basehalf-card-detail-badge-body') ?? zone;
+			const body = this.detailBadgeBody;
+			const taker = body && zone.contains(body) ? body : zone;
 			taker.tabIndex = -1;
 			taker.focus({ preventScroll: true });
 		}
