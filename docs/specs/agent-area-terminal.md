@@ -1,10 +1,12 @@
-# Agent Area terminal identity, wheel input, scrollbar, and the edges of its grid
+# Agent Area terminal identity, wheel input, scrollbar, the edges of its grid, and the settings it follows
 
-Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13; the grid's width and the edges around it added 2026-10-27)
+Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13; the grid's width and the edges around it added 2026-10-27; the settings of a terminal that a session follows added 2026-11-21)
 Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09),
-[D86](../decisions.md#d86--a-program-in-an-agent-area-terminal-reaches-the-edges-of-its-pane-new-2026-10-27)
+[D86](../decisions.md#d86--a-program-in-an-agent-area-terminal-reaches-the-edges-of-its-pane-new-2026-10-27),
+[D140](../decisions.md#d140--a-session-of-the-agent-area-follows-the-settings-of-a-terminal-new-2026-11-21)
 Related: [D21](../decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30),
-[agent launch context](agent-launch-context.md)
+[agent launch context](agent-launch-context.md),
+[the settings BaseHalf offers](settings-catalog.md)
 
 ## Problem
 
@@ -101,6 +103,24 @@ default and leaves the rest of a cell at the right and of a row at the
 bottom. It fills that space with its background color, or, when its padding
 color is set to extend, with the color of the nearest cell.
 
+The base has settings for what a terminal does beyond its text: whether
+closing it asks first, what a secondary click does, how its tab is named,
+and what its bell shows. On 2026-11-21 the audit of the settings
+([the settings BaseHalf offers](settings-catalog.md)) found that the Agent
+Area followed none of them. The Agent Area creates the terminal of a session
+as one the base hides from the user, so that the base's terminal panel never
+shows it. The base then counts it as a background terminal, in none of its
+terminal groups, and what the groups and the base's tabs did for a terminal
+went with them. Run in the real window that day:
+
+- With `terminal.integrated.confirmOnKill` as `always` and `sleep 600` in a
+  Terminal session, closing the tab asked nothing. Six seconds later, when
+  the session was destroyed, the question came, and Cancel left `sleep 600`
+  running with no session to show it.
+- A Terminal session was named Terminal whatever ran in it, and a title
+  that a program set showed nowhere.
+- A secondary click selected the word under it and showed no menu.
+
 ## Goals
 
 - Agent Area terminals behave like a native terminal at the input and identity
@@ -116,6 +136,8 @@ color is set to extend, with the color of the nearest cell.
   terminal's own.
 - A program that paints its own background reaches the edges of its pane, at
   every size of the pane, and a shell looks as it did.
+- A setting of a terminal that BaseHalf lists does in a session of the Agent
+  Area what it says.
 
 ## Non-goals
 
@@ -146,6 +168,10 @@ color is set to extend, with the color of the nearest cell.
   as VS Code's `MouseWheelClassifier` classifies this terminal's wheel events.
 - **Grid**: the rectangle of the cells that the terminal shows, as many whole
   rows and columns as fit. **Edges**: the part of the pane outside the grid.
+- **Terminal session**: a session of the Agent Area whose pane is a
+  terminal: a Terminal session, an agent's session that runs the agent's
+  program in a terminal (Codex, Claude Code), and a terminal that an
+  extension created. A session that an agent's extension draws is not one.
 - **Background of a cell**: the color the terminal draws behind the cell: its
   palette entry or its RGB color, its foreground when the cell is drawn
   inverse, and the terminal's default background otherwise. The default
@@ -376,6 +402,55 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
    program and the terminal there, and what it does with these sequences is
    not verified.
 
+### The settings of a terminal that a session follows
+
+The base's settings of a terminal reach every terminal session, and no
+session that an agent's extension draws. A setting that is not named here
+and that the base reads inside the terminal itself, such as the font, the
+cursor, and the scrollback, works as in the base.
+
+#### Closing with something running
+
+1. **Something runs** in a terminal session when:
+   - it is an agent's session, and the agent's program has started and has
+     not ended. The agent is the program of its terminal, as if a shell had
+     started it;
+   - it is any other terminal session, and its shell has a child process, as
+     the base counts them. `terminal.integrated.ignoreProcessNames` applies
+     as in the base.
+2. **Closing sessions** follows `terminal.integrated.confirmOnKill`. The
+   Agent Area is where BaseHalf has its terminals, in the place of the
+   base's panel, and BaseHalf has no terminal in the editor area. So `panel`
+   and `always` ask before sessions in which something runs are closed, and
+   `never` and `editor` do not ask.
+   - Every way to close asks: the close button of a tab, a middle click on a
+     tab, Close Tab, Close Other Tabs, and Close Tabs to the Right, the keys
+     that close a pane or a tab, Kill Pane, Kill Active Agent Area Session,
+     and the base's Kill the Active Terminal Instance.
+   - The question comes before anything changes. It names the session in
+     which something runs, or says how many there are.
+   - Cancel changes nothing: each session keeps its tab, its pane, its
+     program, and the keyboard.
+   - After the answer to close, the close goes on as it does without a
+     question: the tab leaves the strip and a toast offers Undo for six
+     seconds, and a kill ends the session at once. When the six seconds end,
+     the session ends without another question.
+   - While a question about a session is open, another request to close that
+     session does nothing.
+3. **Closing the window** follows `terminal.integrated.confirmOnExit`:
+   closing the window, quitting, reloading the window, and opening another
+   folder in it. `never` asks nothing. `always` asks when the Agent Area has
+   a terminal session. `hasChildProcesses` asks when something runs in one.
+   A session whose tab was closed and whose six seconds have not ended
+   counts. There is one question for the window, and Cancel keeps the window
+   and every session. The base asks no question of its own about terminals.
+4. **Defaults.** BaseHalf's default for `terminal.integrated.confirmOnExit`
+   is `hasChildProcesses`: a window that closes takes an agent's run with
+   it, nothing brings it back, and the key that closes a pane closes the
+   window when the keyboard is elsewhere. The default for
+   `terminal.integrated.confirmOnKill` stays the base's `editor`, which asks
+   nothing in the Agent Area: a closed session comes back with Undo.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -528,3 +603,38 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
     panel of Codex reached the edges. With every row in a new color at about
     120 frames a second, the edges took 9 ms of the window's 593 ms of work
     over 4.6 s, and frames came at a median of 8.3 ms.
+14. A unit test of closing shows: something runs in an agent's session
+    whose program runs and in another terminal session whose shell has a
+    child process, and in no session that an extension draws; which values
+    of `terminal.integrated.confirmOnKill` and of
+    `terminal.integrated.confirmOnExit` ask, for sessions with and without
+    something running; and what the question says for one session and for
+    several. A unit test shows `hasChildProcesses` as BaseHalf's default for
+    `terminal.integrated.confirmOnExit`.
+15. Recorded manual check, in a real window with `sleep 600` in a Terminal
+    session:
+    - with `terminal.integrated.confirmOnKill` as `always`, the close button
+      of the tab, the key that closes a pane, Close Other Tabs from another
+      tab, and Kill Pane each ask before the tab leaves the strip; after
+      Cancel the tab, the pane, and `sleep 600` are there, and the terminal
+      takes what is typed; after the answer to close, the toast with Undo
+      shows, and the session ends six seconds later with no question;
+    - with the setting as `editor`, the tab closes with no question;
+    - with `terminal.integrated.confirmOnExit` at BaseHalf's default,
+      closing the window asks; after Cancel the window and the session are
+      as before; with a shell that runs nothing, the window closes with no
+      question; with `always` it asks also then, and with `never` never.
+
+    Recorded 2026-11-21 in a development build, driven over the debugging
+    port with real keys and pointer events, the question drawn in the
+    window: each of the four ways asked "“Terminal” is still running."
+    with the tab in the strip, and after Cancel the tab, the pane, the
+    keyboard in the terminal, and `sleep 600` were there, also when the
+    question came from the tab's menu. After Close Session the toast showed,
+    and 6.8 s later the session and `sleep 600` were gone with no question.
+    A tab whose shell ran nothing closed with no question, and so did
+    `sleep 601` with the setting as `editor`. Close Window asked at
+    BaseHalf's default with `sleep 600` running and kept the window after
+    Cancel; it closed the window with no question when the shell ran
+    nothing, and with `never` though `sleep 600` ran; with `always` it asked
+    "The Agent Area has an open session." for a shell that ran nothing.
