@@ -578,6 +578,13 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		// Other entries have a card, or other cards take a connection (the items a canvas shows).
 		this._register(this.itemRules.onDidChangeShown(() => this.renderer.scheduleBackgroundRender()));
 		this._register(this.itemRules.onDidChangeFollowed(() => this.renderer.scheduleBackgroundRender()));
+		// A file is read in another encoding: the cards read their text again (note rendering, rule 32a).
+		this._register(this.configurationService.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('files.encoding') || event.affectsConfiguration('files.autoGuessEncoding') || event.affectsConfiguration('files.candidateGuessEncodings')) {
+				this.renderedCardPreviewsByPath = new Map([...this.renderedCardPreviewsByPath].filter(([, entry]) => entry.preview.kind === 'media' || entry.preview.kind === 'folder'));
+				this.renderer.scheduleBackgroundRender();
+			}
+		}));
 		this._register(this.referenceIndexService.onDidChange(event => {
 			const folder = this.getCurrentFolder();
 			if (folder && this.uriIdentityService.extUri.isEqual(event.workspaceFolder, folder.workspaceFolder)) {

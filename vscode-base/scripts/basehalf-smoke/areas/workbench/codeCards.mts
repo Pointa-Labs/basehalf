@@ -1009,6 +1009,28 @@ export async function assertCanvasShowsWhatFilesShows(page) {
 	}
 }
 
+/** A card reads its file in the encoding the settings give for it, as Card Detail does, and again when the setting changes (note rendering, rule 32a). */
+export async function assertCardReadsItsFileInItsEncoding(page) {
+	const file = `${FOLDER}/kite-gbk.txt`;
+	const settings = inWorkspace('.vscode/settings.json');
+	const before = fs.readFileSync(settings, 'utf8');
+	const shown = () => cardOf(page, file).evaluate(card => card.querySelector('.basehalf-canvas-card-preview')?.textContent ?? '').catch(() => '');
+	try {
+		// "风筝 kite" in GBK.
+		fs.writeFileSync(inWorkspace(file), Buffer.from([0xB7, 0xE7, 0xF3, 0xDD, 0x20, 0x6B, 0x69, 0x74, 0x65, 0x0A]));
+		await waitForReading(shown, text => text.includes('kite'), 'the card of a text file in GBK', 15_000);
+		if ((await shown()).includes('风筝')) {
+			throw new Error('Without a setting a file is read as UTF-8');
+		}
+		fs.writeFileSync(settings, JSON.stringify({ ...JSON.parse(before), 'files.encoding': 'gbk' }, null, '\t'));
+		await waitForReading(shown, text => text.includes('风筝 kite'), 'the card to read its file by files.encoding', 15_000);
+	} finally {
+		fs.writeFileSync(settings, before);
+		fs.rmSync(inWorkspace(file), { force: true });
+	}
+	await cardOf(page, file).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
 /** Expand opens Card Detail at the card's place, and a commit takes the marks and leaves the text and the place. */
 export async function assertExpandAndCommit(page) {
 	const box = await cardOf(page, LONG).locator('.basehalf-canvas-code-scroller').boundingBox();

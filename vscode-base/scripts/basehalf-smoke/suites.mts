@@ -111,7 +111,7 @@ import {
 	assertTitleBarLocationOpensSearch
 } from './areas/workbench/startup.mts';
 import { app, workspacePath } from './context.mts';
-import { assertCanvasShowsWhatFilesShows, assertCardComesToAChangeInView, assertCardEditorFollowsSettings, assertCardKeepsItsPlace, assertCardStandsAtWhatWasRead, assertViewsOfANoteGoOn, assertCodeCardFace, assertCodeCardWheel, assertEditingOnTheCard, assertExpandAndCommit, assertLargeFileKeepsItsHead, assertSourceIsTheEditor, prepareCodeCards } from './areas/workbench/codeCards.mts';
+import { assertCanvasShowsWhatFilesShows, assertCardComesToAChangeInView, assertCardEditorFollowsSettings, assertCardKeepsItsPlace, assertCardReadsItsFileInItsEncoding, assertCardStandsAtWhatWasRead, assertViewsOfANoteGoOn, assertCodeCardFace, assertCodeCardWheel, assertEditingOnTheCard, assertExpandAndCommit, assertLargeFileKeepsItsHead, assertSourceIsTheEditor, prepareCodeCards } from './areas/workbench/codeCards.mts';
 import { commitFixtureChanges } from './fixture.mts';
 import { assertCanvasEdgeVisible, assertCanvasFolder } from './lib/canvas.mts';
 import { assertCardDetail, assertNativeBackOpensPreviousCanvas, assertNativeForwardOpensCardDetail, assertNoEditorTabFor } from './lib/cardDetail.mts';
@@ -194,6 +194,7 @@ async function runWorkbenchSuite(page) {
 	await step('code-card-editing', () => assertEditingOnTheCard(page));
 	await step('code-card-follows-settings', () => assertCardEditorFollowsSettings(page));
 	await step('canvas-shows-what-files-shows', () => assertCanvasShowsWhatFilesShows(page));
+	await step('card-reads-its-file-in-its-encoding', () => assertCardReadsItsFileInItsEncoding(page));
 	await step('code-card-expand-and-commit', () => assertExpandAndCommit(page));
 	await step('code-card-large-file', () => assertLargeFileKeepsItsHead(page));
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
