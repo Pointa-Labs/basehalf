@@ -550,6 +550,10 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// back. The base's default never asks
 	// (docs/specs/agent-area-terminal.md, Closing with something running).
 	'terminal.integrated.confirmOnExit': 'hasChildProcesses',
+	// An agent rings the bell when it needs the user, and the bell on its tab
+	// is how a user who looks elsewhere comes to know. The base's default
+	// shows none (docs/specs/agent-area-terminal.md, The bell).
+	'terminal.integrated.enableVisualBell': true,
 	'testing.automaticallyOpenPeekView': 'never',
 	'testing.automaticallyOpenTestResults': 'neverOpen',
 	'testing.countBadge': 'off',

@@ -19,6 +19,8 @@ import { Separator, toAction } from '../../../../base/common/actions.js';
 import { localize } from '../../../../nls.js';
 import { TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
 import { BaseHalfTerminalClickAction, baseHalfTerminalClickAction } from '../common/basehalfTerminalClicks.js';
+import { TerminalStatus } from '../../../contrib/terminal/browser/terminalStatusList.js';
+import { baseHalfAgentSessionBellEnded, baseHalfAgentSessionBellRang } from '../common/basehalfAgentSessionBell.js';
 import type { BaseHalfAgentAreaService, IBaseHalfRuntimeAgentSession } from './basehalfAgentAreaService.js';
 
 /**
@@ -66,6 +68,20 @@ export class BaseHalfAgentAreaTerminalPanes {
 				session.programTitle = instance.sequence;
 			}
 			this.area.tabs.namesChanged();
+		}));
+		// The base keeps a bell in the terminal's statuses for `terminal.integrated.bellDuration` after a ring,
+		// when the settings of the bell say so, and plays its signal itself.
+		session.disposables.add(terminal.statusList.onDidAddStatus(status => {
+			if (status.id === TerminalStatus.Bell) {
+				session.bell = baseHalfAgentSessionBellRang(session.bell, this.area.sessionInView(session));
+				this.area.tabs.marksChanged();
+			}
+		}));
+		session.disposables.add(terminal.statusList.onDidRemoveStatus(status => {
+			if (status.id === TerminalStatus.Bell) {
+				session.bell = baseHalfAgentSessionBellEnded(session.bell);
+				this.area.tabs.marksChanged();
+			}
 		}));
 		session.disposables.add(terminal.onData(() => {
 			this.area.mutateTabs(state => markAgentPaneActivity(state, session.id));

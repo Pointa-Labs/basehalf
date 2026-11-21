@@ -435,6 +435,30 @@
 	opacity: 0;
 }
 
+/* The bell of a session stands in the same slot, in place of the dot and of the close button, which returns
+   under the pointer. The selector outranks the workbench's color for every icon. */
+.monaco-workbench .basehalf-agent-tab-indicator .basehalf-agent-tab-bell {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 13px;
+	color: var(--vscode-list-warningForeground);
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.1s ease-out;
+}
+
+.monaco-workbench .basehalf-agent-tab:not(:hover) .basehalf-agent-tab-indicator.has-bell .basehalf-agent-tab-bell {
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-agent-tab:not(:hover) .basehalf-agent-tab-indicator.has-bell .basehalf-agent-tab-activity,
+.monaco-workbench .basehalf-agent-tab:not(:hover) .basehalf-agent-tab-indicator.has-bell .basehalf-agent-tab-close {
+	opacity: 0;
+}
+
 /* ── Body: pane mounts, dividers, HUD ───────────────────────────────────── */
 
 .monaco-workbench .basehalf-agent-area-body {

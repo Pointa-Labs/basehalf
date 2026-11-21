@@ -9,6 +9,8 @@ import { renderLabelWithIcons } from '../../../../base/browser/ui/iconLabel/icon
 import { stripIcons } from '../../../../base/common/iconLabels.js';
 import { IDisposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { IBaseHalfAgentSessionName, baseHalfAgentTabName } from '../common/basehalfAgentSessionName.js';
+import { baseHalfAgentSessionShowsBell } from '../common/basehalfAgentSessionBell.js';
+import { orderedLeafIds } from '../common/basehalfAgentSplitTree.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { baseHalfRevealInStrip } from '../../ui/browser/basehalfSidewaysStrip.js';
 import { mainWindow } from '../../../../base/browser/window.js';
@@ -29,6 +31,7 @@ interface IBaseHalfDrawnAgentTab {
 	readonly label: HTMLElement;
 	readonly description: HTMLElement;
 	readonly close: HTMLElement;
+	readonly indicator: HTMLElement;
 	readonly index: number;
 	shown: IBaseHalfAgentSessionName;
 }
@@ -55,22 +58,39 @@ export class BaseHalfAgentAreaTabStrip implements IDisposable {
 	 * rename field that is under way on them. A program may set its title many times a second.
 	 */
 	namesChanged(): void {
+		this.marksChanged();
+	}
+
+	/** A session's bell rang or ended: only the mark of its tab changes, as its name does. */
+	marksChanged(): void {
 		if (!this.namesFrame.value) {
 			this.namesFrame.value = scheduleAtNextAnimationFrame(mainWindow, () => {
 				this.namesFrame.clear();
-				this.updateNames();
+				this.updateDrawnTabs();
 			});
 		}
 	}
 
-	private updateNames(): void {
+	private updateDrawnTabs(): void {
 		for (const tab of this.area.tabsState.tabs) {
 			const drawn = this.drawn.get(tab.id);
+			if (!drawn) {
+				continue;
+			}
 			const name = this.tabName(tab);
-			if (drawn && (drawn.shown.name !== name.name || drawn.shown.description !== name.description)) {
+			if (drawn.shown.name !== name.name || drawn.shown.description !== name.description) {
 				this.showName(drawn, name);
 			}
+			drawn.indicator.classList.toggle('has-bell', this.tabShowsBell(tab));
 		}
+	}
+
+	/** A tab shows the bell of any of its panes. */
+	private tabShowsBell(tab: IBaseHalfAgentTab): boolean {
+		return orderedLeafIds(tab.tree).some(paneId => {
+			const session = this.area.runtime.get(paneId);
+			return !!session && baseHalfAgentSessionShowsBell(session.bell);
+		});
 	}
 
 	private showName(drawn: IBaseHalfDrawnAgentTab, name: IBaseHalfAgentSessionName): void {
@@ -263,8 +283,11 @@ export class BaseHalfAgentAreaTabStrip implements IDisposable {
 		const dot = append(indicator, $('span.basehalf-agent-tab-activity'));
 		dot.setAttribute('aria-hidden', 'true');
 		indicator.classList.toggle('has-activity', state.activity.includes(tab.id));
+		const bell = append(indicator, $('span.basehalf-agent-tab-bell.codicon.codicon-bell'));
+		bell.setAttribute('aria-hidden', 'true');
+		indicator.classList.toggle('has-bell', this.tabShowsBell(tab));
 
-		const drawn: IBaseHalfDrawnAgentTab = { element: el, label, description, close, index, shown: { name: '', description: '' } };
+		const drawn: IBaseHalfDrawnAgentTab = { element: el, label, description, close, indicator, index, shown: { name: '', description: '' } };
 		this.showName(drawn, this.tabName(tab));
 		this.drawn.set(tab.id, drawn);
 

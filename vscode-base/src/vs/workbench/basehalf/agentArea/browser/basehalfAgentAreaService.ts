@@ -34,6 +34,8 @@ import { mainWindow } from '../../../../base/browser/window.js';
 import { TerminalExitReason, TerminalSettingId } from '../../../../platform/terminal/common/terminal.js';
 import { stripIcons } from '../../../../base/common/iconLabels.js';
 import { IBaseHalfAgentSessionName, baseHalfAgentSessionName } from '../common/basehalfAgentSessionName.js';
+import { BASEHALF_AGENT_SESSION_NO_BELL, IBaseHalfAgentSessionBell, baseHalfAgentSessionBellLingered, baseHalfAgentSessionBellSeen } from '../common/basehalfAgentSessionBell.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { BaseHalfSplitDir, BaseHalfFocusDir, dropEdge } from '../common/basehalfAgentSplitTree.js';
 import { normalizeBaseHalfAgentDefaultSession, BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { BaseHalfAgentAreaTabStrip } from './basehalfAgentAreaTabStrip.js';
@@ -71,6 +73,10 @@ export interface IBaseHalfRuntimeAgentSession {
 	terminal?: ITerminalInstance;
 	/** The title that the program of the terminal set for it, while that program runs. */
 	programTitle?: string;
+	/** The bell of the session, as its tab shows it. */
+	bell: IBaseHalfAgentSessionBell;
+	/** Ends the bell that lingers after the session came into view. */
+	readonly bellLingers: MutableDisposable<IDisposable>;
 	terminalPersistentProcessId?: number;
 	/** Tracks whether launches carry the BaseHalf launch instruction and falls
 	 *  back once when the installed CLI rejects it. */
@@ -742,9 +748,12 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 			dropPreview: $('.basehalf-agent-pane-drop-preview'),
 			disposables: new DisposableStore(),
 			edges: new MutableDisposable(),
+			bell: BASEHALF_AGENT_SESSION_NO_BELL,
+			bellLingers: new MutableDisposable(),
 			launchInstructions: new BaseHalfAgentLaunchInstructionsMonitor()
 		};
 		session.disposables.add(session.edges);
+		session.disposables.add(session.bellLingers);
 		session.host.setAttribute('role', 'tabpanel');
 		session.host.setAttribute('aria-label', label);
 		session.host.classList.add(kind === 'extension-codex' || kind === 'extension-claude' ? 'kind-extension' : 'kind-terminal');
@@ -899,6 +908,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	}
 
 	render(): void {
+		this.seeBells();
 		this.renderActiveSurfaceKind();
 		this.tabs.renderTabStrip();
 		this.surface.renderPanes();
@@ -906,6 +916,27 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		this.surface.renderToasts();
 		this.surface.layoutVisiblePanes();
 		this._onDidChangeSessions.fire(this.sessions);
+	}
+
+	/** Whether a session is in view: the Agent Area is shown and the session's tab is in front. */
+	sessionInView(session: IBaseHalfRuntimeAgentSession): boolean {
+		return this.visible && agentTabForPane(this.tabsState, session.id)?.id === this.tabsState.activeTabId;
+	}
+
+	/**
+	 * A bell that rang out of view is seen once its session is in view, and shows from then for the time of a
+	 * bell, as if it rang at that moment.
+	 */
+	private seeBells(): void {
+		for (const session of this.runtime.values()) {
+			if (session.bell.unseen && this.sessionInView(session)) {
+				session.bell = baseHalfAgentSessionBellSeen(session.bell);
+				session.bellLingers.value = disposableTimeout(() => {
+					session.bell = baseHalfAgentSessionBellLingered(session.bell);
+					this.tabs.marksChanged();
+				}, Math.max(0, Number(this.configurationService.getValue(TerminalSettingId.BellDuration)) || 0));
+			}
+		}
 	}
 
 	private renderActiveSurfaceKind(): void {

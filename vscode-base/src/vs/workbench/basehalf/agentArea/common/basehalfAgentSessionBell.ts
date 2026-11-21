@@ -1,0 +1,47 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+// The bell of a session on its tab (docs/specs/agent-area-terminal.md, The bell). The base keeps a bell for
+// `terminal.integrated.bellDuration` after a ring. A session that is not in view keeps it until it comes into
+// view, and from then for the same time, as if it rang at that moment.
+
+export interface IBaseHalfAgentSessionBell {
+	/** The base still shows the bell: its time after the last ring has not ended. */
+	readonly ringing: boolean;
+	/** The bell rang while the session was not in view, and the session has not been in view since. */
+	readonly unseen: boolean;
+	/** The session came into view with an unseen bell, and the time of a bell has not ended since. */
+	readonly lingering: boolean;
+}
+
+export const BASEHALF_AGENT_SESSION_NO_BELL: IBaseHalfAgentSessionBell = { ringing: false, unseen: false, lingering: false };
+
+/** A program rang the bell. `inView`: the Agent Area is shown and the session's tab is in front. */
+export function baseHalfAgentSessionBellRang(bell: IBaseHalfAgentSessionBell, inView: boolean): IBaseHalfAgentSessionBell {
+	return { ...bell, ringing: true, unseen: bell.unseen || !inView };
+}
+
+/** The base's time for the bell ended. */
+export function baseHalfAgentSessionBellEnded(bell: IBaseHalfAgentSessionBell): IBaseHalfAgentSessionBell {
+	return { ...bell, ringing: false };
+}
+
+/**
+ * The session is in view. An unseen bell lingers from now: the caller ends it with
+ * {@link baseHalfAgentSessionBellLingered} after the time of a bell. Returns the same object when no bell was
+ * unseen.
+ */
+export function baseHalfAgentSessionBellSeen(bell: IBaseHalfAgentSessionBell): IBaseHalfAgentSessionBell {
+	return bell.unseen ? { ...bell, unseen: false, lingering: true } : bell;
+}
+
+/** The time of a bell ended after the session came into view. */
+export function baseHalfAgentSessionBellLingered(bell: IBaseHalfAgentSessionBell): IBaseHalfAgentSessionBell {
+	return { ...bell, lingering: false };
+}
+
+export function baseHalfAgentSessionShowsBell(bell: IBaseHalfAgentSessionBell): boolean {
+	return bell.ringing || bell.unseen || bell.lingering;
+}
