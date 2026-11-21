@@ -120,6 +120,15 @@ rule 26).
   sound, which it drops first, and the editing of a video, an image, or a
   sound, which it leaves first, back to viewing the file, wherever in Card
   Detail the keyboard is ([editing media](media-editing.md#the-keyboard)).
+- Escape closes Card Detail also while what was just typed is being
+  written. Closing saves the note first, and a save of the note's editor
+  carries the text the editor last knew to be in the file; when an earlier
+  save of the editor is written but its answer has not reached the editor,
+  that text lags. The file holding a text the editor wrote, or the text the
+  save brings, is no conflict; only a text the editor did not write is.
+  Before, Escape pressed while a save was being written was taken for a
+  conflict: Card Detail stayed open, and the window said that the note could
+  not be saved (2026-11-22).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the card of its file, when the canvas shows that card, and otherwise to
   the canvas itself: the keys of the card work again, and Enter opens it
@@ -175,6 +184,10 @@ navigation, which has already changed when it starts.
    the line is in the note, Card Detail closes, and the card shows the line
    when the transition ends; the transition did not wait for the note's
    editor.
+4a. A title typed into a note's title line in Card Detail, and Escape as
+   soon as the title is in the file, eight times over: each time Card Detail
+   closes and the note takes the title's name, and nothing says that the
+   note could not be saved.
 5. Escape closes Card Detail with the keyboard in its header, the player of
    a video, an image, and a PDF, and the keyboard is on the card of the file
    again; with a menu of the note's editor open, it closes the menu only.
@@ -197,7 +210,11 @@ navigation, which has already changed when it starts.
   when the browser refuses, Card Detail is drawn at once. Unit tests of the
   pages' messages: the Escape of the pages of an image, a sound, and a PDF
   (`basehalfMediaViewState.test.ts`), and the request that gives the note's
-  editor the keyboard (`basehalfMarkdownRichWebviewProtocol.test.ts`).
+  editor the keyboard (`basehalfMarkdownRichWebviewProtocol.test.ts`). Unit
+  tests of a note's save (`basehalfMarkdownRichWebviewSaveCoordinator.test.ts`):
+  a save whose earlier text lags a written save of the same editor is
+  written, a save of the text the file holds writes nothing, and a text
+  another wrote is still a conflict.
 - In the window, recorded on every frame by the page itself (the screencast
   of the DevTools protocol sends no frames while a view transition runs):
   when each transition starts, when its animation runs, and when it ends, for
