@@ -382,7 +382,10 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.mergeAllWindowTabs',
 			'workbench.action.toggleWindowTabsBar',
 			'workbench.action.moveView',
-			'workbench.action.moveFocusedView'
+			'workbench.action.moveFocusedView',
+			// Settings and Output stand in the overlay: moved out of it, they would stand over the canvas as editors.
+			'workbench.action.moveModalEditorToMain',
+			'workbench.action.moveModalEditorToWindow'
 		],
 		paletteCategories: [],
 		reason: 'Each only changes what BaseHalf keeps as it is: it writes a setting that BaseHalf keeps at its own value (D137), needs one at another value, as the tabs of the system\'s windows do, switches to a theme BaseHalf never switches to, or moves a view out of its place.'

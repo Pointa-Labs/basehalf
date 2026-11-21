@@ -499,6 +499,9 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// `.bh/` of its own (files in notes, rule 5).
 	'files.exclude': {
 		'**/.bh': true,
+		// The settings a folder has of its own are kept here. The canvas shows what Files shows (D138), and a
+		// folder of settings is no card of the user's work.
+		'**/.vscode': true,
 		'AGENTS.md': true,
 		'CLAUDE.md': true
 	},

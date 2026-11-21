@@ -63,6 +63,7 @@ export const BASEHALF_LOCKED_SETTINGS: Readonly<Record<string, unknown>> = Objec
 	'scm.workingSets.default': 'current',
 	// Files save by themselves: nothing in BaseHalf shows an unsaved file, and agents read the disk.
 	'files.autoSave': 'afterDelay',
+	'files.autoSaveWhenNoErrors': false,
 	// The base's AI features stay off.
 	'chat.disableAIFeatures': true,
 	'chat.agent.enabled': false,
@@ -118,7 +119,19 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 		]
 	},
 	{ class: 'pending', family: 'Agent Area: suggestions of a shell', patterns: ['terminal.integrated.suggest.*'] },
+	// Advanced: they work as in the base.
+	{
+		class: 'advanced', family: 'JSON files: formatting, suggestions, and marks', patterns: [
+			'editor.formatOnSave', 'editor.formatOnSaveMode', 'editor.formatOnPaste', 'editor.defaultFormatter', 'editor.codeActionsOnSave', 'editor.suggest.showProperties',
+			'editor.suggest.showValues', 'editor.suggest.showModules', 'editor.suggest.showConstants', 'problems.decorations.enabled', 'problems.visibility',
+			'problems.showCurrentInStatus', 'accessibility.signals.lineHasError', 'accessibility.signals.lineHasWarning', 'accessibility.signals.positionHasError',
+			'accessibility.signals.positionHasWarning', 'accessibility.signals.format', 'accessibility.signalOptions.experimental.delays.warningAtPosition',
+			'accessibility.signalOptions.experimental.delays.errorAtPosition'
+		]
+	},
 	// Unlisted: they belong to what BaseHalf does not have.
+	{ class: 'unlisted', family: 'JSON: a setting the base retired', patterns: ['json.colorDecorators.enable'] },
+	{ class: 'advanced', family: 'JSON', patterns: ['json.*'] },
 	{
 		class: 'unlisted', family: 'Chat and agents of the base', patterns: [
 			'chat.*', 'inlineChat.*', 'agents.*', 'mcp', 'mcp.*', 'github.copilot.*', 'onboarding.*', 'imageCarousel.*'
@@ -220,7 +233,6 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 			'accessibility.replEditor.*', 'accessibility.openChatEditedFiles', 'accessibility.verboseChatProgressUpdates', 'accessibility.chat.*'
 		]
 	},
-	// Advanced: they work as in the base.
 	{ class: 'advanced', family: 'Text editor', patterns: ['editor.*', 'diffEditor.*'] },
 	{ class: 'advanced', family: 'Files', patterns: ['files.*', 'explorer.*'] },
 	{ class: 'advanced', family: 'Search', patterns: ['search.*'] },
