@@ -77,7 +77,7 @@ nothing typed.
 | Tasks | `workbench.action.tasks.*` | 14 | D137: an agent runs a folder's commands in the Agent Area |
 | Debug | `debug.*`, `workbench.debug.*`, `workbench.action.debug.*`, `editor.debug.*`, the debug console, and the three commands that debug a window in a new one | 13 | no debugger ships |
 | Profiles | `workbench.profiles.actions.*` | 9 | D137: one set of settings |
-| The shape of the shell | breadcrumbs, the side bar's and the activity bar's place, the Command Center and the custom title bar, Auto Save, Toggle between Light/Dark Themes, workspace trust, Move View | 9 | each only writes a setting that BaseHalf keeps at its own value, switches to a theme BaseHalf never switches to, or moves a view out of its place |
+| The shape of the shell | breadcrumbs, the side bar's and the activity bar's place, the Command Center and the custom title bar, Auto Save, Toggle between Light/Dark Themes, workspace trust, the tabs of the system's windows, Move View | 9 | each only writes a setting that BaseHalf keeps at its own value, needs one at another value, switches to a theme BaseHalf never switches to, or moves a view out of its place |
 | Notebooks | `notebook.*`, `workbench.notebook.*`, the interactive window | 8 | nothing ships that opens a notebook |
 | The base's chat and agents | `workbench.action.chat.*`, `chat.*`, inline chat, agent sessions, tool servers (`workbench.mcp.*`), voice input, the base's onboarding, Open in Images Preview | 7 | the Agent Area is BaseHalf's surface for agents; see [the base's chat](#the-bases-chat) |
 | The merge editor | `merge.*`, `mergeEditor.*`, Git's Resolve in Merge Editor | 5 | D123: a conflict is resolved in the file with its actions |
@@ -334,3 +334,9 @@ base's voice service is not there.
   search again: one start before the change, none after. That the base asks
   nothing of GitHub with a session was read in the code and not run: no
   session of a real account was used.
+- Run in the real window on 2026-11-21 for criteria 4 and 5 of the required
+  behavior: the default key bindings, opened as JSON, were searched for the
+  ids of Tasks, Start Debugging, splitting an editor, Toggle Output, and the
+  Extensions view, bound or listed as without a key: none was there, and
+  Toggle Zen Mode and the terminal's New were. The Keyboard Shortcuts editor
+  reads the same two lists and was not opened.

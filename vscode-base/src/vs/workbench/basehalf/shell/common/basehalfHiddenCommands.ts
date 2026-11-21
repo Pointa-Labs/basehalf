@@ -375,11 +375,17 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.action.toggleAutoSave',
 			'workbench.action.toggleLightDarkThemes',
 			'workbench.trust.*',
+			'workbench.action.newWindowTab',
+			'workbench.action.showNextWindowTab',
+			'workbench.action.showPreviousWindowTab',
+			'workbench.action.moveWindowTabToNewWindow',
+			'workbench.action.mergeAllWindowTabs',
+			'workbench.action.toggleWindowTabsBar',
 			'workbench.action.moveView',
 			'workbench.action.moveFocusedView'
 		],
 		paletteCategories: [],
-		reason: 'Each only changes what BaseHalf keeps as it is: it writes a setting that BaseHalf keeps at its own value (D137), switches to a theme BaseHalf never switches to, or moves a view out of its place.'
+		reason: 'Each only changes what BaseHalf keeps as it is: it writes a setting that BaseHalf keeps at its own value (D137), needs one at another value, as the tabs of the system\'s windows do, switches to a theme BaseHalf never switches to, or moves a view out of its place.'
 	}
 ];
 
