@@ -183,9 +183,11 @@ export class BaseHalfAgentAreaSurface {
 			return;
 		}
 
-		if (session.state === 'waiting') {
+		if (session.state === 'waiting' && !session.terminal && !session.extensionFocus) {
 			// A session that starts now has nothing to take the keyboard yet: it takes it once it is there.
-			session.takesKeyboard = true;
+			// Not at the start of a window, where the base sends the keyboard to the Agent Area by itself:
+			// a window that opens leaves the keyboard where it is.
+			session.takesKeyboard = this.area.windowRestored;
 			return;
 		}
 

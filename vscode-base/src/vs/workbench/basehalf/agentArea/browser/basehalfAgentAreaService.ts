@@ -314,6 +314,11 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		this.arrangement.restore();
 	}
 
+	/** Whether the window has opened with what it restores. */
+	get windowRestored(): boolean {
+		return this.layoutService.isRestored();
+	}
+
 	/** Whether the keyboard is in the Agent Area. */
 	get focused(): boolean {
 		return this.root.contains(this.root.ownerDocument.activeElement);

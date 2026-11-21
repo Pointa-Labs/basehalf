@@ -74,6 +74,11 @@ export class BaseHalfAgentAreaArrangement implements IDisposable {
 	 * frames, and a word that shows for that long is a flash.
 	 */
 	startSessionsInView(): void {
+		if (this.closing) {
+			// The terminals of a window that closes end one after the other, and each brings the next tab in
+			// front: nothing starts there.
+			return;
+		}
 		const paneIds = baseHalfAgentSessionsToStart(this.area.tabsState, this.area.visible, paneId => this.area.runtime.get(paneId)?.state === 'waiting' && !this.started.has(paneId));
 		for (const paneId of paneIds) {
 			const session = this.area.runtime.get(paneId);
@@ -95,7 +100,8 @@ export class BaseHalfAgentAreaArrangement implements IDisposable {
 			return;
 		}
 		const folder = await this.existingFolder(session.folder);
-		if (this.area.runtime.get(session.id) !== session || session.closing) {
+		if (this.closing || this.area.runtime.get(session.id) !== session || session.closing) {
+			this.started.delete(session.id);
 			return;
 		}
 		const choice = baseHalfAgentSessionChoiceForKind(session.kind);
@@ -150,6 +156,7 @@ export class BaseHalfAgentAreaArrangement implements IDisposable {
 	windowStays(): void {
 		if (this.closing) {
 			this.closing = false;
+			this.startSessionsInView();
 			this.changed();
 		}
 	}
