@@ -45,7 +45,8 @@ Not in scope, and unchanged:
   the workspace's name, and a click anywhere opens the search.
 - The search itself, VS Code's Quick Open with its modes
   (`workbench.action.quickOpenWithModes`), which takes the box's place at
-  the top of the window while it is open.
+  the top of the window while it is open, apart from what it finds just
+  after files came or went (requirement 12).
 - Go Back and Go Forward beside the box.
 - The hovers ([D65](../decisions.md)): the path shows none, the magnifier and
   the rest of the box name the search.
@@ -100,6 +101,17 @@ Not in scope, and unchanged:
     and cards let go there move into its folder. The current place and "…"
     take nothing ([dropping into a folder](canvas-drop-into-folder.md)).
 
+### What the search finds
+
+12. A search that starts after a file was added to the workspace or deleted
+    from it, by BaseHalf, by an agent, or by another program, finds the
+    files as they are. The base searched the list that its previous search
+    had made until its own was ready, and did not search again when it
+    was: a note that an agent had just written was not found, and the list
+    said "No matching results" until the next letter typed (2026-11-22).
+    Without such a change in between, a search starts from the previous
+    list, as the base's does.
+
 ## States and failure
 
 - **The search is open.** The box is hidden, and the search is in its
@@ -122,6 +134,9 @@ Not in scope, and unchanged:
 4. With the keyboard on the box itself, Enter opens the search.
 5. In Card Detail, a click on the workspace folder's button opens that
    canvas, and the search stays closed.
+6. A search for a file name, then a note of that name written into the
+   workspace by another program, then the search again at once with the
+   whole name typed: the note is in its results, eight times out of eight.
 
 ## Verification
 

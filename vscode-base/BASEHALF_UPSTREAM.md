@@ -244,6 +244,16 @@ See "Product shell" in `docs/harness/architecture-invariants.md` and "The player
   first layout cancelled the mouse-out, and it stayed up after the pointer left; 1.144.0
   still does this. An update of the whole tree carries it over, with its test.
 
+## The search finds what came or went (2026-11-22)
+
+See requirement 12 of `docs/specs/title-bar-location.md`. In
+`src/vs/workbench/contrib/search/browser/anythingQuickAccess.ts`, BaseHalf's own change, with
+`BaseHalf:` marks: a search that starts after a file was added or deleted does not search the
+cache of the search before while its own loads (`createFileQueryCache`), so a file an agent
+wrote a moment ago is found. The base searched that cache and did not search again once its
+own was ready, so "No matching results" stood until the next letter. An update of the whole
+tree carries the change over.
+
 ## The location in the title bar (2026-07-12, revised 2026-10-24)
 
 BaseHalf's own change. See public decision D73 and
