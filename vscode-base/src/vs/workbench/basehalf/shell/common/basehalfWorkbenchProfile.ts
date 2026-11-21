@@ -8,6 +8,7 @@ import { VIEWLET_ID as FILES_VIEW_CONTAINER_ID, VIEW_ID as FILES_VIEW_ID } from 
 import { REPOSITORIES_VIEW_PANE_ID, HISTORY_VIEW_PANE_ID, VIEWLET_ID as SCM_VIEW_CONTAINER_ID, VIEW_PANE_ID as SCM_VIEW_ID } from '../../../contrib/scm/common/scm.js';
 import { DEBUG_PANEL_ID, REPL_VIEW_ID } from '../../../contrib/debug/common/debug.js';
 import { Markers } from '../../../contrib/markers/common/markers.js';
+import { OUTPUT_VIEW_ID } from '../../../services/output/common/output.js';
 import { Testing } from '../../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../../contrib/extensions/common/extensions.js';
@@ -25,7 +26,7 @@ export const BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY = 'workbench.statusba
 
 export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command' | 'statusbarEntry';
 export type BaseHalfSurfaceDisposition = 'primary' | 'remapped' | 'hidden';
-export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'remote' | 'chat';
+export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'output' | 'remote' | 'chat';
 
 export interface IBaseHalfWorkbenchSurface {
 	readonly id: string;
@@ -394,6 +395,13 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		area: 'problems',
 		source: 'src/vs/workbench/contrib/markers/common/markers.ts',
 		reason: 'Problems view is hidden with its panel container while diagnostics are not a BaseHalf product surface.'
+	},
+	{
+		id: OUTPUT_VIEW_ID,
+		kind: 'viewContainer',
+		area: 'output',
+		source: 'src/vs/workbench/services/output/common/output.ts',
+		reason: 'Output is a view of the base\'s bottom panel, which the shell does not have; a channel of output opens as a document over the canvas (D141).'
 	},
 	{
 		id: 'workbench.view.remote',

@@ -97,7 +97,7 @@ import {
 	assertGlobalAuxiliaryToggleOpensAgentArea,
 	assertTogglePanelRemapsToAgentArea
 } from './areas/workbench/agentArea.mts';
-import { assertCompetingViewContainersHidden, assertHiddenSurfaceCommandsStayHidden, assertKeysOfHiddenCommandsOpenNothing, assertOpenEditorsHidden, assertStatusBarCurated, assertTitleBarMenusHoldWhatBaseHalfHas } from './areas/workbench/hiddenSurfaces.mts';
+import { assertCompetingViewContainersHidden, assertHiddenSurfaceCommandsStayHidden, assertKeysOfHiddenCommandsOpenNothing, assertOpenEditorsHidden, assertOutputOpensOverTheCanvas, assertStatusBarCurated, assertTitleBarMenusHoldWhatBaseHalfHas } from './areas/workbench/hiddenSurfaces.mts';
 import { assertBaseHalfAboutPage, assertBaseHalfSettingsCategory, assertProvidersPage } from './areas/workbench/settings.mts';
 import { assertGitBranchCheckoutQuickPick, assertSourceControlChangesAsTree, assertSourceControlLeavesOutSystemFiles, assertSourceControlPanel, assertSourceControlPublishBranchAction } from './areas/workbench/sourceControl.mts';
 import {
@@ -158,6 +158,7 @@ async function runWorkbenchSuite(page) {
 	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
 	await step('title-bar-menus-hold-what-basehalf-has', () => assertTitleBarMenusHoldWhatBaseHalfHas(page));
 	await step('keys-of-hidden-commands-open-nothing', () => assertKeysOfHiddenCommandsOpenNothing(page));
+	await step('output-opens-over-the-canvas', () => assertOutputOpensOverTheCanvas(page));
 	await step('agent-area-five-choices-command-unavailable-state', () => assertAgentAreaChoices(page));
 	await step('global-auxiliary-toggle-opens-agent-area', () => assertGlobalAuxiliaryToggleOpensAgentArea(page));
 	await step('agent-area-terminal-command-no-stock-panel', () => assertAgentAreaTerminalCommand(page));

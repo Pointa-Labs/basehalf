@@ -125,6 +125,32 @@ After the change the palette lists 492 commands, under 491 names.
   pattern names plumbing; the one such command that the palette offers,
   the notebook's Select Kernel, is named by its id.
 
+## Output
+
+BaseHalf's shell has no bottom panel, so output has no view of its own. A
+channel of output opens as a document over the canvas, in the overlay that
+Settings opens in:
+
+- The document is the channel's own, read-only, under the channel's name,
+  colored as a log. It opens at its last line, and what the channel receives
+  while it is open shows in it.
+- Escape closes it, as does its close button and a press outside it. The
+  canvas, Card Detail, and the Agent Area are as they were.
+- Every way to show output arrives there: Git's Show Git Output, Output:
+  Show Output Channels, Developer: Show Logs and Show Window Log, a channel
+  that an extension shows, an agent extension among them, and a channel
+  that the base shows itself. One that asks not to take the keyboard does
+  not take it.
+- The Output view is a hidden surface, with Problems, the debug console, and
+  the test results. Nothing opens the bottom panel: a view of it that
+  something opens is closed again, as before.
+- The commands of the Output view go with it: its toggle, its filters, the
+  level of the shown channel, and Clear Output. Developer: Set Log Level
+  sets the level of a log.
+
+A channel does not scroll by itself as it grows. Output that should be
+followed line by line is a terminal's, in the Agent Area.
+
 ## Required behavior
 
 1. **One list.** The hidden commands are data: families, each with its
@@ -170,6 +196,10 @@ After the change the palette lists 492 commands, under 491 names.
 - **Executing**: BaseHalf's command service
   (`shell/common/basehalfCommandService.ts`) takes the place of the base's
   and refuses a hidden command.
+- **Output**: the base's output service opens the Output view in one place,
+  `showChannel`. There, a marked change opens the channel's document in the
+  overlay instead (`shell/common/basehalfOutput.ts`). The Output view is on
+  the list of hidden surfaces.
 - **Four marked changes in the base's files**, each one line that asks the
   list: the keybinding service leaves the default keys of hidden commands
   out of its resolver; the list of commands without a key leaves them out;
@@ -207,6 +237,11 @@ After the change the palette lists 492 commands, under 491 names.
    found`, and the command does not run.
 9. A command added to the base under the category of a hidden family, with
    an id that no pattern names, fails a unit test.
+10. Git: Show Git Output shows Git's output in the overlay over the canvas,
+    at its last line; a letter typed into it changes nothing; Escape closes
+    it. The bottom panel does not open. The same holds for a channel picked
+    in Output: Show Output Channels and for a log picked in Developer: Show
+    Logs.
 
 ## Verification
 
@@ -219,8 +254,12 @@ After the change the palette lists 492 commands, under 491 names.
   registrations of Tasks, Debug, Notebooks, Testing, chat, the merge editor,
   the Search Editor, Problems, and Remote, and fails on a command of their
   categories that no pattern names (criterion 9).
+- A unit test of where a channel opens (`basehalfOutput.test.ts`), and the
+  list of hidden view containers in `basehalfWorkbenchProfile.test.ts`.
 - The workbench suite of the smoke: the palette lists no command of the
-  hidden categories, and the gear's menu holds its entries.
+  hidden categories, the gear's and the Accounts menu hold their entries,
+  the keys of criterion 7 open nothing, and Show Git Output opens over the
+  canvas.
 - Measured in the real window on 2026-11-21, before and after, in the same
   folder: the Command Palette with nothing typed, 679 commands before and
   492 after; the application menu, File 26 entries and 21, View 50 and 21,
@@ -229,3 +268,9 @@ After the change the palette lists 492 commands, under 491 names.
   Accounts menu, 2 and 1; the context menu of the title bar and Customize
   Layout as criteria 5 and 6 say; and the eight keys of criterion 7, pressed
   with the keyboard in Files.
+- Run in the real window on 2026-11-21 for criterion 10: Git: Show Git
+  Output, Main picked in Show Output Channels, and Window picked in Show
+  Logs each opened in the overlay under the channel's name, with the newest
+  line last; a letter typed changed nothing; Escape closed each; the bottom
+  panel stayed shut. An agent extension's channel was not run: it reaches
+  the same place as Git's, through the extension host.

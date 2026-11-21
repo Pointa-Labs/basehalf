@@ -30,6 +30,7 @@ import { telemetryLogId } from '../../../../platform/telemetry/common/telemetryU
 import { toLocalISOString } from '../../../../base/common/date.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IDefaultLogLevelsService } from '../../../services/log/common/defaultLogLevels.js';
+import { showBaseHalfOutputChannel } from '../../../basehalf/shell/common/basehalfOutput.js';
 
 const OUTPUT_ACTIVE_CHANNEL_KEY = 'output.activechannel';
 
@@ -409,9 +410,9 @@ export class OutputService extends Disposable implements IOutputService, ITextMo
 			this.setActiveChannel(channel);
 			this._onActiveOutputChannel.fire(id);
 		}
-		const outputView = await this.viewsService.openView<OutputViewPane>(OUTPUT_VIEW_ID, !preserveFocus);
-		if (outputView && channel) {
-			outputView.showChannel(channel, !!preserveFocus);
+		// BaseHalf: the shell has no bottom panel, so a channel shows as a document over the canvas and the Output view never opens (D141).
+		if (channel) {
+			await this.instantiationService.invokeFunction(showBaseHalfOutputChannel, channel, !!preserveFocus);
 		}
 	}
 

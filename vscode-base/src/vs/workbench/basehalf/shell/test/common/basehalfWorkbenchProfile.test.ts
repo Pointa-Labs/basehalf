@@ -169,6 +169,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 				'workbench.panel.testResults',
 				'workbench.view.extension.test',
 				'workbench.panel.markers',
+				'workbench.panel.output',
 				'workbench.view.remote'
 			]
 		);

@@ -6,7 +6,7 @@
 // What BaseHalf hides of VS Code: Open Editors, competing views, status bar items, and commands.
 
 import process from 'process';
-import { isExpectedCommandRow, visibleQuickInput } from '../../lib/quickInput.mts';
+import { isExpectedCommandRow, runCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 
 export async function assertOpenEditorsHidden(page) {
 	const headers = await page.locator('.pane-header h3.title').evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(text => text === 'Open Editors'));
@@ -16,7 +16,7 @@ export async function assertOpenEditorsHidden(page) {
 }
 
 export async function assertCompetingViewContainersHidden(page) {
-	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Debug Console', 'Testing', 'Test Results', 'Problems', 'Remote Explorer', 'Terminal'];
+	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Debug Console', 'Testing', 'Test Results', 'Problems', 'Output', 'Remote Explorer', 'Terminal'];
 	const started = Date.now();
 	let visibleForbidden = [];
 	while (Date.now() - started < 5_000) {
@@ -160,6 +160,21 @@ async function titleBarMenu(page, name) {
 	await page.keyboard.press('Escape');
 	await menu.first().waitFor({ state: 'hidden', timeout: 10_000 });
 	return entries;
+}
+
+// Output opens as a document over the canvas, and the bottom panel stays shut (D141).
+export async function assertOutputOpensOverTheCanvas(page) {
+	await runCommand(page, 'Git: Show Git Output');
+	const overlay = page.locator('.monaco-modal-editor-block');
+	await overlay.waitFor({ state: 'visible', timeout: 15_000 });
+	await overlay.locator('.monaco-editor .view-line').first().waitFor({ state: 'visible', timeout: 15_000 });
+	const panel = await page.locator('.part.panel').evaluateAll(nodes => nodes.some(node => getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0));
+	if (panel) {
+		throw new Error('Show Git Output opened the bottom panel');
+	}
+	await assertCompetingViewContainersHidden(page);
+	await page.keyboard.press('Escape');
+	await overlay.waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 // A key that the base gives to a surface BaseHalf does not have opens nothing (D141).
