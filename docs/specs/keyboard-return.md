@@ -90,7 +90,12 @@ the canvas, the first of these that is there takes it:
    multi-file diff.
 5. Card Detail, when it is open: what it shows, as when it opened
    ([opening and closing Card Detail](card-detail-opening.md#the-keyboard)).
-   A note keeps its caret.
+   A note keeps its caret. A view that is not drawn yet, such as a note
+   whose page is still loading, takes the keyboard once it is drawn, as
+   Card Detail's view does when Card Detail opens; until then Card Detail
+   itself holds it. A page that has the keyboard while it loads gives it
+   back to the window when it has loaded, with no event that the rule
+   could see, and the keyboard stayed on the page itself.
 6. The card that last had the keyboard on this canvas, when the canvas
    still shows it.
 7. The canvas itself.
@@ -346,6 +351,11 @@ as before: by its toggle, by Escape, and by a press outside it.
 20. A unit test holds what takes the keyboard for each case of "What takes
     it", the place the canvas remembers after each place the keyboard can
     be, and which repeats of a held key are held back.
+21. **A note opened over Card Detail.** With a code file open in Source and
+    edited, Quick Open of a note puts the keyboard into the note once its
+    page is drawn, and keeps it there; Quick Open of a picture from the
+    note puts it on the picture. Sampled every 50 ms for two seconds after
+    Enter, the keyboard is never on the page itself after the first 100 ms.
 
 ## Verification
 
