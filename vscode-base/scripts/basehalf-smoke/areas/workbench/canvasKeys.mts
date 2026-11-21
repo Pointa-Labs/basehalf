@@ -11,13 +11,14 @@ import path from 'path';
 import process from 'process';
 import { userDataDir } from '../../context.mts';
 import { emptyCanvasPoint, openRootCanvas, setCanvasZoomPercent } from '../../lib/canvas.mts';
-import { runCommand } from '../../lib/quickInput.mts';
 import { waitForReading } from '../../lib/steps.mts';
 
 const canvasZoom = page => page.evaluate(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')));
 
 export async function assertCanvasKeysAreCommands(page) {
-	await runCommand(page, 'Preferences: Open Keyboard Shortcuts');
+	// By its keys: the Command Palette ranks the default key bindings' file before Keyboard Shortcuts for these words.
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+S' : 'Control+S');
 	const shortcuts = page.locator('.keybindings-editor').first();
 	await shortcuts.waitFor({ state: 'visible', timeout: 20_000 });
 	const search = shortcuts.locator('.keybindings-header .monaco-inputbox input').first();
