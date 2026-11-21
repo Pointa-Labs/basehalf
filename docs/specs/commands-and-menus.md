@@ -176,6 +176,8 @@ A user does not see two commands that do one thing under two names.
   words is listed**, since there is one editor group: Close All Editors,
   Open Next Editor, Open Previous Editor, Open Next and Previous Recently
   Used Editor, Show All Editors By Most Recently Used, and Save All stay.
+  Close Other Editors in Group and Close Saved Editors in Group have no
+  such twin and stay under the base's names.
 
 ## Which commands BaseHalf has
 
@@ -190,8 +192,8 @@ nothing typed.
 
 | Family | What it holds | Listed | Why BaseHalf does not have it |
 | --- | --- | --- | --- |
-| Editor tabs and groups | splitting, new groups, moving an editor or a group, the editor layouts, pinning, locking a group, the tab bar, the place of the editor actions, an editor or a terminal in a window of its own, hiding the editor area; the commands "in Group" that a command without the words does, closing the editors to the left or to the right of a tab, and the first and the last editor of a group (D150) | 85 | a file opens in Card Detail, and there is one editor group without tabs |
-| The bottom panel | focusing, moving, aligning, and maximizing the panel, the Output view with its filters, the terminal view of the panel; the panel's toggle, the toggle of the base's terminal view, and the Refactor Preview (D150) | 19 | the shell has no bottom panel; [output](#output) opens as a document |
+| Editor tabs and groups | splitting, new groups, moving an editor or a group, the editor layouts, pinning, locking a group, the tab bar, the place of the editor actions, an editor or a terminal in a window of its own, hiding the editor area; the commands "in Group" that a command without the words does, closing the editors to the left or to the right of a tab, the first, the last, and the numbered editor of a group, the sides of an editor that is split in its group, and the commands of a window that holds one editor (D150) | 85 | a file opens in Card Detail, and there is one editor group without tabs |
+| The bottom panel | focusing, moving, aligning, and maximizing the panel, the Output view with its filters, the terminal view of the panel; the panel's toggle, the base's terminal view with the commands the base makes for every view, and the Refactor Preview (D150) | 19 | the shell has no bottom panel; [output](#output) opens as a document |
 | Tasks | `workbench.action.tasks.*` | 14 | D137: an agent runs a folder's commands in the Agent Area |
 | Debug | `debug.*`, `workbench.debug.*`, `workbench.action.debug.*`, `editor.debug.*`, the debug console, and the three commands that debug a window in a new one | 13 | no debugger ships |
 | Profiles | `workbench.profiles.actions.*` | 9 | D137: one set of settings |
@@ -214,11 +216,13 @@ nothing typed.
 | Comment threads | adding a comment, moving between threads, the Comments view and its filters | 0 | a thread comes from an extension that provides comments, and BaseHalf runs none; the comments of code, Toggle Line Comment and the like, are the editor's own and stay |
 | The terminal's kept sessions | Attach to Session, Detach Session, Clear Previous Session History | 3 | BaseHalf brings back the arrangement of the Agent Area and starts every session anew (D147) |
 
-The last two families were named by D150, which also added to four earlier
-ones: the shape of the shell has the two commands that step through the
-views of the Agent Area, which has one; the Marketplace has Product Icon
+The last two families were named by D150, which also added to five earlier
+ones. The shape of the shell has the two commands that step through the
+views of the Agent Area, which has one, and the commands that put a view
+back in its place, which no view leaves. The Marketplace has Product Icon
 Theme, since a product icon theme comes only from an extension that
-BaseHalf does not install.
+BaseHalf does not install. The base's chat has the quick access of the
+base's agents.
 
 The families with 0 were not listed in this window and were reachable by a
 key, a menu, or their id. The last two families were named when Keyboard
@@ -590,6 +594,100 @@ base's voice service is not there.
     sidebar or the Agent Area by the base's words reads in BaseHalf's.
 
 ## Verification
+
+### The words of the shell and what is listed (D150)
+
+- Unit tests: the table and the function (`basehalfWords.test.ts`): the
+  names of the title bar, the palette, the application menu with its
+  underlined letter, Customize Layout, Open View, a screen reader, and the
+  descriptions of settings, and the texts that stay; the menu service
+  (`basehalfCommandAndMenuServices.test.ts`): the title, the short title,
+  the tooltip, the title while on, the description, the second command of
+  an item, and a submenu in BaseHalf's words, the registry as it was, and a
+  command of the Command Palette only; the context menus
+  (`basehalfContextMenuActions.test.ts`); the families
+  (`basehalfHiddenCommands.test.ts`); what Keyboard Shortcuts lists without
+  a key (`basehalfKeyboardShortcutsList.test.ts`); the names of the keyed
+  commands and the check of criterion 24 on a list
+  (`basehalfKeyedCommands.test.ts`); the keys of Toggle Agent Area Terminal
+  (`basehalfAgentAreaTerminalConfig.test.ts`); and the keys of Zoom Canvas
+  Out (`basehalfCanvasKeys.test.ts`).
+- The smoke, changed and not run: the steps that toggle the Agent Area name
+  Toggle Agent Area Terminal or View: Toggle Agent Area;
+  `layout-control-at-the-left-end` and `card-detail-holds-no-layout-control`
+  read the buttons by their new names; `title-bar-menus-hold-what-basehalf-has`
+  reads the gear's menu without Snippets; the palette step looks for the
+  newly hidden commands and categories; `hidden-families-name-their-commands`
+  also fails on a command of BaseHalf's with a key and no name.
+- Run in the real window on 2026-11-21, in a folder under git with notes, a
+  picture, a video, a sound, a PDF, and a JSON file, before and after, by
+  scripts that read every row:
+  - **The Command Palette**, nothing typed: 491 rows before and 471 after.
+    Gone: the 11 under "Side Bar" names, which came back as 9 under
+    BaseHalf's (the two that step through the views of the Agent Area did
+    not); BaseHalf: Toggle Agent Area, Toggle Panel Visibility, and Toggle
+    Terminal; 9 "in Group", Close Editors to the Left and to the Right; 3 of
+    the terminal's kept sessions; Product Icon Theme; Reset View Locations.
+    New: BaseHalf: New Note.
+  - **Keyboard Shortcuts**: 1,757 rows before and 1,631 after; by the two
+    lists it is made from, 1,551 commands and 1,427. The 124 that left: 41
+    of tabs, groups, and an editor's own window; 24 of comment threads; 22
+    of BaseHalf's own without a name, the removed Toggle Agent Area among
+    them; 16 of the panel, with the Refactor Preview and the base's
+    terminal view; 14 of the shape of the shell, the places of views among
+    them; 3 of the base's quick access for agents; 3 of the terminal's kept
+    sessions; and Product Icon Theme. Six of BaseHalf's own that had a key
+    and a bare id have a name. No row holds "Side Bar" or "Panel", and none
+    starts with `basehalf.` or `pointa.`. Sorted by family after: the
+    editor of text with lists and quick input 474; Git, Source Control, and
+    GitHub 259; the window 187; the terminal 120; BaseHalf 77;
+    notifications, output, and a developer's tools 77; Settings, Keyboard
+    Shortcuts, themes, and update 76; Files 67; Search 35; and 55 more of
+    the editor by bare ids.
+  - **Criteria 17 and 19**: the buttons read "Toggle Sidebar (⌘B)" and
+    "Toggle Agent Area (⌥⌘B)". Option+Command+B with no session showed the
+    Agent Area with the sessions to choose from and started none; a second
+    press hid it. Command+J showed it with the First Session and the
+    keyboard in it; a second press hid it. Control+Backquote is in no row
+    on the keyboard layout of the machine, before and after, and did
+    nothing.
+  - **Criterion 20**: before, View: Toggle Terminal of the palette stopped
+    the window twice (100% of a processor, 1.2 and 3.6 GB, no answer to the
+    debugger) until it was killed. After, a key of the user's bound to
+    `basehalf.internal.terminal.toggleView` and one bound to
+    `workbench.action.togglePanel` each said that the command was not
+    found, nothing opened, and the window answered.
+  - **Criteria 3, 6, 21, 22, 26, 27, 28**: read from the gear's menu with
+    its submenus, Customize Layout, Open View, the context menu of the
+    sidebar's icons (before: Extensions, Run and Debug, Move To, Activity
+    Bar Position, Move Primary Side Bar Right, Hide Primary Side Bar;
+    after: Explorer, Source Control, Search, Hide Sidebar, and the entries
+    of the icon), the list of languages of a JSON file, and the advanced
+    list searched for "side bar". The application menu was read from the
+    system's menu bar: Appearance holds Sidebar, Agent Area, and Status
+    Bar, and Preferences holds no Configure Snippets. The context menu of
+    the sidebar's title was read before only.
+  - **Criterion 23**: the text the window hands to assistive technology
+    read "Agent Area shown", "Agent Area hidden", "Sidebar hidden", and
+    "Sidebar shown" after each toggle. No screen reader ran.
+  - **The checks of required behavior 11 and 12**, run against the
+    registries of the window: of 1,444 commands of the palette's menu none
+    is under a hidden family's category without a pattern; of 52 commands
+    of BaseHalf's own with a key none is without a name. The window's log
+    had neither line.
+  - **Zoom Canvas Out**: on the canvas at 43%, Command+Shift+= went to 53%
+    and Command+Shift+- back to 43% and on to 33%, and the window's own
+    zoom did not change. Before the change it was read in the table only.
+- Not reproduced: the extension links of the advanced list that an earlier
+  reading reported, and a button of JSON's language status that runs a
+  hidden command. Three searches of the advanced list showed no link to an
+  extension; the base makes two such entries, for a search result of the
+  Marketplace and for a recommended extension, and neither showed. JSON's
+  status showed Show Schemas, which listed the schemas; its Configure Trust
+  runs a hidden command and shows only in a folder that is not trusted,
+  which BaseHalf has none of.
+
+### The hidden families (D141, D146)
 
 - Unit tests of the list (`basehalfHiddenCommands.test.ts`): the family of a
   hidden command, the commands that stay, the commands of the hidden
