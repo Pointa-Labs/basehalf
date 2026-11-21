@@ -154,11 +154,10 @@ went with them. Run in the real window that day:
   know that position.
 - Making IDE companion integrations of TUI agents, such as Claude Code's or
   Gemini CLI's VS Code extension auto-connect, work under the new identity.
-- Three groups of the base's settings of a terminal, which stay pending in
+- Two groups of the base's settings of a terminal, which stay pending in
   [the settings BaseHalf offers](settings-catalog.md): sessions
   that are there again after the window reloads
-  (`terminal.integrated.enablePersistentSessions`, `persistentSession*`), a
-  split that starts where its session is (`terminal.integrated.splitCwd`),
+  (`terminal.integrated.enablePersistentSessions`, `persistentSession*`),
   and the suggestions of a shell (`terminal.integrated.suggest.*`).
 - A mark outside the Agent Area for a bell that rings while the Agent Area
   is hidden.
@@ -582,6 +581,23 @@ Integrated Terminal.
 4. With `external`, Open in External Terminal starts the system's terminal
    as in the base.
 
+#### The folder of a split
+
+`terminal.integrated.splitCwd` says where the terminal of a split starts.
+
+1. Split Pane Right and Split Pane Down open a Terminal session beside the
+   session in front. With `inherited`, the base's default, its shell starts
+   in the folder the session in front is in now; with `initial`, in the
+   folder that session started in; with `workspaceRoot`, in the workspace
+   folder.
+2. The session in front may be an agent's: its folder is the folder of the
+   agent's program.
+3. Beside a session that has no terminal, one that an agent's extension
+   draws, and beside a session whose process has ended, the split starts in
+   the workspace folder, as every new session does.
+4. The folder is read before the pane appears, and the split is the same
+   split otherwise: the same pane, tab, and keyboard.
+
 #### The accessible view
 
 A screen reader cannot read the terminal's canvas
@@ -944,4 +960,10 @@ Accessibility Help.
     shows it, the terminal's menu with its seven items after a secondary
     click; and a bell on the tab after `printf '\a'` that goes again, with
     the tab the element it was.
+25. A unit test shows where a split starts for each value of
+    `terminal.integrated.splitCwd`, and beside a session without a terminal.
+26. Recorded manual check, in a real window with a Terminal session after
+    `cd sub`: Split Pane Right at the default opens a session whose `pwd`
+    is `sub`; with `workspaceRoot`, the workspace folder; with `initial`,
+    the folder the first session started in.
 

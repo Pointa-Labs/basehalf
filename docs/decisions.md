@@ -6779,12 +6779,13 @@ it needs the user, and a bell that shows nowhere reaches no one.
   button, which is not this decision's; the bell shows on the tab once the area is shown.
 
 **Consequences.**
-- 13 pending settings become advanced: `terminal.integrated.confirmOnExit`, `.confirmOnKill`, `.rightClickBehavior`,
-  `.middleClickBehavior`, `.tabs.title`, `.tabs.description`, `.tabs.separator`, `.tabs.allowAgentCliTitle`, `.enableBell`,
+- 12 pending settings become advanced: `terminal.integrated.confirmOnExit`, `.confirmOnKill`, `.rightClickBehavior`,
+  `.middleClickBehavior`, `.tabs.title`, `.tabs.description`, `.tabs.separator`, `.tabs.allowAgentCliTitle`,
   `.enableVisualBell`, `.bellDuration`, and the two of `.accessibleView*`; `terminal.explorerKind` and
   `terminal.sourceControlRepositoriesKind`, which were listed, now do what they say.
-- 16 stay pending: sessions after a reload (`enablePersistentSessions`, `persistentSession*`), where a split starts
-  (`splitCwd`), and the suggestions of a shell (`terminal.integrated.suggest.*`).
+- 15 stay pending: sessions after a reload (`enablePersistentSessions`, `persistentSession*`) and the suggestions of
+  a shell (`terminal.integrated.suggest.*`). Where a split starts (`splitCwd`) was built at the integration of the
+  settings' branches, and is advanced. The retired `enableBell` is unlisted.
 - Four of the base's files carry a change: the terminal service asks nothing at exit, Kill the Active Terminal Instance
   and Open in Integrated Terminal go to the Agent Area, and the accessible view finds the session's terminal.
 - The smoke's profile sets `confirmOnExit` to `never`: it closes its window while programs of its steps run.
