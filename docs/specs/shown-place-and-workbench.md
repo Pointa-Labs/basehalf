@@ -133,10 +133,16 @@ the real window, a development build of 0.7.0:
 
     Every other variable, the workspace's name and path, the name of the
     application, the focused view, is what it is in the base.
-12. **With the title as it comes**, a note in Card Detail is named before
-    the workspace, as an editor's file is in the base, and a canvas by the
-    workspace alone. A title that names the folder of a canvas needs
-    `${activeFolderShort}` in `window.title`.
+12. **With the title as it comes**, the window is named by what is shown,
+    from the nearest to the widest: the file in Card Detail, the folder
+    whose canvas is shown when it is not the workspace folder, by its path
+    from the workspace folder, and the workspace. BaseHalf's default for
+    `window.title` is
+    `${activeEditorShort}${separator}${activeFolderMedium}${separator}${rootName}`;
+    a part that is empty takes its separator with it, as in the base. So the
+    canvas of the workspace folder is named by the workspace alone, and two
+    windows on two folders of one workspace differ in the system's list of
+    windows.
 13. **The title follows the place.** It changes when Card Detail opens,
     shows another file, or closes, when another folder's canvas is shown,
     and when the file in Card Detail is renamed.
@@ -212,11 +218,13 @@ the real window, a development build of 0.7.0:
    search selects its row, and opening the other its row; an unchanged file
    leaves the selection; with `scm.autoReveal` false the selection stays.
 7. With the settings as they come, the title of the window is the
-   workspace's name on the canvas of the workspace folder; with a note of
-   a folder open in Card Detail it is the note's name without its
-   extension, the separator, and the workspace's name; after Escape, on the
-   folder's canvas, it is the workspace's name again; and with a code file
-   open it starts with the file's name with its extension.
+   workspace's name on the canvas of the workspace folder; on the canvas of
+   the folder `drafts/deep` it is `drafts/deep`, the separator, and the
+   workspace's name; with a note of that folder open in Card Detail it is
+   the note's name without its extension, the separator, `drafts/deep`,
+   the separator, and the workspace's name; after Escape it is the folder's
+   title again; and with a code file open it starts with the file's name
+   with its extension.
 8. With `window.title` set to
    `${activeFolderShort}|${activeFolderMedium}|${activeEditorShort}|${activeEditorMedium}|${dirty}|${rootName}`,
    for the note `drafts/deep/inner.md` of the workspace `ws`: the canvas of

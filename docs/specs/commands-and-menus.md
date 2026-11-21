@@ -272,9 +272,11 @@ base's voice service is not there.
    chat, of testing, or of the integrated browser, and no Share.
 5. The context menu of the title bar holds Navigation Controls and Layout
    Controls, and no entry that writes a locked setting.
-6. Customize Layout lists Primary Side Bar, Secondary Side Bar, Panel, and
-   Status Bar under Visibility, the place of the quick input, and the modes,
-   and nothing for the place of the side bar or the alignment of a panel.
+6. Customize Layout lists Primary Side Bar, Secondary Side Bar, and Status
+   Bar under Visibility, the place of the quick input, and the modes, and
+   nothing for the place of the side bar or the alignment of a panel. It has
+   no row Panel: BaseHalf has no panel, and the command of that row shows
+   and hides the Agent Area, which the row Secondary Side Bar does.
 7. The keys that the base gives to Output, Problems, Run and Debug,
    Extensions, Start Debugging, and Run Build Task open nothing and show no
    message.
