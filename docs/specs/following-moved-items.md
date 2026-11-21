@@ -115,7 +115,8 @@ it by path, and where an edit to the file changes nothing.
 
 ## Terms
 
-- **Item**: a file or folder in a workspace folder that the canvas could show.
+- **Item**: a file or folder in a workspace folder that BaseHalf follows
+  ([the items a canvas shows](canvas-items.md#what-basehalf-follows)).
   The [reference graph](reference-graph.md#terminology) calls it a node. A
   draft is an item too: a `generation.yaml` with no `made.yaml` and no file
   yet ([generation cards](generation-cards.md#drafts-and-missing-files)).
@@ -160,7 +161,7 @@ it by path, and where an edit to the file changes nothing.
 ## The snapshot
 
 - One snapshot per workspace folder. It holds:
-  - the path and kind of every item the canvas could show, under the
+  - the path and kind of every item BaseHalf follows, under the
     exclusions of the
     [reference index's enumeration](reference-graph.md#sources). Symbolic
     links are left out. This listing is new: the index lists only Markdown
@@ -778,8 +779,10 @@ At its new path it is a new card at the end of the canvas.
 
 ## Limits
 
-- A workspace folder with more than 200,000 items the canvas could show gets
-  no snapshot, and nothing is recognized there. BaseHalf logs this.
+- A workspace folder with more than 200,000 items that BaseHalf follows gets
+  no snapshot, and nothing is recognized there. BaseHalf logs this. What
+  Search leaves out does not count
+  ([the items a canvas shows](canvas-items.md#why-basehalf-does-not-follow-everything-that-has-a-card)).
 - A file that cannot be read has no fingerprint in that comparison.
 - Two windows on the same folder each compare on their own. Relocation
   replaces nothing and is safe to repeat, so both end with the same result.

@@ -147,7 +147,7 @@ VS Code storage and outside the workspace folder:
 
 | File | Content |
 | --- | --- |
-| `<workspace storage>/basehalf/moved-items-<folder>.json`, one per workspace folder | what BaseHalf last saw in the folder: the paths of the items the canvas could show, the fingerprints of the followed items, the moves whose relocation has not finished, and the moves whose entries are still owed ([following moved items](following-moved-items.md#the-snapshot)) |
+| `<workspace storage>/basehalf/moved-items-<folder>.json`, one per workspace folder | what BaseHalf last saw in the folder: the paths of the items BaseHalf follows ([the items a canvas shows](canvas-items.md)), the fingerprints of the followed items, the moves whose relocation has not finished, and the moves whose entries are still owed ([following moved items](following-moved-items.md#the-snapshot)) |
 
 In the application's data folder (this machine), for every workspace:
 
