@@ -26,7 +26,7 @@ suite('BaseHalf settings catalog', () => {
 		].map(key => `${key}: ${baseHalfSettingClass(key)}`), [
 			'basehalf.canvas.defaultZoom: shown', 'window.zoomLevel: shown', 'editor.fontSize: shown', 'terminal.integrated.fontSize: shown', 'update.mode: shown',
 			'window.commandCenter: locked', 'workbench.editor.showTabs: locked', 'files.autoSave: locked', 'chat.disableAIFeatures: locked', 'task.allowAutomaticTasks: locked',
-			'terminal.integrated.persistentSessionScrollback: pending', 'terminal.integrated.enablePersistentSessions: pending', 'terminal.integrated.suggest.enabled: pending',
+			'terminal.integrated.persistentSessionScrollback: unlisted', 'terminal.integrated.enablePersistentSessions: unlisted', 'terminal.integrated.suggest.enabled: unlisted',
 			'chat.editing.confirmEditRequestRemoval: unlisted', 'task.autoDetect: unlisted', 'editor.inlineSuggest.enabled: unlisted', 'editor.suggest.showMethods: unlisted', 'terminal.integrated.tabs.location: unlisted',
 			'workbench.browser.pageZoom: unlisted', 'breadcrumbs.filePath: unlisted', 'notebook.lineNumbers: unlisted', 'telemetry.telemetryLevel: unlisted',
 			'editor.suggest.showWords: advanced', 'editor.minimap.enabled: advanced', 'workbench.localHistory.enabled: advanced', 'workbench.colorTheme: advanced', 'git.autofetch: advanced', 'files.enableTrash: advanced',

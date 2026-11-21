@@ -110,9 +110,12 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 			'terminal.integrated.tabs.title', 'terminal.integrated.tabs.description', 'terminal.integrated.tabs.separator', 'terminal.integrated.tabs.allowAgentCliTitle'
 		]
 	},
-	// Pending: the surface named in the specification owes them an answer.
-	{ class: 'pending', family: 'Agent Area: sessions after a reload', patterns: ['terminal.integrated.enablePersistentSessions', 'terminal.integrated.persistentSession*'] },
 	// Unlisted: they belong to what BaseHalf does not have.
+	{
+		class: 'unlisted', family: 'Agent Area: the processes of sessions kept through a reload', patterns: [
+			'terminal.integrated.enablePersistentSessions', 'terminal.integrated.persistentSession*'
+		]
+	},
 	{ class: 'unlisted', family: 'Agent Area: a setting of the bell the base retired', patterns: ['terminal.integrated.enableBell'] },
 	{ class: 'advanced', family: 'Agent Area: the bell', patterns: ['terminal.integrated.enableVisualBell', 'terminal.integrated.bellDuration'] },
 	{ class: 'advanced', family: 'Agent Area: closing with a session running', patterns: ['terminal.integrated.confirmOnExit', 'terminal.integrated.confirmOnKill'] },
@@ -122,7 +125,7 @@ export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 		]
 	},
 	{ class: 'advanced', family: 'Agent Area: the folder of a split', patterns: ['terminal.integrated.splitCwd'] },
-	{ class: 'pending', family: 'Agent Area: suggestions of a shell', patterns: ['terminal.integrated.suggest.*'] },
+	{ class: 'unlisted', family: 'Agent Area: suggestions of a shell', patterns: ['terminal.integrated.suggest.*'] },
 	{
 		class: 'advanced', family: 'JSON files: formatting, suggestions, and marks', patterns: [
 			'editor.formatOnSave', 'editor.formatOnSaveMode', 'editor.formatOnPaste', 'editor.defaultFormatter', 'editor.codeActionsOnSave', 'editor.suggest.showProperties',
