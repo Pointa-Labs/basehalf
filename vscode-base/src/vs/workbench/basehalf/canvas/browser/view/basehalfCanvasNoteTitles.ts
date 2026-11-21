@@ -10,6 +10,7 @@ import { basename, dirname, joinPath } from '../../../../../base/common/resource
 import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
+import { FileChangeType } from '../../../../../platform/files/common/files.js';
 import { baseHalfNoteTitle, baseHalfNoteTitleName, baseHalfNoteTitleNameNumbered } from '../../../markdown/common/basehalfNoteTitle.js';
 import { baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../workspace/common/basehalfItems.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
@@ -17,8 +18,13 @@ import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkb
 /** A note that an editor of BaseHalf took up, and the title it had then. */
 interface IBaseHalfNoteTitleEdit {
 	readonly resource: URI;
-	/** `undefined` for a note that had no title. */
-	readonly titleBefore: string | undefined;
+	/**
+	 * The title the edit began with, `undefined` for a note that had no title. A title another program writes
+	 * into the note while the edit goes on is the one the edit begins with from then on.
+	 */
+	titleBefore: string | undefined;
+	/** The title of the text an editor of BaseHalf last saved for the note in this edit; at first, the title it began with. */
+	titleSaved: string | undefined;
 }
 
 /** How long a note has to be let go before its file takes the title's name. */
@@ -60,7 +66,8 @@ export class BaseHalfCanvasNoteTitles {
 		// An edit that goes on in another editor, as from the card into Card
 		// Detail, began with the title the first editor found.
 		if (!this.edits.has(key)) {
-			this.edits.set(key, { resource, titleBefore: baseHalfNoteTitle(text) });
+			const title = baseHalfNoteTitle(text);
+			this.edits.set(key, { resource, titleBefore: title, titleSaved: title });
 		}
 	}
 
@@ -117,6 +124,35 @@ export class BaseHalfCanvasNoteTitles {
 				this.pointerDown = false;
 				this.noteLetGo();
 			}, true));
+		}
+		// Every editor of BaseHalf writes a note by saving its text model: such a save is the user's. It comes
+		// before the change of the file that it makes is seen.
+		this.view.register(this.view.textFileService.files.onDidSave(event => {
+			const edit = this.edits.get(this.key(event.model.resource));
+			const text = event.model.textEditorModel?.getValue();
+			if (edit && text !== undefined) {
+				edit.titleSaved = baseHalfNoteTitle(text);
+			}
+		}));
+		this.view.register(this.view.fileService.onDidFilesChange(event => {
+			for (const [key, edit] of this.edits) {
+				if (event.contains(edit.resource, FileChangeType.ADDED, FileChangeType.UPDATED)) {
+					void this.fileChanged(key, edit);
+				}
+			}
+		}));
+	}
+
+	/** A change of the note's file that brings a title no editor of BaseHalf saved was another program's. */
+	private async fileChanged(key: string, edit: IBaseHalfNoteTitleEdit): Promise<void> {
+		const text = await this.readNote(edit.resource);
+		if (text === undefined || this.edits.get(key) !== edit) {
+			return;
+		}
+		const title = baseHalfNoteTitle(text);
+		if (title !== edit.titleSaved) {
+			edit.titleBefore = title;
+			edit.titleSaved = title;
 		}
 	}
 
