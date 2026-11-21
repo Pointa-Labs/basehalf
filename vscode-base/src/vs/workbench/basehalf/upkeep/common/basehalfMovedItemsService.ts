@@ -272,7 +272,7 @@ interface IAppeared {
 }
 
 class FolderSnapshot {
-	/** Every file the canvas could show, by comparison key. */
+	/** Every file BaseHalf follows, by comparison key. */
 	readonly paths = new Map<string, string>();
 	readonly fingerprints = new Map<string, IStoredFingerprint>();
 	readonly followed = new Map<string, BaseHalfCanvasItemKind>();
