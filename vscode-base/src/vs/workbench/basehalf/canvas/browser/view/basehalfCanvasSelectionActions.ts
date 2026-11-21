@@ -383,7 +383,7 @@ export class BaseHalfCanvasSelectionActions {
 					})],
 					onHide: wasCancelled => {
 						if (wasCancelled) {
-							this.view.cards.focus({ preventScroll: true });
+							this.view.keyboardHome.give();
 						}
 					}
 				});
@@ -425,7 +425,7 @@ export class BaseHalfCanvasSelectionActions {
 				getAnchor: () => request.anchor,
 				onHide: wasCancelled => {
 					if (wasCancelled) {
-						this.view.cards.focus({ preventScroll: true });
+						this.view.keyboardHome.give();
 					}
 				}
 			});

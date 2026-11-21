@@ -915,6 +915,10 @@ export class BaseHalfCanvasCreation {
 			const enterOwner = keepOpenOnError ? this.view.captureCanvasPostCreateOwner() : undefined;
 			const name = inputBox.value;
 			edit.value = name;
+			if (keepOpenOnError) {
+				// Enter: the field gives the keyboard up while the name is checked, and its card takes it.
+				this.view.keyboardHome.setHome(edit.resource);
+			}
 			inputBox.disable();
 			let validation: { readonly content: string; readonly type: MessageType } | undefined;
 			try {
@@ -945,10 +949,10 @@ export class BaseHalfCanvasCreation {
 				await this.commitCanvasInlineEdit(edit, fileNameOf(name));
 				this.view.lastCanvasContextMenu = undefined;
 				this.view.requestRender();
-				// Enter gives the keyboard back to the canvas, as Escape does, so
-				// the renamed card answers the keys of a selected card.
+				// Enter gives the keyboard to the renamed card, as Escape does to the
+				// card whose name was edited (where the keyboard returns).
 				if (enterOwner && this.view.isCanvasPostCreateOwnerCurrent(enterOwner)) {
-					this.view.cards.focus({ preventScroll: true });
+					this.view.keyboardHome.giveToCardOf(joinPath(edit.parent, fileNameOf(name)));
 				}
 			} catch (error) {
 				this.view.inlineEdit = edit;
@@ -1037,10 +1041,16 @@ export class BaseHalfCanvasCreation {
 		if (this.view.inlineEdit !== edit) {
 			return;
 		}
+		// The editor has the keyboard when Escape closes it, and has lost it when a press elsewhere did:
+		// only the keyboard that is still here goes to the card whose name was edited.
+		const input = this.view.inlineRenameEditor?.edit === edit ? this.view.inlineRenameEditor.host : undefined;
+		const hadKeyboard = !!input && input.contains(input.ownerDocument.activeElement);
 		this.view.inlineEdit = undefined;
 		this.view.lastCanvasContextMenu = undefined;
 		this.view.requestRender();
-		mainWindow.setTimeout(() => this.view.cards.focus({ preventScroll: true }), 0);
+		if (hadKeyboard) {
+			this.view.keyboardHome.giveToCardOf(edit.resource);
+		}
 	}
 
 	/**

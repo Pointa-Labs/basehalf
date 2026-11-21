@@ -19,12 +19,14 @@ import {
 	BaseHalfCanvasPickingContext,
 	BaseHalfCanvasSelectedCardEditsOnCardContext,
 	BaseHalfCanvasSelectedCardsContext,
+	BaseHalfCanvasKeyboardPlace,
 	baseHalfCanvasStopsArrowKey,
 	BaseHalfCanvasTextFocusContext,
 	getBaseHalfCanvasKeyCommand,
 	IBaseHalfCanvasKeyContext,
 	IBaseHalfCanvasKeyFacts
 } from '../../common/basehalfCanvasKeys.js';
+import { baseHalfCanvasHoldsBackRepeat } from '../../common/basehalfCanvasKeyboardHome.js';
 import { BASEHALF_CANVAS_CARD_TOOLBAR_FOCUS_EVENT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import {
@@ -69,6 +71,8 @@ export class BaseHalfCanvasKeys {
 	private said: IBaseHalfCanvasKeyContext | undefined;
 	/** The key press a command is being run for: the card that had the keyboard, and where the keyboard was. */
 	private keyPress: { readonly command: BaseHalfCanvasCommandId; readonly card: HTMLElement | undefined; readonly context: IBaseHalfCanvasKeyContext } | undefined;
+	/** The key that is down, and the element it went down on: its repeats act only there (where the keyboard returns, "A key that is held"). */
+	private keyDown: { readonly code: string; readonly target: EventTarget | null } | undefined;
 	/** The key presses that ran a command and went on to the canvas library. */
 	private readonly passedOn = new WeakSet<KeyboardEvent>();
 	private readonly cardKeys = new WeakMap<HTMLElement, IBaseHalfCanvasCardKeys>();
@@ -99,8 +103,13 @@ export class BaseHalfCanvasKeys {
 		store.add(DOM.addDisposableListener(root, DOM.EventType.FOCUS_OUT, event => this.say(event.relatedTarget)));
 		// A command that comes after another key or a press was not run for the last key of the canvas.
 		store.add(DOM.addDisposableListener(root.ownerDocument, DOM.EventType.POINTER_DOWN, () => { this.keyPress = undefined; }, true));
+		store.add(DOM.addDisposableListener(root.ownerDocument, DOM.EventType.KEY_UP, () => { this.keyDown = undefined; }, true));
+		store.add(DOM.addDisposableListener(DOM.getWindow(root), DOM.EventType.BLUR, () => { this.keyDown = undefined; }));
 		store.add(DOM.addDisposableListener(root.ownerDocument, DOM.EventType.KEY_DOWN, event => {
 			this.keyPress = undefined;
+			if (!event.repeat) {
+				this.keyDown = { code: event.code, target: event.target };
+			}
 			// The keyboard can leave the canvas without an event, as when the element that had it is taken
 			// away: a key pressed elsewhere is never judged by where the keyboard was.
 			if (this.said?.keyboardOn && !(DOM.isHTMLElement(event.target) && root.contains(event.target))) {
@@ -136,9 +145,22 @@ export class BaseHalfCanvasKeys {
 		});
 	}
 
+	/** Where in the canvas `target` is, and the path of the card it is or is in. */
+	placeOf(target: EventTarget | null): { readonly keyboardOn: BaseHalfCanvasKeyboardPlace | ''; readonly cardPath: string | undefined } {
+		const facts = this.facts(target);
+		return { keyboardOn: baseHalfCanvasKeyContext(facts).keyboardOn, cardPath: facts.cardPath };
+	}
+
 	private onKeyDown(event: KeyboardEvent): void {
 		// An input method's own keys.
 		if (event.isComposing || event.keyCode === 229) {
+			return;
+		}
+		// A key held from before the keyboard came here does nothing here.
+		const wentDownHere = this.keyDown?.code === event.code && this.keyDown.target === event.target;
+		if (baseHalfCanvasHoldsBackRepeat({ repeat: event.repeat, key: event.key, wentDownHere })) {
+			event.preventDefault();
+			event.stopPropagation();
 			return;
 		}
 		const target = DOM.isHTMLElement(event.target) || DOM.isSVGElement(event.target) ? event.target : undefined;

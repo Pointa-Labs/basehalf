@@ -9,6 +9,7 @@ import { BaseHalfAgentSessionKind, BaseHalfAgentSessionState, BaseHalfAgentLaunc
 import { DisposableStore, MutableDisposable, IDisposable, Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ITerminalInstance, ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
+import { IBaseHalfKeyboardPartsService } from '../../canvas/browser/basehalfKeyboardParts.js';
 import { IBaseHalfAgentTabsState, BASEHALF_EMPTY_AGENT_TABS_STATE, mountedAgentPaneIds, liveAgentPaneIds, activeAgentTab, agentTabForPane, focusAgentPane, removeAgentPane, splitActiveAgentPane, gotoAgentPaneDir, gotoAgentPaneRing, switchAgentTab, gotoAgentTab, lastAgentTab, resizeActiveAgentPane, equalizeAgentPanes, toggleAgentPaneZoom, closeActiveAgentPane, selectAgentTab, closeAgentTab, closeOtherAgentTabs, closeAgentTabsToRight, agentTabPaneIds, undoAgentClose, finalizeAgentClose, closingEntryPaneIds, moveAgentPane, createAgentTab } from '../common/basehalfAgentTabsModel.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -175,7 +176,8 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		@ICommandService public readonly commandService: ICommandService,
 		@ILifecycleService lifecycleService: ILifecycleService,
 		@IStorageService public readonly storageService: IStorageService,
-		@IPathService public readonly pathService: IPathService
+		@IPathService public readonly pathService: IPathService,
+		@IBaseHalfKeyboardPartsService keyboardPartsService: IBaseHalfKeyboardPartsService
 	) {
 		super();
 
@@ -210,6 +212,18 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		// adopts it via mountIn() when the part materializes.
 		this.root = $('.basehalf-agent-area');
 		this.root.setAttribute('aria-label', 'BaseHalf Agent Area');
+		// A session that ends or is closed while it has the keyboard hands it to the pane that comes to the
+		// front; with none left, the keyboard goes to the canvas (where the keyboard returns).
+		this._register(keyboardPartsService.registerPart({
+			element: this.root,
+			take: async () => {
+				if (!this.visible || !activeAgentTab(this.tabsState)) {
+					return false;
+				}
+				await this.surface.focusActivePane();
+				return this.focused;
+			}
+		}));
 
 		this.tabsBar = append(this.root, $('.basehalf-agent-area-tabs'));
 		const tabsBar = this.tabsBar;
