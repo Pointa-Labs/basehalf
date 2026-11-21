@@ -316,7 +316,11 @@ export async function assertMarkdownRichReadingModeDisabled(page) {
 export async function assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page) {
 	const vscodeDir = path.join(workspacePath, '.vscode');
 	fs.mkdirSync(vscodeDir, { recursive: true });
-	fs.writeFileSync(path.join(vscodeDir, 'settings.json'), JSON.stringify({
+	// Added to the folder's settings, which keep what the fixture set there: the steps that follow run with them.
+	const settingsPath = path.join(vscodeDir, 'settings.json');
+	const folderSettings = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8') || '{}') : {};
+	fs.writeFileSync(settingsPath, JSON.stringify({
+		...folderSettings,
 		'basehalf.editor.readingMode': true,
 		// The offer of the agent skill stays off, as the fixture has it: while
 		// it is on, the status bar shows the unanswered offer under the steps
