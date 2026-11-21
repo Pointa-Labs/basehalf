@@ -7326,8 +7326,10 @@ real keyboard and pointer, Command+= telling whether the canvas has the keyboard
   after a second Escape on a draft, and after `exit` in a session of the Agent Area, the keyboard was on the page itself.
 - After Escape in the prompt of a draft the keyboard was on the library's frame, where Right moved the card by 5 and
   Shift+Right by 20; Move Card moves it by 1 and 10.
-- A press outside the editor of a name that left the name unchanged lost the keyboard to the canvas a moment later,
-  wherever the press had put it.
+
+Read in the code and not pressed before the change: a press outside the editor of a name that left the name unchanged
+gave the keyboard to the canvas a moment later, wherever the press had put it. After the change such a press into Files
+left the keyboard in Files.
 
 The base returns the keyboard to its editor area when an overlay closes over it, and BaseHalf's canvas lies over that
 area. The browser puts the keyboard on the page when the element that had it is removed. Both are single places.
@@ -7340,12 +7342,13 @@ it can give the keyboard to something first, and acts only when the keyboard is 
 canvas that named the scene element ask the part instead. No file of the base changes.
 
 **Alternatives.**
-- *A patch at each closing.* The canvas already had ten calls that gave the keyboard to the scene element by name, and
+- *A patch at each closing.* The canvas already had seven calls that gave the keyboard to the scene element by name, and
   the closings without one were the ones that failed. Every new closing would need its own.
 - *Changing the base's overlay* to give the keyboard back to the element that had it when that element is in the editor
   part. It would cover the overlays and none of the removals, and it is a change in a file of the base.
 - *Hiding the empty editor group* so that it cannot take the keyboard. The base's commands that give the keyboard to the
-  editor area would then do nothing; with the group handing the keyboard on, they reach the canvas.
+  editor area would then do nothing; with the group handing the keyboard on, they reach the canvas: Focus Next Part (F6)
+  from Files gave the keyboard to the card that last had it.
 - *Saying that the canvas has the keyboard while it is on the page*, by the context key alone. The keys would act, but
   what reads the window aloud and the ring would still say the keyboard is nowhere.
 - *Looking on a timer or on every frame.* The browser's event is enough, and a key pressed in the one turn between is

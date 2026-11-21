@@ -138,9 +138,8 @@ the stop after it, or with Shift to the stop before it.
   card whose name was edited. No card is selected, as before
   ([canvas card name](canvas-card-name.md#the-editor-in-place)). A card
   with a new name is drawn anew, and takes the keyboard as it is drawn. A
-  press outside the editor puts the keyboard where it lands: before, a
-  press that closed the editor with its name unchanged lost the keyboard to
-  the canvas a moment later.
+  press outside the editor puts the keyboard where it lands, also when it
+  leaves the name unchanged.
 - **The Create menu and a context menu of the canvas.** After Escape the
   keyboard is at the place the canvas remembers: the card that had it, or
   the blank canvas.
@@ -371,5 +370,12 @@ closing ends.
     keyboard was on the editor group and Backspace did nothing.
   - The Tab key, from the blank canvas: 78 stops to the status bar, none of
     them the editor group; Shift+Tab came back into the canvas.
+  - 7 and 8: after Card Detail closed by Escape, Enter opened the card
+    again; after Escape ended a note's editing, Enter edited it again.
+  - Focus Next Part (F6) with the keyboard in Files gave it to the card
+    that last had it.
+  - The editor of a name, then a press into Files with the name unchanged:
+    the editor closed and the keyboard stayed in Files. That it went to the
+    canvas before was read in the code, not pressed.
 - Not verified: what a screen reader says at a return. The names are read
   from the page: "Canvas" with the role of a group, and a card's own name.
