@@ -141,8 +141,9 @@ In every other state, every indicator is hidden: at rest, during a resize from
 a side or from another corner, while the card is being moved, and while the
 controls are absent. At most one indicator is visible at a time.
 
-Indicators fade in and out over at most 120 ms. With
-`prefers-reduced-motion: reduce`, they change without a transition.
+Indicators fade in and out over at most 120 ms. With reduced motion
+([architecture invariants](../harness/architecture-invariants.md#product-shell)),
+they change without a transition.
 
 ### While a Note is edited
 

@@ -107,8 +107,9 @@ Not in scope, and unchanged:
 - **Snap**: while the pointer is inside the capture circle, the visible circle
   grows to 16 screen pixels and uses the connection-intent colors. It stays
   centered on its anchor point. At most one handle is snapped at a time.
-- Size and color change over at most 80 ms. With
-  `prefers-reduced-motion: reduce`, they change without a transition.
+- Size and color change over at most 80 ms. With reduced motion
+  ([architecture invariants](../harness/architecture-invariants.md#product-shell)),
+  they change without a transition.
 
 ### The line being pulled
 
