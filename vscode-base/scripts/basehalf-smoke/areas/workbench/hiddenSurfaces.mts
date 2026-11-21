@@ -101,13 +101,21 @@ export async function assertHiddenSurfaceCommandsStayHidden(page) {
 		'Profiles: Switch Profile...',
 		'View: Split Editor Right',
 		'View: Toggle Breadcrumbs',
-		'View: Toggle Primary Side Bar Position'
+		'View: Toggle Sidebar Position',
+		// What the shell listed under another name, or of what BaseHalf does not have (D150).
+		'View: Toggle Panel Visibility',
+		'View: Toggle Terminal',
+		'BaseHalf: Toggle Agent Area',
+		'View: Close All Editors in Group',
+		'View: Close Editors to the Left in Group',
+		'Terminal: Attach to Session',
+		'Preferences: Product Icon Theme'
 	]) {
 		await assertCommandAbsentFromPalette(page, command);
 	}
 	// Nor is any command that the palette lists under the category of a hidden family: a base update
 	// that adds one shows here.
-	for (const category of ['Tasks', 'Debug', 'Notebook', 'Test', 'Profiles', 'Browser', 'Chat', 'Voice', 'MCP', 'Remote', 'Problems', 'Merge Editor']) {
+	for (const category of ['Tasks', 'Debug', 'Notebook', 'Test', 'Profiles', 'Browser', 'Chat', 'Voice', 'MCP', 'Remote', 'Problems', 'Merge Editor', 'Comments', 'Refactor Preview']) {
 		const listed = await commandsOfCategory(page, category);
 		if (listed.length) {
 			throw new Error(`The Command Palette lists commands of a family BaseHalf does not have: ${listed.join(' | ')}`);
@@ -136,12 +144,13 @@ async function commandsOfCategory(page, category) {
 // The gear's menu and the Accounts menu of the title bar hold only what BaseHalf has (D141).
 export async function assertTitleBarMenusHoldWhatBaseHalfHas(page) {
 	const manage = await titleBarMenu(page, 'Manage');
-	for (const entry of ['Command Palette...', 'Settings', 'Keyboard Shortcuts', 'Snippets']) {
+	for (const entry of ['Command Palette...', 'Settings', 'Keyboard Shortcuts', 'Themes', 'Layout Density']) {
 		if (!manage.includes(entry)) {
 			throw new Error(`The gear's menu has no ${entry}: ${manage.join(' | ')}`);
 		}
 	}
-	const forbidden = manage.filter(entry => /^(Profiles?|Tasks)\b/.test(entry));
+	// Snippets is a command of the Command Palette only (D150).
+	const forbidden = manage.filter(entry => /^(Profiles?|Tasks|Snippets)\b/.test(entry));
 	if (forbidden.length) {
 		throw new Error(`The gear's menu holds entries of what BaseHalf does not have: ${forbidden.join(' | ')}`);
 	}

@@ -1548,7 +1548,7 @@ export async function openAgentAreaTerminal(page) {
 
 export async function closeAgentArea(page) {
 	if (await page.locator('.basehalf-agent-area').isVisible().catch(() => false)) {
-		await runCommand(page, 'Toggle Agent Area');
+		await runCommand(page, 'Toggle Agent Area Terminal');
 		await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 	}
 }

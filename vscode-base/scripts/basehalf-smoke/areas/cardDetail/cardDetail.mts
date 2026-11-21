@@ -63,7 +63,7 @@ export async function assertCardDetailHoldsNoLayoutControl(page) {
 	}
 	// The control of the sidebar is in the title bar while a card is open.
 	const controls = await readLayoutControls(page);
-	if (controls.left.length !== 1 || !controls.left[0].startsWith('Toggle Primary Side Bar') || !controls.onTop) {
+	if (controls.left.length !== 1 || !controls.left[0].startsWith('Toggle Sidebar') || !controls.onTop) {
 		throw new Error(`The title bar does not hold the control of the sidebar while a card is open: ${JSON.stringify(controls)}`);
 	}
 }

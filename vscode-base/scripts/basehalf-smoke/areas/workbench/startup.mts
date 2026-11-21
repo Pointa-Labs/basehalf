@@ -109,16 +109,16 @@ export async function assertLayoutControlAtTheLeftEnd(page) {
 	// The control of the sidebar is at the left end, once, and not in the
 	// right group.
 	const shown = await readLayoutControls(page);
-	if (shown.left.length !== 1 || !shown.left[0].startsWith('Toggle Primary Side Bar') || !shown.onTop) {
+	if (shown.left.length !== 1 || !shown.left[0].startsWith('Toggle Sidebar') || !shown.onTop) {
 		throw new Error(`The left end of the title bar does not hold the control of the sidebar: ${JSON.stringify(shown)}`);
 	}
-	if (shown.right.some(label => label.startsWith('Toggle Primary Side Bar'))) {
+	if (shown.right.some(label => label.startsWith('Toggle Sidebar'))) {
 		throw new Error(`The right group of the title bar still holds the control of the sidebar: ${JSON.stringify(shown.right)}`);
 	}
 	// The panel's command opens the Agent Area, which has its own control
 	// there, so the right group has no control of the panel.
 	const firstToggle = shown.right.find(label => label.startsWith('Toggle '));
-	if (shown.right.some(label => label.startsWith('Toggle Panel')) || !firstToggle?.startsWith('Toggle Secondary Side Bar')) {
+	if (shown.right.some(label => label.startsWith('Toggle Panel')) || !firstToggle?.startsWith('Toggle Agent Area')) {
 		throw new Error(`The right group of the title bar must start its layout controls with the Agent Area's and hold none of the panel: ${JSON.stringify(shown.right)}`);
 	}
 	// On macOS it follows the window buttons.
