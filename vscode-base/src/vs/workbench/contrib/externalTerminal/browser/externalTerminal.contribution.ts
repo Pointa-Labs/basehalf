@@ -7,7 +7,7 @@ import * as nls from '../../../../nls.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { URI } from '../../../../base/common/uri.js';
 import { MenuId, MenuRegistry, IMenuItem } from '../../../../platform/actions/common/actions.js';
-import { ITerminalGroupService, ITerminalService as IIntegratedTerminalService } from '../../terminal/browser/terminal.js';
+import { IBaseHalfAgentAreaService } from '../../../basehalf/agentArea/common/basehalfAgentArea.js';
 import { ResourceContextKey } from '../../../common/contextkeys.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { getMultiSelectedResources, IExplorerService } from '../../files/browser/files.js';
@@ -23,7 +23,6 @@ import { dirname, basename } from '../../../../base/common/path.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IExternalTerminalConfiguration, IExternalTerminalService } from '../../../../platform/externalTerminal/common/externalTerminal.js';
-import { TerminalLocation } from '../../../../platform/terminal/common/terminal.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
@@ -38,9 +37,8 @@ function registerOpenTerminalCommand(id: string, explorerKind: 'integrated' | 'e
 
 			const configurationService = accessor.get(IConfigurationService);
 			const fileService = accessor.get(IFileService);
-			const integratedTerminalService = accessor.get(IIntegratedTerminalService);
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
 			const remoteAgentService = accessor.get(IRemoteAgentService);
-			const terminalGroupService = accessor.get(ITerminalGroupService);
 			let externalTerminalService: IExternalTerminalService | undefined = undefined;
 			try {
 				externalTerminalService = accessor.get(IExternalTerminalService);
@@ -74,11 +72,9 @@ function registerOpenTerminalCommand(id: string, explorerKind: 'integrated' | 'e
 							return;
 						}
 						opened[cwd.path] = true;
-						const instance = await integratedTerminalService.createTerminal({ config: { cwd } });
-						if (instance && instance.target !== TerminalLocation.Editor && (resources.length === 1 || !resource || cwd.path === resource.path || cwd.path === dirname(resource.path))) {
-							integratedTerminalService.setActiveInstance(instance);
-							terminalGroupService.showPanel(true);
-						}
+						// BaseHalf: the terminal is a Terminal session of the Agent Area in that folder, as the
+						// terminal commands create theirs. A terminal of the base's panel would not be in view.
+						await agentAreaService.createTerminalSession({ source: OPEN_IN_INTEGRATED_TERMINAL_COMMAND_ID, rawTerminalOptions: { cwd } });
 					}
 				} else if (externalTerminalService) {
 					distinct(targets.map(({ stat }) => stat!.isDirectory ? stat!.resource.fsPath : dirname(stat!.resource.fsPath))).forEach(cwd => {
