@@ -17,7 +17,7 @@ import { CancelablePromise, createCancelablePromise, Delayer, raceTimeout } from
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Color } from '../../../../base/common/color.js';
 import { fromNow } from '../../../../base/common/date.js';
-import { isCancellationError, onUnexpectedError } from '../../../../base/common/errors.js';
+import { isCancellationError } from '../../../../base/common/errors.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Iterable } from '../../../../base/common/iterator.js';
 import { KeyCode } from '../../../../base/common/keyCodes.js';
@@ -55,7 +55,7 @@ import { IChatEntitlementService } from '../../../services/chat/common/chatEntit
 import { APPLICATION_SCOPES, IWorkbenchConfigurationService } from '../../../services/configuration/common/configuration.js';
 import { IEditorGroup, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
-import { ALWAYS_SHOW_ADVANCED_SETTINGS_SETTING, IOpenSettingsOptions, IPreferencesService, ISearchResult, ISetting, ISettingsEditorCustomSection, ISettingsEditorModel, ISettingsEditorOptions, ISettingsGroup, SettingMatchType, SettingValueType, validateSettingsEditorOptions } from '../../../services/preferences/common/preferences.js';
+import { ALWAYS_SHOW_ADVANCED_SETTINGS_SETTING, IOpenSettingsOptions, IPreferencesService, ISearchResult, ISetting, ISettingsEditorModel, ISettingsEditorOptions, ISettingsGroup, SettingMatchType, SettingValueType, validateSettingsEditorOptions } from '../../../services/preferences/common/preferences.js';
 import { SettingsEditor2Input } from '../../../services/preferences/common/preferencesEditorInput.js';
 import { nullRange, Settings2EditorModel } from '../../../services/preferences/common/preferencesModels.js';
 import { IUserDataProfileService } from '../../../services/userDataProfile/common/userDataProfile.js';
@@ -69,7 +69,6 @@ import { preferencesAiResultsIcon, preferencesClearInputIcon, preferencesFilterI
 import { SettingsTarget, SettingsTargetsWidget } from './preferencesWidgets.js';
 import { ISettingOverrideClickEvent } from './settingsEditorSettingIndicators.js';
 import { getCommonlyUsedData, ITOCEntry, tocData } from './settingsLayout.js';
-import { ISettingsCustomSection, settingsCustomSectionRegistry } from './settingsCustomSections.js';
 import { SettingsSearchFilterDropdownMenuActionViewItem } from './settingsSearchMenu.js';
 import { AbstractSettingRenderer, createTocTreeForExtensionSettings, HeightChangeParams, ISettingLinkClickEvent, resolveConfiguredUntrustedSettings, resolveSettingsTree, SettingsTree, SettingTreeRenderers } from './settingsTree.js';
 import { ISettingsEditorViewState, parseQuery, SearchResultIdx, SearchResultModel, SettingsTreeElement, SettingsTreeGroupChild, SettingsTreeGroupElement, SettingsTreeModel, SettingsTreeSettingElement } from './settingsTreeModels.js';
@@ -185,15 +184,6 @@ export class SettingsEditor2 extends EditorPane {
 
 	private settingsTreeContainer!: HTMLElement;
 	private settingsTree!: SettingsTree;
-	// BaseHalf: a page that BaseHalf draws in place of the settings list (docs/specs/settings-pages.md).
-	private customSectionContainer!: HTMLElement;
-	private readonly activeCustomSection = this._register(new MutableDisposable<ISettingsCustomSection>());
-	private activeCustomSectionId: string | undefined;
-	/**
-	 * BaseHalf: the page that opening Settings asked for, until the settings tree is there to
-	 * show it, and whether the page then takes the keyboard focus.
-	 */
-	private requestedCustomSection: { readonly section: ISettingsEditorCustomSection; readonly focus: boolean } | undefined;
 	private settingRenderers!: SettingTreeRenderers;
 	private tocTreeModel!: TOCTreeModel;
 	private readonly settingsTreeModel = this._register(new MutableDisposable<SettingsTreeModel>());
@@ -541,20 +531,9 @@ export class SettingsEditor2 extends EditorPane {
 
 			// Init TOC selection
 			this.updateTreeScrollSync();
-			// BaseHalf: Settings that opens again on the entry of a page shows the page, not an empty
-			// list, unless it opens with a search; the focus stays where the opening put it.
-			const category = this.viewState.categoryFilter;
-			if (!this.requestedCustomSection && !this.activeCustomSection.value && category?.customSection
-				&& !this.searchResultModel && !this.viewState.query && !this.searchWidget.getValue()) {
-				this.requestedCustomSection = { section: { id: category.id }, focus: false };
-			}
-			this.showRequestedCustomSection();
 		});
 
-		// BaseHalf: the list feeds the search's suggestions only, and the render above refreshes it
-		// itself when it needs it. Waiting for it held back the end of the opening, and with it the
-		// title and actions of the overlay, until frames after Settings was first painted.
-		this.refreshInstalledExtensionsList().catch(onUnexpectedError);
+		await this.refreshInstalledExtensionsList();
 	}
 
 	private async refreshInstalledExtensionsList(): Promise<void> {
@@ -617,18 +596,9 @@ export class SettingsEditor2 extends EditorPane {
 		if (target) {
 			this.settingsTargetsWidget.updateTarget(target);
 		}
-
-		// BaseHalf: a page of BaseHalf's is shown at once when the settings tree is there, and
-		// otherwise by the first drawing of Settings (onConfigUpdate), so no other page shows first.
-		if (options.customSection) {
-			this.requestedCustomSection = { section: options.customSection, focus: !options.preserveFocus };
-			this.showRequestedCustomSection();
-		}
 	}
 
 	override clearInput(): void {
-		this.requestedCustomSection = undefined;
-		this.deactivateCustomSection();
 		this.inSettingsEditorContextKey.set(false);
 		super.clearInput();
 	}
@@ -652,11 +622,6 @@ export class SettingsEditor2 extends EditorPane {
 
 	override focus(): void {
 		super.focus();
-		// BaseHalf: a page shown takes the focus of Settings.
-		if (this.activeCustomSection.value) {
-			this.activeCustomSection.value.focus();
-			return;
-		}
 
 		if (this._currentFocusContext === SettingsFocusContext.Search) {
 			if (!platform.isIOS) {
@@ -693,13 +658,6 @@ export class SettingsEditor2 extends EditorPane {
 	}
 
 	focusSettings(focusSettingInput = false): void {
-		// BaseHalf: a page is shown in place of the settings list, so the commands that move into
-		// the list, such as Enter on the entry of the table of contents, move into the page.
-		if (this.activeCustomSection.value) {
-			this.activeCustomSection.value.focus();
-			return;
-		}
-
 		const focused = this.settingsTree.getFocus();
 		if (!focused.length) {
 			this.settingsTree.focusFirst();
@@ -1097,9 +1055,6 @@ export class SettingsEditor2 extends EditorPane {
 
 		this.createTOC(this.tocTreeContainer);
 		this.createSettingsTree(this.settingsTreeContainer);
-		// BaseHalf: where a page of BaseHalf's is drawn in place of the settings list.
-		this.customSectionContainer = DOM.append(this.settingsTreeContainer, $('.settings-custom-section-container'));
-		this.customSectionContainer.hidden = true;
 
 		this.splitView = this._register(new SplitView(this.bodyContainer, {
 			orientation: Orientation.HORIZONTAL,
@@ -1124,8 +1079,6 @@ export class SettingsEditor2 extends EditorPane {
 			layout: (width, _, height) => {
 				this.settingsTreeContainer.style.width = `${width}px`;
 				this.settingsTree.layout(height, width);
-				// BaseHalf: a page takes the place of the settings list.
-				this.activeCustomSection.value?.layout({ width, height: height ?? this.settingsTreeContainer.clientHeight });
 			}
 		}, Sizing.Distribute, undefined, true);
 		this._register(this.splitView.onDidSashReset(() => {
@@ -1178,16 +1131,6 @@ export class SettingsEditor2 extends EditorPane {
 
 			this.tocFocusedElement = element;
 			this.tocTree.setSelection(element ? [element] : []);
-			// BaseHalf: the entry of a page shows the page, and the focus stays in the table of
-			// contents, as for every entry. The table of contents, rebuilt, focuses a new element for
-			// the same entry; the page shown for it stays as it is, with its focus.
-			if (element?.customSection) {
-				if (this.activeCustomSectionId !== element.id) {
-					this.activateCustomSection(element.id, undefined, false);
-				}
-			} else {
-				this.deactivateCustomSection();
-			}
 
 			// Filter to show only the selected category
 			if (this.viewState.categoryFilter !== element) {
@@ -1719,8 +1662,7 @@ export class SettingsEditor2 extends EditorPane {
 			this.refreshModels(resolvedSettingsRoot);
 
 			// Don't restore the cached state if we already have a query value from calling _setOptions().
-			// BaseHalf: nor when a page was asked for: the page shows, not the search of an earlier session.
-			const cachedState = !this.viewState.query && !this.requestedCustomSection ? this.restoreCachedState() : undefined;
+			const cachedState = !this.viewState.query ? this.restoreCachedState() : undefined;
 			if (cachedState?.searchQuery || this.searchWidget.getValue()) {
 				await this.onSearchInputChanged(true);
 			} else {
@@ -1740,9 +1682,6 @@ export class SettingsEditor2 extends EditorPane {
 				this.refreshTree();
 				this.tocTree.collapseAll();
 			}
-			// BaseHalf: a page that was asked for is the first entry shown, in the same task as the
-			// drawing above, so Settings is never painted on another entry first.
-			this.showRequestedCustomSection();
 		}
 	}
 
@@ -1875,8 +1814,6 @@ export class SettingsEditor2 extends EditorPane {
 		const query = this.searchWidget.getValue().trim();
 		this.viewState.query = query;
 		if (query) {
-			// BaseHalf: a search lists settings and leaves a page.
-			this.deactivateCustomSection();
 			this.searchWidget.addToHistory();
 			this.updateSearchPlaceholder();
 			this.saveSearchHistory();
@@ -2303,122 +2240,6 @@ export class SettingsEditor2 extends EditorPane {
 			this.splitView.style({
 				separatorBorder: firstViewVisible ? this.theme.getColor(settingsSashBorder)! : Color.transparent
 			});
-		}
-	}
-
-	/**
-	 * BaseHalf: shows the page that opening Settings asked for, once the settings tree is there to
-	 * show it in (docs/specs/settings-pages.md). A page is not among search results, so a search is
-	 * left first.
-	 */
-	private showRequestedCustomSection(): void {
-		const request = this.requestedCustomSection;
-		if (!request || !this.isVisible() || !this.settingsTreeModel.value || !this.customSectionContainer) {
-			return;
-		}
-		if (this.searchResultModel || this.searchWidget.getValue()) {
-			this.leaveSearchForCustomSection();
-			return;
-		}
-		this.requestedCustomSection = undefined;
-		const group = this.findSettingsGroup(this.settingsTreeModel.value.root, request.section.id);
-		if (!group?.customSection || !settingsCustomSectionRegistry.get(request.section.id)) {
-			return;
-		}
-		// The settings model is rebuilt also while Settings is hidden, and the table of contents
-		// only while it shows: it is drawn anew when it does not hold the model's entry yet.
-		if (!this.tocTree.hasElement(group)) {
-			this.refreshTOCTree();
-		}
-		// The entry is chosen before the table of contents moves to it, so that its focus event
-		// does not show the page a second time without its input.
-		this.tocFocusedElement = group;
-		this.viewState.categoryFilter = group;
-		try {
-			this.tocTree.reveal(group);
-			this.tocTree.setFocus([group]);
-			this.tocTree.setSelection([group]);
-		} catch {
-			// The table of contents can be rebuilding while an extension contributes settings.
-		}
-		this.activateCustomSection(group.id, request.section.input, request.focus);
-	}
-
-	/** BaseHalf: clears the search the way its clear action does, and then shows the page asked for. */
-	private leaveSearchForCustomSection(): void {
-		this.disableAiSearchToggle();
-		this.searchWidget.setValue('');
-		// The search's own way back would choose no entry: the page is chosen instead.
-		this.searchInputDelayer.cancel();
-		this.viewState.query = '';
-		this.triggerSearch('', false).then(() => {
-			if (this.searchResultModel || this.searchWidget.getValue()) {
-				// Typed meanwhile: that search stays, and the page is not shown later by surprise.
-				this.requestedCustomSection = undefined;
-				return;
-			}
-			this.showRequestedCustomSection();
-		}, onUnexpectedError);
-	}
-
-	private findSettingsGroup(root: SettingsTreeGroupElement, id: string): SettingsTreeGroupElement | undefined {
-		if (root.id === id) {
-			return root;
-		}
-		for (const child of root.children) {
-			if (child instanceof SettingsTreeGroupElement) {
-				const match = this.findSettingsGroup(child, id);
-				if (match) {
-					return match;
-				}
-			}
-		}
-		return undefined;
-	}
-
-	/**
-	 * BaseHalf: shows a page in place of the settings list; opened for a request, with the
-	 * keyboard focus on it.
-	 */
-	private activateCustomSection(id: string, input: string | undefined, focus: boolean): void {
-		const descriptor = settingsCustomSectionRegistry.get(id);
-		if (!descriptor || !this.customSectionContainer) {
-			return;
-		}
-		if (this.activeCustomSectionId !== id || !this.activeCustomSection.value) {
-			this.deactivateCustomSection();
-			const section = descriptor.create(this.instantiationService);
-			this.activeCustomSection.value = section;
-			this.activeCustomSectionId = id;
-			section.create(this.customSectionContainer);
-		}
-		this.settingsTree.getHTMLElement().hidden = true;
-		this.customSectionContainer.hidden = false;
-		this.activeCustomSection.value.setInput(input);
-		this.activeCustomSection.value.setVisible(true);
-		this.activeCustomSection.value.layout({
-			width: this.customSectionContainer.clientWidth,
-			height: this.customSectionContainer.clientHeight
-		});
-		if (focus) {
-			queueMicrotask(() => this.activeCustomSection.value?.focus());
-		}
-	}
-
-	/** BaseHalf: disposes the page shown, and shows the settings list again. */
-	private deactivateCustomSection(): void {
-		const section = this.activeCustomSection.value;
-		if (section) {
-			section.setVisible(false);
-		}
-		this.activeCustomSection.clear();
-		this.activeCustomSectionId = undefined;
-		if (this.customSectionContainer) {
-			DOM.clearNode(this.customSectionContainer);
-			this.customSectionContainer.hidden = true;
-		}
-		if (this.settingsTree) {
-			this.settingsTree.getHTMLElement().hidden = false;
 		}
 	}
 

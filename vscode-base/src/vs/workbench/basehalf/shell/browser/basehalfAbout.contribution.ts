@@ -10,16 +10,9 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IUpdateService } from '../../../../platform/update/common/update.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { settingsCustomSectionRegistry } from '../../../contrib/preferences/browser/settingsCustomSections.js';
 import { IHostService } from '../../../services/host/browser/host.js';
-import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
-import { BASEHALF_ABOUT_SETTINGS_SECTION_ID, BASEHALF_OPEN_ABOUT_COMMAND_ID, baseHalfUpdateCheckFailure } from '../common/basehalfAbout.js';
-import { BaseHalfAboutView } from './basehalfAbout.js';
-
-settingsCustomSectionRegistry.register({
-	id: BASEHALF_ABOUT_SETTINGS_SECTION_ID,
-	create: instantiationService => instantiationService.createInstance(BaseHalfAboutView)
-});
+import { BASEHALF_OPEN_ABOUT_COMMAND_ID, baseHalfUpdateCheckFailure } from '../common/basehalfAbout.js';
+import { IBaseHalfSettingsService } from '../common/basehalfSettings.js';
 
 registerAction2(class OpenBaseHalfAboutAction extends Action2 {
 	constructor() {
@@ -31,8 +24,7 @@ registerAction2(class OpenBaseHalfAboutAction extends Action2 {
 	}
 
 	override async run(accessor: ServicesAccessor): Promise<void> {
-		// Settings opens on the page itself (settings pages, "Opening Settings at a page").
-		await accessor.get(IPreferencesService).openSettings({ jsonEditor: false, customSection: { id: BASEHALF_ABOUT_SETTINGS_SECTION_ID } });
+		await accessor.get(IBaseHalfSettingsService).open('about');
 	}
 });
 

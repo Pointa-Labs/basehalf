@@ -13,22 +13,14 @@ import './basehalfVideoProviderSettingsService.js';
 import { localize2 } from '../../../../nls.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
-import { settingsCustomSectionRegistry } from '../../../contrib/preferences/browser/settingsCustomSections.js';
-import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
-import { BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, formatBaseHalfProvidersPageInput, isBaseHalfModelKind } from '../common/basehalfVideoProviderSettings.js';
-import { BaseHalfVideoProvidersPage } from './basehalfVideoProvidersPage.js';
+import { IBaseHalfSettingsService } from '../../shell/common/basehalfSettings.js';
+import { BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, formatBaseHalfProvidersPageInput, isBaseHalfModelKind } from '../common/basehalfVideoProviderSettings.js';
 
 /**
- * The Providers page (D59, D64), in the place of the former Models &
- * Providers page of Settings, and the command that opens it. The card store,
- * the task record store, and the catalog, provider settings, generation, and
- * voice services register themselves in the modules imported above.
+ * The command that opens the Providers page of BaseHalf's Settings (D59, D64). The card store, the task
+ * record store, and the catalog, provider settings, generation, and voice services register themselves in
+ * the modules imported above.
  */
-settingsCustomSectionRegistry.register({
-	id: BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID,
-	create: instantiationService => instantiationService.createInstance(BaseHalfVideoProvidersPage)
-});
-
 registerAction2(class OpenBaseHalfVideoProvidersAction extends Action2 {
 	constructor() {
 		super({
@@ -46,17 +38,13 @@ registerAction2(class OpenBaseHalfVideoProvidersAction extends Action2 {
 
 	/**
 	 * With a provider id of the catalog, the page shows that provider, and with
-	 * a card type, the providers of that type (D107). Settings opens on the
-	 * page itself (settings pages, "Opening Settings at a page").
+	 * a card type, the providers of that type (D107).
 	 */
 	override async run(accessor: ServicesAccessor, providerId?: unknown, kind?: unknown): Promise<void> {
 		const input = formatBaseHalfProvidersPageInput({
 			...(typeof providerId === 'string' ? { provider: providerId } : {}),
 			...(isBaseHalfModelKind(kind) ? { kind } : {})
 		});
-		await accessor.get(IPreferencesService).openSettings({
-			jsonEditor: false,
-			customSection: { id: BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, ...(input !== undefined ? { input } : {}) }
-		});
+		await accessor.get(IBaseHalfSettingsService).open('providers', input);
 	}
 });

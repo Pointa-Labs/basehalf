@@ -3,19 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-.basehalf-about {
-	display: flex;
-	flex-direction: column;
-	box-sizing: border-box;
-	padding: 26px clamp(20px, 3.2vw, 42px) 32px;
-	overflow: auto;
-	color: var(--vscode-foreground);
-	background: var(--vscode-editor-background);
-}
-
-.basehalf-about[hidden] {
-	display: none;
-}
+/* The page takes its frame, its title, and its sections from BaseHalf's Settings (basehalfSettings.css). */
 
 /*
  * A focus ring is for the keyboard (settings pages, "While a page is shown").
@@ -28,18 +16,12 @@
 	outline: none;
 }
 
-.basehalf-about h1 {
-	margin: 0;
-	font-size: 26px;
-	font-weight: 650;
-}
-
 .basehalf-about-content {
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
-	max-width: 520px;
-	margin-top: 22px;
+	max-width: 620px;
+	margin-top: 18px;
 }
 
 /* The status element of the base, on a page and not in a card. */

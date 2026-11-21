@@ -15,7 +15,7 @@ import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { DEFAULT_CUSTOM_VOICES, isCustomProviderId } from '../../../../platform/basehalfProviders/common/basehalfCustomProviders.js';
 import type { CustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
-import { ISettingsCustomSection, ISettingsCustomSectionLayout } from '../../../contrib/preferences/browser/settingsCustomSections.js';
+import { IBaseHalfSettingsPage, IBaseHalfSettingsPageLayout } from '../../ui/browser/basehalfSettingsPage.js';
 import { BASEHALF_MODEL_KINDS, BaseHalfModelKind, BaseHalfVideoCatalogState, baseHalfVideoListedModels, baseHalfVideoRegionOffersModel, IBaseHalfVideoCatalogCredential, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfCustomProviderChange, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
 import { BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH, BaseHalfVideoProviderSettingsError, IBaseHalfProvidersPageTarget, parseBaseHalfProvidersPageInput } from '../common/basehalfVideoProviderSettings.js';
@@ -72,7 +72,7 @@ let pageCount = 0;
  * control that had the focus, or the one that took its place (settings pages,
  * "While a page is shown").
  */
-export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsCustomSection {
+export class BaseHalfVideoProvidersPage extends Disposable implements IBaseHalfSettingsPage {
 	private readonly idPrefix = `basehalf-video-providers-${++pageCount}`;
 	private root: HTMLElement | undefined;
 	private status: HTMLElement | undefined;
@@ -230,7 +230,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		}
 	}
 
-	layout(dimension: ISettingsCustomSectionLayout): void {
+	layout(dimension: IBaseHalfSettingsPageLayout): void {
 		if (this.root) {
 			this.root.style.width = `${dimension.width}px`;
 			this.root.style.height = `${dimension.height}px`;

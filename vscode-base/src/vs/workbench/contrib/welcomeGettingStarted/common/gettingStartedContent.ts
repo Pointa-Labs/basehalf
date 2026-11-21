@@ -153,7 +153,7 @@ export const startEntries: GettingStartedStartEntryContent = [
 		icon: Codicon.settingsGear,
 		content: {
 			type: 'startEntry',
-			command: 'command:workbench.action.openSettings?%22@tag:basehalf%22',
+			command: 'command:basehalf.settings.open',
 		}
 	},
 	{

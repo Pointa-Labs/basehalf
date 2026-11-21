@@ -8,21 +8,24 @@ import { $, addDisposableListener, append, Dimension } from '../../../../base/br
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IUpdateService, State } from '../../../../platform/update/common/update.js';
-import { ISettingsCustomSection } from '../../../contrib/preferences/browser/settingsCustomSections.js';
+import { IBaseHalfSettingsPage } from '../../ui/browser/basehalfSettingsPage.js';
 import { UpdateTooltip } from '../../../contrib/update/browser/updateTooltip.js';
 import { BASEHALF_ABOUT_ACTION_COMMANDS, BaseHalfAboutAction, baseHalfAboutAction } from '../common/basehalfAbout.js';
+import { BaseHalfSettingRow, IBaseHalfShownSetting, renderBaseHalfSettingsSection } from './basehalfGeneralSettingsPage.js';
 
 /**
  * The About page of Settings (app update, "Where an update shows"): the
  * status element that the base draws for an update, shown here and not in a
- * card of the title bar, and below it the one action the state calls for.
+ * card of the title bar, below it the one action the state calls for, and
+ * then when BaseHalf looks for an update by itself.
  */
 /** Numbers the pages: Settings can show the page twice, in two editor groups, and each page's ids are its own. */
 let pageCount = 0;
 
-export class BaseHalfAboutView extends Disposable implements ISettingsCustomSection {
+export class BaseHalfAboutView extends Disposable implements IBaseHalfSettingsPage {
 	private readonly titleId = `basehalf-about-title-${++pageCount}`;
 	private root: HTMLElement | undefined;
 	private actionButton: HTMLButtonElement | undefined;
@@ -32,7 +35,8 @@ export class BaseHalfAboutView extends Disposable implements ISettingsCustomSect
 	constructor(
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IUpdateService private readonly updateService: IUpdateService,
-		@ICommandService private readonly commandService: ICommandService
+		@ICommandService private readonly commandService: ICommandService,
+		@IConfigurationService private readonly configurationService: IConfigurationService
 	) {
 		super();
 		this.status = this._register(instantiationService.createInstance(UpdateTooltip));
@@ -40,7 +44,7 @@ export class BaseHalfAboutView extends Disposable implements ISettingsCustomSect
 	}
 
 	create(parent: HTMLElement): void {
-		this.root = append(parent, $('.basehalf-about'));
+		this.root = append(parent, $('.basehalf-settings-page.basehalf-about'));
 		this.root.setAttribute('role', 'region');
 		this.root.setAttribute('aria-labelledby', this.titleId);
 		this.root.tabIndex = -1;
@@ -56,6 +60,15 @@ export class BaseHalfAboutView extends Disposable implements ISettingsCustomSect
 		this._register(addDisposableListener(this.actionButton, 'click', () => {
 			if (this.action) {
 				void this.commandService.executeCommand(BASEHALF_ABOUT_ACTION_COMMANDS[this.action]);
+			}
+		}));
+
+		// When BaseHalf looks for an update: the shown setting of the catalog that belongs to this page.
+		const updates = renderBaseHalfSettingsSection(this.root, `${this.titleId}-updates`, localize('basehalf.about.updates', "Updates"));
+		const mode = this._register(new BaseHalfSettingRow(updates, updateModeSetting(), `${this.titleId}-update-mode`, this.configurationService));
+		this._register(this.configurationService.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('update.mode')) {
+				mode.refresh();
 			}
 		}));
 
@@ -100,4 +113,20 @@ function actionLabel(action: BaseHalfAboutAction): string {
 		case 'install': return localize('basehalf.about.install', "Install Update");
 		case 'restart': return localize('basehalf.about.restart', "Restart to Update");
 	}
+}
+
+function updateModeSetting(): IBaseHalfShownSetting {
+	return {
+		key: 'update.mode',
+		label: localize('basehalf.about.updateMode', "Check for Updates"),
+		description: localize('basehalf.about.updateModeDescription', "A change holds from the next start."),
+		control: {
+			kind: 'choice', options: [
+				{ value: 'default', label: localize('basehalf.about.updateMode.default', "Automatically") },
+				{ value: 'start', label: localize('basehalf.about.updateMode.start', "When BaseHalf Starts") },
+				{ value: 'manual', label: localize('basehalf.about.updateMode.manual', "Only When Asked") },
+				{ value: 'none', label: localize('basehalf.about.updateMode.none', "Never") }
+			]
+		}
+	};
 }

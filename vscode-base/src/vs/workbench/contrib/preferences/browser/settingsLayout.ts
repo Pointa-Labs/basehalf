@@ -24,7 +24,6 @@ export interface ITOCEntry<T> {
 	order?: number;
 	children?: ITOCEntry<T>[];
 	settings?: Array<T>;
-	custom?: boolean;
 	hide?: boolean;
 }
 
@@ -178,43 +177,11 @@ export const tocData: ITOCEntry<string> = {
 			]
 		},
 		{
+			// BaseHalf: its own settings in one group. Its Settings holds them under its own names
+			// (docs/specs/settings-pages.md).
 			id: 'basehalf',
 			label: localize('basehalf', "BaseHalf"),
-			children: [
-				{
-					id: 'basehalf/editor',
-					label: localize('basehalfEditor', "Editor"),
-					settings: ['basehalf.editor.*']
-				},
-				{
-					id: 'basehalf/canvas',
-					label: localize('basehalfCanvas', "Canvas"),
-					settings: ['basehalf.canvas.*']
-				},
-				{
-					// BaseHalf: whether Files shows `.bh`.
-					id: 'basehalf/files',
-					label: localize('basehalfFiles', "Files"),
-					settings: ['basehalf.files.*']
-				},
-				{
-					// BaseHalf: the Agent Area's settings, and whether BaseHalf offers its skill to agents.
-					id: 'basehalf/agentArea',
-					label: localize('basehalfAgentArea', "Agent Area"),
-					settings: ['basehalf.agent.*', 'basehalf.agents.*']
-				},
-				{
-					// BaseHalf: the Providers page of image and video cards (D64).
-					id: 'basehalf/models',
-					label: localize('basehalfProviders', "Providers"),
-					custom: true
-				},
-				{
-					id: 'basehalf/about',
-					label: localize('basehalfAbout', "About"),
-					custom: true
-				}
-			]
+			settings: ['basehalf.*']
 		},
 		{
 			id: 'chat',

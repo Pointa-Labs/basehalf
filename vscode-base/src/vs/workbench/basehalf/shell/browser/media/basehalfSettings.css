@@ -1,0 +1,247 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* BaseHalf's Settings: the list of pages at the left, the page beside it. */
+.basehalf-settings {
+	display: flex;
+	height: 100%;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+	font-size: 13px;
+}
+
+/*
+ * A focus ring is for the keyboard. The workbench rings every focused button and element with a
+ * tab index, also after a click; here a control that a click focused shows none, and a page,
+ * which takes the focus only for the keyboard to start from, never does.
+ */
+.monaco-workbench .basehalf-settings :focus:not(:focus-visible),
+.monaco-workbench .basehalf-settings .basehalf-settings-page[tabindex]:focus {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-settings button:focus-visible,
+.monaco-workbench .basehalf-settings select:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.basehalf-settings-navigation {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	box-sizing: border-box;
+	padding: 14px 10px 12px;
+	border-right: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.basehalf-settings-pages {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.basehalf-settings-page-tab,
+.basehalf-settings-advanced {
+	padding: 6px 10px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.basehalf-settings-page-tab:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.basehalf-settings-page-tab[aria-selected='true'] {
+	background: var(--vscode-list-inactiveSelectionBackground);
+	font-weight: 600;
+}
+
+.basehalf-settings-advanced {
+	margin-top: auto;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-settings-advanced:hover {
+	color: var(--vscode-foreground);
+}
+
+.basehalf-settings-body {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+}
+
+/* A page of settings: General, and the part of About that is a setting. */
+.basehalf-settings-page {
+	box-sizing: border-box;
+	padding: 26px 36px 36px;
+	overflow: auto;
+}
+
+.basehalf-settings-page[hidden] {
+	display: none;
+}
+
+.basehalf-settings-page h1 {
+	margin: 0 0 4px;
+	font-size: 20px;
+	font-weight: 600;
+}
+
+.basehalf-settings-section {
+	max-width: 620px;
+}
+
+.basehalf-settings-section h2 {
+	margin: 22px 0 8px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+/* The settings of a section stand in one box, a line between them. */
+.basehalf-settings-group {
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+}
+
+.basehalf-settings-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+	min-height: 28px;
+	padding: 8px 14px;
+}
+
+.basehalf-settings-row + .basehalf-settings-row {
+	border-top: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.basehalf-settings-row-text {
+	min-width: 0;
+}
+
+.basehalf-settings-row-description {
+	margin-top: 2px;
+	font-size: 12px;
+	line-height: 1.35;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-settings-row-control {
+	display: flex;
+	flex: none;
+	align-items: center;
+}
+
+.basehalf-settings-select,
+.basehalf-settings-input {
+	box-sizing: border-box;
+	height: 26px;
+	padding: 2px 8px;
+	border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent));
+	border-radius: 6px;
+	outline: 0;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font: inherit;
+}
+
+.basehalf-settings-choice {
+	position: relative;
+	display: flex;
+}
+
+.basehalf-settings-select {
+	min-width: 132px;
+	padding-right: 26px;
+	appearance: none;
+	cursor: pointer;
+}
+
+.basehalf-settings-choice > .codicon {
+	position: absolute;
+	top: 5px;
+	right: 7px;
+	color: var(--vscode-descriptionForeground);
+	pointer-events: none;
+}
+
+.basehalf-settings-input {
+	width: 220px;
+}
+
+.basehalf-settings-input.number {
+	width: 72px;
+}
+
+.basehalf-settings-input::placeholder {
+	color: var(--vscode-input-placeholderForeground);
+}
+
+/* A text field shows its focus by its border. */
+.basehalf-settings-input:focus {
+	border-color: var(--vscode-focusBorder);
+}
+
+/* A switch: off at the left, on at the right. */
+.basehalf-settings-switch {
+	position: relative;
+	width: 32px;
+	height: 18px;
+	padding: 0;
+	border: 0;
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--vscode-foreground) 24%, transparent);
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.basehalf-settings-switch[aria-checked='true'] {
+	background: var(--vscode-button-background);
+}
+
+.basehalf-settings-switch-thumb {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #ffffff;
+	transition: transform 120ms ease;
+}
+
+.basehalf-settings-switch[aria-checked='true'] .basehalf-settings-switch-thumb {
+	transform: translateX(14px);
+}
+
+.monaco-reduce-motion .basehalf-settings-switch,
+.monaco-reduce-motion .basehalf-settings-switch-thumb {
+	transition: none;
+}
+
+@media (forced-colors: active) {
+	.basehalf-settings-navigation,
+	.basehalf-settings-group,
+	.basehalf-settings-row + .basehalf-settings-row {
+		border-color: CanvasText;
+	}
+
+	.basehalf-settings-page-tab[aria-selected='true'] {
+		outline: 1px solid Highlight;
+	}
+
+	.basehalf-settings-switch {
+		border: 1px solid CanvasText;
+	}
+}

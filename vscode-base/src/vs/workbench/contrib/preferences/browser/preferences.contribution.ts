@@ -15,6 +15,7 @@ import * as nls from '../../../../nls.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { BASEHALF_OPEN_SETTINGS_COMMAND_ID } from '../../../basehalf/shell/common/basehalfSettings.js';
 import { ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { InputFocusedContext, IsMacNativeContext } from '../../../../platform/contextkey/common/contextkeys.js';
@@ -249,6 +250,12 @@ class PreferencesActionsContribution extends Disposable implements IWorkbenchCon
 				});
 			}
 			run(accessor: ServicesAccessor, args: string | IOpenSettingsActionOptions) {
+				// BaseHalf: Settings of the gear's menu, of the application menu, and of its key is BaseHalf's own
+				// Settings. With a search, or anything else asked of it, the command lists settings in this editor
+				// (docs/specs/settings-pages.md).
+				if (args === undefined) {
+					return accessor.get(ICommandService).executeCommand(BASEHALF_OPEN_SETTINGS_COMMAND_ID);
+				}
 				// args takes a string for backcompat
 				const opts = typeof args === 'string' ? { query: args } : sanitizeOpenSettingsArgs(args);
 				return accessor.get(IPreferencesService).openSettings({ ...opts });
