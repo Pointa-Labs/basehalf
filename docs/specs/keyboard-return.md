@@ -84,25 +84,31 @@ the canvas, the first of these that is there takes it:
 1. A dialog that is open keeps what it has: nothing under it takes the
    keyboard.
 2. An overlay that is open: its own content.
-3. An editor of the base that is shown over the canvas, such as the
+3. The part of the window the keyboard left, when it has something to take
+   it: the Agent Area, with the session that comes to the front.
+4. An editor of the base that is shown over the canvas, such as the
    multi-file diff.
-4. Card Detail, when it is open: what it shows, as when it opened
+5. Card Detail, when it is open: what it shows, as when it opened
    ([opening and closing Card Detail](card-detail-opening.md#the-keyboard)).
    A note keeps its caret.
-5. The card that last had the keyboard on this canvas, when the canvas
+6. The card that last had the keyboard on this canvas, when the canvas
    still shows it.
-6. The canvas itself.
+7. The canvas itself.
+
+The Tab key never stops on the empty editor group: the keyboard goes on to
+the stop after it, or with Shift to the stop before it.
 
 ### The card that last had the keyboard
 
 - The canvas remembers one place: a card, or the canvas itself.
-- A card is the place when the keyboard is on the card, in something of it
-  that is no control (its note or its code being edited, its name), or on
-  the frame the canvas library draws around it.
+- A card is the place when the keyboard is on the card, on or in anything
+  of it (its note or its code being edited, its name, a button of it), or
+  on the frame the canvas library draws around it.
 - The canvas itself is the place when the keyboard is on the blank canvas,
-  as after a press there.
-- A toolbar, a menu, a button, a field of the canvas, and a connection
-  change nothing: the place is what it was before the keyboard went there.
+  and after every press there.
+- A toolbar, a menu, a button or a field of the canvas that belongs to no
+  card, the panel under a generation card, and a connection change nothing:
+  the place is what it was before the keyboard went there.
 - A card that is renamed or moved to another name is still the place. A
   card that is deleted, or that the shown canvas does not hold, is not: the
   canvas is.
@@ -122,15 +128,19 @@ the canvas, the first of these that is there takes it:
   element is the empty editor group or is gone, the rule takes over.
 - **Card Detail.** When it closes with the keyboard in it, the card of its
   file takes the keyboard, when the canvas shows that card, and otherwise
-  the canvas. A file opened from Files with the keyboard left there keeps
-  the keyboard there.
+  the canvas. The card is selected when Card Detail was opened from it, and
+  not when the file was opened from Files. A file opened from Files with
+  the keyboard left there keeps the keyboard there.
 - **A note or a code card edited on its card.** Escape, and Command+W on a
   code card, leave the keyboard on the card, which stays selected. A press
   elsewhere puts the keyboard where the press lands.
 - **A card's name.** After Enter and after Escape the keyboard is on the
   card whose name was edited. No card is selected, as before
-  ([canvas card name](canvas-card-name.md#the-editor-in-place)). A press
-  outside the editor puts the keyboard where it lands.
+  ([canvas card name](canvas-card-name.md#the-editor-in-place)). A card
+  with a new name is drawn anew, and takes the keyboard as it is drawn. A
+  press outside the editor puts the keyboard where it lands: before, a
+  press that closed the editor with its name unchanged lost the keyboard to
+  the canvas a moment later.
 - **The Create menu and a context menu of the canvas.** After Escape the
   keyboard is at the place the canvas remembers: the card that had it, or
   the blank canvas.
@@ -145,7 +155,8 @@ the canvas, the first of these that is there takes it:
   session that comes to the front takes it. With no session left, the rule
   takes over.
 - **A window that opens** has the keyboard on the canvas when a canvas is
-  shown and nothing else has taken it.
+  shown and nothing else has taken it. The Agent Area does not take it
+  ([Agent Area terminal](agent-area-terminal.md#the-sessions-a-folder-opens-with)).
 - **A window that comes back to the front** has the keyboard where it was.
 
 ### Not taking the keyboard
@@ -156,7 +167,9 @@ the canvas, the first of these that is there takes it:
   session keep it.
 - What asks for the keyboard after the rule acted gets it: a new note whose
   editor opens a moment after its menu closed, Card Detail once it is
-  drawn. The rule never takes the keyboard back from them.
+  drawn. The rule never takes the keyboard back from them. Where the rule
+  put the keyboard stands for the page itself to what waits for the
+  keyboard to be free, until the user presses a key or the pointer.
 - Giving a card or the canvas the keyboard moves nothing: the canvas keeps
   its place and its zoom, and no part of the window scrolls.
 - The canvas itself draws no ring. A card that takes the keyboard after a
@@ -203,26 +216,43 @@ closing ends.
 - `canvas/browser/view/basehalfCanvasKeyboardHome.ts`, the part
   `keyboardHome` of the canvas view: remembers the place, hears the two
   events that put the keyboard nowhere, and gives it by the rule.
-  - The keyboard on the page itself: the browser tells every element that
+  - The keyboard on the page itself. The browser tells every element that
     loses the keyboard to nothing (`focusout` without a related element),
-    also when the element is taken away, hidden, or disabled (measured in
-    this build's browser). The part looks once the code that removed the
-    element has run, and acts only when the keyboard is still on the page.
-  - The keyboard on the empty editor group: the group is told it has the
-    keyboard (`focusin`), and hands it on at once.
+    also when the element is taken away, hidden, or disabled: measured in
+    this build's browser, Chromium 148, for an element that is removed,
+    whose parent is removed, that is disabled, hidden, made inert, or
+    blurred. The part looks once the turn that removed the element is over,
+    so that whoever removed it gives the keyboard to something first, and
+    acts only when the keyboard is still on the page.
+  - The keyboard on the empty editor group. The group is told it has the
+    keyboard (`focusin`), and the part hands it on in the same turn: no
+    frame is drawn with the keyboard on the group.
   - A key pressed while the keyboard is on the page itself, should that
-    still happen, sends the keyboard by the rule before the key is looked
-    up.
+    still happen, sends the keyboard by the rule before the base looks the
+    key up.
+  - A card that is the place and is not drawn yet, as a card under its new
+    name: the canvas itself stands in, and the card takes the keyboard as
+    the scene puts it into the page, unless the user pressed a key or the
+    pointer meanwhile.
 - No change in a file of the base. The base's own returns (the overlay's,
   the palette's, a menu's) stay as they are; the part acts on where they
   end.
-- The closings of the canvas ask the part instead of naming an element:
-  Card Detail, the editor of a note, the editor of a name, the Create menu
-  and the context menus, Tidy Canvas, and `IBaseHalfCanvasView.focus` and
-  `focusCard` for the features.
-- The Agent Area gives the keyboard to the session in front when the
-  session that had it ends (`agentArea/browser`).
+- The closings of the canvas ask the part and name no element: Card Detail
+  (`giveToCardOf`), the editor of a name (`setHome`), the Create menu and
+  the context menus (`give`), and, for the features, `IBaseHalfCanvasView.focus`,
+  which Tidy Canvas uses, and `focusCard`, which the panel under a
+  generation card uses and which gives the keyboard to the card itself.
+  The editor of a note on its card needs no call: its card is the place,
+  and takes the keyboard when the editor is gone.
+- `canvas/browser/basehalfKeyboardParts.ts`: a part of the window registers
+  to keep the keyboard that leaves it (`IBaseHalfKeyboardPartsService`).
+  The Agent Area registers, and gives the keyboard to the pane in front.
+- The keys part holds back the repeats of a held key
+  (`canvas/browser/view/basehalfCanvasKeys.ts`), before any key is looked up.
 - The scene element has the role of a group and the name "Canvas".
+- What waits for the keyboard to be free takes the place the rule chose for
+  the page itself: the editor of a note that was just made
+  (`keyboardHome.gave`).
 
 ## Acceptance criteria
 
@@ -274,9 +304,9 @@ closing ends.
     keyboard in its title, and what is typed at once is in the note. A
     press into Files, into a terminal, and into the prompt of a draft
     leaves the keyboard there.
-17. **Nothing moves.** With the card that has the keyboard moved out of
-    view by moving the canvas, Settings and Escape: the canvas has the same
-    place and zoom, and no element of the window has scrolled.
+17. **Nothing moves.** With the card that has the keyboard out of view,
+    Settings and Escape: the canvas has the same place and zoom, and no
+    element of the window has scrolled.
 18. **Rings.** After a closing by the pointer (a close button, a press
     beside an overlay), the element with the keyboard draws no ring. The
     canvas itself draws none after a closing by a key.
@@ -290,11 +320,56 @@ closing ends.
 
 ## Verification
 
-- Unit tests of the rules (`basehalfCanvasKeyboardHome.test.ts`).
-- The smoke's canvas suite: a step, `keyboard-returns-to-canvas`, opens and
-  closes Settings over a selected card and reads the element with the
-  keyboard and the canvas's zoom after Command+=; ends a note's editing by
-  Escape and reads the same.
-- In the real window, every row of the table of "Problem" again, with the
-  real keyboard and the real pointer: the element with the keyboard, what
-  Command+= zooms, the selection, and the ring.
+- Unit tests of the rules (`basehalfCanvasKeyboardHome.test.ts`): what takes
+  the keyboard in 17 cases, the place the canvas remembers after 13 places
+  of the keyboard, and which of 9 presses of a held key are held back. The
+  arrow keys on the library's frame are in `basehalfCanvasKeys.test.ts`.
+- A step of the smoke's workbench suite, `keyboard-returns-to-canvas`:
+  Settings and Escape over a selected card, Escape in a note edited on its
+  card, and the card deleted; after each, the element with the keyboard,
+  and that Command+= zooms the canvas and not the window. Not run on this
+  branch: the smoke needs the machine idle.
+- Run in the real window on 2026-11-21, before any code changed and after,
+  with the real keyboard and the real pointer: every row of the table of
+  "Problem", 44 closings. After each, the element with the keyboard, the
+  selection, the ring of that element, and what Command+= zoomed were read,
+  and Command+- took the zoom back. After the change no closing left the
+  keyboard on the page itself or on the editor group, and Command+= zoomed
+  the canvas after every closing that had not left the keyboard in Files.
+- Run in the real window for the criteria the table does not hold:
+  - 1: in a window that had just opened, the first key, Command+=, zoomed
+    the canvas, and the Command Palette opened and dismissed left the
+    keyboard on the canvas.
+  - 4: with Settings closed over Card Detail of a note, a letter typed went
+    to the end of the note, where the caret was, and Escape closed Card
+    Detail. With Escape held through twelve repeats, Settings closed and
+    Card Detail stayed open; Escape pressed anew closed it.
+  - 10: Enter held through twelve repeats after F2 accepted the name and
+    opened nothing; Enter pressed anew opened the card. A card renamed to a
+    new name had the keyboard 4 ms after its card under the old name was
+    gone.
+  - 12: a card deleted by its key, a draft, a card deleted from the
+    palette, and a card whose file was removed outside BaseHalf: the canvas
+    had the keyboard each time, and Command+Z brought the deleted card back.
+  - 13: after Escape in the prompt of a draft, Right moved the card by 1
+    and Shift+Right by 10. With the keyboard on the frame of the selected
+    card, reached by Shift+Tab, neither moved it.
+  - 14: `exit` in one of two sessions gave the keyboard to the other 7 ms
+    after it left the first, with no element between; `exit` in the last
+    gave it to the canvas.
+  - 15: the window sent behind another application and brought back had
+    the keyboard on the card it was on.
+  - 16: New Note from the Create menu, and "Accretion disk", Enter, "Gas
+    spirals inward." typed 0.9 s later: the note's file held the title and
+    the line.
+  - 17: with the card zoomed out of view at 393%, Settings and Escape: the
+    transform of the canvas and the scroll places of ten elements from the
+    scene to the page were the same.
+  - 19: after Settings closed over a selected card, a letter changed
+    nothing; Backspace deleted the card, as it does after the Command
+    Palette closes, and Command+Z brought it back. Before the change the
+    keyboard was on the editor group and Backspace did nothing.
+  - The Tab key, from the blank canvas: 78 stops to the status bar, none of
+    them the editor group; Shift+Tab came back into the canvas.
+- Not verified: what a screen reader says at a return. The names are read
+  from the page: "Canvas" with the role of a group, and a card's own name.

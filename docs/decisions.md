@@ -7288,3 +7288,83 @@ a user who hid the Agent Area to work on the canvas is the one it has to reach.
   its dot through the base's registry of title bar items, with no change to the title bar.
 - Every session of the Agent Area is transient for the base, also without the command bridge.
 - The smoke's fixture starts from nothing, so its step of the arrangement reloads the window.
+
+## D149 — The keyboard is always somewhere that answers (NEW, 2026-11-21)
+
+**Decision.** When what had the keyboard goes away and nothing else took it, the keyboard returns to where it was, when
+that is still there, and otherwise to the canvas. It is never on the page itself, and never on the empty editor group
+that lies under the canvas. The canvas remembers one place, the card that last had the keyboard or the canvas itself, and
+what takes a keyboard that has nowhere to be is, in this order: nothing while a dialog is open, an open overlay, the part
+of the window the keyboard left when it has something for it (the Agent Area, with the session that comes to the front),
+an editor of the base shown over the canvas, Card Detail, the remembered card, the canvas. A window that opens has the
+keyboard on the canvas. See [where the keyboard returns](specs/keyboard-return.md).
+
+With it:
+
+- Card Detail that closes gives the keyboard to the card of its file. An overlay that closes over Card Detail gives it
+  back to Card Detail.
+- After a card's name is edited, the card has the keyboard. No card is selected, as before.
+- After Escape ends the editing of a note on its card, the card has the keyboard, as a code card had.
+- Escape in the panel under a generation card leaves the keyboard on the card itself, not on the frame the canvas
+  library draws around it; and on that frame the arrow keys no longer reach the library.
+- A session of the Agent Area that ends with the keyboard in it hands it to the pane that comes to the front.
+- The repeats of a key that is held do nothing on the canvas once the keyboard is on another element than the one the
+  key went down on, but for Tab and the arrow keys.
+- The Tab key passes the empty editor group.
+- The scene element has a name, "Canvas".
+
+**Why.** The owner's request of D143: the product is polished along the way. D146 made the keys of the canvas commands
+that act where the canvas has the keyboard, and left a note that after an overlay closes the keyboard is on the editor
+group under the canvas. Measured in the real window on 2026-11-21, 44 ways of closing something over the canvas, with the
+real keyboard and pointer, Command+= telling whether the canvas has the keyboard (it zooms the window when not):
+
+- After Settings, the advanced list, and Keyboard Shortcuts closed, however they were closed, and in a window that had
+  just opened, the keyboard was on the empty editor group. Command+= zoomed the window, and Delete, Enter, and the arrow
+  keys did nothing with a card selected. The Command Palette, opened from there and dismissed, put it there again.
+- With Settings closed over Card Detail, Escape no longer closed Card Detail, and a letter went nowhere.
+- After Escape ended the editing of a note on its card, after a card or a draft was deleted with the keyboard on it,
+  after a second Escape on a draft, and after `exit` in a session of the Agent Area, the keyboard was on the page itself.
+- After Escape in the prompt of a draft the keyboard was on the library's frame, where Right moved the card by 5 and
+  Shift+Right by 20; Move Card moves it by 1 and 10.
+- A press outside the editor of a name that left the name unchanged lost the keyboard to the canvas a moment later,
+  wherever the press had put it.
+
+The base returns the keyboard to its editor area when an overlay closes over it, and BaseHalf's canvas lies over that
+area. The browser puts the keyboard on the page when the element that had it is removed. Both are single places.
+
+**The mechanism.** One part of the canvas view, `keyboardHome`, hears the two events and gives the keyboard by one pure
+rule. The empty editor group is told when it gets the keyboard and hands it on in the same turn. For the page itself,
+the browser of this build tells every element that loses the keyboard to nothing, also one that is removed, disabled,
+hidden, or made inert (measured); the part looks once the turn that removed the element is over, so that whoever removed
+it can give the keyboard to something first, and acts only when the keyboard is still on the page. The closings of the
+canvas that named the scene element ask the part instead. No file of the base changes.
+
+**Alternatives.**
+- *A patch at each closing.* The canvas already had ten calls that gave the keyboard to the scene element by name, and
+  the closings without one were the ones that failed. Every new closing would need its own.
+- *Changing the base's overlay* to give the keyboard back to the element that had it when that element is in the editor
+  part. It would cover the overlays and none of the removals, and it is a change in a file of the base.
+- *Hiding the empty editor group* so that it cannot take the keyboard. The base's commands that give the keyboard to the
+  editor area would then do nothing; with the group handing the keyboard on, they reach the canvas.
+- *Saying that the canvas has the keyboard while it is on the page*, by the context key alone. The keys would act, but
+  what reads the window aloud and the ring would still say the keyboard is nowhere.
+- *Looking on a timer or on every frame.* The browser's event is enough, and a key pressed in the one turn between is
+  caught at the key.
+- *Always the canvas itself, never a card.* Enter, F2, and Space act on the card that has the keyboard: after Card Detail
+  or a name closed, the next key would do nothing.
+- *Selecting the card after a rename*, so that its keys work from the blank canvas. The owner's rule is that no card is
+  selected after a name is edited ([canvas card name](specs/canvas-card-name.md)); the card has the keyboard instead.
+- *Holding back every key for a moment after a return.* A time is a guess. A held key is known by its repeats, and a
+  key pressed anew is the user's.
+
+**Consequences.**
+- With a card selected and the keyboard returned to it, Delete and Backspace delete the card after Settings closes, as
+  they did after the Command Palette closed; before, the keyboard was on the editor group there and they did nothing.
+  Undo brings the card back.
+- A card that takes the keyboard after a key shows its ring, also when it is selected, as it did after the palette
+  closed. After a closing by the pointer it shows none.
+- After a rename the keyboard is on the card, where F2, Enter, and Space act; before, it was on the blank canvas.
+- A part of the window that should keep the keyboard that leaves it registers with `IBaseHalfKeyboardPartsService`.
+- Code that closes something of the canvas asks `keyboardHome` and names no element
+  ([architecture invariants](harness/architecture-invariants.md#product-shell)).
+- What a screen reader says at a return was not heard; the names were read from the page.
