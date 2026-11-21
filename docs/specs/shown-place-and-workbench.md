@@ -11,8 +11,9 @@ item), [architecture invariants](../harness/architecture-invariants.md#product-s
 
 This specification owns what the parts of the workbench that follow the
 base's active editor follow in BaseHalf: going back and forward with the
-buttons of a mouse and with a swipe, and the file that Files and Source
-Control reveal. What the title bar draws of the shown place is owned by
+buttons of a mouse and with a swipe, the file that Files and Source
+Control reveal, and the title of the window that the system shows. What
+the title bar draws of the shown place is owned by
 [the location in the title bar](title-bar-location.md).
 
 ## Problem
@@ -40,6 +41,11 @@ the real window, a development build of 0.7.0:
   closed and no row selected, and a changed note opened the same way left
   its row in Source Control unselected. Selecting a card and opening a
   folder's canvas changed nothing in Files either, which stays so.
+- **The title of the window named only the workspace.** On a note in Card
+  Detail the title was the workspace's name, so the system's list of
+  windows could not say what a window shows. The variables of
+  `window.title` that speak of the active editor and of its folder were
+  empty.
 
 ## Terms
 
@@ -107,8 +113,49 @@ the real window, a development build of 0.7.0:
     covers the canvas, Files and Source Control follow that editor, as in
     the base.
 
+### The title of the window
+
+11. **The title of the window speaks of the shown place.** The title that
+    the system shows for the window, in its list of windows and wherever
+    else it names the window, is made from `window.title`, as in the base.
+    While a canvas or Card Detail is shown, its variables mean:
+
+    | Variable | In Card Detail | On a canvas |
+    | --- | --- | --- |
+    | `${activeEditorShort}` | the name BaseHalf shows for the file: a note without its extension ([canvas card name](canvas-card-name.md)) | empty |
+    | `${activeEditorMedium}` | the file's path from the workspace folder | empty |
+    | `${activeEditorLong}` | the file's whole path | empty |
+    | `${activeFolderShort}`, `${activeFolderMedium}`, `${activeFolderLong}` | the folder whose canvas lies under Card Detail: its name, its path from the workspace folder, its whole path | the same of the folder whose canvas is shown |
+    | `${dirty}` | the mark of unsaved changes, as an editor of the base shows it: none for a file that saves itself, the mark when its save failed or met a change on the disk | empty |
+    | `${activeEditorState}` | what the file's decoration says, as Modified | empty |
+
+    Every other variable, the workspace's name and path, the name of the
+    application, the focused view, is what it is in the base.
+12. **With the title as it comes**, a note in Card Detail is named before
+    the workspace, as an editor's file is in the base, and a canvas by the
+    workspace alone. A title that names the folder of a canvas needs
+    `${activeFolderShort}` in `window.title`.
+13. **The title follows the place.** It changes when Card Detail opens,
+    shows another file, or closes, when another folder's canvas is shown,
+    and when the file in Card Detail is renamed.
+14. **An editor of the base comes first.** While an editor of the base
+    covers the canvas, the title is the base's: it names that editor.
+15. **The title bar stays as it is.** It draws the path of the shown place
+    itself ([the location in the title bar](title-bar-location.md)) and
+    reads none of these variables. The hover of its search, which in the
+    base says the search's name and then the title of the window, says the
+    title as it now is.
+
 ## Implementation boundaries
 
+- `navigation/common/basehalfShownPlaceTitle.ts` holds the service that
+  answers what the title says of the shown place: the file, the name
+  BaseHalf shows for it, the folder of the canvas, and whether the file
+  holds changes that are not about to be saved, by the base's own rule for
+  the file of an editor. The window title
+  (`browser/parts/titlebar/windowTitle.ts`) asks it where it has no active
+  editor, and makes the paths and the folder's names with the code it has
+  for an editor's file.
 - `navigation/common/basehalfShownPlace.ts` answers what the shown place
   is to the base: the file that Card Detail shows, the folder whose canvas
   is shown, and an event for a change of either. It answers nothing while
@@ -157,6 +204,21 @@ the real window, a development build of 0.7.0:
 6. With Source Control in view and two changed notes, opening one from the
    search selects its row, and opening the other its row; an unchanged file
    leaves the selection; with `scm.autoReveal` false the selection stays.
+7. With the settings as they come, the title of the window is the
+   workspace's name on the canvas of the workspace folder; with a note of
+   a folder open in Card Detail it is the note's name without its
+   extension, the separator, and the workspace's name; after Escape, on the
+   folder's canvas, it is the workspace's name again; and with a code file
+   open it starts with the file's name with its extension.
+8. With `window.title` set to
+   `${activeFolderShort}|${activeFolderMedium}|${activeEditorShort}|${activeEditorMedium}|${dirty}|${rootName}`,
+   for the note `drafts/deep/inner.md` of the workspace `ws`: the canvas of
+   the workspace folder gives `ws|||||ws`, the note in Card Detail
+   `deep|drafts/deep|inner|drafts/deep/inner.md||ws`, the canvas of its
+   folder `deep|drafts/deep||||ws`, and while letters are typed into the
+   note, which saves itself, no title holds the mark of unsaved changes.
+9. On each of these places the path in the title bar is what it was before
+   this specification.
 
 ## Verification
 
@@ -183,5 +245,15 @@ the real window, a development build of 0.7.0:
 - In the real window on 2026-11-21: criteria 4, 5, and 6, the rows read
   from Files and from Source Control. Before the change, the same opens
   selected nothing. `focusNoScroll` was read in the code and not run.
+- Unit tests in Node (`basehalfShownPlaceTitle.test.ts`): what the title
+  says on a canvas, of a note, of a code file, of a file without a canvas
+  of its own, and under an editor of the base; the mark of unsaved changes
+  by the state of the file and by how files are saved; and which changes
+  are told.
+- In the real window on 2026-11-21: criteria 7, 8, and 9, the title read
+  from the window's document, which is what the system is given, and the
+  path read from the title bar. Before the change, every title was the
+  workspace's name. The system's own list of windows was not looked at,
+  and a rename of the file in Card Detail (rule 13) was not run.
 - Not verified: the buttons over a PDF, over a book, whose text is in a
   frame inside its page, and over the view of an agent extension.
