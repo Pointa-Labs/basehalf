@@ -518,10 +518,10 @@ export async function assertSourceIsTheEditor(page) {
 	await page.keyboard.press('Escape');
 	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible'), undefined, { timeout: 10_000 });
 
-	const canvasStatus = await page.evaluate(() => [...document.querySelectorAll('#workbench\\.parts\\.statusbar .statusbar-item')].filter(item => item.id.startsWith('status.editor.')).length);
-	if (canvasStatus !== 0) {
-		throw new Error(`On the canvas the status bar must have no entries of an editor: ${canvasStatus}`);
-	}
+	// The entries go with the editor that had them, a moment after Card Detail has closed.
+	await waitForReading(
+		() => page.evaluate(() => [...document.querySelectorAll('#workbench\\.parts\\.statusbar .statusbar-item')].filter(item => item.id.startsWith('status.editor.')).length),
+		count => count === 0, 'the status bar to have no entries of an editor on the canvas', 5_000);
 }
 
 /** A change read in the Changes view is what the card shows on the first frame of the closing, and another card stays. */
