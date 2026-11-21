@@ -11,9 +11,12 @@ import { EditorExtensionsRegistry } from '../../../../../editor/browser/editorEx
 import { CodeEditorWidget } from '../../../../../editor/browser/widget/codeEditor/codeEditorWidget.js';
 import { IEditorOptions } from '../../../../../editor/common/config/editorOptions.js';
 import { ScrollType } from '../../../../../editor/common/editorCommon.js';
+import { ITextResourceConfigurationService } from '../../../../../editor/common/services/textResourceConfiguration.js';
 import { BracketMatchingController } from '../../../../../editor/contrib/bracketMatching/browser/bracketMatching.js';
 import { ContextMenuController } from '../../../../../editor/contrib/contextmenu/browser/contextmenu.js';
+import { DragAndDropController } from '../../../../../editor/contrib/dnd/browser/dnd.js';
 import { CommonFindController } from '../../../../../editor/contrib/find/browser/findController.js';
+import { AutoIndentOnPaste } from '../../../../../editor/contrib/indentation/browser/indentation.js';
 import { MultiCursorSelectionController, SelectionHighlighter } from '../../../../../editor/contrib/multicursor/browser/multicursor.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
@@ -26,7 +29,7 @@ import { baseHalfEditorInstantiationService, baseHalfOwnFileEditorInput } from '
 import { BaseHalfTextFileSaving } from '../../../cardDetail/browser/basehalfTextFileSaving.js';
 import { baseHalfShownTextEditors } from '../../../cardDetail/common/basehalfShownTextEditor.js';
 import { BaseHalfCanvasCodeFace } from './basehalfCanvasCodeFace.js';
-import { BASEHALF_CODE_FACE_BOTTOM_PADDING, BASEHALF_CODE_FACE_FONT_SIZE, BASEHALF_CODE_FACE_LINE_HEIGHT, BASEHALF_CODE_FACE_MARK_LANE, BASEHALF_CODE_FACE_TOP_PADDING } from '../common/basehalfCanvasCodeFaceLayout.js';
+import { baseHalfCodeCardEditorOptions } from '../common/basehalfCanvasCodeCardEditorOptions.js';
 
 /** What Escape does in an editor without keeping the card's editor open: it ends the editing with text selected. */
 const ESCAPE_THAT_ENDS_ANYWAY: ReadonlySet<string> = new Set(['cancelSelection']);
@@ -53,6 +56,7 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@ITextFileService private readonly textFileService: ITextFileService,
+		@ITextResourceConfigurationService private readonly textResourceConfigurationService: ITextResourceConfigurationService,
 	) {
 		super();
 		// The canvas takes neither a drag, nor the wheel, nor a double click of what is edited (code cards, rule 22).
@@ -90,6 +94,11 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 				options.requestEnd(false);
 			}
 		}, true));
+		this._register(this.textResourceConfigurationService.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration(this.face.resource, 'editor')) {
+				this.followSettings();
+			}
+		}));
 		const resizeObserver = new ResizeObserver(() => this.layout());
 		resizeObserver.observe(this.host);
 		this._register(toDisposable(() => resizeObserver.disconnect()));
@@ -111,7 +120,9 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 				CommonFindController.ID,
 				BracketMatchingController.ID,
 				SelectionHighlighter.ID,
-				MultiCursorSelectionController.ID
+				MultiCursorSelectionController.ID,
+				DragAndDropController.ID,
+				AutoIndentOnPaste.ID
 			]),
 			telemetryData: { target: 'basehalf.canvas.codeCard' }
 		}));
@@ -152,6 +163,8 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		this.saving.registerFlushers(this.face.resource.toString());
 		this._register(editor.onDidChangeModelContent(() => this.saving.updateStatus()));
 		this._register(editor.onDidChangeCursorSelection(() => this.selectionSettled.schedule()));
+		// The settings of another language are those of the file from then on.
+		this._register(editor.onDidChangeModelLanguage(() => this.followSettings()));
 		return true;
 	}
 
@@ -172,52 +185,22 @@ export class BaseHalfCanvasCodeCardEditor extends Disposable {
 		return this.ended;
 	}
 
-	/** The setting of the font changed. */
+	/** The font of the face changed. */
 	fontChanged(): void {
-		this.editor?.updateOptions({ fontFamily: this.face.host.fontFamily });
+		this.followSettings();
 	}
 
+	private followSettings(): void {
+		this.editor?.updateOptions(this.editorOptions());
+	}
+
+	/** The settings for the file and its language, and over them what stands where the face stood (code cards, rules 30 to 32). */
 	private editorOptions(): IEditorOptions {
-		return {
-			automaticLayout: false,
-			// A text area stands at the caret in a card of any zoom, so an input method's candidates do; the other way reports places as if nothing were scaled.
-			editContext: false,
-			readOnly: !!this.textFileService.files.get(this.face.resource)?.isReadonly(),
+		return baseHalfCodeCardEditorOptions(this.textResourceConfigurationService.getValue<IEditorOptions>(this.face.resource, 'editor'), {
 			fontFamily: this.face.host.fontFamily,
-			fontSize: BASEHALF_CODE_FACE_FONT_SIZE,
-			lineHeight: BASEHALF_CODE_FACE_LINE_HEIGHT,
-			padding: { top: BASEHALF_CODE_FACE_TOP_PADDING, bottom: BASEHALF_CODE_FACE_BOTTOM_PADDING },
-			lineNumbers: 'on',
-			lineNumbersMinChars: 3,
-			lineDecorationsWidth: BASEHALF_CODE_FACE_MARK_LANE,
-			glyphMargin: false,
-			folding: false,
-			minimap: { enabled: false },
-			stickyScroll: { enabled: false },
-			wordWrap: 'off',
-			scrollBeyondLastLine: false,
-			scrollbar: {
-				verticalScrollbarSize: 8,
-				horizontalScrollbarSize: 8,
-				useShadows: false,
-				ignoreHorizontalScrollbarInContentHeight: true,
-				alwaysConsumeMouseWheel: true
-			},
-			overviewRulerLanes: 0,
-			overviewRulerBorder: false,
-			hideCursorInOverviewRuler: true,
-			renderLineHighlight: 'none',
-			guides: { indentation: false, bracketPairs: false },
-			bracketPairColorization: { enabled: false },
-			occurrencesHighlight: 'off',
-			dragAndDrop: false,
-			// Its widgets scale with the card, and its menus stand over the window, not inside the card.
-			fixedOverflowWidgets: false,
-			useShadowDOM: false,
-			fontLigatures: false,
-			renderValidationDecorations: 'off',
+			readOnly: !!this.textFileService.files.get(this.face.resource)?.isReadonly(),
 			ariaLabel: this.face.path
-		};
+		});
 	}
 
 	private layout(): void {
