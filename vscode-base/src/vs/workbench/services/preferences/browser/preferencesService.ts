@@ -370,7 +370,8 @@ export class PreferencesService extends Disposable implements IPreferencesServic
 	}
 
 	openDefaultKeybindingsFile(): Promise<IEditorPane | undefined> {
-		return this.editorService.openEditor({ resource: this.defaultKeybindingsResource, label: nls.localize('defaultKeybindings', "Default Keybindings") });
+		// BaseHalf: the default key bindings open where Keyboard Shortcuts does, in the overlay, not over the canvas (D146).
+		return this.editorService.openEditor({ resource: this.defaultKeybindingsResource, label: nls.localize('defaultKeybindings', "Default Keybindings") }, this.getEditorGroupFromOptions({}));
 	}
 
 	private getEditorGroupFromOptions(options: { groupId?: number; openToSide?: boolean }): PreferredGroup {
