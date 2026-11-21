@@ -14,6 +14,7 @@ import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../../contrib/ext
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../../services/search/common/search.js';
 import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
+import { BASEHALF_LOCKED_SETTINGS } from '../../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 
 export const BASEHALF_PRODUCT_PROFILE_ID = 'basehalf.canvasWorkbench';
@@ -460,34 +461,28 @@ export const BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS = {
 } as const;
 
 /**
- * One product decision — "saves feel instant" — expressed as the auto-save
- * debounce everywhere BaseHalf persists user edits: the `files.autoSaveDelay`
- * default below and the badge-description flush in the canvas workbench. The
- * rich Markdown webview cannot import workbench code, so its `AUTOSAVE_MS` in
- * `extensions/basehalf/markdown-rich-src/editor.tsx` mirrors this value; keep
- * the two in sync.
+ * One decision, "saves feel instant", as the delay of every save BaseHalf makes of what a user edits: the
+ * default of `files.autoSaveDelay` below and the write of a badge's description on the canvas. The rich
+ * editor's bundle cannot import this, so `AUTOSAVE_MS` in `extensions/basehalf/markdown-rich-src/editor.tsx`
+ * mirrors the value; keep the two in step.
  */
 export const BASEHALF_AUTO_SAVE_DELAY_MS = 250;
 
+/**
+ * The defaults BaseHalf registers for settings of the base. The settings BaseHalf keeps, which no
+ * settings file changes, come from the catalog with their values (the settings BaseHalf offers,
+ * "Locked"). The others are defaults a user may change.
+ */
 export const BASEHALF_CONFIGURATION_DEFAULTS = {
-	// BaseHalf ships three sidebar views (Files/Git/Search); a full-height
-	// vertical activity bar spends a persistent column on three icons, so the
-	// icons sit horizontally above the sidebar and the width goes to the canvas.
-	'workbench.activityBar.location': 'top',
-	// The sidebar, the canvas, and the Agent Area are separate rounded cards
-	// with a gap between them, as in VS Code's Modern UI.
-	'workbench.experimental.modernUI': true,
+	...BASEHALF_LOCKED_SETTINGS,
 	// The canvas and the Agent Area terminal have a dark palette of their own.
 	// A switch that the system makes by itself, for the appearance or for high
 	// contrast, therefore stays on a dark theme. A user can still pick a light
 	// theme in the Color Theme picker.
 	'workbench.preferredLightColorTheme': 'Dark 2026',
 	'workbench.preferredHighContrastLightColorTheme': 'Default High Contrast',
-	'workbench.editor.showTabs': 'none',
-	'breadcrumbs.enabled': false,
-	// BaseHalf has no persistent dirty-state surface (no editor tabs) and agents
-	// read the disk, so files auto-save like the rich Markdown card detail.
-	'files.autoSave': 'afterDelay',
+	// A save follows an edit at once, in every place BaseHalf saves what a user edits. A longer delay is the
+	// user's to set: a surface then says that it is saving until the file is written.
 	'files.autoSaveDelay': BASEHALF_AUTO_SAVE_DELAY_MS,
 	// Mirror metadata and the root agent protocol files are infrastructure, not
 	// learning material. They remain ordinary workspace files and users can
@@ -519,24 +514,6 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// is too, and in that mode the Agent Area terminal slows down without
 	// bound under a full-screen agent (docs/specs/screen-reader-mode.md).
 	'editor.accessibilitySupport': 'off',
-	'workbench.startupEditor': 'welcomePageInEmptyWorkbench',
-	'workbench.welcomePage.walkthroughs.openOnInstall': false,
-	'workbench.welcomePage.experimentalOnboarding': false,
-	'chat.disableAIFeatures': true,
-	'chat.agent.enabled': false,
-	'chat.agentsControl.enabled': 'hidden',
-	'chat.unifiedAgentsBar.enabled': false,
-	'chat.agentSessionProjection.enabled': false,
-	'chat.viewSessions.enabled': false,
-	'chat.agentsHandoffTip.mode': 'hidden',
-	'chat.titleBar.signIn.enabled': false,
-	'chat.titleBar.openInAgentsWindow.enabled': false,
-	'chat.agentHost.enabled': false,
-	'chat.agentHost.claudeAgent.enabled': false,
-	'chat.agentHost.codexAgent.enabled': false,
-	'chat.agents.claude.preferAgentHost': false,
-	'chat.editor.claude.preferAgentHost': false,
-	'debug.internalConsoleOptions': 'neverOpen',
 	'search.useReplacePreview': false,
 	// Rows of 17 px, the reference terminal's at its default font size. A
 	// gesture scrolls by rows, so equal rows are part of scrolling like it
@@ -546,16 +523,6 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// Ghostty renders the terminal palette directly. VS Code's default contrast
 	// remapping changes ANSI colors enough that Codex/TUI output looks muted.
 	'terminal.integrated.minimumContrastRatio': 1,
-	'testing.automaticallyOpenPeekView': 'never',
-	'testing.automaticallyOpenTestResults': 'neverOpen',
-	'testing.countBadge': 'off',
-	// BaseHalf is local-first with a curated extension allowlist; Restricted
-	// Mode has no product surface. Leaving trust enabled while its prompt and
-	// banner are suppressed would strand fresh folders untrusted, which
-	// silently disables the Git extension (untrustedWorkspaces unsupported).
-	'security.workspace.trust.enabled': false,
-	'security.workspace.trust.startupPrompt': 'never',
-	'security.workspace.trust.banner': 'never',
 	'workbench.colorCustomizations': BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS
 } as const;
 

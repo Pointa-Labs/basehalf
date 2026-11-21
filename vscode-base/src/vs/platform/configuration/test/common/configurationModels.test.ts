@@ -1000,6 +1000,8 @@ suite('Configuration', () => {
 
 });
 
+// BaseHalf: these tests wrote `files.autoSave`, which BaseHalf keeps and a settings file cannot set
+// (docs/specs/settings-catalog.md). They write `files.eol` in its place.
 suite('ConfigurationChangeEvent', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -1009,11 +1011,11 @@ suite('ConfigurationChangeEvent', () => {
 		const change = configuration.compareAndUpdateLocalUserConfiguration(toConfigurationModel({
 			'window.zoomLevel': 1,
 			'workbench.editor.enablePreview': false,
-			'files.autoSave': 'off',
+			'files.eol': 'off',
 		}));
 		const testObject = new ConfigurationChangeEvent(change, undefined, configuration, undefined, new NullLogService());
 
-		assert.deepStrictEqual([...testObject.affectedKeys], ['window.zoomLevel', 'workbench.editor.enablePreview', 'files.autoSave']);
+		assert.deepStrictEqual([...testObject.affectedKeys], ['window.zoomLevel', 'workbench.editor.enablePreview', 'files.eol']);
 
 		assert.ok(testObject.affectsConfiguration('window.zoomLevel'));
 		assert.ok(testObject.affectsConfiguration('window'));
@@ -1023,7 +1025,7 @@ suite('ConfigurationChangeEvent', () => {
 		assert.ok(testObject.affectsConfiguration('workbench'));
 
 		assert.ok(testObject.affectsConfiguration('files'));
-		assert.ok(testObject.affectsConfiguration('files.autoSave'));
+		assert.ok(testObject.affectsConfiguration('files.eol'));
 		assert.ok(!testObject.affectsConfiguration('files.exclude'));
 
 		assert.ok(!testObject.affectsConfiguration('[markdown]'));
@@ -1035,13 +1037,13 @@ suite('ConfigurationChangeEvent', () => {
 		configuration.updateLocalUserConfiguration(toConfigurationModel({
 			'window.zoomLevel': 2,
 			'workbench.editor.enablePreview': true,
-			'files.autoSave': 'off',
+			'files.eol': 'off',
 		}));
 		const data = configuration.toData();
 		const change = configuration.compareAndUpdateLocalUserConfiguration(toConfigurationModel({
 			'window.zoomLevel': 1,
 			'workbench.editor.enablePreview': false,
-			'files.autoSave': 'off',
+			'files.eol': 'off',
 		}));
 		const testObject = new ConfigurationChangeEvent(change, { data }, configuration, undefined, new NullLogService());
 
@@ -1062,7 +1064,7 @@ suite('ConfigurationChangeEvent', () => {
 	test('changeEvent affecting overrides with new configuration', () => {
 		const configuration = new TestConfiguration(ConfigurationModel.createEmptyModel(new NullLogService()), ConfigurationModel.createEmptyModel(new NullLogService()), ConfigurationModel.createEmptyModel(new NullLogService()), ConfigurationModel.createEmptyModel(new NullLogService()));
 		const change = configuration.compareAndUpdateLocalUserConfiguration(toConfigurationModel({
-			'files.autoSave': 'off',
+			'files.eol': 'off',
 			'[markdown]': {
 				'editor.wordWrap': 'off'
 			},
@@ -1072,10 +1074,10 @@ suite('ConfigurationChangeEvent', () => {
 		}));
 		const testObject = new ConfigurationChangeEvent(change, undefined, configuration, undefined, new NullLogService());
 
-		assert.deepStrictEqual([...testObject.affectedKeys], ['files.autoSave', '[markdown]', '[typescript][jsonc]', 'editor.wordWrap', 'editor.lineNumbers']);
+		assert.deepStrictEqual([...testObject.affectedKeys], ['files.eol', '[markdown]', '[typescript][jsonc]', 'editor.wordWrap', 'editor.lineNumbers']);
 
 		assert.ok(testObject.affectsConfiguration('files'));
-		assert.ok(testObject.affectsConfiguration('files.autoSave'));
+		assert.ok(testObject.affectsConfiguration('files.eol'));
 		assert.ok(!testObject.affectsConfiguration('files.exclude'));
 
 		assert.ok(testObject.affectsConfiguration('[markdown]'));
@@ -1113,11 +1115,11 @@ suite('ConfigurationChangeEvent', () => {
 				'editor.lineNumbers': 'off',
 				'css.lint.emptyRules': 'error'
 			},
-			'files.autoSave': 'off',
+			'files.eol': 'off',
 		}));
 		const data = configuration.toData();
 		const change = configuration.compareAndUpdateLocalUserConfiguration(toConfigurationModel({
-			'files.autoSave': 'off',
+			'files.eol': 'off',
 			'[markdown]': {
 				'editor.fontSize': 13,
 				'editor.wordWrap': 'off'

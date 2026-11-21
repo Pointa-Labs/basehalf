@@ -16,6 +16,7 @@ import { ISingleEditOperation } from '../../../../editor/common/core/editOperati
 import { ITextEditorModel } from '../../../../editor/common/services/resolverService.js';
 import * as nls from '../../../../nls.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { isBaseHalfSettingListed } from '../../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { ConfigurationDefaultValueSource, ConfigurationScope, Extensions, IConfigurationNode, IConfigurationRegistry, IRegisteredConfigurationPropertySchema, OVERRIDE_PROPERTY_REGEX } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
@@ -525,9 +526,17 @@ export class DefaultSettings extends Disposable {
 		const allConfigurations: IStringDictionary<IRegisteredConfigurationPropertySchema> = { ...registry.getConfigurationProperties() };
 		const excludedConfigurations = registry.getExcludedConfigurationProperties();
 
+		// BaseHalf: the lists of Settings hold the settings that do something in BaseHalf and that a user may
+		// change: the shown and the advanced ones of the catalog (docs/specs/settings-catalog.md).
+		for (const key of Object.keys(allConfigurations)) {
+			if (!isBaseHalfSettingListed(key)) {
+				delete allConfigurations[key];
+			}
+		}
+
 		for (const policyKey of this.configurationService.keys().policy ?? []) {
 			const policyConfiguration = excludedConfigurations[policyKey];
-			if (policyConfiguration) {
+			if (policyConfiguration && isBaseHalfSettingListed(policyKey)) {
 				allConfigurations[policyKey] = policyConfiguration;
 			}
 		}

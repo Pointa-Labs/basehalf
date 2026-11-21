@@ -28,6 +28,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { CodeActionKind } from '../../../../editor/contrib/codeAction/common/types.js';
 import * as nls from '../../../../nls.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { isBaseHalfSettingListed, isBaseHalfSettingLocked } from '../../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { Extensions as ConfigurationExtensions, ConfigurationScope, IConfigurationPropertySchema, IConfigurationRegistry, IRegisteredConfigurationPropertySchema, OVERRIDE_PROPERTY_REGEX, overrideIdentifiersFromKey } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -551,6 +552,11 @@ class UnsupportedSettingsRenderer extends Disposable implements languages.CodeAc
 						}
 						continue;
 					}
+					// BaseHalf: a setting that BaseHalf keeps, or that nothing in BaseHalf follows, is marked as
+					// having no effect, where the base marks a setting it does not know (docs/specs/settings-catalog.md).
+					if (this.handleBaseHalfSettingWithoutEffect(setting, markerData)) {
+						continue;
+					}
 					const configuration = configurationRegistry[setting.key];
 					if (configuration) {
 						this.handleUnstableSettingConfiguration(setting, configuration, markerData);
@@ -578,6 +584,21 @@ class UnsupportedSettingsRenderer extends Disposable implements languages.CodeAc
 			}
 		}
 		return markerData;
+	}
+
+	private handleBaseHalfSettingWithoutEffect(setting: ISetting, markerData: IMarkerData[]): boolean {
+		if (this.settingsEditorModel.configurationTarget === ConfigurationTarget.DEFAULT || isBaseHalfSettingListed(setting.key)) {
+			return false;
+		}
+		markerData.push({
+			severity: MarkerSeverity.Hint,
+			tags: [MarkerTag.Unnecessary],
+			...setting.range,
+			message: isBaseHalfSettingLocked(setting.key)
+				? nls.localize('basehalfLockedSetting', "This setting has no effect: BaseHalf keeps it at its own value.")
+				: nls.localize('basehalfUnlistedSetting', "This setting has no effect in BaseHalf.")
+		});
+		return true;
 	}
 
 	private handlePolicyConfiguration(setting: ISetting, configuration: IConfigurationPropertySchema, markerData: IMarkerData[]): boolean {

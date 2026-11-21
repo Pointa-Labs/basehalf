@@ -13,6 +13,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { ITextFileService } from '../../textfile/common/textfiles.js';
 import { IConfigurationUpdateOptions, IConfigurationUpdateOverrides } from '../../../../platform/configuration/common/configuration.js';
+import { isBaseHalfSettingLocked } from '../../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { FOLDER_SETTINGS_PATH, WORKSPACE_STANDALONE_CONFIGURATIONS, TASKS_CONFIGURATION_KEY, LAUNCH_CONFIGURATION_KEY, USER_STANDALONE_CONFIGURATIONS, TASKS_DEFAULT, FOLDER_SCOPES, IWorkbenchConfigurationService, APPLICATION_SCOPES, MCP_CONFIGURATION_KEY } from './configuration.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
 import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/common/services/resolverService.js';
@@ -97,6 +98,11 @@ export const enum ConfigurationEditingErrorCode {
 	 * Error when trying to write a policy configuration
 	 */
 	ERROR_POLICY_CONFIGURATION,
+
+	/**
+	 * BaseHalf: error when trying to write a setting that BaseHalf keeps at its own value.
+	 */
+	ERROR_BASEHALF_LOCKED_CONFIGURATION,
 
 	/**
 	 * Internal Error.
@@ -366,6 +372,7 @@ export class ConfigurationEditing {
 		switch (error) {
 
 			// API constraints
+			case ConfigurationEditingErrorCode.ERROR_BASEHALF_LOCKED_CONFIGURATION: return nls.localize('errorBaseHalfLockedConfiguration', "BaseHalf keeps {0} at its own value. It cannot be changed.", operation.key);
 			case ConfigurationEditingErrorCode.ERROR_POLICY_CONFIGURATION: return nls.localize('errorPolicyConfiguration', "Unable to write {0} because it is configured in system policy.", operation.key);
 			case ConfigurationEditingErrorCode.ERROR_UNKNOWN_KEY: return nls.localize('errorUnknownKey', "Unable to write to {0} because {1} is not a registered configuration.", this.stringifyTarget(target), operation.key);
 			case ConfigurationEditingErrorCode.ERROR_INVALID_WORKSPACE_CONFIGURATION_APPLICATION: return nls.localize('errorInvalidWorkspaceConfigurationApplication', "Unable to write {0} to Workspace Settings. This setting can be written only into User settings.", operation.key);
@@ -511,6 +518,12 @@ export class ConfigurationEditing {
 
 		if (this.configurationService.inspect(operation.key).policyValue !== undefined) {
 			throw this.toConfigurationEditingError(ConfigurationEditingErrorCode.ERROR_POLICY_CONFIGURATION, target, operation);
+		}
+
+		// BaseHalf: a value written for a setting that BaseHalf keeps would have no effect, so it is not written.
+		// Removing such a line from a settings file is allowed (docs/specs/settings-catalog.md, "Locked").
+		if (operation.value !== undefined && isBaseHalfSettingLocked(operation.key)) {
+			throw this.toConfigurationEditingError(ConfigurationEditingErrorCode.ERROR_BASEHALF_LOCKED_CONFIGURATION, target, operation);
 		}
 
 		const configurationProperties = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).getConfigurationProperties();

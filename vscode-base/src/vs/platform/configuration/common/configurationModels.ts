@@ -15,6 +15,7 @@ import * as types from '../../../base/common/types.js';
 import { URI, UriComponents } from '../../../base/common/uri.js';
 import { addToValueTree, ConfigurationTarget, getConfigurationValue, IConfigurationChange, IConfigurationChangeEvent, IConfigurationCompareResult, IConfigurationData, IConfigurationModel, IConfigurationOverrides, IConfigurationUpdateOverrides, IConfigurationValue, IInspectValue, IOverrides, removeFromValueTree, toValuesTree } from './configuration.js';
 import { ConfigurationScope, Extensions, IConfigurationPropertySchema, IConfigurationRegistry, overrideIdentifiersFromKey, OVERRIDE_PROPERTY_REGEX, IRegisteredConfigurationPropertySchema } from './configurationRegistry.js';
+import { isBaseHalfSettingLocked } from './basehalfSettingsCatalog.js';
 import { FileOperation, IFileService } from '../../files/common/files.js';
 import { ILogService } from '../../log/common/log.js';
 import { Registry } from '../../registry/common/platform.js';
@@ -429,7 +430,10 @@ export class ConfigurationModelParser {
 
 	private filter(properties: IStringDictionary<unknown>, configurationProperties: IStringDictionary<IRegisteredConfigurationPropertySchema>, excludedConfigurationProperties: IStringDictionary<IRegisteredConfigurationPropertySchema>, filterOverriddenProperties: boolean, options?: ConfigurationParseOptions): { raw: IStringDictionary<unknown>; restricted: string[]; hasExcludedProperties: boolean } {
 		let hasExcludedProperties = false;
-		if (!options?.scopes && !options?.skipRestricted && !options?.skipUnregistered && !options?.exclude?.length) {
+		// BaseHalf: a setting that BaseHalf keeps is dropped from every settings file, as a setting that a layer
+		// may not set is, so BaseHalf's value holds in every process (docs/specs/settings-catalog.md, "Locked").
+		const filtersByOptions = !!(options?.scopes || options?.skipRestricted || options?.skipUnregistered || options?.exclude?.length);
+		if (!filtersByOptions && !holdsBaseHalfLockedSetting(properties)) {
 			return { raw: properties, restricted: [], hasExcludedProperties };
 		}
 		const raw: IStringDictionary<unknown> = {};
@@ -440,12 +444,14 @@ export class ConfigurationModelParser {
 				raw[key] = result.raw;
 				hasExcludedProperties = hasExcludedProperties || result.hasExcludedProperties;
 				restricted.push(...result.restricted);
+			} else if (isBaseHalfSettingLocked(key)) {
+				hasExcludedProperties = true;
 			} else {
 				const propertySchema = configurationProperties[key];
 				if (propertySchema?.restricted) {
 					restricted.push(key);
 				}
-				if (this.shouldInclude(key, propertySchema, excludedConfigurationProperties, options)) {
+				if (!filtersByOptions || this.shouldInclude(key, propertySchema, excludedConfigurationProperties, options ?? {})) {
 					raw[key] = properties[key];
 				} else {
 					hasExcludedProperties = true;
@@ -1295,4 +1301,22 @@ function compareConfigurationContents(to: { keys: string[]; contents: IStringDic
 		}
 	}
 	return { added, removed, updated };
+}
+
+/** BaseHalf: whether a settings file, or one of its sections for a language, names a setting that BaseHalf keeps. */
+function holdsBaseHalfLockedSetting(properties: IStringDictionary<unknown>): boolean {
+	for (const key in properties) {
+		if (isBaseHalfSettingLocked(key)) {
+			return true;
+		}
+		const section = properties[key];
+		if (OVERRIDE_PROPERTY_REGEX.test(key) && types.isObject(section)) {
+			for (const overridden in section as IStringDictionary<unknown>) {
+				if (isBaseHalfSettingLocked(overridden)) {
+					return true;
+				}
+			}
+		}
+	}
+	return false;
 }

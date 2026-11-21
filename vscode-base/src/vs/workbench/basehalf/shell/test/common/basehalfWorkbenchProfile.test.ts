@@ -5,6 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { BASEHALF_LOCKED_SETTINGS } from '../../../../../platform/configuration/common/basehalfSettingsCatalog.js';
 import { WorkbenchState } from '../../../../../platform/workspace/common/workspace.js';
 import {
 	BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY,
@@ -228,13 +229,13 @@ suite('BaseHalfWorkbenchProfile', () => {
 	});
 
 	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.activityBar.location'], 'top');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.experimental.modernUI'], true);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.activityBar.location'], 'top');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.experimental.modernUI'], true);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.preferredLightColorTheme'], 'Dark 2026');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.preferredHighContrastLightColorTheme'], 'Default High Contrast');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.editor.showTabs'], 'none');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['breadcrumbs.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSave'], 'afterDelay');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.editor.showTabs'], 'none');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['breadcrumbs.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['files.autoSave'], 'afterDelay');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSaveDelay'], 250);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['window.menuStyle'], 'custom');
 		assert.deepStrictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.exclude'], {
@@ -243,30 +244,30 @@ suite('BaseHalfWorkbenchProfile', () => {
 			'CLAUDE.md': true
 		});
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['scm.defaultViewMode'], 'tree');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.startupEditor'], 'welcomePageInEmptyWorkbench');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.startupEditor'], 'welcomePageInEmptyWorkbench');
 		assert.ok(!Object.hasOwn(BASEHALF_CONFIGURATION_DEFAULTS, 'workbench.welcome.enabled'));
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.welcomePage.walkthroughs.openOnInstall'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.welcomePage.experimentalOnboarding'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.disableAIFeatures'], true);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agent.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentsControl.enabled'], 'hidden');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.viewSessions.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentsHandoffTip.mode'], 'hidden');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.titleBar.signIn.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.titleBar.openInAgentsWindow.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.claudeAgent.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.codexAgent.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agents.claude.preferAgentHost'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.editor.claude.preferAgentHost'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['debug.internalConsoleOptions'], 'neverOpen');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.welcomePage.walkthroughs.openOnInstall'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.welcomePage.experimentalOnboarding'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.disableAIFeatures'], true);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.agent.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.agentsControl.enabled'], 'hidden');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.viewSessions.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.agentsHandoffTip.mode'], 'hidden');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.titleBar.signIn.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.titleBar.openInAgentsWindow.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.agentHost.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.agentHost.claudeAgent.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.agentHost.codexAgent.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.agents.claude.preferAgentHost'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['chat.editor.claude.preferAgentHost'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['debug.internalConsoleOptions'], 'neverOpen');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['search.useReplacePreview'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.automaticallyOpenPeekView'], 'never');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.automaticallyOpenTestResults'], 'neverOpen');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.countBadge'], 'off');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.enabled'], false);
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.startupPrompt'], 'never');
-		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.banner'], 'never');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['testing.automaticallyOpenPeekView'], 'never');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['testing.automaticallyOpenTestResults'], 'neverOpen');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['testing.countBadge'], 'off');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['security.workspace.trust.enabled'], false);
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['security.workspace.trust.startupPrompt'], 'never');
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['security.workspace.trust.banner'], 'never');
 	});
 
 	test('clears restorable VS Code welcome state that bypasses startupEditor', () => {

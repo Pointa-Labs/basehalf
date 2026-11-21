@@ -15,6 +15,7 @@ import { Registry } from '../../registry/common/platform.js';
 import { IPolicy, IPolicyReference, PolicyName } from '../../../base/common/policy.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import product from '../../product/common/product.js';
+import { isBaseHalfSettingListed } from './basehalfSettingsCatalog.js';
 
 export enum EditPresentationTypes {
 	Multiline = 'multilineText',
@@ -864,6 +865,10 @@ class ConfigurationRegistry extends Disposable implements IConfigurationRegistry
 	}
 
 	private updateSchema(key: string, property: IConfigurationPropertySchema): void {
+		// BaseHalf: a settings file is offered only the settings that BaseHalf lists (docs/specs/settings-catalog.md).
+		if (!isBaseHalfSettingListed(key)) {
+			return;
+		}
 		allSettings.properties[key] = property;
 		switch (property.scope) {
 			case ConfigurationScope.APPLICATION:

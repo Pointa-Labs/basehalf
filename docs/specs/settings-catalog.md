@@ -145,7 +145,7 @@ it stands for every setting that starts so.
 | `terminal.integrated.fontFamily`, `terminal.integrated.fontSize` | the Agent Area's terminals |
 | `update.mode` | whether BaseHalf looks for updates by itself |
 
-### Locked (49)
+### Locked (48)
 
 | Why | Settings and BaseHalf's value |
 | --- | --- |
@@ -153,7 +153,7 @@ it stands for every setting that starts so.
 | BaseHalf has no editor tabs (3) | `workbench.editor.showTabs` `none`, `zenMode.showTabs` `none`, `breadcrumbs.enabled` false |
 | The shape of the shell: Files, Git, and Search at the left with their icons above, the Agent Area at the right, each a card (3) | `workbench.activityBar.location` `top`, `workbench.sideBar.location` `left`, `workbench.experimental.modernUI` true |
 | Nothing covers the canvas by a setting (12) | `workbench.secondarySideBar.forceMaximized` false, `workbench.secondarySideBar.defaultVisibility` `visibleInWorkspace`, `workbench.panel.opensMaximized` `never`, `workbench.panel.defaultLocation` `bottom`, `workbench.editor.useModal` `some`, `workbench.startupEditor` `welcomePageInEmptyWorkbench`, `workbench.welcomePage.walkthroughs.openOnInstall` false, `workbench.welcomePage.experimentalOnboarding` false, `search.mode` `view`, `git.mergeEditor` false, `scm.workingSets.enabled` false, `scm.workingSets.default` `current` |
-| Files save by themselves: nothing in BaseHalf shows an unsaved file, and agents read the disk (2) | `files.autoSave` `afterDelay`, `files.autoSaveDelay` 250 |
+| Files save by themselves: nothing in BaseHalf shows an unsaved file, and agents read the disk (1) | `files.autoSave` `afterDelay`. The delay, `files.autoSaveDelay`, is advanced: BaseHalf's default is 250 ms, and with a longer one a surface says that it is saving until the file is written |
 | The base's AI features stay off (14) | `chat.disableAIFeatures` true, and the 13 switches of the base's chat that BaseHalf sets today (`chat.agent.enabled`, `chat.agentsControl.enabled`, `chat.unifiedAgentsBar.enabled`, `chat.agentSessionProjection.enabled`, `chat.viewSessions.enabled`, `chat.agentsHandoffTip.mode`, `chat.titleBar.signIn.enabled`, `chat.titleBar.openInAgentsWindow.enabled`, `chat.agentHost.enabled`, `chat.agentHost.claudeAgent.enabled`, `chat.agentHost.codexAgent.enabled`, `chat.agents.claude.preferAgentHost`, `chat.editor.claude.preferAgentHost`) |
 | Workspace trust stays off: BaseHalf has no surface for it, and an untrusted folder would run without Git (5) | `security.workspace.trust.*`, with `enabled` false and the prompts `never` |
 | Hidden surfaces stay shut, and a folder starts no task by itself (5) | `task.allowAutomaticTasks` `off`, `debug.internalConsoleOptions` `neverOpen`, `testing.automaticallyOpenPeekView` `never`, `testing.automaticallyOpenTestResults` `neverOpen`, `testing.countBadge` `off` |
@@ -194,7 +194,7 @@ it stands for every setting that starts so.
 The rows that name D118 rest on one decision, no language service: about
 130 settings ([what the decision settled](#what-the-decision-settled)).
 
-### Advanced (708)
+### Advanced (709)
 
 | Family | Count |
 | --- | --- |
@@ -202,7 +202,7 @@ The rows that name D118 rest on one decision, no language service: about
 | Source control and Git: `scm.*`, `git.*`, `github.*`, `merge-conflict.*`, `mediaPreview.*` | 138 |
 | The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 99 |
 | The terminal: `terminal.*` | 78 |
-| Files: `files.*`, `explorer.*` | 46 |
+| Files: `files.*`, `explorer.*` | 47 |
 | Accessibility: `accessibility.*` | 31 |
 | The application: `http.*`, `update.*`, `keyboard.*`, `security.*`, and the like | 29 |
 | Search: `search.*` | 28 |
@@ -329,7 +329,7 @@ and by the update check).
    commands stay away. The editor of the file marks each of the lines.
 3. `window.titleBarStyle` as `native` in the user's `settings.json` leaves
    BaseHalf's one title bar after a restart.
-4. The advanced list holds the 720 shown and advanced settings and no other:
+4. The advanced list holds the 721 shown and advanced settings and no other:
    its table of contents has no group for chat, notebooks, debug, testing,
    or remote, and a search for a locked, a pending, or an unlisted setting
    finds nothing.
@@ -348,8 +348,8 @@ and by the update check).
 
 - The registry was read from the window of a development build
   (`vscode-base/.build/rw-set/dump.mts`), and the rules of the catalog were run
-  against it (`vscode-base/.build/rw-set/classes.mjs`): 12 shown, 49 locked,
-  29 pending, 676 unlisted, 708 advanced, none without a rule. Both are tool
+  against it (`vscode-base/.build/rw-set/classes.mjs`): 12 shown, 48 locked,
+  29 pending, 676 unlisted, 709 advanced, none without a rule. Both are tool
   state of the checkout, not part of the tree; the check of criterion 1
   replaces them.
 - Run in the real window on 2026-11-21: the three settings of the problem

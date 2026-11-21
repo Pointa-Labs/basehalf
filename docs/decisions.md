@@ -6532,7 +6532,7 @@ line of its own, and the card's editor showed a title line only as the single li
 
 **Decision.** Each of the 1,474 settings the base registers has one class. BaseHalf's own Settings shows twelve under its own
 names. The Settings editor of the base stays as the advanced list, and holds only the settings that do something in BaseHalf.
-49 settings that the shell, the canvas, and saving rest on are locked: BaseHalf's value holds in every process, whatever a
+48 settings that the shell, the canvas, and saving rest on are locked: BaseHalf's value holds in every process, whatever a
 settings file says. A setting that nothing reads is unlisted only when a decision, or the absence of what it tunes, says why;
 when nothing says why, it is pending: a surface of BaseHalf's owes it an answer, and it is listed once the surface follows
 it. Tasks, the integrated browser, and profiles are not BaseHalf's. No language service runs (D118, D121), with JSON's
@@ -6554,7 +6554,7 @@ a code card reads none of the user's editor settings but the font, and the canva
 its own. The owner then left the open choices to me: "你来决定吧".
 
 **Alternatives.**
-- The Settings editor of the base left as it is behind an entry named Advanced. It would keep the 49 settings that take the
+- The Settings editor of the base left as it is behind an entry named Advanced. It would keep the 48 settings that take the
   shell apart within reach, and list 676 that do nothing.
 - Four classes, with everything unread unlisted. It would have written off what the product owes its settings.
 - Keeping the shell by defaults, as before. A default is the first thing a settings file overrides, and the main process,
