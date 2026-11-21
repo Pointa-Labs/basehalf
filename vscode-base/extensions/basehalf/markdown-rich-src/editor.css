@@ -149,6 +149,31 @@ body,
 	--prev-level: 1em;
 }
 
+/* The handles of a block are as high as its first line and the room above
+ * it twice, so that their middle is the middle of that line (zoom and
+ * outline of a note, rule 22), at every text size and for a heading of every
+ * level: 30 px beside text and 108 px beside a heading of level 1 at 16 px.
+ * The handles of a file, a sound, and an empty picture keep their heights. */
+.basehalf-markdown-rich .bn-side-menu:not([data-block-type="file"], [data-block-type="audio"], [data-url="false"]) {
+	height: calc(var(--basehalf-note-font-size, 16px) * 1.875);
+}
+
+.basehalf-markdown-rich .bn-side-menu[data-block-type="heading"] {
+	height: calc(var(--basehalf-note-font-size, 16px) * 3.75);
+}
+
+.basehalf-markdown-rich .bn-side-menu[data-block-type="heading"][data-level="1"] {
+	height: calc(var(--basehalf-note-font-size, 16px) * 6.75);
+}
+
+.basehalf-markdown-rich .bn-side-menu[data-block-type="heading"][data-level="2"] {
+	height: calc(var(--basehalf-note-font-size, 16px) * 5.25);
+}
+
+.basehalf-markdown-rich .bn-side-menu[data-block-type="heading"][data-level="3"] {
+	height: calc(var(--basehalf-note-font-size, 16px) * 4.2);
+}
+
 /* Code keeps the font of code, at the size of the text around it (note rendering, rule 37). */
 .basehalf-markdown-rich .bn-editor code,
 .basehalf-markdown-rich .bn-editor pre {
@@ -344,7 +369,8 @@ body,
 
 .basehalf-adhd-check {
 	position: absolute;
-	top: 0.24em;
+	/* Beside the first line of a paragraph at every text size: 3.84 px down at 16 px, where the middle of the line is 15 px down. */
+	top: calc(0.9375em - 11.16px);
 	right: 0;
 	box-sizing: border-box;
 	width: 16px;

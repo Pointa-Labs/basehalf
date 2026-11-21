@@ -12,6 +12,7 @@ import {
 	BASEHALF_CANVAS_NOTE_PART_CLASS,
 	buildAllBaseHalfCanvasNoteParts,
 	buildBaseHalfCanvasNotePartsTo,
+	buildOnBaseHalfCanvasNoteParts,
 	renderBaseHalfCanvasNoteInParts
 } from '../../browser/basehalfCanvasNoteParts.js';
 import { planBaseHalfCanvasNoteParts } from '../../common/basehalfCanvasPreview.js';
@@ -164,6 +165,49 @@ suite('BaseHalfCanvasNoteParts', () => {
 			rendering.dispose();
 			container.remove();
 		}
+	});
+
+	test('builds on when the lines of a note take less room in its box, as in another font', () => {
+		const container = document.createElement('div');
+		container.style.cssText = 'height: 100px; width: 300px; overflow: hidden; font: 13px/20px sans-serif;';
+		mainWindow.document.body.appendChild(container);
+		const source = `${Array.from({ length: 300 }, (_, index) => `Paragraph ${index + 1}.`).join('\n\n')}\n`;
+		const partCount = planBaseHalfCanvasNoteParts(source, 200)!.parts.length;
+		const rendering = renderBaseHalfCanvasNoteInParts(container, resource, source, undefined, 200)!;
+		// A second note, built whole from the start: building on leaves it alone.
+		const whole = document.createElement('div');
+		const wholeRendering = renderBaseHalfCanvasNoteInParts(whole, resource, 'One paragraph.\n')!;
+		try {
+			buildBaseHalfCanvasNotePartsTo(container, 0);
+			const before = { parts: builtParts(container).length, twoHeightsBelow: container.scrollHeight >= 300 };
+			// The same letters in a quarter of the room, with nothing that scrolls or resizes the box.
+			container.style.font = '4px/5px sans-serif';
+			const shrunk = container.scrollHeight >= 300;
+			buildOnBaseHalfCanvasNoteParts();
+			const after = { parts: builtParts(container).length, twoHeightsBelow: container.scrollHeight >= 300 };
+			assert.deepStrictEqual({
+				before,
+				shrunk,
+				builtOn: after.parts > before.parts,
+				after: after.twoHeightsBelow,
+				notAll: after.parts < partCount,
+				whole: builtParts(whole).length
+			}, {
+				before: { parts: before.parts, twoHeightsBelow: true },
+				shrunk: false,
+				builtOn: true,
+				after: true,
+				notAll: true,
+				whole: 1
+			});
+		} finally {
+			rendering.dispose();
+			wholeRendering.dispose();
+			container.remove();
+		}
+		// A note that is gone builds nothing more.
+		buildOnBaseHalfCanvasNoteParts();
+		assert.strictEqual(builtParts(container).length > 0, true);
 	});
 
 	test('a note with a block that no part can hold is not built', () => {
