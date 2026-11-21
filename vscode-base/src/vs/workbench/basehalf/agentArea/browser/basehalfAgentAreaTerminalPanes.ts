@@ -3,16 +3,22 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind, IBaseHalfCreateAgentTerminalOptions, baseHalfHasAgentLaunchInstructions, baseHalfAgentSessionUsesLocalNodeRunBridge, baseHalfTuiSessionLaunchConfig, baseHalfStripAgentLaunchInstructions, baseHalfTuiSessionLaunchFailureGuidance } from '../common/basehalfAgentArea.js';
+import { BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind, IBaseHalfCreateAgentTerminalOptions, baseHalfHasAgentLaunchInstructions, baseHalfAgentSessionUsesLocalNodeRunBridge, baseHalfTuiSessionLaunchConfig, baseHalfStripAgentLaunchInstructions, baseHalfTuiSessionLaunchFailureGuidance, BASEHALF_AGENT_AREA_CLOSE_PANE_COMMAND_ID, BASEHALF_AGENT_AREA_SPLIT_DOWN_COMMAND_ID, BASEHALF_AGENT_AREA_SPLIT_RIGHT_COMMAND_ID } from '../common/basehalfAgentArea.js';
 import { ITerminalInstance, ICreateTerminalOptions } from '../../../contrib/terminal/browser/terminal.js';
 import { removeAgentPane, markAgentPaneActivity } from '../common/basehalfAgentTabsModel.js';
 import { Severity } from '../../../../platform/notification/common/notification.js';
-import { type IShellLaunchConfig, type ITerminalLaunchError } from '../../../../platform/terminal/common/terminal.js';
+import { TerminalSettingId, type IShellLaunchConfig, type ITerminalLaunchError } from '../../../../platform/terminal/common/terminal.js';
 import { isObject, hasKey } from '../../../../base/common/types.js';
 import { baseHalfInstallTerminalEdges } from './basehalfTerminalEdges.js';
-import { OS } from '../../../../base/common/platform.js';
+import { isMacintosh, OS } from '../../../../base/common/platform.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 import { baseHalfCreateAgentAreaTerminalConfig, baseHalfRelaunchTerminalAfterExit } from './basehalfAgentAreaTerminalConfig.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfSourceTreeMarker.js';
+import { addDisposableListener, EventType, isHTMLElement } from '../../../../base/browser/dom.js';
+import { Separator, toAction } from '../../../../base/common/actions.js';
+import { localize } from '../../../../nls.js';
+import { TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
+import { BaseHalfTerminalClickAction, baseHalfTerminalClickAction } from '../common/basehalfTerminalClicks.js';
 import type { BaseHalfAgentAreaService, IBaseHalfRuntimeAgentSession } from './basehalfAgentAreaService.js';
 
 /**
@@ -91,6 +97,97 @@ export class BaseHalfAgentAreaTerminalPanes {
 		if (focus) {
 			await this.area.surface.focusActivePane();
 		}
+	}
+
+	/**
+	 * A secondary and a middle click on the terminal of a session do what the base's settings say
+	 * (docs/specs/agent-area-terminal.md, Clicks). Installed once for the session: a session that restarts
+	 * gets a new terminal in the same pane.
+	 */
+	installClicks(session: IBaseHalfRuntimeAgentSession): void {
+		// What the press of the secondary button decided, for the `contextmenu` event that follows it. A
+		// `contextmenu` event without a press comes from the keyboard and shows the menu.
+		let secondary: BaseHalfTerminalClickAction | undefined;
+		session.disposables.add(addDisposableListener(session.surface, EventType.MOUSE_DOWN, (event: MouseEvent) => {
+			const terminal = session.terminal;
+			if (!terminal || (event.button !== 1 && event.button !== 2)) {
+				return;
+			}
+			const onScrollbar = isHTMLElement(event.target) && (event.target.classList.contains('scrollbar') || event.target.classList.contains('slider'));
+			const action = onScrollbar ? 'none' : baseHalfTerminalClickAction(
+				{ button: event.button === 1 ? 'middle' : 'secondary', shiftKey: event.shiftKey, hasSelection: terminal.hasSelection() },
+				{
+					rightClickBehavior: this.area.configurationService.getValue(TerminalSettingId.RightClickBehavior),
+					middleClickBehavior: this.area.configurationService.getValue(TerminalSettingId.MiddleClickBehavior)
+				}
+			);
+			if (event.button === 2) {
+				secondary = action;
+			}
+			void this.runClick(terminal, action, event.button === 2);
+		}));
+		session.disposables.add(addDisposableListener(session.surface, EventType.CONTEXT_MENU, (event: MouseEvent) => {
+			const terminal = session.terminal;
+			if (!terminal) {
+				return;
+			}
+			const action = secondary ?? 'menu';
+			secondary = undefined;
+			event.preventDefault();
+			event.stopPropagation();
+			if (action === 'menu') {
+				this.showTerminalMenu(terminal, event);
+			}
+		}));
+	}
+
+	private async runClick(terminal: ITerminalInstance, action: BaseHalfTerminalClickAction, secondary: boolean): Promise<void> {
+		switch (action) {
+			case 'copy':
+				await terminal.xterm?.copySelection();
+				terminal.clearSelection();
+				break;
+			case 'paste':
+				this.paste(terminal);
+				break;
+			case 'focus':
+				terminal.focus();
+				return;
+			default:
+				return;
+		}
+		if (secondary && isMacintosh) {
+			// The terminal selects the word under a secondary click after this press: take that away too.
+			mainWindow.setTimeout(() => terminal.clearSelection(), 0);
+		}
+	}
+
+	/** The base's paste, which acts on the terminal that has the keyboard. */
+	private paste(terminal: ITerminalInstance): void {
+		terminal.focus();
+		void this.area.commandService.executeCommand(TerminalCommandId.Paste);
+	}
+
+	/**
+	 * The menu of a session's terminal. An item that the base has a command for carries that command's id, so
+	 * that the menu shows its key.
+	 */
+	private showTerminalMenu(terminal: ITerminalInstance, event: MouseEvent): void {
+		this.area.contextMenuService.showContextMenu({
+			getAnchor: () => ({ x: event.clientX, y: event.clientY }),
+			getActions: () => [
+				toAction({ id: TerminalCommandId.CopySelection, label: localize('basehalf.agentArea.terminalMenu.copy', "Copy"), enabled: terminal.hasSelection(), run: () => terminal.xterm?.copySelection() }),
+				toAction({ id: TerminalCommandId.Paste, label: localize('basehalf.agentArea.terminalMenu.paste', "Paste"), run: () => this.paste(terminal) }),
+				toAction({ id: TerminalCommandId.SelectAll, label: localize('basehalf.agentArea.terminalMenu.selectAll', "Select All"), run: () => terminal.xterm?.selectAll() }),
+				new Separator(),
+				toAction({ id: TerminalCommandId.Clear, label: localize('basehalf.agentArea.terminalMenu.clear', "Clear"), run: () => terminal.clearBuffer() }),
+				new Separator(),
+				toAction({ id: BASEHALF_AGENT_AREA_SPLIT_RIGHT_COMMAND_ID, label: localize('basehalf.agentArea.terminalMenu.splitRight', "Split Pane Right"), run: () => void this.area.splitActivePane('right') }),
+				toAction({ id: BASEHALF_AGENT_AREA_SPLIT_DOWN_COMMAND_ID, label: localize('basehalf.agentArea.terminalMenu.splitDown', "Split Pane Down"), run: () => void this.area.splitActivePane('down') }),
+				new Separator(),
+				toAction({ id: BASEHALF_AGENT_AREA_CLOSE_PANE_COMMAND_ID, label: localize('basehalf.agentArea.terminalMenu.closePane', "Close Pane"), run: () => this.area.closeActivePane() })
+			]
+		});
 	}
 
 	private handleTerminalDisposed(session: IBaseHalfRuntimeAgentSession): void {

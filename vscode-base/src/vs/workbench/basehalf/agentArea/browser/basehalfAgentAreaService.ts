@@ -41,6 +41,7 @@ import { BaseHalfAgentAreaTerminalPanes } from './basehalfAgentAreaTerminalPanes
 import { BaseHalfAgentAreaClosing } from './basehalfAgentAreaClosing.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 
 // The Agent Area: its sessions in tabs and panes, each a terminal or an agent extension's view.
 
@@ -146,6 +147,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		@IFileService public readonly fileService: IFileService,
 		@IWorkspaceContextService public readonly workspaceContextService: IWorkspaceContextService,
 		@IDialogService public readonly dialogService: IDialogService,
+		@ICommandService public readonly commandService: ICommandService,
 		@ILifecycleService lifecycleService: ILifecycleService
 	) {
 		super();
@@ -752,6 +754,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		session.host.addEventListener('mouseleave', () => session.host.classList.remove('handle-reveal'));
 
 		this.wirePaneDrag(session);
+		this.terminalPanes.installClicks(session);
 		this.runtime.set(session.id, session);
 		return session;
 	}
