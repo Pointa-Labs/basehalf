@@ -5,12 +5,14 @@
 
 import './media/basehalfCanvasZoom.css';
 import { $, addDisposableListener, append, isHTMLElement, isHTMLInputElement, isSVGElement } from '../../../../../base/browser/dom.js';
+import { StandardKeyboardEvent } from '../../../../../base/browser/keyboardEvent.js';
 import { AnchorAlignment, AnchorAxisAlignment, AnchorPosition } from '../../../../../base/browser/ui/contextview/contextview.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
-import { isMacintosh } from '../../../../../base/common/platform.js';
 import { localize } from '../../../../../nls.js';
 import { IContextViewDelegate, IContextViewService } from '../../../../../platform/contextview/browser/contextView.js';
+import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
+import { BaseHalfCanvasCommandId } from '../../../canvas/common/basehalfCanvasKeys.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
 import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 
@@ -34,6 +36,7 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 	constructor(
 		context: IBaseHalfCanvasContributionContext,
 		@IContextViewService private readonly contextViewService: IContextViewService,
+		@IKeybindingService private readonly keybindingService: IKeybindingService,
 	) {
 		super();
 		this.canvas = context.canvas;
@@ -136,9 +139,10 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 					return button;
 				};
 
-				const commandKey = isMacintosh ? '⌘' : localize('basehalf.canvas.controlKey', "Ctrl");
-				this.menuInAction = addAction(localize('basehalf.canvas.zoomIn', "Zoom In"), `${commandKey} +`, () => this.canvas.zoomBy(1), { actionId: 'in' });
-				this.menuOutAction = addAction(localize('basehalf.canvas.zoomOut', "Zoom Out"), `${commandKey} -`, () => this.canvas.zoomBy(-1), { actionId: 'out' });
+				// The keys the three zoom commands have now (the keys of the canvas).
+				const keyOf = (command: BaseHalfCanvasCommandId): string | undefined => this.keybindingService.lookupKeybinding(command)?.getLabel() ?? undefined;
+				this.menuInAction = addAction(localize('basehalf.canvas.zoomIn', "Zoom In"), keyOf(BaseHalfCanvasCommandId.ZoomIn), () => this.canvas.zoomBy(1), { actionId: 'in' });
+				this.menuOutAction = addAction(localize('basehalf.canvas.zoomOut', "Zoom Out"), keyOf(BaseHalfCanvasCommandId.ZoomOut), () => this.canvas.zoomBy(-1), { actionId: 'out' });
 				addAction(localize('basehalf.canvas.fitToScreen', "Fit to Screen"), undefined, () => this.canvas.fitToScreen(), { actionId: 'fit' });
 
 				const separator = append(actionList, $('.basehalf-canvas-zoom-menu-separator'));
@@ -150,7 +154,7 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 					const zoom = percentage / 100;
 					const button = addAction(
 						localize('basehalf.canvas.zoomToPercentage', "Zoom to {0}%", percentage),
-						percentage === 100 ? `${commandKey} 0` : undefined,
+						percentage === 100 ? keyOf(BaseHalfCanvasCommandId.ZoomTo100) : undefined,
 						() => this.canvas.setZoom(zoom),
 						{ actionId: percentage === 100 ? 'reset' : `preset-${percentage}`, zoomTarget: zoom }
 					);
@@ -190,15 +194,16 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 						this.closeMenu(true);
 						return;
 					}
-					if ((event.metaKey || event.ctrlKey) && !event.altKey
-						&& (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
+					// The menu stands outside the canvas: it takes the keys of the canvas's zoom itself.
+					const zoomCommand = this.zoomCommandOf(event);
+					if (zoomCommand) {
 						event.preventDefault();
 						event.stopPropagation();
 						this.closeMenu(true);
-						if (event.key === '0') {
+						if (zoomCommand === BaseHalfCanvasCommandId.ZoomTo100) {
 							this.canvas.setZoom(1);
 						} else {
-							this.canvas.zoomBy(event.key === '-' ? -1 : 1);
+							this.canvas.zoomBy(zoomCommand === BaseHalfCanvasCommandId.ZoomOut ? -1 : 1);
 						}
 						return;
 					}
@@ -281,6 +286,21 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 		};
 
 		this.contextViewService.showContextView(delegate);
+	}
+
+	/** The zoom command of the canvas that has this key, whatever the user made its keys. */
+	private zoomCommandOf(event: KeyboardEvent): BaseHalfCanvasCommandId | undefined {
+		if (event.isComposing) {
+			return undefined;
+		}
+		const [pressed, ...more] = this.keybindingService.resolveKeyboardEvent(new StandardKeyboardEvent(event)).getDispatchChords();
+		if (!pressed || more.length > 0) {
+			return undefined;
+		}
+		return [BaseHalfCanvasCommandId.ZoomIn, BaseHalfCanvasCommandId.ZoomOut, BaseHalfCanvasCommandId.ZoomTo100].find(command => this.keybindingService.lookupKeybindings(command).some(keybinding => {
+			const chords = keybinding.getDispatchChords();
+			return chords.length === 1 && chords[0] === pressed;
+		}));
 	}
 
 	private closeMenu(restoreFocus: boolean): void {

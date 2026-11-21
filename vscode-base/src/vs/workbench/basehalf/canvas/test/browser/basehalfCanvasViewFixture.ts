@@ -11,6 +11,7 @@ import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfC
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasCardPick } from '../../common/basehalfCanvasCardPick.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCanvasCommandId } from '../../common/basehalfCanvasKeys.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 
@@ -32,8 +33,8 @@ export interface IBaseHalfTestCanvasView extends IBaseHalfCanvasView {
 	changeSelection(paths: readonly string[], sceneKey?: string): void;
 	/** The item and the preview of a card, as the canvas read them last; no preview while it loads. */
 	setItem(item: IBaseHalfCanvasItem, preview?: BaseHalfCanvasCardPreview): void;
-	/** A key is pressed on the canvas. Returns the event, to see whether a feature took it. */
-	pressKey(init: KeyboardEventInit, target?: HTMLElement): KeyboardEvent;
+	/** Runs a command of the canvas that a feature registered, as its key and the Command Palette do. Returns whether a feature runs it. */
+	runCommand(id: BaseHalfCanvasCommandId): Promise<boolean>;
 	/** Undoes (true) or does again (false) the last change of `moveCards`. */
 	undoOrRedoLastMove(undone: boolean): void;
 	/** What `closeNoteEditor` answers next. */
@@ -104,7 +105,7 @@ export function createBaseHalfTestCanvasView(
 	const onDidHideViewControls = store.add(new Emitter<void>());
 	const onDidChangeScene = store.add(new Emitter<IBaseHalfCanvasViewSceneChange>());
 	const onDidChangeSelection = store.add(new Emitter<IBaseHalfCanvasViewSelection>());
-	const onKeyDown = store.add(new Emitter<KeyboardEvent>());
+	const commands = new Map<BaseHalfCanvasCommandId, () => void | Promise<void>>();
 	const viewControlsCorner = mainWindow.document.createElement('div');
 	const viewControls = mainWindow.document.createElement('div');
 	viewControlsCorner.appendChild(viewControls);
@@ -221,7 +222,10 @@ export function createBaseHalfTestCanvasView(
 			return canvas.noteEditorCloses;
 		},
 		focus: () => calls.push('focus'),
-		onKeyDown: onKeyDown.event,
+		registerCommand: (id, run) => {
+			commands.set(id, run);
+			return toDisposable(() => commands.delete(id));
+		},
 		reportError: error => calls.push(`reportError ${error instanceof Error ? error.message : String(error)}`),
 		viewControls,
 		viewControlsCorner,
@@ -237,14 +241,10 @@ export function createBaseHalfTestCanvasView(
 		},
 		changeSelection: (paths, sceneKey) => onDidChangeSelection.fire({ sceneKey: sceneKey ?? scene.key, paths }),
 		setItem: (item, preview) => { items.set(item.path, { item, preview }); },
-		pressKey: (init, target) => {
-			const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
-			if (target) {
-				// The target is the element the key was pressed on.
-				Object.defineProperty(event, 'target', { value: target });
-			}
-			onKeyDown.fire(event);
-			return event;
+		runCommand: async id => {
+			const run = commands.get(id);
+			await run?.();
+			return !!run;
 		},
 		undoOrRedoLastMove: undone => lastMoveUndoOrRedo?.(undone),
 		failNextMove: error => { nextMoveError = error; },

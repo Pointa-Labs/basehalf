@@ -9,6 +9,8 @@ import { IDisposable } from '../../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { IContextViewDelegate, IContextViewService } from '../../../../../../platform/contextview/browser/contextView.js';
 import { TestInstantiationService } from '../../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
+import { IKeybindingService } from '../../../../../../platform/keybinding/common/keybinding.js';
+import { MockKeybindingService } from '../../../../../../platform/keybinding/test/common/mockKeybindingService.js';
 import { createBaseHalfTestCanvasView, IBaseHalfTestCanvasView } from '../../../../canvas/test/browser/basehalfCanvasViewFixture.js';
 import { BaseHalfCanvasZoomControls, baseHalfCanvasZoomFromPercentInput, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasZoom.contribution.js';
 
@@ -51,6 +53,7 @@ suite('BaseHalfCanvasZoomControls', () => {
 		const contextView = new TestContextViewService();
 		const instantiationService = store.add(new TestInstantiationService());
 		instantiationService.stub(IContextViewService, contextView);
+		instantiationService.stub(IKeybindingService, new MockKeybindingService());
 		const controls = store.add(instantiationService.createInstance(BaseHalfCanvasZoomControls, { canvas }));
 		const trigger = canvas.viewControls.querySelector<HTMLButtonElement>('[data-testid="canvas-zoom-trigger"]');
 		assert.ok(trigger);

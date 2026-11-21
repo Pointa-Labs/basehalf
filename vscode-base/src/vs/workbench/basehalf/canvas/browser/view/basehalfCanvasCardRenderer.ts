@@ -401,16 +401,10 @@ export class BaseHalfCanvasCardRenderer {
 			height: bounds.height
 		});
 
-		listeners.add(this.view.addDisposableListener(card, 'keydown', event => {
-			if (event.target !== card) {
-				return;
-			}
-			if (event.key === 'F2') {
-				event.preventDefault();
-				event.stopPropagation();
-				void this.view.creation.requestInlineRename(item);
-			} else if (event.key === 'Enter') {
-				event.preventDefault();
+		// Rename Card, Open Card, and Select Card for the card that has the keyboard (the keys of the canvas).
+		this.view.keys.setCardKeys(card, {
+			rename: () => void this.view.creation.requestInlineRename(item),
+			open: () => {
 				if (draft) {
 					// A draft has no file to open: Enter selects it, and its panel shows.
 					this.view.selectionActions.selectCard(item.path);
@@ -426,11 +420,9 @@ export class BaseHalfCanvasCardRenderer {
 				} else {
 					void this.view.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 				}
-			} else if (event.key === ' ') {
-				event.preventDefault();
-				this.view.selectionActions.selectCard(item.path);
-			}
-		}));
+			},
+			select: () => this.view.selectionActions.selectCard(item.path)
+		});
 		return card;
 	}
 

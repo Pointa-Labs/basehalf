@@ -27,6 +27,7 @@ import { IContextMenuService, IContextViewService } from '../../../../platform/c
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { IBaseHalfDocumentCoverService } from '../../documents/browser/basehalfDocumentCovers.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
@@ -107,6 +108,8 @@ import { BaseHalfCanvasSelectionActions } from './view/basehalfCanvasSelectionAc
 import { BaseHalfCanvasCreation } from './view/basehalfCanvasCreation.js';
 import { BaseHalfCanvasFolderDrops } from './view/basehalfCanvasFolderDrops.js';
 import { BaseHalfCanvasCardDetailHost } from './view/basehalfCanvasCardDetailHost.js';
+import { BaseHalfCanvasKeys } from './view/basehalfCanvasKeys.js';
+import { IBaseHalfCanvasKeyCommandService } from '../common/basehalfCanvasKeys.js';
 import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, BaseHalfCanvasInlineEdit, IBaseHalfActiveCanvasNoteEditor, IBaseHalfBadgeDescriptionPending, IBaseHalfCanvasCardRenderCacheEntry, IBaseHalfCanvasMutationGuard, IBaseHalfCanvasNotePreviewMount, IBaseHalfCanvasPostCreateOwner, IBaseHalfPendingCanvasNoteFocus, IBaseHalfPendingCanvasNoteFormatCommand, IBaseHalfPendingCanvasNoteNavigationGuard, baseHalfBadgeResourceIdentity, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasTargetTakesOwnTransfer } from './view/basehalfCanvasViewShared.js';
 
 interface IBaseHalfPendingCanvasSelection {
@@ -167,6 +170,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly creation = new BaseHalfCanvasCreation(this);
 	readonly folderDrops = new BaseHalfCanvasFolderDrops(this);
 	readonly cardDetailHost = new BaseHalfCanvasCardDetailHost(this);
+	readonly keys = new BaseHalfCanvasKeys(this);
 
 	readonly root: HTMLElement;
 	readonly createButton: HTMLButtonElement;
@@ -254,7 +258,6 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly onDidHideViewControlsEmitter = this._register(new Emitter<void>());
 	readonly onDidChangeSceneEmitter = this._register(new Emitter<IBaseHalfCanvasViewSceneChange>());
 	readonly onDidChangeSelectionEmitter = this._register(new Emitter<IBaseHalfCanvasViewSelection>());
-	private readonly onKeyDownEmitter = this._register(new Emitter<KeyboardEvent>());
 	private chosenCanvasPlacesInstance: BaseHalfCanvasChosenPlaces | undefined;
 	/** The places BaseHalf chose for cards that appeared, until the layout holds them (canvas card placement). */
 	get chosenCanvasPlaces(): BaseHalfCanvasChosenPlaces {
@@ -362,7 +365,9 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IAccessibilityService public readonly accessibilityService: IAccessibilityService,
 		@IBaseHalfDocumentCoverService public readonly documentCoverService: IBaseHalfDocumentCoverService,
 		@ILanguageService public readonly languageService: ILanguageService,
-		@IExtensionService public readonly extensionService: IExtensionService
+		@IExtensionService public readonly extensionService: IExtensionService,
+		@IKeybindingService public readonly keybindingService: IKeybindingService,
+		@IBaseHalfCanvasKeyCommandService public readonly canvasKeyCommandService: IBaseHalfCanvasKeyCommandService
 	) {
 		super();
 		this.itemRules = this._register(new BaseHalfItemRulesReader(this.configurationService));
@@ -443,6 +448,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			didChangeSelection: (sceneKey, _structuralEpoch, paths) => {
 				this.agentSelectionCards = { sceneKey, paths };
 				this.selectionActions.reportAgentSelection();
+				this.keys.selectionChanged();
 			},
 			focusNoteEditor: (sceneKey, structuralEpoch, path) => this.noteEditing.focusSceneNoteEditor(sceneKey, structuralEpoch, path),
 			editNote: (sceneKey, structuralEpoch, path, point) => this.noteEditing.beginSceneNoteEdit(sceneKey, structuralEpoch, path, point),
@@ -621,16 +627,20 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		}));
 		this._register(this.editorService.onDidVisibleEditorsChange(() => this.reconcileActiveEditor()));
 		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
+		// The keys of the canvas are commands, which its part of keys runs before any control (the keys of the canvas).
+		this._register(this.keys.start());
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
+			if (this.keys.ran(event)) {
+				// Enter or Space ran its command and went on to the canvas library: the base's key bindings do not run it again.
+				event.stopPropagation();
+				return;
+			}
 			if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229) {
 				// Full screen takes Escape first (opening and closing Card Detail, "The keyboard").
 				if (!this.root.ownerDocument.fullscreenElement) {
 					void this.canvasNavigationService.closeCardDetail();
 				}
-				return;
 			}
-			this.onKeyDownEmitter.fire(event);
-			this.geometry.onCanvasKeyDown(event);
 		}));
 		this._register(this.addDisposableListener(this.root, 'pointerdown', event => {
 			const target = event.target;
@@ -887,7 +897,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			},
 			closeNoteEditor: () => this.noteEditing.closeActiveCanvasNoteEditorAfterFormats(),
 			focus: () => this.cards.focus({ preventScroll: true }),
-			onKeyDown: this.onKeyDownEmitter.event,
+			registerCommand: (id, run) => this.keys.registerFeatureCommand(id, run),
 			reportError: error => this.reportCanvasMutationError(error),
 			viewControls: this.viewControls,
 			viewControlsCorner: this.chrome,

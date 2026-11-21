@@ -487,26 +487,6 @@ export class BaseHalfCanvasGeometry {
 		}).catch(error => this.view.logService.error(error));
 	}
 
-	onCanvasKeyDown(event: KeyboardEvent): void {
-		if (this.view.canvasNavigationService.state.cardDetail || !(event.metaKey || event.ctrlKey) || event.altKey) {
-			return;
-		}
-
-		if (event.key === '=' || event.key === '+') {
-			event.preventDefault();
-			event.stopPropagation();
-			this.zoomBy(1);
-		} else if (event.key === '-') {
-			event.preventDefault();
-			event.stopPropagation();
-			this.zoomBy(-1);
-		} else if (event.key === '0') {
-			event.preventDefault();
-			event.stopPropagation();
-			this.setCanvasZoom(1);
-		}
-	}
-
 	setCanvasZoom(value: number): void {
 		const nextZoom = normalizeCanvasZoom(value);
 		if (nextZoom === this.view.canvasZoom) {
