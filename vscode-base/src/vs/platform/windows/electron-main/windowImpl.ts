@@ -1154,10 +1154,13 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 				return; // window must be ready
 			}
 
+			// BaseHalf: a swipe runs Go Back and Go Forward, which move through BaseHalf's history while a canvas
+			// or Card Detail is shown (the shown place and the workbench, rule 3). The base's commands of the
+			// recently used editors find no editor there.
 			if (cmd === 'left') {
-				this.send('vscode:runAction', { id: 'workbench.action.openPreviousRecentlyUsedEditor', from: 'mouse' });
+				this.send('vscode:runAction', { id: 'workbench.action.navigateBack', from: 'mouse' });
 			} else if (cmd === 'right') {
-				this.send('vscode:runAction', { id: 'workbench.action.openNextRecentlyUsedEditor', from: 'mouse' });
+				this.send('vscode:runAction', { id: 'workbench.action.navigateForward', from: 'mouse' });
 			}
 		});
 	}

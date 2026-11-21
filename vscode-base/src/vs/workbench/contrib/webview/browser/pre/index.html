@@ -5,7 +5,7 @@
 	<meta charset="UTF-8">
 
 	<meta http-equiv="Content-Security-Policy"
-		content="default-src 'none'; script-src 'sha256-DSQ8tfRvKyKrq7Bg/sleEX2iSIEgL2AKzaqT+ptmAzw=' 'self'; frame-src 'self'; style-src 'unsafe-inline';">
+		content="default-src 'none'; script-src 'sha256-eAWY+OIZW4LcB+R3XyDfhbkwqxal8UIplulJsrLMH6s=' 'self'; frame-src 'self'; style-src 'unsafe-inline';">
 
 	<!-- Disable pinch zooming -->
 	<meta name="viewport"
@@ -763,6 +763,22 @@
 		})();
 		// #endregion Mouse activity forwarding
 
+		// BaseHalf: the back and forward buttons of a mouse reach the window from a page, as its keys do, so that
+		// they go back and forward wherever the pointer is (the shown place and the workbench, rule 2).
+		/**
+		 * @param {MouseEvent} event
+		 */
+		const handleMouseBackForward = (event) => {
+			if (!event.isTrusted || (event.button !== 3 && event.button !== 4)) {
+				return;
+			}
+			event.preventDefault();
+			hostMessaging.postMessage('did-mouse-back-forward', {
+				type: event.type === 'mousedown' ? 'mousedown' : 'mouseup',
+				button: event.button,
+			});
+		};
+
 		let isHandlingScroll = false;
 
 		/**
@@ -945,6 +961,8 @@
 		window.addEventListener('keydown', handleInnerKeydown);
 		window.addEventListener('keyup', handleInnerKeyup);
 		window.addEventListener('mousemove', handleMouseMove, true);
+		window.addEventListener('mousedown', handleMouseBackForward, true); // BaseHalf
+		window.addEventListener('mouseup', handleMouseBackForward, true); // BaseHalf
 		window.addEventListener('dragenter', handleInnerDragStartEvent);
 		window.addEventListener('dragover', handleInnerDragEvent);
 		window.addEventListener('drag', handleInnerDragEvent);
@@ -1212,6 +1230,8 @@
 					contentWindow.addEventListener('keydown', handleInnerKeydown);
 					contentWindow.addEventListener('keyup', handleInnerKeyup);
 					contentWindow.addEventListener('mousemove', handleMouseMove, true);
+					contentWindow.addEventListener('mousedown', handleMouseBackForward, true); // BaseHalf
+					contentWindow.addEventListener('mouseup', handleMouseBackForward, true); // BaseHalf
 					contentWindow.addEventListener('contextmenu', e => {
 						if (e.defaultPrevented) {
 							// Extension code has already handled this event

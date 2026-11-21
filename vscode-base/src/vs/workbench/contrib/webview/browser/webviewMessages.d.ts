@@ -37,6 +37,8 @@ export type FromWebviewMessage = {
 	'load-localhost': { id: string; origin: string };
 	'did-scroll-wheel': IMouseWheelEvent;
 	'did-mouse-move': WebviewMouseActivity;
+	// BaseHalf: the back or the forward button of a mouse, pressed or released in the page.
+	'did-mouse-back-forward': { readonly type: 'mousedown' | 'mouseup'; readonly button: number };
 	'fatal-error': { message: string };
 	'no-csp-found': void;
 	'did-keydown': KeyEvent;
