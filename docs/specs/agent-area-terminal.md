@@ -574,6 +574,25 @@ Integrated Terminal.
 4. With `external`, Open in External Terminal starts the system's terminal
    as in the base.
 
+#### The accessible view
+
+A screen reader cannot read the terminal's canvas
+([screen reader mode](screen-reader-mode.md)). The base offers the
+terminal's text in its accessible view, and help for the terminal's keys in
+Accessibility Help.
+
+1. Open Accessible View, Focus Accessible Terminal View, and Accessibility
+   Help act on the terminal of the session that has the keyboard. While the
+   keyboard is in the accessible view, they and the keys of the view act on
+   the terminal of the session in front. They create no terminal of the
+   base's panel. Focus Accessible Terminal View without a terminal session
+   opens a Terminal session first.
+2. The view holds the text of that terminal, and Escape returns the keyboard
+   to it.
+3. `terminal.integrated.accessibleViewPreserveCursorPosition` and
+   `terminal.integrated.accessibleViewFocusOnCommandExecution` work as in
+   the base.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -880,4 +899,24 @@ Integrated Terminal.
     Before the change, on this branch, the entry from Files showed nothing,
     and about ten seconds later the window no longer answered, its renderer
     at a whole core; this was not run on the commit the branch started from.
+23. Recorded manual check, in a real window in screen reader mode with two
+    Terminal sessions that each printed a line of their own: the key of the
+    accessible view, pressed in the session in front, shows a view that
+    holds that session's line and not the other's, with the keyboard in the
+    view; Escape returns the keyboard to that terminal; the key of
+    Accessibility Help shows the terminal's help; after the other tab is
+    chosen, the view holds the other session's line. No shell is started by
+    any of this.
+
+    Recorded 2026-11-21 in a development build with
+    `editor.accessibilitySupport` on and real keys: the view opened from the
+    second session held `marker-two` and not `marker-one`, with the keyboard
+    in it, and Escape returned the keyboard to the terminal; Accessibility
+    Help showed the terminal's help; from the first session the view held
+    `marker-one` and not `marker-two`; no shell was added. With
+    `terminal.integrated.accessibleViewFocusOnCommandExecution` on, a
+    command that ran moved the keyboard into the view, which held its
+    output. Before the change the view opened on a new terminal of the
+    base's panel, which had started a shell of its own, and Escape left the
+    keyboard outside the session.
 
