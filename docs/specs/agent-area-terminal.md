@@ -155,7 +155,7 @@ went with them. Run in the real window that day:
 - Making IDE companion integrations of TUI agents, such as Claude Code's or
   Gemini CLI's VS Code extension auto-connect, work under the new identity.
 - Three groups of the base's settings of a terminal, which stay pending in
-  [the settings BaseHalf offers](settings-catalog.md#pending-29): sessions
+  [the settings BaseHalf offers](settings-catalog.md): sessions
   that are there again after the window reloads
   (`terminal.integrated.enablePersistentSessions`, `persistentSession*`), a
   split that starts where its session is (`terminal.integrated.splitCwd`),

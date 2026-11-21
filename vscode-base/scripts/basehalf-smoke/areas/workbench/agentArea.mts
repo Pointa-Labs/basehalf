@@ -83,6 +83,7 @@ export async function assertAgentAreaTerminalCommand(page) {
 	}, null, { timeout: 20_000 });
 	await assertAgentAreaSurfaceKind(page, 'terminal');
 	await assertAgentAreaTerminalClipboardPaste(page);
+	await assertAgentAreaSessionFollowsTerminalSettings(page);
 	await assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page);
 	await assertAgentAreaTerminalScrollbarFollowsScrollback(page);
 	await assertAgentAreaTerminalVersionAndWheelReports(page);
@@ -171,6 +172,57 @@ async function assertAgentAreaTerminalClipboardPaste(page) {
 			await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), clipboardState.previousText);
 		}
 	}
+}
+
+/**
+ * A session follows the base's settings of a terminal at their defaults (Agent Area terminal, "The settings of
+ * a terminal that a session follows"): its tab is named by the process in it, a secondary click shows the
+ * session's menu, and the bell shows on the tab and goes.
+ */
+async function assertAgentAreaSessionFollowsTerminalSettings(page) {
+	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
+	await terminal.click();
+	await waitForAgentAreaTerminalPrompt(page);
+	const tab = page.locator('.basehalf-agent-tab.active');
+	const name = await waitForReading(
+		() => tab.locator('.basehalf-agent-tab-label').textContent(),
+		text => !!text && text !== 'Terminal',
+		'the name of the process on the tab of a Terminal session'
+	);
+	if (!/^[\w.-]+$/.test(name ?? '')) {
+		throw new Error(`The tab of a Terminal session should be named by its process: ${JSON.stringify(name)}`);
+	}
+
+	// Where the default of a secondary click copies or pastes, no menu shows.
+	if (process.platform !== 'win32') {
+		const box = await terminal.boundingBox();
+		await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+		const items = await waitForReading(
+			() => page.locator('.context-view .monaco-menu .action-label').allTextContents(),
+			labels => labels.includes('Paste'),
+			'the menu of a session\'s terminal after a secondary click'
+		);
+		for (const expected of ['Copy', 'Paste', 'Select All', 'Clear', 'Split Pane Right', 'Split Pane Down', 'Close Pane']) {
+			if (!items.includes(expected)) {
+				throw new Error(`The menu of a session's terminal should hold ${expected}: ${JSON.stringify(items)}`);
+			}
+		}
+		await page.keyboard.press('Escape');
+		await page.locator('.context-view .monaco-menu').waitFor({ state: 'hidden', timeout: 15_000 });
+		await terminal.click();
+	}
+
+	const tabElement = await tab.elementHandle();
+	await page.keyboard.type(`printf '\\a'`);
+	await page.keyboard.press('Enter');
+	const bell = tab.locator('.basehalf-agent-tab-indicator.has-bell');
+	await bell.waitFor({ state: 'attached', timeout: 15_000 });
+	await bell.waitFor({ state: 'detached', timeout: 15_000 });
+	// A bell changes its mark alone: the tab is the element it was.
+	if (!await tabElement.evaluate(element => element.isConnected)) {
+		throw new Error('The strip of tabs should not be drawn again for a bell.');
+	}
+	await waitForAgentAreaTerminalPrompt(page);
 }
 
 export async function assertAgentAreaTuiSession(page) {
