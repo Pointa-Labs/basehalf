@@ -7,6 +7,9 @@ Decision: [D137](../decisions.md#d137--every-setting-has-one-of-five-classes-and
 Related: [BaseHalf's Settings](settings-pages.md) (the pages, which
 change with the Settings of BaseHalf's own),
 [a code file on its card and in Card Detail](code-cards.md),
+[the items a canvas shows](canvas-items.md),
+[the shown place and the workbench](shown-place-and-workbench.md),
+[commands and menus](commands-and-menus.md),
 [Agent Area terminal](agent-area-terminal.md),
 [workbench appearance](workbench-appearance.md),
 [screen reader mode](screen-reader-mode.md), [app update](app-update.md),
@@ -22,7 +25,8 @@ owns a surface owns what its settings do there.
 ## Problem
 
 Measured on 2026-11-21 in the real window, a development build of 0.7.0, from
-the configuration registry of the window:
+the configuration registry of the window, before the catalog and before the
+surfaces named below followed their settings:
 
 - **1,474 settings are registered, and 5 are BaseHalf's.** The others are the
   base's and those of the five extensions that ship with settings (Git, GitHub,
@@ -129,8 +133,10 @@ question is whether BaseHalf decided so.
 
 ## The catalog
 
-Counts are those of the registry on 2026-11-21. A pattern ends in `*` where
-it stands for every setting that starts so.
+Counts are those of the registry on 2026-11-21, read again after the
+surfaces came to follow their settings and JSON's language service was
+admitted: 1,483 settings. A pattern ends in `*` where it stands for every
+setting that starts so.
 
 ### Shown (12)
 
@@ -146,7 +152,7 @@ it stands for every setting that starts so.
 | `terminal.integrated.fontFamily`, `terminal.integrated.fontSize` | the Agent Area's terminals |
 | `update.mode` | whether BaseHalf looks for updates by itself |
 
-### Locked (48)
+### Locked (49)
 
 | Why | Settings and BaseHalf's value |
 | --- | --- |
@@ -154,61 +160,73 @@ it stands for every setting that starts so.
 | BaseHalf has no editor tabs (3) | `workbench.editor.showTabs` `none`, `zenMode.showTabs` `none`, `breadcrumbs.enabled` false |
 | The shape of the shell: Files, Git, and Search at the left with their icons above, the Agent Area at the right, each a card (3) | `workbench.activityBar.location` `top`, `workbench.sideBar.location` `left`, `workbench.experimental.modernUI` true |
 | Nothing covers the canvas by a setting (12) | `workbench.secondarySideBar.forceMaximized` false, `workbench.secondarySideBar.defaultVisibility` `visibleInWorkspace`, `workbench.panel.opensMaximized` `never`, `workbench.panel.defaultLocation` `bottom`, `workbench.editor.useModal` `some`, `workbench.startupEditor` `welcomePageInEmptyWorkbench`, `workbench.welcomePage.walkthroughs.openOnInstall` false, `workbench.welcomePage.experimentalOnboarding` false, `search.mode` `view`, `git.mergeEditor` false, `scm.workingSets.enabled` false, `scm.workingSets.default` `current` |
-| Files save by themselves: nothing in BaseHalf shows an unsaved file, and agents read the disk (1) | `files.autoSave` `afterDelay`. The delay, `files.autoSaveDelay`, is advanced: BaseHalf's default is 250 ms, and with a longer one a surface says that it is saving until the file is written |
+| Files save by themselves: nothing in BaseHalf shows an unsaved file, and agents read the disk (2) | `files.autoSave` `afterDelay`, and `files.autoSaveWhenNoErrors` false: a JSON file with a mistake in it is saved as any other. The delay, `files.autoSaveDelay`, is advanced: BaseHalf's default is 250 ms, and with a longer one a surface says that it is saving until the file is written |
 | The base's AI features stay off (14) | `chat.disableAIFeatures` true, and the 13 switches of the base's chat that BaseHalf sets today (`chat.agent.enabled`, `chat.agentsControl.enabled`, `chat.unifiedAgentsBar.enabled`, `chat.agentSessionProjection.enabled`, `chat.viewSessions.enabled`, `chat.agentsHandoffTip.mode`, `chat.titleBar.signIn.enabled`, `chat.titleBar.openInAgentsWindow.enabled`, `chat.agentHost.enabled`, `chat.agentHost.claudeAgent.enabled`, `chat.agentHost.codexAgent.enabled`, `chat.agents.claude.preferAgentHost`, `chat.editor.claude.preferAgentHost`) |
 | Workspace trust stays off: BaseHalf has no surface for it, and an untrusted folder would run without Git (5) | `security.workspace.trust.*`, with `enabled` false and the prompts `never` |
 | Hidden surfaces stay shut, and a folder starts no task by itself (5) | `task.allowAutomaticTasks` `off`, `debug.internalConsoleOptions` `neverOpen`, `testing.automaticallyOpenPeekView` `never`, `testing.automaticallyOpenTestResults` `neverOpen`, `testing.countBadge` `off` |
 
-### Pending (29)
+### Pending (15)
 
-| What a user would expect | Settings | Why nothing follows them | The surface that owes the answer |
-| --- | --- | --- | --- |
-| A session of the Agent Area is named by what runs in it, or by the title an agent gives it (4) | `terminal.integrated.tabs.title`, `.description`, `.separator`, `.allowAgentCliTitle` | a session's name is fixed when it starts | [Agent Area terminal](agent-area-terminal.md) |
-| A terminal is there again after the window reloads (3) | `terminal.integrated.enablePersistentSessions`, `terminal.integrated.persistentSession*` | a session is started as one that is not kept | Agent Area terminal |
-| The bell of a program shows on its session (3) | `terminal.integrated.enableBell`, `.enableVisualBell`, `.bellDuration` | the bell sets a mark that only the base's tabs draw | Agent Area terminal |
-| Closing the window or a session with something running asks first (2) | `terminal.integrated.confirmOnExit`, `.confirmOnKill` | the first counts only terminals of the base's groups; the second asks after the session is gone | Agent Area terminal |
-| A secondary click and a middle click do what the setting says, a split starts where its session is, and a screen reader has the terminal's text (5) | `terminal.integrated.rightClickBehavior`, `.middleClickBehavior`, `.splitCwd`, `.accessibleView*` | the Agent Area has no menu on a terminal, a split starts a new session, and the accessible view looks for the base's active terminal | Agent Area terminal, [screen reader mode](screen-reader-mode.md) |
-| A shell suggests commands and paths as they are typed (12) | `terminal.integrated.suggest.*` | the extension that provides them does not ship | Agent Area terminal, [what the package holds](what-the-package-holds.md) |
+| What a user would expect | Settings | Why nothing follows them | The surface that owes the answer | What it takes |
+| --- | --- | --- | --- | --- |
+| A terminal is there again after the window reloads (3) | `terminal.integrated.enablePersistentSessions`, `terminal.integrated.persistentSession*` | a session is started as one that is not kept | [Agent Area terminal](agent-area-terminal.md) | sessions the base keeps, the Agent Area saving its tabs and panes with their processes and attaching to them at start, and a decision on what coming back means for an agent: a specification of its own |
+| A shell suggests commands and paths as they are typed (12) | `terminal.integrated.suggest.*` | the extension that provides them does not ship | Agent Area terminal, [what the package holds](what-the-package-holds.md) | shipping the extension, its list placed and drawn inside a pane, and a decision whether a terminal that follows a native one has it; an agent's session has no shell and would get none |
 
-### Unlisted (676)
+Of the 14 other settings that were pending on 2026-11-21, 13 are advanced:
+the Agent Area follows them
+([Agent Area terminal](agent-area-terminal.md#the-settings-of-a-terminal-that-a-session-follows)).
+`terminal.integrated.enableBell`, which the base retired, is unlisted.
+
+### Unlisted (658)
 
 | Family | Count | What settles it |
 | --- | --- | --- |
 | The base's chat and agents: `chat.*`, `inlineChat.*`, `agents.*`, `mcp`, `github.copilot.*`, `onboarding.*`, `imageCarousel.*` | 198 | the Agent Area is BaseHalf's surface for agents ([architecture invariants](../harness/architecture-invariants.md#product-shell)) |
-| What needs a language service in the editor: `editor.inlineSuggest.*`, `editor.parameterHints.*`, `editor.inlayHints.*`, `editor.gotoLocation.*`, the 27 kinds of `editor.suggest.show*` that only a language service produces, semantic highlighting, peek, rename, linked editing | 82 | D118 and D121: no language service runs, an agent answers those questions |
-| Problems, Timeline, the merge editor, Outline, breadcrumbs: `problems.*`, `timeline.*`, `git.timeline.*`, `mergeEditor.*`, `outline.*`, `breadcrumbs.*`, `merge-conflict.diffViewPosition` | 76 | D118 for diagnostics and symbols; D123 for the merge editor; D73, the location in the title bar, for breadcrumbs; Timeline is hidden, and Git's Graph shows a file's commits |
+| What needs a language service in the editor: `editor.inlineSuggest.*`, `editor.parameterHints.*`, `editor.inlayHints.*`, `editor.gotoLocation.*`, the 27 kinds of `editor.suggest.show*` that only a language service produces, semantic highlighting, peek, rename, linked editing | 78 | D118 and D121: no language service runs but JSON's (D142), an agent answers those questions. The four kinds of suggestion JSON makes are advanced |
+| Problems, Timeline, the merge editor, Outline, breadcrumbs: `timeline.*`, `git.timeline.*`, `mergeEditor.*`, `outline.*`, `breadcrumbs.*`, `merge-conflict.diffViewPosition`, and what of `problems.*` belongs to the Problems view | 73 | D118 for symbols and the Problems view; D123 for the merge editor; D73, the location in the title bar, for breadcrumbs; Timeline is hidden, and Git's Graph shows a file's commits. The three settings of marks in a file are advanced |
 | Notebooks: `notebook.*`, `interactiveWindow.*` | 61 | nothing ships that opens a notebook |
-| Accessibility of what is unlisted here: the signals and the verbosity of chat, debug, notebooks, inline suggestions, and diagnostics | 42 | follows the rows of this table |
+| Accessibility of what is unlisted here: the signals and the verbosity of chat, debug, notebooks, and inline suggestions | 35 | follows the rows of this table. The signals of a mistake in a line and of formatting are advanced |
 | Editor tabs and groups: the looks of tabs, pinned tabs, splitting, `explorer.openEditors.*` | 39 | a file opens in Card Detail, and there is one editor group (architecture invariants) |
 | Debug: `debug.*`, `launch` | 34 | no debugger ships; the view is hidden |
-| The stock terminal panel: the rest of `terminal.integrated.tabs.*`, where a terminal opens, sticky scroll, the marks of commands, the hint | 26 | terminals are the Agent Area's, which hides sticky scroll and the marks of commands |
+| The stock terminal panel: the rest of `terminal.integrated.tabs.*`, where a terminal opens, sticky scroll, the marks of commands, the hint, and the retired `terminal.integrated.enableBell` | 27 | terminals are the Agent Area's, which hides sticky scroll and the marks of commands |
 | Tasks, the integrated browser, profiles: `task.*`, `workbench.browser.*`, and the two settings of profiles | 23 | D137: BaseHalf has none of the three. An agent runs a folder's commands in the Agent Area, a page opens in the system's browser, and there is one set of settings |
 | The workbench without a service or a provider: cloud changes, the product icon theme, the chat entries of the Command Palette, AI search of settings | 20 | no service is configured and no provider ships |
 | The Marketplace: recommendations, signatures, the gallery | 14 | D76 and D122: BaseHalf installs only the extensions it allows |
 | Remote: `remote.*` | 14 | BaseHalf opens local folders |
 | Testing: `testing.*` | 13 | no test provider ships; the view is hidden |
 | Telemetry and experiments: `telemetry.*`, `workbench.enableExperiments`, `update.channel` | 11 | BaseHalf sends no telemetry and runs no experiments |
-| What needs a formatter: `editor.formatOn*`, `editor.defaultFormatter`, `editor.codeActionsOnSave`, and three of `files.*` that depend on them | 10 | D118: a formatter comes with a language service |
 | The Search Editor and AI search: `search.searchEditor.*`, `search.searchView.*` | 10 | the Search Editor would cover the canvas; AI search has no provider |
+| What only a formatter or a code action of another language uses: `editor.formatOnType`, `editor.codeActions.triggerOnFocusChange`, `files.defaultLanguage`, `files.refactoring.autoSave` | 4 | D118: JSON's language service formats a file and nothing else |
 | Git's AI and commit diagnostics | 3 | no provider |
+| `json.colorDecorators.enable`, which the base retired | 1 | the base reads `editor.colorDecorators` |
 
-The rows that name D118 rest on one decision, no language service: about
-130 settings ([what the decision settled](#what-the-decision-settled)).
+The rows that name D118 rest on one decision, no language service but
+JSON's: about 115 settings
+([what the decision settled](#what-the-decision-settled)).
 
-### Advanced (709)
+### Advanced (749)
 
 | Family | Count |
 | --- | --- |
 | The text editor: `editor.*`, `diffEditor.*` | 220 |
 | Source control and Git: `scm.*`, `git.*`, `github.*`, `merge-conflict.*`, `mediaPreview.*` | 138 |
 | The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 99 |
-| The terminal: `terminal.*` | 78 |
+| The terminal: `terminal.*`, with the 13 the Agent Area came to follow | 91 |
 | Files: `files.*`, `explorer.*` | 47 |
 | Accessibility: `accessibility.*` | 31 |
 | The application: `http.*`, `update.*`, `keyboard.*`, `security.*`, and the like | 29 |
 | Search: `search.*` | 28 |
 | The window: `window.*` | 24 |
+| What JSON's language service uses of the editor: formatting on save and on paste, the default formatter, code actions on save, its four kinds of suggestion, the marks of a mistake and their signals | 19 |
 | Agent extensions: `extensions.*`, `comments.*`, `output.*` | 15 |
+| JSON: `json.*` | 8 |
+
+BaseHalf's defaults for advanced settings are defaults, not rules: `.bh`,
+`.vscode`, and the two agent files of the workspace folder in
+`files.exclude`; `files.autoSaveDelay` 250 ms; `window.zoomPerWindow` off;
+`terminal.integrated.confirmOnExit` `hasChildProcesses` and
+`terminal.integrated.enableVisualBell` on; and those of the product profile
+that the specification of each surface names.
 
 - The color theme is advanced: the canvas and the Agent Area terminal keep
   their dark palette whatever the theme is
@@ -230,20 +248,28 @@ The rows that name D118 rest on one decision, no language service: about
 
 ## Where a surface does not follow a listed setting
 
-A shown or an advanced setting works in the base's own surfaces. These
-surfaces of BaseHalf's do not follow it yet. Each is work for the
-specification that owns the surface; none changes a class.
+A shown or an advanced setting works in the base's own surfaces. On
+2026-11-21 ten surfaces of BaseHalf's did not follow one. Seven follow it
+now, each by the specification that owns the surface:
+
+| Surface | Settings | Where it is specified |
+| --- | --- | --- |
+| The editor on a code card | `editor.*` for the file and its language. Its size, lines, and looks stay fixed on purpose, so that it stands where the card's face stood | [code cards](code-cards.md) |
+| The canvas, and what BaseHalf reads of a folder | `files.exclude` for which entries have a card, `search.exclude` for what the reference index, moved items, and the list of items to connect cover | [the items a canvas shows](canvas-items.md) |
+| The excerpt on a text or code card | `files.encoding`, `files.autoGuessEncoding` | [note rendering](note-rendering.md) |
+| What BaseHalf animates | `workbench.reduceMotion` | [architecture invariants](../harness/architecture-invariants.md#product-shell) |
+| Going back and forward with the buttons of a mouse or a swipe | `workbench.editor.mouseBackForwardToNavigate`, `workbench.editor.swipeToNavigate` | [the shown place and the workbench](shown-place-and-workbench.md) |
+| Files and Source Control, when a file opens in Card Detail | `explorer.autoReveal`, `scm.autoReveal` | the shown place and the workbench |
+| The title of the window | the variables of `window.title` | the shown place and the workbench |
+
+These do not follow a setting yet. Each is work for the specification that
+owns the surface; none changes a class.
 
 | Surface | Settings it does not follow | What happens instead |
 | --- | --- | --- |
-| The editor on a code card | every `editor.*` that says how typing behaves: the cursor's look and blinking, closing brackets and quotes, indenting, the key of several cursors, Find, the clipboard, word separators | the editor's own defaults. Its size, lines, and looks are fixed on purpose, so that it stands where the card's face stood ([code cards](code-cards.md)) |
-| The canvas | `files.exclude` | a list of names of its own: a folder named `build`, `out`, `dist`, `target`, `vendor`, or `node_modules` has no card, and nothing a user sets brings it back; what the user excludes in Files still has a card |
-| The excerpt on a text or code card | `files.encoding`, `files.autoGuessEncoding` | the file is read as UTF-8, while Card Detail reads it by the settings |
-| What BaseHalf animates | `workbench.reduceMotion` set to `on` or `off` | 11 stylesheets ask the system's own preference; three places ask the setting |
-| Going back and forward with the buttons of a mouse or a swipe | `workbench.editor.mouseBackForwardToNavigate`, `workbench.editor.swipeToNavigate` | they move through the base's history of editors, and Go Back in the title bar through BaseHalf's history of the canvas (read in the code, not run) |
-| Files and Source Control, when a file opens in Card Detail | `explorer.autoReveal`, `scm.autoReveal` | they follow the base's active editor, which Card Detail is not (read in the code, not run) |
-| The title of the window | the variables of `window.title` | they never name the note in Card Detail |
 | The Agent Area and the canvas | `accessibility.dimUnfocused.*` | only the base's editors and terminals dim |
+| The editor's own library inside the page of Rich | `workbench.reduceMotion` set to `on` or `off` | the library asks the system's preference by itself |
+| The walks for files inside notes | `search.exclude` | they leave out `.git` and `node_modules`, two names of their own |
 | A note in Rich, in Preview, and on its card | none exists | the size and the font of a note's text have no setting |
 | The canvas's own keys | none exists | the keys of the canvas are not in Keyboard Shortcuts and cannot be changed |
 
@@ -266,28 +292,34 @@ off; every place that reads it reads it the same way), `git.enabled` and
 (whether a key goes to the Agent Area or to the program in it),
 `terminal.integrated.mouseWheelScrollSensitivity`,
 `diffEditor.renderSideBySide` (written by Inline View of the Changes view),
-and `http.proxy` with `http.noProxy` (followed by the requests to providers
-and by the update check).
+`http.proxy` with `http.noProxy` (followed by the requests to providers
+and by the update check), the settings of the first table above, and those
+of a terminal that a session of the Agent Area follows:
+`terminal.integrated.confirmOnExit` and `.confirmOnKill`,
+`.rightClickBehavior` and `.middleClickBehavior`, `.tabs.title`,
+`.tabs.description`, `.tabs.separator`, and `.tabs.allowAgentCliTitle`,
+`.enableVisualBell` and `.bellDuration`, `.splitCwd`, and
+`terminal.explorerKind` with `terminal.sourceControlRepositoriesKind`.
 
 ## What the decision settled
 
-- **Language services stay out, but for JSON.** D118 and D121 stand: no
-  language service runs, and an agent answers what one would. About 130
+- **Language services stay out, but for JSON** (D142). D118 and D121 stand:
+  no language service runs, and an agent answers what one would. About 115
   unlisted settings follow from it. The JSON language service is the one
-  exception, admitted by a decision of its own: a settings file, a
-  `package.json`, and an agent's configuration are JSON, and those who edit
-  them are those who use the advanced list. With it, completion, formatting,
-  and marks for mistakes work in JSON files, and the settings that tune them
-  move to advanced in the same change.
+  exception: a settings file, a `package.json`, and an agent's configuration
+  are JSON, and those who edit them are those who use the advanced list.
+  With it, completion, formatting, and marks for mistakes work in JSON
+  files, and the settings that tune them are advanced.
 - **Tasks, the integrated browser, and profiles are not BaseHalf's.** Their
-  settings are unlisted, and their commands and menu entries go
-  ([not in this specification](#not-in-this-specification)).
-- **The Agent Area follows the settings of a terminal** for the name of a
-  session, the bell, closing with something running, and the clicks. Sessions
-  after a reload, the place of a split, the accessible view, and the
-  suggestions of a shell stay pending.
-- **The surfaces of the table above follow their settings**, each by the
-  specification that owns the surface.
+  settings are unlisted, and their commands and menu entries are gone
+  (D141, [commands and menus](commands-and-menus.md)).
+- **The Agent Area follows the settings of a terminal** (D140) for the name
+  of a session, the bell, closing with something running, the clicks, the
+  folder of a split, and the accessible view. Sessions after a reload and
+  the suggestions of a shell stay pending, each with what it takes.
+- **The surfaces follow their settings** (D138 for a card and the canvas,
+  D139 for what the workbench's settings say), each by the specification
+  that owns the surface.
 
 ## Not in this specification
 
@@ -296,9 +328,8 @@ and by the update check).
   endpoints, and credentials, the last model used, the answer to the offer of
   the skill, and the preferences of the book reader are in the application's
   storage. BaseHalf's Settings shows some of them; they have no class.
-- The commands and menus of hidden features. The Command Palette lists 609
-  commands, and the application menu holds Run and Run Task; a command that
-  only writes a locked setting is one of them.
+- The commands and menus of what BaseHalf does not have, a command that only
+  writes a locked setting among them: [commands and menus](commands-and-menus.md).
 - Removing the code of hidden features from the build.
 
 ## Implementation boundaries
@@ -336,7 +367,7 @@ and by the update check).
    commands stay away. The editor of the file marks each of the lines.
 3. `window.titleBarStyle` as `native` in the user's `settings.json` leaves
    BaseHalf's one title bar after a restart.
-4. The advanced list holds the 721 shown and advanced settings and no other:
+4. The advanced list holds the 761 shown and advanced settings and no other:
    its table of contents has no group for chat, notebooks, debug, testing,
    or remote, and a search for a locked, a pending, or an unlisted setting
    finds nothing.
@@ -355,15 +386,17 @@ and by the update check).
 
 - The registry was read from the window of a development build
   (`vscode-base/.build/rw-set/dump.mts`), and the rules of the catalog were run
-  against it (`vscode-base/.build/rw-set/classes.mjs`): 12 shown, 48 locked,
-  29 pending, 676 unlisted, 709 advanced, none without a rule. Both are tool
+  against it (`vscode-base/.build/rw-set/classes.mjs`): first 12 shown, 48
+  locked, 29 pending, 676 unlisted, 709 advanced of 1,474; and, read again
+  from the build that holds D138 to D142, 12 shown, 49 locked, 15 pending,
+  658 unlisted, 749 advanced of 1,483, none without a rule. Both are tool
   state of the checkout, not part of the tree; the check of criterion 1
   replaces them.
 - Run in the real window on 2026-11-21: the three settings of the problem
   that break the product, tabs and breadcrumbs that do not show, the editor's
   font size reaching a note's Source, word suggestions in a note's Source,
   and a split that is taken back.
-- Read in the code and not run: the native title bar; the editor of a code
-  card and its options; the canvas's list of names; the excerpt read as
-  UTF-8; the rows of the Agent Area under Pending; and the rows marked so
-  under "Where a surface does not follow a listed setting".
+- Read in the code and not run: the native title bar, and the rows of
+  "Where a surface does not follow a listed setting" that are still open.
+  What the surfaces that follow their settings now were run with is in the
+  verification of each owning specification.

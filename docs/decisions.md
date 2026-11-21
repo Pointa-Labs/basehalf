@@ -6631,8 +6631,10 @@ the base's default leaves out `node_modules` and `bower_components`: both are se
 - A setting of BaseHalf's own for any of the three. Each has a setting of the base that says it already.
 
 **Consequences.**
-- A workspace folder with `.vscode`, `dist`, `build`, `out`, `target`, `vendor`, or `node_modules` shows a card for each, as
-  Files lists them. A user hides one with `files.exclude`, in Files and on the canvas at once.
+- A workspace folder with `dist`, `build`, `out`, `target`, `vendor`, or `node_modules` shows a card for each, as Files
+  lists them. A user hides one with `files.exclude`, in Files and on the canvas at once. `.vscode`, the folder of a
+  folder's own settings, is in BaseHalf's default for that setting since the integration of the settings' branches: it has
+  no card and no row in Files until a user turns the pattern off.
 - An upstream entry that names an item in such a folder, dangling before, is valid, and the notes of such a folder are read
   for the reference index unless Search leaves the folder out.
 - The card's editor has two more of the editor's features, each with its setting: dragging selected text
