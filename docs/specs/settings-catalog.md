@@ -367,7 +367,8 @@ of a terminal that a session of the Agent Area follows:
    commands stay away. The editor of the file marks each of the lines.
 3. `window.titleBarStyle` as `native` in the user's `settings.json` leaves
    BaseHalf's one title bar after a restart.
-4. The advanced list holds the 761 shown and advanced settings and no other:
+4. The advanced list holds shown and advanced settings and no other, of the
+   761 those the base lists on the system (734 on 2026-11-21):
    its table of contents has no group for chat, notebooks, debug, testing,
    or remote, and a search for a locked, a pending, or an unlisted setting
    finds nothing.
