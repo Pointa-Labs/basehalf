@@ -397,6 +397,14 @@ of a terminal that a session of the Agent Area follows:
   that break the product, tabs and breadcrumbs that do not show, the editor's
   font size reaching a note's Source, word suggestions in a note's Source,
   and a split that is taken back.
+- On the build that holds D137 to D142 together, 2026-11-21: in the real
+  window, no registered setting without a class; `.vscode` with no card and
+  no row while `build` has both; no command of Tasks, Debug, notebooks, or
+  chat in the Command Palette; a wrong value in the user's settings file
+  marked by JSON's language service; a split of a session in the folder its
+  shell is in, and in the workspace folder with `workspaceRoot`. The five
+  suites of the smoke, 307 steps, with `settings-every-setting-has-a-class`
+  and `hidden-families-name-their-commands` among them.
 - Read in the code and not run: the native title bar, and the rows of
   "Where a surface does not follow a listed setting" that are still open.
   What the surfaces that follow their settings now were run with is in the
