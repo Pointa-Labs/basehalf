@@ -330,7 +330,8 @@ of selected cards is in the name that assistive technology reads.
 
 Delete, Backspace, and the duplicate key act on the whole set, as before.
 The arrow keys do nothing while a set is selected, also when one of its
-cards has the keyboard focus.
+cards has the keyboard focus. The keys are commands that a user can change
+([the keys of the canvas](canvas-keys.md)).
 
 **Leaving the set.** A set ends when the user clicks on empty canvas, draws
 a marquee, selects a connection, opens the context menu of empty canvas or
@@ -425,8 +426,11 @@ corner of the set box before the arrangement.
 
 **The button.** The view controls at the lower left of the canvas begin
 with a **Tidy Canvas** button, before Snap to Cards and the zoom control.
-Shift+Alt+F does the same while the keyboard focus is in the canvas and not
-in a place for typing, so also while a button of the canvas has it. The
+Tidy Canvas is also a command, with Shift+Alt+F as its key until the user
+gives it another ([the keys of the canvas](canvas-keys.md)). The key does
+the same while the keyboard focus is in the canvas and not in a place for
+typing, so also while a button of the canvas has it. The tooltip of the
+button names the key the command has. The
 button is disabled while the canvas shows fewer than two cards and while a
 generation card waits for the user to pick an input.
 

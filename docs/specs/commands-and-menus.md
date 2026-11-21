@@ -1,17 +1,22 @@
 # The commands and menus BaseHalf has
 
 Status: Active (2026-11-21)
-Decision: [D141](../decisions.md#d141--a-command-of-what-basehalf-does-not-have-is-in-no-list-and-does-not-run-new-2026-11-21)
+Decision: [D141](../decisions.md#d141--a-command-of-what-basehalf-does-not-have-is-in-no-list-and-does-not-run-new-2026-11-21),
+[D146](../decisions.md#d146--the-keys-of-the-canvas-are-commands-and-keyboard-shortcuts-opens-over-the-canvas-new-2026-11-21)
+for Keyboard Shortcuts
 Related: [the settings BaseHalf offers](settings-catalog.md),
+[the keys of the canvas](canvas-keys.md),
 [architecture invariants](../harness/architecture-invariants.md#product-shell),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md),
 [Agent Area terminal](agent-area-terminal.md)
 
 This specification owns which commands of the base BaseHalf has: what the
-Command Palette lists, what the menus hold, which keys run a command, and
-what happens when something executes a command by its id. It also owns where
-output shows, since BaseHalf has no bottom panel. Which settings BaseHalf
+Command Palette lists, what the menus hold, which keys run a command, what
+Keyboard Shortcuts lists and where it opens, and what happens when something
+executes a command by its id. It also owns where output shows, since
+BaseHalf has no bottom panel. The keys of BaseHalf's own canvas are owned by
+[the keys of the canvas](canvas-keys.md). Which settings BaseHalf
 offers is owned by [the settings BaseHalf offers](settings-catalog.md); what
 each of BaseHalf's own surfaces does with its commands is owned by the
 specification of the surface.
@@ -48,6 +53,22 @@ folder under git open:
   light preference is a dark theme.
 - **Nothing enforced a hidden command.** The list of hidden surfaces named
   five commands of the Search Editor, and no code read them.
+
+Seen in the real window later that day, with the hidden commands gone from
+the palette and the menus:
+
+- **Keyboard Shortcuts opened in the place of the canvas.** From the gear's
+  menu it opened in the editor area: the canvas was gone behind it, the
+  title bar showed an editor's, and Escape did not close it. Settings and
+  the advanced list open in the overlay over the canvas.
+- **Keyboard Shortcuts still listed commands of what BaseHalf does not
+  have**: "Accept Inline Completion" and 14 more of inline suggestions,
+  which have no provider; 68 actions of the Extensions view by their bare
+  ids; the commands of the views of Run and Debug; and commands of the
+  base's chat that the palette never listed. D141 read the two lists
+  Keyboard Shortcuts is made from and did not open it.
+- **Keyboard Shortcuts listed none of the keys of the canvas**
+  ([the keys of the canvas](canvas-keys.md)).
 
 ## Terms
 
@@ -91,8 +112,17 @@ nothing typed.
 | The Search Editor | opening search results in an editor | 0 | it would cover the canvas |
 | Cloud changes and settings sync | `workbench.editSessions.*`, `workbench.userDataSync.*` | 0 | no service is configured |
 
+| Inline suggestions and inline edits | `editor.action.inlineSuggest.*`, Accept Inline Completion of the accessible view | 2 | no provider: the base's chat extension makes them, and it does not run; their settings are unlisted in the catalog |
+| What a language service other than JSON's makes | parameter hints, inlay hints, renaming a symbol, linked editing | 0 | no language service runs but JSON's (D142), which makes none of them; their settings are unlisted in the catalog |
+
 The families with 0 were not listed in this window and were reachable by a
-key, a menu, or their id.
+key, a menu, or their id. The last two families were named when Keyboard
+Shortcuts was read (D146), with what it still listed of four earlier ones:
+the actions of the Extensions view and of an extension's page
+(`workbench.extensions.action.*`, but what a developer needs of the
+extension host, which is kept by name), the own commands of the views of Run
+and Debug, the chat's commands on a commit of the Graph and its setup from
+the commit message, and the peek of a test.
 
 ### Kept families
 
@@ -126,6 +156,27 @@ language service adds two of its own (D142).
 - **The base's plumbing stays.** Git asks `_aiEdits.*` at every commit. No
   pattern names plumbing; the one such command that the palette offers,
   the notebook's Select Kernel, is named by its id.
+
+## Keyboard Shortcuts
+
+Keyboard Shortcuts is the base's list of commands and their keys. In
+BaseHalf it is where a user sees and changes the keys of the product.
+
+- **It opens in the overlay**, over the canvas, as Settings and the advanced
+  list do: from the gear's menu, from its key, from the Command Palette, and
+  from Keyboard Shortcuts… of BaseHalf's Settings, where it takes the place
+  of Settings ([BaseHalf's Settings](settings-pages.md#keyboard-shortcuts)).
+  The canvas, Card Detail, and the Agent Area stay as they were behind it.
+- **Escape closes it**, as do its close button and a press outside it. With
+  text in its search field, Escape first clears the search.
+- **It lists the commands BaseHalf has**, with the key and the condition of
+  each: none of a hidden family, with or without a key. A command of
+  something BaseHalf has stays, also where a base update adds one.
+- **It lists BaseHalf's own commands** under the category BaseHalf, the
+  keys of the canvas among them ([the keys of the canvas](canvas-keys.md)).
+  A key changed there is in effect at once.
+- The key bindings file, which Keyboard Shortcuts opens from its title, opens
+  in the overlay too.
 
 ## Output
 
@@ -201,7 +252,8 @@ base's voice service is not there.
    that ran one is free: it does what comes after it, or nothing. A key the
    user binds to a hidden command in the keybindings file says that the
    command is not found, as for any command that does not exist.
-5. **Keyboard Shortcuts** lists no hidden command to bind.
+5. **Keyboard Shortcuts** lists no hidden command to bind, and opens in the
+   overlay ([Keyboard Shortcuts](#keyboard-shortcuts)).
 6. **Executing a hidden command by its id fails** as executing a command
    that does not exist: the caller gets the error `command '<id>' not found`.
    Nothing of the command runs, and no extension is activated for it. This
@@ -249,6 +301,12 @@ base's voice service is not there.
   Customize Layout, whose rows are not a menu, leaves out its rows; and
   Open View, whose rows are views, asks the hidden surfaces
   (`shell/common/basehalfOfferedViews.ts`).
+- **Keyboard Shortcuts in the overlay**: the base opens Keyboard Shortcuts
+  and the key bindings file in the editor group they were asked from. A
+  marked change in `services/preferences/browser/preferencesService.ts`
+  sends them to the overlay unless that group is the overlay's already,
+  under the base's own conditions for the overlay: `workbench.editor.useModal`,
+  which is locked at `some`, and not while the base's smoke driver runs.
 - Nothing of a hidden feature is removed from the build (D122, D137).
 
 ## Acceptance criteria
@@ -296,6 +354,16 @@ base's voice service is not there.
     Logs.
 13. View: Open View lists no Run and Debug, Extensions, Problems, Output
     view, Terminal, Outline, or Timeline.
+14. Keyboard Shortcuts of the gear's menu, its key, Preferences: Open
+    Keyboard Shortcuts of the Command Palette, and Keyboard Shortcuts… of
+    Settings each show Keyboard Shortcuts in the overlay, with the canvas in
+    view behind it; Escape closes it, and the canvas has the keyboard.
+15. Keyboard Shortcuts lists no command whose id a hidden family names:
+    none of inline suggestions, of the Extensions view, of the views of Run
+    and Debug, or of the base's chat. It lists the commands of the canvas
+    under BaseHalf.
+16. A key given to a command in Keyboard Shortcuts is in the key bindings
+    file and runs the command at once.
 
 ## Verification
 
