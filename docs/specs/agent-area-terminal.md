@@ -477,8 +477,7 @@ cursor, and the scrollback, works as in the base.
      every value while the program tracks the mouse.
 
    With Shift held, a secondary click shows the menu whatever the setting
-   says, as in the base. The menu also opens from the keyboard, with the key
-   that opens a menu.
+   says, as in the base.
 2. A middle click follows `terminal.integrated.middleClickBehavior`: `paste`
    pastes, and `default` gives the terminal the keyboard and leaves the rest
    to the system.
@@ -940,4 +939,9 @@ Accessibility Help.
     output. Before the change the view opened on a new terminal of the
     base's panel, which had started a shell of its own, and Escape left the
     keyboard outside the session.
+24. The smoke test shows, in a Terminal session at the defaults: the tab
+    named by the process in it and not Terminal; on a system whose default
+    shows it, the terminal's menu with its seven items after a secondary
+    click; and a bell on the tab after `printf '\a'` that goes again, with
+    the tab the element it was.
 

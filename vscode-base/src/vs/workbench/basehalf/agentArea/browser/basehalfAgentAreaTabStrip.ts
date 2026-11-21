@@ -18,13 +18,6 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { toAction, Separator } from '../../../../base/common/actions.js';
 import type { BaseHalfAgentAreaService } from './basehalfAgentAreaService.js';
 
-/**
- * The strip of tabs of the Agent Area: each tab with its name, state, and close button, renaming a tab in place,
- * dragging a tab to another place, and a tab's context menu.
- *
- * A part of the Agent Area (`basehalfAgentAreaService.ts`): it keeps its own state, and reaches the
- * Agent Area's as `area`.
- */
 /** A tab as the strip drew it: the elements that hold its name, and the name they show. */
 interface IBaseHalfDrawnAgentTab {
 	readonly element: HTMLElement;
@@ -36,6 +29,13 @@ interface IBaseHalfDrawnAgentTab {
 	shown: IBaseHalfAgentSessionName;
 }
 
+/**
+ * The strip of tabs of the Agent Area: each tab with its name, state, and close button, renaming a tab in place,
+ * dragging a tab to another place, and a tab's context menu.
+ *
+ * A part of the Agent Area (`basehalfAgentAreaService.ts`): it keeps its own state, and reaches the
+ * Agent Area's as `area`.
+ */
 export class BaseHalfAgentAreaTabStrip implements IDisposable {
 	/** The tabs that show a name, by their id; a tab that is being renamed shows its field. */
 	private readonly drawn = new Map<string, IBaseHalfDrawnAgentTab>();
