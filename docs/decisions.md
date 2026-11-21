@@ -7528,3 +7528,21 @@ the two toggles say to a screen reader. There the same function is called at the
 - Left under the base's words, since BaseHalf has no word of its own for them: Focus Activity Bar, which goes to the
   sidebar's icons; Close, Maximize, and Toggle Sidebar of the "Modal Editor", which is the overlay; and "editor" for
   Source and for what Source Control opens.
+
+## D151 — The layout is VS Code 1.147's, and the tabs at the top of the Sidebar join it (NEW, 2026-11-22)
+
+**Decision.** The files of Modern UI that changed between VS Code 1.141.0 and 1.147.0 are at 1.147.0, merged three ways
+as in D51. With them the icons at the top of the Sidebar are VS Code's connected tabs: they stand on a strip, and the
+chosen one is a tab in the Sidebar's background that opens into the view under it, with curved shoulders where it meets
+the strip's line. `workbench.experimental.modernUIEditorTabStyle` chooses connected tabs or the pills of 1.141; it moves
+from the unlisted settings to the advanced list, since it now shapes a part BaseHalf shows. See
+[workbench appearance](specs/workbench-appearance.md), requirement 13.
+
+**Why.** The owner, 2026-11-22: VS Code's latest release changed its UI, "the place where the icons at the top of the
+sidebar meet what is under them", and it looks good; bring reference/vscode up to date and learn from it. Measured
+side by side, with the activity bar at the top in both: VS Code 1.147 drew a 32 px strip with a 36 by 33 px tab in the
+sidebar's color, corners of 7 px, and shoulders whose line has the color of `modernPanel.border`; BaseHalf drew the
+chosen icon on a rounded square of its own, apart from the Sidebar.
+
+**Left out**, as with 1.141: the editor tab logic of the release (BaseHalf shows no editor tabs), translucent pop-ups,
+and the files of the Agents window. Three upstream tests that read their results are skipped.

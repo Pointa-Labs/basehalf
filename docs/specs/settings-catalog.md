@@ -186,7 +186,7 @@ Nothing is pending. Of the 29 settings that were on 2026-11-21:
 The class stays: a setting of a base update that a surface of BaseHalf's
 should follow and does not yet is pending until it does.
 
-### Unlisted (673)
+### Unlisted (672)
 
 | Family | Count | What settles it |
 | --- | --- | --- |
@@ -195,7 +195,7 @@ should follow and does not yet is pending until it does.
 | Problems, Timeline, the merge editor, Outline, breadcrumbs: `timeline.*`, `git.timeline.*`, `mergeEditor.*`, `outline.*`, `breadcrumbs.*`, `merge-conflict.diffViewPosition`, and what of `problems.*` belongs to the Problems view | 73 | D118 for symbols and the Problems view; D123 for the merge editor; D73, the location in the title bar, for breadcrumbs; Timeline is hidden, and Git's Graph shows a file's commits. The three settings of marks in a file are advanced |
 | Notebooks: `notebook.*`, `interactiveWindow.*` | 61 | nothing ships that opens a notebook |
 | Accessibility of what is unlisted here: the signals and the verbosity of chat, debug, notebooks, and inline suggestions | 35 | follows the rows of this table. The signals of a mistake in a line and of formatting are advanced |
-| Editor tabs and groups: the looks of tabs, pinned tabs, splitting, `explorer.openEditors.*` | 39 | a file opens in Card Detail, and there is one editor group (architecture invariants) |
+| Editor tabs and groups: the looks of tabs, pinned tabs, splitting, `explorer.openEditors.*` | 38 | a file opens in Card Detail, and there is one editor group (architecture invariants) |
 | Debug: `debug.*`, `launch` | 34 | no debugger ships; the view is hidden |
 | The stock terminal panel: the rest of `terminal.integrated.tabs.*`, where a terminal opens, sticky scroll, the marks of commands, the hint, and the retired `terminal.integrated.enableBell` | 27 | terminals are the Agent Area's, which hides sticky scroll and the marks of commands |
 | Suggestions of a shell: `terminal.integrated.suggest.*` | 12 | D147: the terminal is for agents and a plain shell; completion is the shell's own |
@@ -215,13 +215,13 @@ The rows that name D118 rest on one decision, no language service but
 JSON's: about 115 settings
 ([what the decision settled](#what-the-decision-settled)).
 
-### Advanced (747)
+### Advanced (748)
 
 | Family | Count |
 | --- | --- |
 | The text editor: `editor.*`, `diffEditor.*` | 220 |
 | Source control and Git: `scm.*`, `git.*`, `github.*`, `merge-conflict.*`, `mediaPreview.*` | 138 |
-| The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 98 |
+| The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 99 |
 | The terminal: `terminal.*`, with the 13 the Agent Area came to follow | 91 |
 | Files: `files.*`, `explorer.*` | 47 |
 | Accessibility: `accessibility.*` | 31 |
@@ -275,6 +275,7 @@ now, each by the specification that owns the surface:
 | Going back and forward with the buttons of a mouse or a swipe | `workbench.editor.mouseBackForwardToNavigate`, `workbench.editor.swipeToNavigate` | [the shown place and the workbench](shown-place-and-workbench.md) |
 | Files and Source Control, when a file opens in Card Detail | `explorer.autoReveal`, `scm.autoReveal` | the shown place and the workbench |
 | The title of the window | the variables of `window.title` | the shown place and the workbench |
+| The tabs at the top of the Sidebar | `workbench.experimental.modernUIEditorTabStyle` | [workbench appearance](workbench-appearance.md), requirement 13: connected or pills (D151) |
 | The Agent Area's sessions and the canvas | `accessibility.dimUnfocused.*` | [workbench appearance](workbench-appearance.md): they dim as the base's terminals and editors do |
 | A note in Rich, in Preview, and on its card | `basehalf.notes.fontFamily`, `basehalf.notes.fontSize` | [note rendering](note-rendering.md), D145 |
 | The canvas's keys | Keyboard Shortcuts | [the keys of the canvas](canvas-keys.md), D146 |
@@ -411,7 +412,8 @@ of a terminal that a session of the Agent Area follows:
   from the build that holds D138 to D142, 12 shown, 49 locked, 15 pending,
   658 unlisted, 749 advanced of 1,483; and from the build that holds D143
   to D150, 23 shown, 49 locked, none pending, 673 unlisted, 747 advanced of
-  1,492, none without a rule. Both are tool
+  1,492, none without a rule; with D151 the tab style of Modern UI went from
+  unlisted to advanced: 672 unlisted, 748 advanced. Both are tool
   state of the checkout, not part of the tree; the check of criterion 1
   replaces them.
 - Run in the real window on 2026-11-21: the three settings of the problem

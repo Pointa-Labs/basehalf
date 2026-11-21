@@ -1,9 +1,10 @@
 # Workbench appearance
 
 Status: Active (2026-10-12; 2026-11-21, D144: the background of the canvas
-is lines, dots, or plain)
+is lines, dots, or plain; 2026-11-22, D151: the layout at VS Code 1.147, the
+tabs at the top of the Sidebar joined to it)
 Related: [architecture invariants](../harness/architecture-invariants.md),
-roadmap tracks 8 and 9, public decisions D22, D51, and D148,
+roadmap tracks 8 and 9, public decisions D22, D51, D148, and D151,
 [light and dark](light-and-dark.md),
 [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md),
 [upstream record](../../vscode-base/BASEHALF_UPSTREAM.md)
@@ -30,8 +31,10 @@ contributes, such as the Git status colors, gets its value when a theme is
 applied, so these colors had no value at all.
 
 The base that BaseHalf imported (VS Code 1.128) contained an early version of
-the card layout, switched off by default. The version users see in VS Code
-today is that of 1.141.
+the card layout, switched off by default. BaseHalf brought it to 1.141 on
+2026-10-12 and to 1.147 on 2026-11-22 (D151). In 1.147 the icons at the top
+of the sidebar are tabs whose chosen one opens into the part under it; in
+BaseHalf it still stood on a rounded pill of its own, apart from the Sidebar.
 
 ## Scope
 
@@ -39,7 +42,7 @@ In scope:
 
 - which color theme the product shows, and where it comes from;
 - the card layout of the workbench parts: the sidebar, the canvas area, and
-  the Agent Area;
+  the Agent Area, and the tabs at the top of the Sidebar;
 - the status colors and status letters in Source Control and Files;
 - what the canvas draws behind its cards
   ([the background of the canvas](#the-background-of-the-canvas)).
@@ -86,13 +89,13 @@ Not in scope, and unchanged:
    and the Agent Area are separate cards with a corner radius of 8 px, a gap
    of 4 px between them, and a gutter of 4 px to the window edge. The title
    bar, the status bar, and the gaps share one background.
-8. The layout is VS Code's own, at the state of release 1.141.0: the layout
+8. The layout is VS Code's own, at the state of release 1.147.0: the layout
    helpers of the layout service, the margins that the workbench parts
    reserve, `workbench/browser/media/floatingPanels.css`, and the module
    `workbench/contrib/modernUI`. BaseHalf adds no rules of its own for the
    corners, the gaps, or the borders of the workbench parts. Requirement 10
    is the one exception.
-   [The upstream record](../../vscode-base/BASEHALF_UPSTREAM.md#modern-ui-brought-to-1141-on-2026-10-12)
+   [The upstream record](../../vscode-base/BASEHALF_UPSTREAM.md#modern-ui-brought-to-1147-on-2026-11-22)
    lists the files and what was left out.
 9. The settings stay normal settings. A user who switches
    `workbench.experimental.modernUI` off gets the former layout, where the
@@ -117,22 +120,31 @@ Not in scope, and unchanged:
     and the canvas, with what stands over it, dim while the keyboard is
     elsewhere, by `accessibility.dimUnfocused.opacity`, as the base's
     terminals and editors do.
+13. **The tabs at the top of the Sidebar** are VS Code's connected tabs: the
+    icons of Files, Source Control, and Search stand on a strip of the
+    Sidebar's top, 32 px high, and the chosen one is a tab in the Sidebar's
+    own background that opens into the view under it, with rounded upper
+    corners and curved shoulders where it meets the strip's line. The others
+    are separated by thin dividers, none beside the chosen tab. With
+    `workbench.experimental.modernUIEditorTabStyle` set to `pill` they are
+    the rounded pills of 1.141 again; the setting is in the advanced list
+    ([settings catalog](settings-catalog.md)).
 
 ### Git status colors and letters
 
-11. With the theme loaded, the status letter of a changed file in Source
+14. With the theme loaded, the status letter of a changed file in Source
     Control and in Files has the theme's color for that status, and in Files
     the file name has it too. Nothing in BaseHalf sets these colors.
-12. The status letter is drawn as VS Code 1.141 draws it: the label carries
+15. The status letter is drawn as VS Code 1.141 draws it: the label carries
     the marker classes `monaco-decoration-badge` and
     `monaco-decoration-text-badge`, and Source Control lays the letter out in
     a box of fixed size so that the letters of all rows line up.
-13. The title of the Files view shows the workspace name as the user wrote
+16. The title of the Files view shows the workspace name as the user wrote
     it. The base's early version of the layout capitalized each word of it.
 
 ### Before the window has loaded
 
-14. The picture that a window shows before the workbench has loaded has the
+17. The picture that a window shows before the workbench has loaded has the
     same cards as the loaded window: each card where it was when the window
     last saved its layout, with the same corner radius, border, and
     background. It is VS Code's own code of 1.141.
@@ -218,7 +230,7 @@ theme were not looked at: the ink is the theme's text color.
 
 ## Limits
 
-- These parts of VS Code 1.141's Modern UI are not in the product, because
+- These parts of VS Code 1.147's Modern UI are not in the product, because
   they need changes of the same release outside the layout:
   - translucent backgrounds of menus, the command palette, and other pop-ups
     (they need GPU compositing calls of the native host);
@@ -248,11 +260,17 @@ theme were not looked at: the ink is the theme's text color.
 8. For the same workspace and window size, the position, size, margin,
    border, corner radius, and background of the sidebar, the canvas area, the
    Agent Area part, the status bar, and the rows and badges of Source Control
-   are those of VS Code 1.141 with its activity bar at the top and its tabs
+   are those of VS Code 1.147 with its activity bar at the top and its tabs
    hidden.
 9. After a call that scrolls a control of a card into view, the title bar,
    the sidebar, and the status bar stand where they stood: the grid has no
    scroll position.
+10. At the top of the Sidebar, in the dark and in the light theme: the strip
+    is 32 px high; the chosen tab is 36 by 33 px, in the Sidebar's
+    background, with corners of 7 px at its top and shoulders of 7 px whose
+    line has the color of `modernPanel.border`; Source Control and Search
+    have a divider between them. Each value is that of VS Code 1.147 in the
+    same layout.
 
 ## Verification
 
@@ -265,10 +283,13 @@ theme were not looked at: the ink is the theme's text color.
   in the running window. The Agent Area steps check criterion 4 each time
   the Agent Area opens (`assertAgentAreaOwnsAuxiliaryBarChrome`).
 - The unit tests that came with the ported files: `modernUI.contribution`,
-  `part`, `activitybarPart`, `decorationsService`, `window`.
+  `roundedCorners`, `part`, `activitybarPart`, `decorationsService`,
+  `window`.
 - `partsSplash.test.ts` (in `vs/code/test/electron-browser`): the metrics
   and colors of the picture before loading.
 - Criteria 7 and 8 were measured once, on 2026-10-12: criterion 7 by starting
   a window twice and reading the picture of the second start, criterion 8 by
   reading the computed styles of both products side by side. Neither is an
-  automated check.
+  automated check. Criterion 10 was measured on 2026-11-22 the same way,
+  against the installed VS Code 1.147.0 started on a profile of its own with
+  the activity bar at the top.

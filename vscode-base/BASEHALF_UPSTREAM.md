@@ -13,6 +13,58 @@ BaseHalf-specific work should happen in this tree as normal product source.
 When updating from upstream VS Code later, use the commit above as the import
 baseline.
 
+## Modern UI brought to 1.147 on 2026-11-22
+
+The files of Modern UI that changed between releases 1.141.0 and 1.147.0
+(commit `8a14f0cc1b08d531eb83255ea3764ae22aa932b5`) are at 1.147.0. Its
+connected tabs now include the tabs at the top of the sidebar. See public
+decision D151 and `docs/specs/workbench-appearance.md`, requirement 13.
+
+How it was done: each file was merged three ways, with the 1.141.0 file as
+the base and the 1.147.0 file as the other side (`.build/rw/port-147.sh` in
+the session that did it; `reference/vscode` holds both tags).
+
+### Identical to 1.147.0
+- `src/vs/workbench/browser/media/floatingPanels.css`
+- `src/vs/workbench/browser/media/part.css`
+- `src/vs/workbench/browser/media/style.css`
+- `src/vs/workbench/browser/parts/activitybar/media/activityaction.css`
+- `src/vs/workbench/browser/parts/activitybar/media/activitybarpart.css`
+- `src/vs/workbench/browser/parts/auxiliarybar/media/auxiliaryBarPart.css`
+- `src/vs/workbench/browser/parts/compositeBar.ts`
+- `src/vs/workbench/browser/parts/compositeBarActions.ts`
+- `src/vs/workbench/browser/parts/media/paneCompositePart.css`
+- `src/vs/workbench/browser/parts/sidebar/media/sidebarpart.css`
+- `src/vs/workbench/common/theme.ts`
+- `src/vs/workbench/contrib/modernUI/CSS_PERFORMANCE.md`, `README.md`
+- `src/vs/workbench/contrib/modernUI/browser/modernUI.contribution.ts`
+- `src/vs/workbench/contrib/modernUI/browser/media/`: `activityBar.css`,
+  `connectedEditorTabs.css`, `connectedPaneTabs.css` (new), `editorBorder.css`,
+  `fontRamp.css`, `padding.css`, `roundedCorners.css`, `sashHandles.css`,
+  `statusBar.css`, `suggestWidget.css` (new), `tabs.css`
+
+### Partly at 1.147.0
+- `src/vs/workbench/browser/parts/paneCompositeBar.ts`: merged; BaseHalf's
+  hidden commands stay.
+- `src/vs/workbench/browser/parts/activitybar/activitybarPart.ts`: only the
+  configuration service handed to the composite bar.
+- `src/vs/platform/workspace/test/common/testWorkspace.ts`: `testIWorkspace`,
+  which returns its argument, as this tree's `IWorkspace` has no uri.
+- `src/vs/workbench/contrib/modernUI/test/browser/modernUI.contribution.test.ts`
+  and `roundedCorners.test.ts` (new): upstream's files with three tests
+  skipped. Two read rules and colors of the editor tab logic of 1.147, one the
+  focus outline of 1.147's list widget; this tree has neither.
+
+### Left out
+- `src/vs/workbench/browser/parts/editor/editor.ts`: its changes belong to
+  editor groups and windows of 1.147; the connected-tabs class names are
+  unchanged.
+- `src/vs/workbench/browser/parts/activitybar/media/menuActivityBar.css`,
+  `auxiliaryBarActions.ts`, `panelActions.ts`, and the menu bar changes of
+  `activitybarPart.ts`: the Agents window and a menu in the activity bar.
+- `frostedGlass.css` and its tests, `chatPills.css`, `dnd.css`,
+  `feedbackInputWidget.css`: features this tree does not have, as before.
+
 ## Modern UI brought to 1.141 on 2026-10-12
 
 The files of VS Code's Modern UI layout, of the default themes, and of the
