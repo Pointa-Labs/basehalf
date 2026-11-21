@@ -218,7 +218,10 @@ base's voice service is not there.
    an agent extension, which the Agent Area hosts.
 9. **A new command of a hidden family is hidden before it ships.** A check
    fails when the base registers a command under a category of a hidden
-   family and no pattern names it.
+   family and no pattern names it. The check runs in the window, which holds
+   every registration of the base: the window names such commands in its
+   log, and the smoke fails on the line. A unit test cannot load the base's
+   registrations without changing the tests that share its process.
 
 ## Implementation boundaries
 
@@ -278,7 +281,9 @@ base's voice service is not there.
 8. Executing a hidden command by its id fails with `command '<id>' not
    found`, and the command does not run.
 9. A command added to the base under the category of a hidden family, with
-   an id that no pattern names, fails a unit test.
+   an id that no pattern names, is named in the window's log, and the smoke
+   fails on it (`hidden-families-name-their-commands`). A unit test shows
+   the check on a list of commands.
 10. With `chat.disableAIFeatures` on, the base starts no search for tool
     servers, at the start of a window and when `chat.mcp.access` changes.
 11. The product configuration has a `defaultChatAgent` whose five addresses
@@ -298,11 +303,15 @@ base's voice service is not there.
   hidden command, the commands that stay, the commands of the hidden
   surfaces, and that no pattern names the base's plumbing; of the two
   services (`basehalfCommandAndMenuServices.test.ts`): the refusal, and a
-  menu with its submenus (criteria 3 and 8); and of the registry
-  (`basehalfHiddenCommandFamilies.test.ts`), which loads the base's own
-  registrations of Tasks, Debug, Notebooks, Testing, chat, the merge editor,
-  the Search Editor, Problems, and Remote, and fails on a command of their
-  categories that no pattern names (criterion 9).
+  menu with its submenus (criteria 3 and 8); and of the check of criterion 9
+  on a list of commands (`basehalfHiddenCommandsCheck.test.ts`).
+- The check of criterion 9 was first a unit test that loaded eleven of the
+  base's contributions. In the full unit suite those registrations reached
+  the editor's own tests, 13 of which then failed, and they left out what
+  other modules register: run in the window on 2026-11-21, with 1,420
+  commands in the palette's menu and 403 of them under a hidden family's
+  category, the check named one the test had missed,
+  `workbench.action.speech.stopReadAloud`, which the chat family now names.
 - A unit test of the product configuration (`basehalfBaseAiOff.test.ts`,
   criterion 11).
 - A unit test of where a channel opens (`basehalfOutput.test.ts`), and the
