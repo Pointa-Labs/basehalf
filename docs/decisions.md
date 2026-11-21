@@ -7333,8 +7333,8 @@ D141 and D146 had taken out what BaseHalf does not have:
 at those places covers what a base update adds: the menu service (the title bar, the application menu, the gear's menu,
 the palette, the menus of views), the context menu service (every context menu, also one made by hand), the model of
 Keyboard Shortcuts, and the Settings editor's description. An item whose name holds a word of the base's is handed out as
-a copy; the registry keeps the base's text, so the base's own lookups by name still work. Five strings are the base's own
-drawing code and no name of a registry: the rows of Customize Layout, the groups of Open View, and what the layout and
+a copy; the registry keeps the base's text, so the base's own lookups by name still work. Five places are the base's own
+drawing code and hold no name of a registry: the rows of Customize Layout, the groups of Open View, and what the layout and
 the two toggles say to a screen reader. There the same function is called at the place, a marked line each.
 
 **Alternatives.**
@@ -7368,7 +7368,8 @@ the two toggles say to a screen reader. There the same function is called at the
 - The names of six commands that have only a key are in one list of the shell
   (`shell/common/basehalfKeyedCommands.ts`), since two of the commands are registered in folders this decision stayed
   out of. The window names a command of BaseHalf's with a key and no name in its log, and the smoke fails on the line.
-- Eleven of the base's files carry a marked line or two for the words or for an entry that led nowhere.
+- Nine of the base's files carry a marked line or two for the words, for an entry that led nowhere, or for what
+  Keyboard Shortcuts lists.
 - Left under the base's words, since BaseHalf has no word of its own for them: Focus Activity Bar, which goes to the
   sidebar's icons; Close, Maximize, and Toggle Sidebar of the "Modal Editor", which is the overlay; and "editor" for
   Source and for what Source Control opens.
