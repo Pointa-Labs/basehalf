@@ -10,8 +10,13 @@
 	color: var(--vscode-descriptionForeground);
 }
 
+/* On, the magnet has the ground and the color of a toggle that is on, as the
+ * toggles of the base's fields have. The color of an icon and the color of a
+ * description, which it changed between before, are one color in the
+ * product's theme: on and off looked the same. */
 .monaco-workbench .basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle.active {
-	color: var(--vscode-icon-foreground);
+	color: var(--vscode-inputOption-activeForeground);
+	background-color: var(--vscode-inputOption-activeBackground);
 }
 
 .monaco-workbench .basehalf-canvas-snap-toggle .codicon {
