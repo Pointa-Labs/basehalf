@@ -37,6 +37,7 @@ import './shell/browser/basehalfReleaseNotes.contribution.js';
 import './shell/browser/basehalfSettings.contribution.js';
 import './shell/browser/basehalfAbout.contribution.js';
 import './shell/browser/basehalfHover.contribution.js';
+import './shell/browser/basehalfThemeChange.contribution.js';
 import './shell/browser/basehalfWorkbenchProfile.contribution.js';
 import './shell/browser/basehalfSettingsCatalog.contribution.js';
 import './shell/browser/basehalfHiddenCommandsCheck.contribution.js';

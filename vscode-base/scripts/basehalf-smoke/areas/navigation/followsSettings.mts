@@ -316,3 +316,102 @@ export async function assertReducedMotionFollowsTheSetting(page) {
 		await closeCardDetailIfOpen(page);
 	});
 }
+
+/**
+ * Light and dark, criteria 3 and 4: what BaseHalf draws takes its colors from the theme. Under a dark and under a
+ * light theme the canvas, a card, and the page of a note have the registry's value for the theme's kind; and a
+ * change of the theme, sampled every frame, takes each surface from the one palette to the other in one frame,
+ * with no frame of a third color and no page loaded again.
+ */
+export async function assertLightAndDark(page) {
+	await closeCardDetailIfOpen(page);
+	await openRootCanvas(page);
+	const folder = `.basehalf-canvas-card.folder[data-basehalf-card-path="${FOLDER}"]`;
+	await page.locator(folder).waitFor({ state: 'attached', timeout: 20_000 });
+	const read = () => page.evaluate(selector => {
+		const root = getComputedStyle(document.querySelector('.monaco-workbench')!);
+		const background = (element: Element | null) => element ? getComputedStyle(element).backgroundColor : undefined;
+		// A probe drawn with a variable reads as the browser computes that variable: one spelling for both.
+		const probe = document.body.appendChild(document.createElement('div'));
+		const computed = (name: string) => { probe.style.backgroundColor = `var(${name})`; return getComputedStyle(probe).backgroundColor; };
+		const values = {
+			kind: [...document.querySelector('.monaco-workbench')!.classList].filter(name => ['vs', 'vs-dark', 'hc-black', 'hc-light'].includes(name)).join(),
+			canvas: background(document.querySelector('.basehalf-canvas-workbench')),
+			canvasColor: computed('--vscode-basehalf-canvasBackground'),
+			folderCard: background(document.querySelector(selector)),
+			folderColor: computed('--vscode-basehalf-folderBackground'),
+			terminalColor: root.getPropertyValue('--vscode-terminal-background').trim()
+		};
+		probe.remove();
+		return values;
+	}, folder);
+	const expected = {
+		'vs-dark': { canvas: 'rgb(11, 12, 13)', folderCard: 'rgb(37, 37, 36)', terminalColor: '#1f1f1f', text: 'rgb(225, 226, 227)' },
+		'vs': { canvas: 'rgb(243, 243, 241)', folderCard: 'rgb(251, 248, 238)', terminalColor: '#fdfdfc', text: 'rgb(29, 30, 32)' }
+	};
+	const check = async (theme: string, kind: 'vs' | 'vs-dark') => {
+		const reading = await waitForReading(read, value => value.kind === kind, `the window to show ${theme}`, 15_000);
+		const wanted = expected[kind];
+		if (reading.canvas !== wanted.canvas || reading.canvasColor !== wanted.canvas || reading.folderCard !== wanted.folderCard || reading.folderColor !== wanted.folderCard || reading.terminalColor !== wanted.terminalColor) {
+			throw new Error(`Under ${theme} the canvas, a folder's card, and the terminal have the colors of a ${kind === 'vs' ? 'light' : 'dark'} theme: ${JSON.stringify({ reading, wanted })}`);
+		}
+	};
+	await withSettings(page, { 'workbench.colorTheme': 'Dark 2026' }, async () => {
+		await check('Dark 2026', 'vs-dark');
+		// The page of a note has the same colors under the same names.
+		await quickOpen(page, 'revealed.md');
+		await assertCardDetail(page, REVEALED);
+		const frame = await activeMarkdownRichFrame(page, '.basehalf-card-detail-surface.active');
+		const inPage = () => frame.evaluate(() => {
+			const probe = document.body.appendChild(document.createElement('div'));
+			probe.style.color = 'var(--vscode-basehalf-cardForeground)';
+			const text = getComputedStyle(probe).color;
+			probe.remove();
+			return { kind: [...document.body.classList].filter(name => /^vscode-(light|dark|high-contrast)/.test(name)).join(), text, loaded: performance.timeOrigin };
+		});
+		const dark = await waitForReading(inPage, value => value.kind === 'vscode-dark', 'the page of a note to be dark', 15_000);
+		if (dark.text !== expected['vs-dark'].text) {
+			throw new Error(`Under Dark 2026 the page of a note has BaseHalf's dark colors: ${JSON.stringify(dark)}`);
+		}
+		// The change, sampled every frame in the window: each surface has the old value, then the new, and no third.
+		await page.evaluate(selector => {
+			const samples: Record<string, string>[] = [];
+			(globalThis as unknown as { basehalfThemeSamples: Record<string, string>[] }).basehalfThemeSamples = samples;
+			const start = performance.now();
+			const tick = () => {
+				const background = (element: Element | null) => element ? getComputedStyle(element).backgroundColor : 'none';
+				const card = document.querySelector(selector);
+				samples.push({
+					canvas: background(document.querySelector('.basehalf-canvas-workbench')),
+					folderCard: background(card),
+					folderBorder: card ? getComputedStyle(card).borderTopColor : 'none',
+					cardDetail: background(document.querySelector('.basehalf-card-detail')),
+					sidebar: background(document.querySelector('.part.sidebar'))
+				});
+				if (performance.now() - start < 6_000) {
+					requestAnimationFrame(tick);
+				}
+			};
+			requestAnimationFrame(tick);
+		}, folder);
+		await withSettings(page, { 'workbench.colorTheme': 'Light 2026' }, async () => {
+			await check('Light 2026', 'vs');
+			const light = await waitForReading(inPage, value => value.kind === 'vscode-light', 'the page of a note to be light', 15_000);
+			if (light.text !== expected.vs.text || light.loaded !== dark.loaded) {
+				throw new Error(`Under Light 2026 the page of a note has BaseHalf's light colors, and it is the page that was open: ${JSON.stringify({ dark, light })}`);
+			}
+			const samples: Record<string, string>[] = await page.evaluate(() => (globalThis as unknown as { basehalfThemeSamples: Record<string, string>[] }).basehalfThemeSamples);
+			const runs: Record<string, string[]> = {};
+			let changedAt: number | undefined;
+			for (const key of Object.keys(samples[0])) {
+				runs[key] = samples.map(sample => sample[key]).filter((value, index, all) => index === 0 || value !== all[index - 1]);
+				const at = samples.findIndex(sample => sample[key] !== samples[0][key]);
+				if (runs[key].length !== 2 || (changedAt !== undefined && at !== changedAt)) {
+					throw new Error(`A change of the theme takes each surface from the one palette to the other in the same frame, with no color between: ${JSON.stringify({ runs, key, at, changedAt })}`);
+				}
+				changedAt = at;
+			}
+		});
+		await closeCardDetailIfOpen(page);
+	});
+}

@@ -77,7 +77,7 @@ suite('BaseHalf: the colors of what BaseHalf draws', () => {
 
 	test('under a dark theme a color of a note is the value the note stores', () => {
 		// The file holds one value for each palette color (formats of a note, rules 46 and 47): a dark theme draws
-		// that value, a light one its light form (light and dark, rule 15).
+		// that value, a light one its light form (light and dark, rule 17).
 		assert.deepStrictEqual(
 			BASEHALF_NOTE_PALETTE_COLORS.map(name => ({ name, text: hex(BASEHALF_NOTE_TEXT_COLORS[name], ColorScheme.DARK), background: hex(BASEHALF_NOTE_HIGHLIGHT_COLORS[name], ColorScheme.DARK) })),
 			BASEHALF_NOTE_PALETTE_COLORS.map(name => ({ name, ...BASEHALF_NOTE_PALETTE[name] }))
@@ -111,7 +111,7 @@ suite('BaseHalf: the colors of what BaseHalf draws', () => {
 
 	test('under a dark theme the text colors that had 4.5:1 keep it', () => {
 		// The faintest text of a card had 2.8:1 on a card before the light palette and has it still: a dark theme
-		// draws what it drew (light and dark, rule 6).
+		// draws what it drew (light and dark, rule 7).
 		const dark = ColorScheme.DARK;
 		assert.deepStrictEqual(
 			['basehalf.cardForeground', 'basehalf.cardSecondaryForeground', 'basehalf.cardTertiaryForeground', 'basehalf.cardFaintForeground'].map(text => contrast(text, 'basehalf.cardBackground', dark)),
@@ -120,7 +120,7 @@ suite('BaseHalf: the colors of what BaseHalf draws', () => {
 	});
 
 	test('a connection is as quiet under a light theme as under a dark one', () => {
-		// About 3.5:1 for the line, and the arrowhead the stronger of the two (light and dark, rule 10).
+		// About 3.5:1 for the line, and the arrowhead the stronger of the two (light and dark, rule 11).
 		assert.deepStrictEqual(
 			[ColorScheme.DARK, ColorScheme.LIGHT].map(kind => ['basehalf.connectionLine', 'basehalf.connectionArrow'].map(color => contrast(color, 'basehalf.canvasBackground', kind))),
 			[[3.5, 9.1], [3.4, 4.7]]
@@ -174,7 +174,8 @@ suite('BaseHalf: the colors of what BaseHalf draws', () => {
 			light: baseHalfTerminalContrastRatio(1, false, ColorScheme.LIGHT),
 			lightSetByUser: baseHalfTerminalContrastRatio(1, true, ColorScheme.LIGHT),
 			lightHigherDefault: baseHalfTerminalContrastRatio(7, false, ColorScheme.LIGHT),
-			highContrastLight: baseHalfTerminalContrastRatio(1, false, ColorScheme.HIGH_CONTRAST_LIGHT)
-		}, { dark: 1, light: 4.5, lightSetByUser: 1, lightHigherDefault: 7, highContrastLight: 1 });
+			highContrast: [ColorScheme.HIGH_CONTRAST_DARK, ColorScheme.HIGH_CONTRAST_LIGHT].map(kind => baseHalfTerminalContrastRatio(1, false, kind)),
+			highContrastSetByUser: baseHalfTerminalContrastRatio(1, true, ColorScheme.HIGH_CONTRAST_DARK)
+		}, { dark: 1, light: 4.5, lightSetByUser: 1, lightHigherDefault: 7, highContrast: [7, 7], highContrastSetByUser: 1 });
 	});
 });

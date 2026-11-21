@@ -83,7 +83,7 @@ import {
 	assertMarkdownRichUndoStopsAtLoad
 } from './areas/cardDetail/richEditor.mts';
 import { assertCanvasBreadcrumbsRemoved, assertCanvasContainsCard, assertMarkdownRichRevealsText } from './areas/navigation/navigation.mts';
-import { assertFilesRevealTheFileInCardDetail, assertMouseButtonsGoBackAndForward, assertReducedMotionFollowsTheSetting, assertSaveKeepsTheWhiteSpaceOfANote, assertWindowTitleNamesTheShownPlace, prepareFollowsSettings } from './areas/navigation/followsSettings.mts';
+import { assertFilesRevealTheFileInCardDetail, assertLightAndDark, assertMouseButtonsGoBackAndForward, assertReducedMotionFollowsTheSetting, assertSaveKeepsTheWhiteSpaceOfANote, assertWindowTitleNamesTheShownPlace, prepareFollowsSettings } from './areas/navigation/followsSettings.mts';
 import { assertExplorerRenameCascadesMirror, assertExplorerShowsBhFolderBySetting, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
 import { runAudioCardSteps } from './areas/video/audioCards.mts';
 import { assertLandingLeftNoPartialFile, runGenerationCardSteps } from './areas/video/generationCards.mts';
@@ -402,6 +402,7 @@ async function runNavigationSuite(page) {
 	await step('mouse-buttons-go-back-and-forward', () => assertMouseButtonsGoBackAndForward(page));
 	await step('save-keeps-the-white-space-of-a-note', () => assertSaveKeepsTheWhiteSpaceOfANote(page));
 	await step('reduced-motion-follows-the-setting', () => assertReducedMotionFollowsTheSetting(page));
+	await step('light-and-dark', () => assertLightAndDark(page));
 	await step('nothing-installed-after-session', () => assertWorkspaceOpenInstallsNothing());
 }
 

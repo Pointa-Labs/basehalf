@@ -32,23 +32,42 @@
 }
 
 /* The colors a note stores are one fixed value each (note formats, rules 46 and 47). A card, the card's editor,
- * and Preview draw each stored value in the color of the theme's kind (light and dark, rule 15): the stored
- * value itself under a dark theme, its light form under a light one. */
-.monaco-workbench span[style*="color:#9b9a97" i] { color: var(--vscode-basehalf-noteGrayText) !important; }
-.monaco-workbench span[style*="color:#ba8e78" i] { color: var(--vscode-basehalf-noteBrownText) !important; }
-.monaco-workbench span[style*="color:#e8706b" i] { color: var(--vscode-basehalf-noteRedText) !important; }
-.monaco-workbench span[style*="color:#dc8434" i] { color: var(--vscode-basehalf-noteOrangeText) !important; }
-.monaco-workbench span[style*="color:#d5ae38" i] { color: var(--vscode-basehalf-noteYellowText) !important; }
-.monaco-workbench span[style*="color:#5cad83" i] { color: var(--vscode-basehalf-noteGreenText) !important; }
-.monaco-workbench span[style*="color:#4ba3dc" i] { color: var(--vscode-basehalf-noteBlueText) !important; }
-.monaco-workbench span[style*="color:#a882e4" i] { color: var(--vscode-basehalf-notePurpleText) !important; }
-.monaco-workbench span[style*="color:#e36aaf" i] { color: var(--vscode-basehalf-notePinkText) !important; }
-.monaco-workbench span[style*="background-color:#3f3e3b" i] { background-color: var(--vscode-basehalf-noteGrayHighlight) !important; }
-.monaco-workbench span[style*="background-color:#4f3a30" i] { background-color: var(--vscode-basehalf-noteBrownHighlight) !important; }
-.monaco-workbench span[style*="background-color:#692b2b" i] { background-color: var(--vscode-basehalf-noteRedHighlight) !important; }
-.monaco-workbench span[style*="background-color:#583b1f" i] { background-color: var(--vscode-basehalf-noteOrangeHighlight) !important; }
-.monaco-workbench span[style*="background-color:#4a401d" i] { background-color: var(--vscode-basehalf-noteYellowHighlight) !important; }
-.monaco-workbench span[style*="background-color:#24443a" i] { background-color: var(--vscode-basehalf-noteGreenHighlight) !important; }
-.monaco-workbench span[style*="background-color:#1f4157" i] { background-color: var(--vscode-basehalf-noteBlueHighlight) !important; }
-.monaco-workbench span[style*="background-color:#45306a" i] { background-color: var(--vscode-basehalf-notePurpleHighlight) !important; }
-.monaco-workbench span[style*="background-color:#62294b" i] { background-color: var(--vscode-basehalf-notePinkHighlight) !important; }
+ * and Preview draw each stored value in the color of the theme's kind (light and dark, rule 17): the stored
+ * value itself under a dark theme, its light form under a light one. The card's editor writes the value into the
+ * element's style, which then reads `rgb(…)`: both spellings are found. */
+.monaco-workbench span[style*="color:#9b9a97" i],
+.monaco-workbench span[style*="color: rgb(155, 154, 151)"] { color: var(--vscode-basehalf-noteGrayText) !important; }
+.monaco-workbench span[style*="color:#ba8e78" i],
+.monaco-workbench span[style*="color: rgb(186, 142, 120)"] { color: var(--vscode-basehalf-noteBrownText) !important; }
+.monaco-workbench span[style*="color:#e8706b" i],
+.monaco-workbench span[style*="color: rgb(232, 112, 107)"] { color: var(--vscode-basehalf-noteRedText) !important; }
+.monaco-workbench span[style*="color:#dc8434" i],
+.monaco-workbench span[style*="color: rgb(220, 132, 52)"] { color: var(--vscode-basehalf-noteOrangeText) !important; }
+.monaco-workbench span[style*="color:#d5ae38" i],
+.monaco-workbench span[style*="color: rgb(213, 174, 56)"] { color: var(--vscode-basehalf-noteYellowText) !important; }
+.monaco-workbench span[style*="color:#5cad83" i],
+.monaco-workbench span[style*="color: rgb(92, 173, 131)"] { color: var(--vscode-basehalf-noteGreenText) !important; }
+.monaco-workbench span[style*="color:#4ba3dc" i],
+.monaco-workbench span[style*="color: rgb(75, 163, 220)"] { color: var(--vscode-basehalf-noteBlueText) !important; }
+.monaco-workbench span[style*="color:#a882e4" i],
+.monaco-workbench span[style*="color: rgb(168, 130, 228)"] { color: var(--vscode-basehalf-notePurpleText) !important; }
+.monaco-workbench span[style*="color:#e36aaf" i],
+.monaco-workbench span[style*="color: rgb(227, 106, 175)"] { color: var(--vscode-basehalf-notePinkText) !important; }
+.monaco-workbench span[style*="background-color:#3f3e3b" i],
+.monaco-workbench span[style*="background-color: rgb(63, 62, 59)"] { background-color: var(--vscode-basehalf-noteGrayHighlight) !important; }
+.monaco-workbench span[style*="background-color:#4f3a30" i],
+.monaco-workbench span[style*="background-color: rgb(79, 58, 48)"] { background-color: var(--vscode-basehalf-noteBrownHighlight) !important; }
+.monaco-workbench span[style*="background-color:#692b2b" i],
+.monaco-workbench span[style*="background-color: rgb(105, 43, 43)"] { background-color: var(--vscode-basehalf-noteRedHighlight) !important; }
+.monaco-workbench span[style*="background-color:#583b1f" i],
+.monaco-workbench span[style*="background-color: rgb(88, 59, 31)"] { background-color: var(--vscode-basehalf-noteOrangeHighlight) !important; }
+.monaco-workbench span[style*="background-color:#4a401d" i],
+.monaco-workbench span[style*="background-color: rgb(74, 64, 29)"] { background-color: var(--vscode-basehalf-noteYellowHighlight) !important; }
+.monaco-workbench span[style*="background-color:#24443a" i],
+.monaco-workbench span[style*="background-color: rgb(36, 68, 58)"] { background-color: var(--vscode-basehalf-noteGreenHighlight) !important; }
+.monaco-workbench span[style*="background-color:#1f4157" i],
+.monaco-workbench span[style*="background-color: rgb(31, 65, 87)"] { background-color: var(--vscode-basehalf-noteBlueHighlight) !important; }
+.monaco-workbench span[style*="background-color:#45306a" i],
+.monaco-workbench span[style*="background-color: rgb(69, 48, 106)"] { background-color: var(--vscode-basehalf-notePurpleHighlight) !important; }
+.monaco-workbench span[style*="background-color:#62294b" i],
+.monaco-workbench span[style*="background-color: rgb(98, 41, 75)"] { background-color: var(--vscode-basehalf-notePinkHighlight) !important; }

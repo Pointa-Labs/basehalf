@@ -41,7 +41,7 @@
 	background: var(--basehalf-note-swatch);
 	border: 2px solid transparent;
 	border-radius: 50%;
-	/* A pale color keeps its edge on a pale menu (light and dark, rule 8). */
+	/* A pale color keeps its edge on a pale menu (light and dark, rule 9). */
 	box-shadow: inset 0 0 0 1px var(--vscode-basehalf-noteSwatchBorder);
 	cursor: pointer;
 }

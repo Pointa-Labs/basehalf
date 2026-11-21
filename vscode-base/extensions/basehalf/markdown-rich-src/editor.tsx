@@ -174,7 +174,7 @@ const baseHalfBlockNoteTheme: Theme = {
 		border: 'var(--vscode-widget-border)',
 		sideMenu: 'var(--vscode-descriptionForeground)',
 		// The nine colors as the theme's kind draws them: under a dark theme the values the note stores, under a
-		// light one their light forms (note formats, rules 46 and 47; light and dark, rule 15).
+		// light one their light forms (note formats, rules 46 and 47; light and dark, rule 17).
 		highlights: Object.fromEntries(BASEHALF_NOTE_PALETTE_COLORS.map(name => [name, baseHalfNotePaletteVariables(name)])),
 	},
 	borderRadius: 4,

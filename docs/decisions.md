@@ -7011,13 +7011,26 @@ color can. Nothing new had to be built to carry a color to the page of Rich or o
 **Consequences.**
 - A stylesheet or a source of BaseHalf's writes no literal color: a test reads the sources and fails on one outside the
   module of the palette and a short list of named exceptions (the black of a mask, the colors a note stores).
+- A color with a share of transparency is a color of its own for each share (`basehalf.shadow32`). Mixing the share in
+  the stylesheet was tried first and changed 1,300 to 3,400 pixels of each dark screenshot by one step of 255, along the
+  edges of shadows: the browser computes a mixed color another way than a literal one.
 - The terminal's palette moved from `workbench.colorCustomizations` of the profile to the registry's defaults of the
-  terminal's own colors, by kind; the two product themes carry no terminal colors. A user's customization of one color
-  no longer loses the rest of the palette.
+  terminal's own colors, by kind; the base's default themes carry no terminal colors. A user's customization of one
+  color no longer loses the rest of the palette.
+- Under a light theme a character of the terminal keeps 4.5:1 against the ground of its cell while the user has set no
+  ratio, and 7:1 under a high contrast theme. The profile's default of 1 is for the dark palette. Seen in the real
+  window: at 1, white on a red ground, the default text on black, and black on bright white could not be read on the
+  light ground; at 4.5 all could, and none of the 16 colors as plain text changed.
+- A change of the theme draws the new palette in one frame. Sampled every frame before this was built, a card's surface
+  and border took nine frames to fade from the dark values to the light ones on a canvas that was already light: the
+  card's own transition of 150 ms. While the theme changes, nothing in the window glides.
 - `workbench.preferredLightColorTheme` and `workbench.preferredHighContrastLightColorTheme` are the base's defaults
   again. The color theme is no longer a setting that changes only the shell: the catalog's note that says so is out of
   date, and a row "Appearance" (Dark, Light, Match the System) can be built on `window.autoDetectColorScheme` and
   `workbench.colorTheme` alone.
 - The colors a note stores are still dark-surface values in its file. Under a light theme each is drawn in its light
   form; the file is unchanged.
+- Behind a picture, a video, a sound, and a PDF in Card Detail stands the paper of the canvas under a light theme, and
+  the part a crop leaves out recedes into that paper: not a white page, where a picture with a white ground loses its
+  edge, and not a dark stage, which would be a dark room in a light product.
 - Under a dark theme the screenshots of the states the specification names are equal pixel by pixel before and after.

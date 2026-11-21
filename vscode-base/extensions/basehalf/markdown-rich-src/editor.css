@@ -186,7 +186,7 @@ body,
 	--prev-level: 14px;
 }
 
-/* A quote keeps 4.5:1 against its ground under each kind of theme (light and dark, rule 9). The editor's own
+/* A quote keeps 4.5:1 against its ground under each kind of theme (light and dark, rule 10). The editor's own
  * sheet draws it in one gray whatever the theme, which is the dark value. */
 .basehalf-markdown-rich [data-content-type="quote"] blockquote {
 	color: var(--vscode-basehalf-noteQuoteForeground);
@@ -687,7 +687,7 @@ body,
 	scrollbar-width: none;
 }
 
-/* A code block has a ground and a text color for each kind of theme (light and dark, rule 8). The editor's own
+/* A code block has a ground and a text color for each kind of theme (light and dark, rule 9). The editor's own
  * sheet draws it white on near black whatever the theme, which is the dark value of these two. */
 .basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"],
 .basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] > div > select {
@@ -898,7 +898,7 @@ body,
 }
 
 /* The colors a note stores are one fixed value each (note formats, rules 46 and 47). A block Rich shows as it is
- * written draws each stored value in the color of the theme's kind (light and dark, rule 15): the stored value
+ * written draws each stored value in the color of the theme's kind (light and dark, rule 17): the stored value
  * itself under a dark theme, its light form under a light one. */
 .basehalf-raw-passthrough-rendered span[style*="color:#9b9a97" i] { color: var(--vscode-basehalf-noteGrayText) !important; }
 .basehalf-raw-passthrough-rendered span[style*="color:#ba8e78" i] { color: var(--vscode-basehalf-noteBrownText) !important; }

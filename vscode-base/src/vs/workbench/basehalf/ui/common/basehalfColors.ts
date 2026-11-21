@@ -38,7 +38,7 @@ export const BASEHALF_CARD_MUTED_BACKGROUND = register('cardMutedBackground', '#
 export const BASEHALF_CARD_FOREGROUND = register('cardForeground', '#e1e2e3', '#1d1e20', localize('basehalf.color.cardForeground', "The text of a card."));
 export const BASEHALF_CARD_SECONDARY_FOREGROUND = register('cardSecondaryForeground', '#b0b3b5', '#45484b', localize('basehalf.color.cardSecondaryForeground', "The second text of a card."));
 export const BASEHALF_CARD_TERTIARY_FOREGROUND = register('cardTertiaryForeground', '#898d90', '#5b5e62', localize('basehalf.color.cardTertiaryForeground', "The third text of a card."));
-export const BASEHALF_CARD_FAINT_FOREGROUND = register('cardFaintForeground', '#666a6d', '#65686c', localize('basehalf.color.cardFaintForeground', "The faintest text of a card."));
+export const BASEHALF_CARD_FAINT_FOREGROUND = register('cardFaintForeground', '#666a6d', '#626569', localize('basehalf.color.cardFaintForeground', "The faintest text of a card."));
 export const BASEHALF_CARD_BORDER = register('cardBorder', '#3a3c3f', '#dbdbd7', localize('basehalf.color.cardBorder', "The border of a card."), { light: contrastBorder });
 export const BASEHALF_CARD_STRONG_BORDER = register('cardStrongBorder', '#565a5e', '#b9bab6', localize('basehalf.color.cardStrongBorder', "The stronger border of a card and of a control on the canvas."), { light: contrastBorder });
 export const BASEHALF_CARD_WARNING = register('cardWarning', '#cca700', '#8a6d00', localize('basehalf.color.cardWarning', "A warning on a card."));
@@ -149,7 +149,7 @@ registerShares('tint', [6, 12],
 //#region Over the user's material
 
 // What BaseHalf draws over a picture or a video lies on the material, not on the theme: it is the same under
-// every kind (light and dark, rule 12).
+// every kind (light and dark, rule 13).
 export const BASEHALF_OVERLAY_FOREGROUND = register('overlayForeground', '#ffffff', '#ffffff', localize('basehalf.color.overlayForeground', "Text and marks that BaseHalf draws over a picture or a video."));
 registerShares('overlayForeground', [14, 18, 24, 28, 45, 85],
 	share => ({ dark: ink(255, 255, 255, share), light: ink(255, 255, 255, share) }),
@@ -239,17 +239,24 @@ export function baseHalfTerminalColorDefaults(id: string, base: ColorDefaults | 
  * BaseHalf's default for `terminal.integrated.minimumContrastRatio` is 1, the palette as it is: the dark palette
  * is made for that, and a higher ratio lifts its colors. On a light ground a program that writes white on a
  * color, or its default text on black, cannot be read at 1, and the light palette already has the ratio for its
- * own colors. So under a light theme the base's own default holds until the user sets a ratio; once set, the
- * setting holds under every theme.
+ * own colors. So under a light theme the base's own default holds until the user sets a ratio, and under a high
+ * contrast theme, whose terminal colors are the base's, the enhanced one. Once set, the setting holds under
+ * every theme.
  */
 export function baseHalfTerminalContrastRatio(configured: number, userSet: boolean, kind: ColorScheme): number {
-	if (userSet || isDark(kind) || isHighContrast(kind)) {
+	if (userSet) {
 		return configured;
 	}
-	return Math.max(configured, BASEHALF_LIGHT_TERMINAL_CONTRAST_RATIO);
+	if (isHighContrast(kind)) {
+		return Math.max(configured, BASEHALF_HIGH_CONTRAST_TERMINAL_CONTRAST_RATIO);
+	}
+	return isDark(kind) ? configured : Math.max(configured, BASEHALF_LIGHT_TERMINAL_CONTRAST_RATIO);
 }
 
-/** The base's own default of `terminal.integrated.minimumContrastRatio`. */
+/** The base's own default of `terminal.integrated.minimumContrastRatio`: the minimum for text that is read. */
 export const BASEHALF_LIGHT_TERMINAL_CONTRAST_RATIO = 4.5;
+
+/** The enhanced contrast the setting's description names. */
+export const BASEHALF_HIGH_CONTRAST_TERMINAL_CONTRAST_RATIO = 7;
 
 //#endregion
