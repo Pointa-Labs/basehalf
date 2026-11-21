@@ -2780,7 +2780,8 @@ The panel while a file lands, and the player's tooltips (2026-11-12)
   their names change under the pointer (`basehalfVideoPlayer.test.ts`,
   criterion 105); and a card's player with the pointer playing nothing, and
   the setting turned off and on while a video plays (the same file,
-  criterion 106).
+  criterion 106), which the smoke step
+  `video-under-the-pointer-follows-its-setting` covers in the window.
 - Unit tests for D106: the footer of each kind's panel from left to right,
   a speech model's with its two buttons and no row, where its parts begin
   and end, the summary of the settings that gives way before the voice's

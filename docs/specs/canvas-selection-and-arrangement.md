@@ -767,6 +767,11 @@ Snap to Cards
   blocks that wrap.
 - Unit tests of the function that gives the state for a selection.
 - Unit tests of the function that gives the lines a marquee crosses.
+- Snap to Cards: unit tests of the magnet with a settings service
+  (`basehalfCanvasSnap.contribution.test.ts`: what it shows at the start, a
+  click and what it writes, the setting changed elsewhere, a write that
+  fails); criteria 39 to 42 in the real window on 2026-11-21; and the smoke
+  step `canvas-magnet-is-its-setting` for criteria 39, 40, and 42.
 - The smoke in the real window, on a fixture workspace with connected and
   unconnected cards. Each step also checks which element is at the pointer,
   because an element can be drawn and still be covered.

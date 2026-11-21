@@ -183,6 +183,12 @@ Acceptance criteria of the background:
 - B6. The spacing and the fading of the dots are a function that the unit
   tests cover with plain numbers (`basehalfCanvasBackground.test.ts`).
 
+B1 to B5 were checked in the real window on 2026-11-21, on a screen of one
+pixel to a screen pixel and with two emulated, where a dot is a round shape
+of 4 pixels; the smoke step `canvas-background-follows-its-setting` covers
+B1 at 100% and 150%, B4, and B5 without its frames. The colors of a light
+theme were not looked at: the ink is the theme's text color.
+
 ## States and failure
 
 - **Before the theme is loaded.** A window starts with the startup colors and

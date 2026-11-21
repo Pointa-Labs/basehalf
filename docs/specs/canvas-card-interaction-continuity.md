@@ -120,7 +120,11 @@ around it.
 
 A move of the view is one gesture from its first start to its end, however
 many starts the library reports. A pinch ends 150 ms after its last event,
-and what waited for it is drawn then.
+and what waited for it is drawn then. A gesture of the wheel that zooms
+([canvas wheel gestures](canvas-wheel-gestures.md#a-gesture-the-canvas-owns),
+D144) begins that one gesture itself and ends as a pinch does: measured on
+2026-11-21, a note written 400 ms after six of its events had its card in
+217 ms, and one written without a gesture in 261 ms.
 
 ### A change elsewhere in the workspace
 

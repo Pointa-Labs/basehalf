@@ -128,7 +128,11 @@ export interface IBaseHalfCanvasView {
 	 */
 	setViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport): Promise<void>;
 
-	/** Whether a card that is moved snaps to the edges and centers of other cards. It does when the canvas starts. */
+	/**
+	 * Whether a card that is moved or resized snaps to the edges and centers
+	 * of other cards. It does until it is told otherwise; the magnet's feature
+	 * tells it what the setting Snap to Cards says.
+	 */
 	setSnapEnabled(enabled: boolean): void;
 
 	/** The folder whose canvas is shown. */
