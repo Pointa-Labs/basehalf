@@ -105,6 +105,8 @@ import { baseHalfNoteToggleState, installBaseHalfNoteToggleState, openBaseHalfNo
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/ui/browser/basehalfSidewaysScrollbar.js';
 import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteZoom } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoom.js';
+import { keepBaseHalfNotePlace } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNotePlace.js';
+import { applyBaseHalfNoteTypography, type IBaseHalfNoteTypography } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteTypography.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings, openBaseHalfNoteTogglesAround } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
 import { BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteOutlineLayout.js';
 import {
@@ -2069,6 +2071,23 @@ function MarkdownRichEditor(): JSX.Element {
 		return () => window.removeEventListener('wheel', onWheel, { capture: true });
 	}, []);
 
+	/**
+	 * Sets the note in a typography (note rendering, rule 40): the stylesheet
+	 * reads the font and the text size from the document's element. The page is
+	 * laid out anew in this one task, and the view keeps its place: the block at
+	 * its top stays there. The caret, the selection, and the level of a
+	 * magnified page are not touched.
+	 */
+	const showTypography = useCallback((typography: IBaseHalfNoteTypography): void => {
+		const scroll = scrollRef.current;
+		const putBack = scroll && editor.domElement
+			? keepBaseHalfNotePlace(scroll, () => editor.domElement!.querySelectorAll('.bn-block-content'))
+			: undefined;
+		applyBaseHalfNoteTypography(document.documentElement.style, typography);
+		putBack?.();
+		readingAids.current?.outline.refresh();
+	}, [editor]);
+
 	const handleIncomingInit = useCallback(async (payload: IIncomingInit): Promise<void> => {
 		// A payload that a newer arrival superseded — whether parked during
 		// composition and replayed late, or overtaken at an await point — must
@@ -2180,6 +2199,8 @@ function MarkdownRichEditor(): JSX.Element {
 
 			switch (message.type) {
 				case 'basehalf.markdownRich.init':
+					// The note is set in its typography before any of it is drawn (note rendering, rule 40).
+					showTypography(message.typography);
 					void handleIncomingInit({
 						content: message.content,
 						editable: message.editable,
@@ -2190,6 +2211,9 @@ function MarkdownRichEditor(): JSX.Element {
 						generation: ++initGeneration.current,
 						...(message.selection ? { selection: message.selection } : {})
 					}).catch(reportError);
+					break;
+				case 'basehalf.markdownRich.typography':
+					showTypography(message.typography);
 					break;
 				case 'basehalf.markdownRich.zoomGesture':
 					readingAids.current?.zoom.zoomBy({
@@ -2376,7 +2400,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [adoptDiskFrontmatter, applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, endMediaEdit, flushPendingEditorCommands, focusAtPoint, notifyDirty, recordMediaEdit, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, showEditedMedia, showMediaVersion, vscode, waitForCompositionSettled, ydoc]);
+	}, [adoptDiskFrontmatter, applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, endMediaEdit, flushPendingEditorCommands, focusAtPoint, notifyDirty, recordMediaEdit, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, showEditedMedia, showMediaVersion, showTypography, vscode, waitForCompositionSettled, ydoc]);
 
 	useEffect(() => {
 		postFormatState();

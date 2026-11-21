@@ -12,17 +12,18 @@ import { BaseHalfMarkdownRichWebviewBridge, IBaseHalfMarkdownRichWebviewTranspor
 suite('BaseHalfMarkdownRichWebviewBridge', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('sends init, editable, reveal, save, and save result host messages', async () => {
+	test('sends init, typography, editable, reveal, save, and save result host messages', async () => {
 		const host = new YDoc();
 		const transport = new TestTransport();
 		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
 
-		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', 'vscode-webview-resource://base/workspace/', '# Doc\n', true, 'canvas', {
+		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', 'vscode-webview-resource://base/workspace/', '# Doc\n', true, 'canvas', { fontFamily: 'Charter, serif, sans-serif', fontSize: 18, codeFontFamily: 'Menlo, monospace' }, {
 			startLineNumber: 3,
 			startColumn: 1,
 			endLineNumber: 3,
 			endColumn: 6
 		}), true);
+		assert.strictEqual(await bridge.sendTypography({ fontFamily: 'sans-serif', fontSize: 20, codeFontFamily: 'monospace' }), true);
 		assert.strictEqual(await bridge.sendEditable(false), true);
 		assert.strictEqual(await bridge.sendStructuralFreeze('freeze-1', true), true);
 		assert.strictEqual(await bridge.sendRevealSelection({
@@ -63,12 +64,18 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				content: '# Doc\n',
 				editable: true,
 				surface: 'canvas',
+				typography: { fontFamily: 'Charter, serif, sans-serif', fontSize: 18, codeFontFamily: 'Menlo, monospace' },
 				selection: {
 					startLineNumber: 3,
 					startColumn: 1,
 					endLineNumber: 3,
 					endColumn: 6
 				}
+			},
+			{
+				type: 'basehalf.markdownRich.typography',
+				key: 'workspace\u0000doc.md',
+				typography: { fontFamily: 'sans-serif', fontSize: 20, codeFontFamily: 'monospace' }
 			},
 			{
 				type: 'basehalf.markdownRich.setEditable',

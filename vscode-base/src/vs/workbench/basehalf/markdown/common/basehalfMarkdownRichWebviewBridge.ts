@@ -6,6 +6,7 @@
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from './vendor/yjs.bundle.js';
 import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
+import { IBaseHalfNoteTypography } from './basehalfNoteTypography.js';
 import {
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichHostMessage,
@@ -52,6 +53,7 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		content: string,
 		editable: boolean,
 		surface: BaseHalfMarkdownRichSurface,
+		typography: IBaseHalfNoteTypography,
 		selection?: IBaseHalfMarkdownRichTextSelection
 	): Promise<boolean> {
 		return this.transport.postMessage({
@@ -62,7 +64,17 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			content,
 			editable,
 			surface,
+			typography,
 			...(selection ? { selection } : {})
+		});
+	}
+
+	/** The typography of a note changed: the page shows the note in it at once (note rendering, rule 40). */
+	sendTypography(typography: IBaseHalfNoteTypography): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.typography',
+			key: this.key,
+			typography
 		});
 	}
 

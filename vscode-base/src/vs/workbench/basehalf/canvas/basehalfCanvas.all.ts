@@ -5,6 +5,7 @@
 
 // The canvas core: the canvas view, which creates the features registered below.
 import './browser/basehalfCanvasWorkbench.contribution.js';
+import './browser/basehalfCanvasNoteTypography.contribution.js';
 
 // Canvas features, each in its own folder under canvasContrib/. They register
 // themselves with the canvas, which never imports them; their view controls

@@ -36,6 +36,7 @@ import { IBaseHalfAdhdCommand } from '../../markdown/common/basehalfAdhd.js';
 import { IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../markdown/common/basehalfAdhdMirror.js';
 import { BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../markdown/common/basehalfMarkdownAttachment.js';
+import { IBaseHalfNoteTypographyService } from '../../markdown/browser/basehalfNoteTypographyService.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
@@ -143,7 +144,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfMarkdownAttachmentService public readonly attachmentService: IBaseHalfMarkdownAttachmentService,
 		@ILogService public readonly logService: ILogService,
-		@IBaseHalfClipboardService public readonly clipboardService: IBaseHalfClipboardService
+		@IBaseHalfClipboardService public readonly clipboardService: IBaseHalfClipboardService,
+		@IBaseHalfNoteTypographyService private readonly typographyService: IBaseHalfNoteTypographyService
 	) {
 		super();
 		this.canvasAuthoring = this.surface !== 'canvas' || this.options.canvasAuthoring === true;
@@ -274,6 +276,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				if (state && event.affectsConfiguration(BaseHalfSetting.EditorReadingMode, { resource: state.resource })) {
 					void this.sendAdhdState(state);
 				}
+			}));
+			// The page is another document: it gets the typography of a note with
+			// the note, and here when it changes (note rendering, rule 40).
+			this._register(this.typographyService.onDidChange(typography => {
+				void this.bridge?.sendTypography(typography).catch(error => this.logService.error(error));
 			}));
 
 			this.updateStatus();
@@ -734,7 +741,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
-		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection);
+		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, this.typographyService.typography, state.selection);
 		await this.sendAdhdState(state);
 	}
 
@@ -819,7 +826,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		this.lastSentContent = content;
-		void this.bridge?.sendInit(model.uri.toString(), this.webviewBaseUri(model.uri), content, this.isEditable(), this.surface, state.selection);
+		void this.bridge?.sendInit(model.uri.toString(), this.webviewBaseUri(model.uri), content, this.isEditable(), this.surface, this.typographyService.typography, state.selection);
 	}
 
 	private updateEditable(): void {

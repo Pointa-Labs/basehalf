@@ -29,6 +29,7 @@ import './generation/browser/basehalfVideoProviders.contribution.js';
 import './sequence/browser/basehalfSequence.contribution.js';
 import './changes/browser/basehalfChanges.contribution.js';
 import './mediaEdit/browser/basehalfMediaEdit.contribution.js';
+import './markdown/browser/basehalfNoteTypography.contribution.js';
 import './cardDetail/browser/basehalfCardDetailPagePinch.js';
 import './cardDetail/browser/basehalfCardDetailProjections.contribution.js';
 import './shell/browser/basehalfReleaseNotes.contribution.js';

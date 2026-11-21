@@ -18,6 +18,8 @@ export const BASEHALF_CANVAS_NOTE_PART_CLASS = 'bh-md-part';
 const BUILT_AHEAD = 2;
 
 const notesInParts = new WeakMap<HTMLElement, BaseHalfCanvasNoteInParts>();
+/** The notes that have parts left to build. */
+const notesBuilding = new Set<BaseHalfCanvasNoteInParts>();
 
 /**
  * The resting projection of a note, built one part after the other: as far as
@@ -44,11 +46,18 @@ class BaseHalfCanvasNoteInParts extends Disposable {
 			const observer = new (getWindow(container).ResizeObserver)(() => this.buildTo(container.scrollTop));
 			observer.observe(container);
 			const scroll = addDisposableListener(container, 'scroll', () => this.buildTo(container.scrollTop));
+			notesBuilding.add(this);
 			this.watching.value = toDisposable(() => {
 				observer.disconnect();
 				scroll.dispose();
+				notesBuilding.delete(this);
 			});
 		}
+	}
+
+	/** Builds the parts that the box shows where it is scrolled to and the two heights below it. */
+	buildOn(): void {
+		this.buildTo(this.container.scrollTop);
 	}
 
 	get complete(): boolean {
@@ -118,6 +127,18 @@ export function renderBaseHalfCanvasNoteInParts(
  */
 export function buildBaseHalfCanvasNotePartsTo(container: HTMLElement, top: number): void {
 	notesInParts.get(container)?.buildTo(Math.max(0, top));
+}
+
+/**
+ * Builds on every note in parts as far as its box shows, and two of its
+ * heights below. What a note's lines take changed without its box changing,
+ * as when the font of notes changed: the parts built so far may no longer
+ * reach that far (note rendering, rule 41).
+ */
+export function buildOnBaseHalfCanvasNoteParts(): void {
+	for (const note of [...notesBuilding]) {
+		note.buildOn();
+	}
 }
 
 /** Builds every part of a note in parts. Anything else is left alone. */

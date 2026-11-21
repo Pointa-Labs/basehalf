@@ -23,12 +23,14 @@ import { ITextFileService, TextFileOperationError, TextFileOperationResult } fro
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
 import { baseHalfNoteRenderOptions, finishBaseHalfNoteRendering } from '../../markdown/browser/basehalfNoteRenderOptions.js';
+import { IBaseHalfNoteTypographyService } from '../../markdown/browser/basehalfNoteTypographyService.js';
 import { playBaseHalfNoteMedia } from '../../playback/browser/basehalfNoteMedia.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { installBaseHalfSidewaysScrollbar } from '../../ui/browser/basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehalfMarkdownRichTextModel.js';
 import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from './basehalfNoteOutline.js';
+import { keepBaseHalfNotePlace } from './basehalfNotePlace.js';
 import { BaseHalfNoteZoom } from './basehalfNoteZoom.js';
 import { baseHalfNoteLinkServices, openBaseHalfNoteLink } from '../../markdown/browser/basehalfNoteLinkRouter.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -38,6 +40,9 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 export function baseHalfMarkdownPreviewBody(source: string): string {
 	return splitBaseHalfMarkdownFrontmatter(source).body;
 }
+
+/** The blocks of a rendered note, of which the one at the top of the view keeps its place. */
+const PREVIEW_BLOCKS = 'h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,table,div[data-code],img,figure,hr';
 
 export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private readonly previewScroll: HTMLElement;
@@ -65,7 +70,8 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
 		@ILogService private readonly logService: ILogService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@IAccessibilityService accessibilityService: IAccessibilityService
+		@IAccessibilityService accessibilityService: IAccessibilityService,
+		@IBaseHalfNoteTypographyService typographyService: IBaseHalfNoteTypographyService
 	) {
 		super();
 
@@ -76,7 +82,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		// A table or a code block that is scrolled sideways shows one bar inside
 		// its lower edge, as on a card (note rendering).
 		this._register(installBaseHalfSidewaysScrollbar(this.previewScroll, {
-			boxSelector: '.basehalf-card-detail-markdown-preview-content table, .basehalf-card-detail-markdown-preview-content pre',
+			boxSelector: '.basehalf-card-detail-markdown-preview-content table, .basehalf-card-detail-markdown-preview-content pre, .basehalf-card-detail-markdown-preview-content div[data-code]',
 			container: () => this.previewContent
 		}));
 
@@ -105,6 +111,22 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			zoom.zoomBy(event);
 		}, { passive: false }));
 		this.setSaveStatus('saving');
+
+		// The stylesheet reads the typography of a note from the element of the
+		// window, so a change of it lays the note out anew by itself. The view
+		// keeps its place through that: the block at its top stays there (note
+		// rendering, rule 40).
+		let putBack: (() => void) | undefined;
+		this._register(typographyService.onWillChange(() => {
+			// The blocks of the note are drawn by the note's renderer, not built here.
+			// eslint-disable-next-line no-restricted-syntax
+			putBack = keepBaseHalfNotePlace(this.previewScroll, () => this.previewContent.querySelectorAll(PREVIEW_BLOCKS));
+		}));
+		this._register(typographyService.onDidChange(() => {
+			putBack?.();
+			putBack = undefined;
+			outline.refresh();
+		}));
 
 		this._register(this.textFileService.files.onDidChangeDirty(model => {
 			if (this.model && isEqual(model.resource, this.model.uri)) {

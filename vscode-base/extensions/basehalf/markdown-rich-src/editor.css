@@ -108,131 +108,51 @@ body,
 	padding-inline: max(85px, calc((100% - 712px) / 2));
 }
 
-.basehalf-markdown-rich.surface-canvas {
-	--basehalf-canvas-note-primary: #e1e2e3;
-	--basehalf-canvas-note-secondary: #b0b3b5;
-	--basehalf-canvas-note-tertiary: #898d90;
-
-	background: transparent;
-	color: var(--basehalf-canvas-note-secondary);
-	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-}
-
-.basehalf-markdown-rich.surface-canvas .basehalf-markdown-rich-scroll {
-	overflow: auto;
-	scrollbar-width: none;
-	overscroll-behavior: contain;
-}
-
-.basehalf-markdown-rich.surface-canvas .basehalf-markdown-rich-scroll::-webkit-scrollbar {
-	display: none;
-}
-
-.basehalf-markdown-rich.surface-canvas .basehalf-markdown-rich-page {
-	max-width: none;
-	min-height: 100%;
-	margin: 0;
-	padding: 8px 12px 12px;
-}
-
-.basehalf-markdown-rich.surface-canvas .bn-container,
-.basehalf-markdown-rich.surface-canvas .bn-editor {
-	color: var(--basehalf-canvas-note-secondary);
-	font-family: inherit;
-	font-size: 13px;
-	line-height: 1.45;
-}
-
-.basehalf-markdown-rich.surface-canvas .bn-container {
-	min-height: 100%;
-	border: 0;
-	border-radius: 0;
-	box-shadow: none;
-}
-
-.basehalf-markdown-rich.surface-canvas .bn-editor {
-	min-height: 100%;
-	caret-color: var(--basehalf-canvas-note-primary);
-}
-
-.basehalf-markdown-rich.surface-canvas .bn-block-outer,
-.basehalf-markdown-rich.surface-canvas .bn-block-content {
-	line-height: 1.45;
-}
-
-.basehalf-markdown-rich.surface-canvas [data-content-type="heading"] {
-	padding-top: 3px;
-	color: var(--basehalf-canvas-note-primary);
-	--level: 18px;
-}
-
-.basehalf-markdown-rich.surface-canvas [data-content-type="heading"][data-level="2"] {
-	--level: 16px;
-}
-
-.basehalf-markdown-rich.surface-canvas [data-content-type="heading"][data-level="3"] {
-	--level: 14px;
-}
-
-.basehalf-markdown-rich.surface-canvas [data-prev-level="1"] {
-	--prev-level: 18px;
-}
-
-.basehalf-markdown-rich.surface-canvas [data-prev-level="2"] {
-	--prev-level: 16px;
-}
-
-.basehalf-markdown-rich.surface-canvas [data-prev-level="3"] {
-	--prev-level: 14px;
-}
-
-.basehalf-markdown-rich.surface-canvas [data-content-type="quote"] blockquote {
-	color: var(--basehalf-canvas-note-secondary);
-	border-left-color: #666a6d;
-}
-
-.basehalf-markdown-rich.surface-canvas .bn-block-content[data-is-only-empty-block]::after,
-.basehalf-markdown-rich.surface-canvas .bn-block-content[data-is-empty-and-focused]::after {
-	content: "" !important;
-}
-
-.basehalf-markdown-rich.surface-canvas .bn-trailing-block {
-	height: 0;
-	min-height: 0;
-}
-
-.basehalf-markdown-rich.surface-canvas
-	.bn-block-group
-	.bn-block-group
-	> .bn-block-outer::before {
-	display: none;
-}
-
-.basehalf-markdown-rich.surface-canvas .bn-block-content.ProseMirror-selectednode > *,
-.basehalf-markdown-rich.surface-canvas .ProseMirror-selectednode > .bn-block-content > * {
-	border-radius: 0;
-	outline: 0;
-}
-
-.basehalf-markdown-rich.surface-canvas .basehalf-raw-passthrough {
-	margin: 3px 0;
-	padding: 0;
-	border: 0;
-}
-
-.basehalf-markdown-rich.surface-canvas .basehalf-raw-passthrough-edit {
-	display: none;
-}
-
-.basehalf-markdown-rich.surface-canvas .basehalf-markdown-rich-banner {
-	padding: 6px 10px;
-}
-
-.basehalf-markdown-rich .bn-container,
-.basehalf-markdown-rich .bn-editor {
+/* The editor's own menus and toolbars are in the font of the window. */
+.basehalf-markdown-rich .bn-container {
 	background: transparent;
 	color: var(--vscode-editor-foreground);
 	font-family: var(--vscode-font-family);
+}
+
+/* The typography of a note (note rendering, rule 34). The font and the text
+ * size are the user's: the window sends them with the note and when they
+ * change, and the page keeps them on its document's element. Every other
+ * size of a note is a multiple of the text size. The same rules, for the
+ * elements Preview draws, are in the workbench's
+ * `cardDetail/browser/media/basehalfCardDetailProjections.css`. */
+.basehalf-markdown-rich .bn-editor {
+	background: transparent;
+	color: var(--vscode-editor-foreground);
+	font-family: var(--basehalf-note-font-family, var(--vscode-font-family));
+	font-size: var(--basehalf-note-font-size, 16px);
+}
+
+/* The room above and below the text of a block, and above a heading, grows
+ * with the text: 3 px and 18 px at 16 px. */
+.basehalf-markdown-rich .bn-editor .bn-block-content {
+	padding-block: calc(var(--basehalf-note-font-size, 16px) * 0.1875);
+}
+
+.basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="heading"] {
+	padding-top: calc(var(--basehalf-note-font-size, 16px) * 1.125);
+}
+
+/* A heading of level 1, 2, and 3 is 3, 2, and 1.3 times the text, as the
+ * editor draws it. One of level 4 to 6 is bold and not smaller than the
+ * text, as on the card. */
+.basehalf-markdown-rich .bn-editor [data-content-type="heading"]:is([data-level="4"], [data-level="5"], [data-level="6"]) {
+	--level: 1em;
+}
+
+.basehalf-markdown-rich .bn-editor :is([data-prev-level="4"], [data-prev-level="5"], [data-prev-level="6"]) {
+	--prev-level: 1em;
+}
+
+/* Code keeps the font of code, at the size of the text around it (note rendering, rule 37). */
+.basehalf-markdown-rich .bn-editor code,
+.basehalf-markdown-rich .bn-editor pre {
+	font-family: var(--basehalf-note-code-font-family, var(--vscode-editor-font-family));
 }
 
 .basehalf-markdown-rich .bn-editor {
@@ -328,26 +248,53 @@ body,
 	color: var(--vscode-descriptionForeground);
 }
 
+/* The marks of a list, the room they stand in, and the step of a nested
+ * block grow with the text (note rendering, rule 34): 18 px for a bullet and
+ * 22 px for a number at 16 px. */
 .basehalf-markdown-rich .bn-block-group .bn-block-group {
-	margin-left: 18px;
+	margin-left: 1.125em;
 }
 
 .basehalf-markdown-rich
 	.bn-block-group
 	.bn-block-group
 	> .bn-block-outer:not([data-prev-depth-changed])::before {
-	left: -12px;
+	left: -0.75em;
 	border-left-color: color-mix(in srgb, var(--vscode-editor-foreground) 34%, transparent);
 }
 
 .basehalf-markdown-rich .bn-block-content[data-content-type="numberedListItem"]::before {
-	min-width: 22px;
-	padding-right: 4px;
+	min-width: 1.375em;
+	padding-right: 0.25em;
 }
 
 .basehalf-markdown-rich .bn-block-content[data-content-type="bulletListItem"]::before {
-	min-width: 18px;
-	padding-right: 4px;
+	min-width: 1.125em;
+	padding-right: 0.25em;
+}
+
+/* The box of a task stands in the middle of the task's first line, at every text size. */
+.basehalf-markdown-rich .bn-block-content[data-content-type="checkListItem"] > div:has(> input) {
+	height: 1.5em;
+}
+
+.basehalf-markdown-rich .bn-block-content[data-content-type="checkListItem"] > div > input {
+	width: 0.75em;
+	height: 1.5em;
+	margin-left: 0.25em;
+	margin-right: 0.5em;
+}
+
+/* A table keeps its words and numbers whole, as on the card: one that is
+ * wider than the text scrolls sideways in its own box (note rendering, rules
+ * 7 and 14). An empty cell is as high as a line of the text. */
+.basehalf-markdown-rich .bn-editor [data-content-type="table"] table {
+	word-break: normal;
+	overflow-wrap: break-word;
+}
+
+.basehalf-markdown-rich .bn-editor [data-content-type="table"] :is(th, td) > p {
+	min-height: 1.5em;
 }
 
 .basehalf-adhd-block {
@@ -586,6 +533,29 @@ body,
 	margin-bottom: 0;
 }
 
+/* A heading that the editor cannot edit has the size of its level (note rendering, rule 34). */
+.basehalf-raw-passthrough-rendered :is(h1, h2, h3, h4, h5, h6) {
+	margin: 0;
+	font-weight: 700;
+	line-height: 1.5;
+}
+
+.basehalf-raw-passthrough-rendered h1 {
+	font-size: 3em;
+}
+
+.basehalf-raw-passthrough-rendered h2 {
+	font-size: 2em;
+}
+
+.basehalf-raw-passthrough-rendered h3 {
+	font-size: 1.3em;
+}
+
+.basehalf-raw-passthrough-rendered :is(h4, h5, h6) {
+	font-size: 1em;
+}
+
 .basehalf-raw-passthrough-rendered p,
 .basehalf-raw-passthrough-rendered ul,
 .basehalf-raw-passthrough-rendered ol,
@@ -683,6 +653,11 @@ body,
 /* A tab in code is as wide as the four spaces the card shows for it (note formats, rule 32). */
 .basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] > pre {
 	tab-size: 4;
+}
+
+/* A line of code is never broken: a block with a line longer than the text scrolls sideways in its own box (note rendering, rules 7a and 14a). */
+.basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] > pre > code {
+	white-space: pre;
 }
 
 /* The bar is placed in the page, which moves with what it holds. */

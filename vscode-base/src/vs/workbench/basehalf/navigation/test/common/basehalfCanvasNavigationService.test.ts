@@ -9,6 +9,7 @@ import { Event } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { FileType, IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { IWorkspace, IWorkspaceContextService, WorkbenchState } from '../../../../../platform/workspace/common/workspace.js';
@@ -26,7 +27,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 
 	test('going back to a view the file no longer offers shows its usual one', async () => {
 		let hasChanges = true;
-		const projections = disposables.add(new BaseHalfCardProjectionRegistryService());
+		const projections = disposables.add(new BaseHalfCardProjectionRegistryService(new TestConfigurationService()));
 		disposables.add(projections.registerProjection({ id: 'changes', label: 'Changes', icon: 'codicon-diff', order: 50, isAvailable: () => hasChanges }));
 		const service = createService(new Map([
 			['/workspace/a.ts', aFileStat(URI.file('/workspace/a.ts'), FileType.File)],
@@ -983,7 +984,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		files: Map<string, IFileStat>,
 		workspaceFolders: URI[] = [workspaceFolder],
 		editorFlushService = new BaseHalfEditorFlushService(),
-		projections = disposables.add(new BaseHalfCardProjectionRegistryService())
+		projections = disposables.add(new BaseHalfCardProjectionRegistryService(new TestConfigurationService()))
 	): BaseHalfCanvasNavigationService {
 		const fileService = {
 			onDidFilesChange: Event.None,

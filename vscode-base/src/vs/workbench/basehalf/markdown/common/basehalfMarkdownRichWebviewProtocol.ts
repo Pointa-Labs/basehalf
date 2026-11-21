@@ -10,6 +10,7 @@ import {
 	type BaseHalfMarkdownFormatCommand,
 	type IBaseHalfMarkdownFormatState,
 } from './basehalfMarkdownFormatting.js';
+import { isBaseHalfNoteTypography, type IBaseHalfNoteTypography } from './basehalfNoteTypography.js';
 import type { BaseHalfNoteMediaKind } from '../../mediaEdit/common/basehalfNoteMediaEdit.js';
 
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
@@ -133,7 +134,15 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly content: string;
 		readonly editable: boolean;
 		readonly surface: BaseHalfMarkdownRichSurface;
+		/** What the note is set in: the page shows it from its first frame (note rendering, rule 40). */
+		readonly typography: IBaseHalfNoteTypography;
 		readonly selection?: IBaseHalfMarkdownRichTextSelection;
+	}
+	| {
+		/** The typography of a note changed: the page shows the note in it at once (note rendering, rule 40). */
+		readonly type: 'basehalf.markdownRich.typography';
+		readonly key: string;
+		readonly typography: IBaseHalfNoteTypography;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.zoomGesture';
@@ -519,7 +528,10 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& typeof candidate.content === 'string'
 				&& typeof candidate.editable === 'boolean'
 				&& isBaseHalfMarkdownRichSurface(candidate.surface)
+				&& isBaseHalfNoteTypography(candidate.typography)
 				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection));
+		case 'basehalf.markdownRich.typography':
+			return isBaseHalfNoteTypography(candidate.typography);
 		case 'basehalf.markdownRich.zoomGesture':
 			return isBaseHalfMarkdownRichZoomGesture(candidate.gesture);
 		case 'basehalf.markdownRich.applyYjsUpdate':

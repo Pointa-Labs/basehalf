@@ -65,49 +65,98 @@
 }
 
 /* The page is as wide as the view and holds the room around the text, so
- * that a pinch magnifies them together (zoom and outline of a note, rule 2). */
+ * that a pinch magnifies them together (zoom and outline of a note, rule 2).
+ * The room is Rich's: the text has the same width in both, and a paragraph
+ * breaks at the same words (note rendering, rule 34). */
 .monaco-workbench .basehalf-card-detail-markdown-preview-page {
-	padding: 48px max(28px, calc((100% - 760px) / 2)) 72px;
+	padding: 56px max(85px, calc((100% - 712px) / 2)) 80px;
 }
 
+/* The typography of a note (note rendering, rule 34): the font and the text
+ * size are the user's, which the window's element holds, and every other
+ * size is a multiple of the text size. The values are Rich's. */
 .monaco-workbench .basehalf-card-detail-markdown-preview-content {
 	/* The bar of a table that is scrolled sideways is placed in this box. */
 	position: relative;
-	max-width: 760px;
+	max-width: 712px;
 	margin: 0 auto;
 	color: var(--vscode-editor-foreground);
-	font-size: 14px;
-	line-height: 1.65;
+	font-family: var(--basehalf-note-font-family);
+	font-size: var(--basehalf-note-font-size);
+	line-height: 1.5;
 }
 
-.monaco-workbench .basehalf-card-detail-markdown-preview-content h1,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content h2,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content :is(h1, h2, h3, h4, h5, h6) {
+	margin: 0;
+	padding-top: calc(var(--basehalf-note-font-size) * 1.125);
+	padding-bottom: calc(var(--basehalf-note-font-size) * 0.1875);
+	font-weight: 700;
+	line-height: 1.5;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h1 {
+	font-size: 3em;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h2 {
+	font-size: 2em;
+}
+
 .monaco-workbench .basehalf-card-detail-markdown-preview-content h3 {
-	margin-top: 1.4em;
-	margin-bottom: 0.7em;
-	line-height: 1.25;
+	font-size: 1.3em;
 }
 
-.monaco-workbench .basehalf-card-detail-markdown-preview-content h1:first-child,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content h2:first-child,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content h3:first-child {
-	margin-top: 0;
+/* A heading of level 4 to 6 is bold and not smaller than the text, as on the card. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content :is(h4, h5, h6) {
+	font-size: 1em;
 }
 
-.monaco-workbench .basehalf-card-detail-markdown-preview-content p,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content ul,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content ol,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content blockquote,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content pre {
-	margin-top: 0;
-	margin-bottom: 1em;
+.monaco-workbench .basehalf-card-detail-markdown-preview-content :is(p, li, blockquote) {
+	margin: 0;
+	padding-block: calc(var(--basehalf-note-font-size) * 0.1875);
 }
 
-.monaco-workbench .basehalf-card-detail-markdown-preview-content pre {
-	padding: 12px;
+/* The text of a list stands where Rich has it: 1.125 of the text size in for a bullet, 1.375 for a number. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content ul {
+	margin: 0;
+	padding-inline-start: 1.125em;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content ol {
+	margin: 0;
+	padding-inline-start: 1.375em;
+}
+
+/* A paragraph inside a list item or a quote is the item's own text: the room is the item's. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content :is(li, blockquote) > p {
+	padding-block: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content blockquote {
+	padding-inline-start: 1em;
+	border-inline-start: 2px solid color-mix(in srgb, var(--vscode-editor-foreground) 28%, transparent);
+}
+
+/* A code block: the base renderer draws it with the editor's colors, in a
+ * box of its own, whose lines are never broken (note rendering, rule 7a). */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content pre,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content div[data-code] {
+	margin-block: calc(var(--basehalf-note-font-size) * 0.1875);
+	padding: 24px;
 	overflow: auto;
 	background-color: var(--vscode-textCodeBlock-background);
 	border-radius: 4px;
+}
+
+/* Code keeps the font of code, at the size of the text around it (note
+ * rendering, rule 37). The base renderer writes the editor's font and size
+ * on the element itself. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content div[data-code] .monaco-tokenized-source {
+	font-family: var(--basehalf-note-code-font-family) !important;
+	font-size: 1em !important;
+	line-height: 1.5 !important;
+	white-space: pre;
+	tab-size: 4;
 }
 
 /* A picture, a video, or a sound with its caption, a toggle's title, the
@@ -144,7 +193,7 @@
 }
 
 .monaco-workbench .basehalf-card-detail-markdown-preview-content code {
-	font-family: var(--monaco-monospace-font);
+	font-family: var(--basehalf-note-code-font-family);
 }
 
 .monaco-workbench .basehalf-card-detail-markdown-preview-content img {
@@ -155,7 +204,8 @@
  * the pointer. The box shows the one bar of a note instead, while it is
  * scrolled. */
 .monaco-workbench .basehalf-card-detail-markdown-preview-content table::-webkit-scrollbar,
-.monaco-workbench .basehalf-card-detail-markdown-preview-content pre::-webkit-scrollbar {
+.monaco-workbench .basehalf-card-detail-markdown-preview-content pre::-webkit-scrollbar,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content div[data-code]::-webkit-scrollbar {
 	display: none;
 }
 
@@ -165,8 +215,7 @@
 	display: block;
 	width: max-content;
 	max-width: 100%;
-	margin-top: 0;
-	margin-bottom: 1em;
+	margin-block: calc(var(--basehalf-note-font-size) * 0.1875);
 	overflow-x: auto;
 	border-collapse: collapse;
 	border-spacing: 0;
