@@ -71,7 +71,8 @@ both would stay what they are.
 - A diff on a card. [Why not](changes-of-a-file.md#why-a-preview-does-not-show-changes)
   still holds: a card shows its file. Marks are not a diff.
 - Language services: hover, go to definition, and rename stay as D118 left them. An agent
-  answers those questions.
+  answers those questions. JSON's is the one that runs (D142): a JSON file has completion,
+  hover, formatting, and marks for mistakes in Source. The card's editor draws no marks.
 - Text files that are not code. They wrap, and their lines are not what a reader
   navigates by ([note rendering](note-rendering.md), rule 32).
 - A minimap on a card. A card's width goes to its code; its overview is a thin ruler.
@@ -192,7 +193,8 @@ both would stay what they are.
 
 ### Source
 
-25. Source is VS Code's editor: all its features that need no language service, with the settings
+25. Source is VS Code's editor: all its features that need no language service, and for a JSON
+    file those of JSON's (D142), with the settings
     `editor.*` for the file and its language, read again when they change. The minimap, folding,
     sticky scroll, Find, the ruler, and marks show as they do in VS Code. So they do for a note's
     Source, without colors.

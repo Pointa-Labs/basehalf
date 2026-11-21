@@ -6629,3 +6629,61 @@ would end in a refusal.
 - Five places of the base's files ask the list: the keybinding resolver, the list of commands without a key, the Command
   Palette's editor commands, Customize Layout, and Open View.
 - Nothing of a hidden feature leaves the build (D122).
+
+## D142 — JSON's language service runs, and no other (NEW, 2026-11-21)
+
+**Decision.** BaseHalf runs two more of VS Code's own extensions: JSON's language service, and the extension that tells it
+which JSON files are settings, key bindings, and snippets and that these may hold comments. A JSON file has completion,
+hover, formatting, and marks for mistakes in Source and in the overlay that a settings file opens in. No other language
+service runs. This revises D118 and D121 for JSON only; rule 10 of
+[built-in AI Video and no plugins](specs/built-in-ai-video-and-no-plugins.md) names what runs, and both extensions ship
+([what the package holds](specs/what-the-package-holds.md)).
+
+**Why.** D137 admitted the exception and left it to a decision of its own: a settings file, a `package.json`, and an
+agent's configuration are JSON, and those who edit them are those who use the advanced list of settings. The service reads
+one file at a time; it keeps no project in memory, which is what D121 gave to an agent. Checked in the real window on
+2026-11-21:
+
+- The user's `settings.json`: typing `"editor.fontS` lists the settings whose names match, `editor.fontSize` first;
+  accepting it writes the key with its default; a value of the wrong type is marked; the pointer over the key shows
+  "Controls the font size in pixels."; a comment is no mistake.
+- A `package.json` in Card Detail's Source: a key written twice and a missing comma are marked, and Files shows the file
+  in the color of a mistake with their count. Format Document straightens a crooked line. There is no schema for a
+  `package.json`, so completion offers only `$schema`, and hover says nothing: VS Code's schema for it comes with its npm
+  extension, which does not run.
+- Without the second extension, `settings.json` is JSON and not JSON with comments, and no schema is tied to it: the
+  service would mark every comment of a settings file and complete no key. So the two come together.
+
+**What it costs.** Measured, not estimated:
+
+- The package: 1,175,247 bytes in 13 files, the client of the service 652 KB, its server 364 KB, the second extension 128
+  KB; about 0.3 MiB of the archive. Measured from the bundles the packaging makes; no package was built, and the layout
+  check, which reads the same list, was not run against one.
+- The start of a window: six starts each, alternating, the two extensions on and switched off, on a machine with a load
+  of 15 to 50 from other work. Ready after 1,301 to 1,405 ms without them, median 1,332, and after 1,332 to 1,374 ms with
+  them, median 1,358; loading the extensions took 148 and 157 ms at the median. The difference is within what one
+  condition varies by.
+- Memory: the server is a process of its own, 82 MiB resident in a development window in each of six starts. It starts
+  when the first JSON file is shown as code, and a card of a JSON file on the canvas is that, since a card holds its
+  file's model (D121): in a folder with a `package.json` at its root it starts with the canvas.
+
+**Alternatives.**
+- The service without the second extension. A settings file would be marked at its comments, and its keys would not
+  complete.
+- VS Code's npm extension too, for the schema of a `package.json`. It runs scripts and looks up packages on the network;
+  what BaseHalf admits here is a service for one language, not a tool for a kind of project.
+- A service that starts only when Source opens. The base starts a language's extension when the first file of the language
+  is held as text, and a card holds its file's text (D121). Starting it later is a change to how cards hold their files.
+- Every language service, or TypeScript's. Set aside in D137.
+
+**Consequences.**
+- The settings `json.*` are the user's, nine of them, and the settings that tune completion, hover, formatting, and marks
+  work for JSON files; the catalog of D137 gives them their classes.
+- Format Document, Format Selection, and the format on save or on paste of the base do something in a JSON file. A file
+  that saves by itself after a delay is not formatted on that save, as in the base; a save by the keyboard formats it.
+- Files colors a JSON file with a mistake and shows the count, and the status bar names the language's status. The editor
+  on a card draws no marks, as before: a key typed twice there was counted in Files and not underlined on the card.
+- The Command Palette lists JSON: Sort Document and JSON: Clear Schema Cache.
+- A schema that a file names by `$schema` is downloaded, from the domains `json.schemaDownload.trustedDomains` lists.
+- The second extension also holds the base's export of a profile to GitHub, which starts only for a profile, and BaseHalf
+  has none (D141); and the schemas of `tasks.json` and `launch.json`, which complete files BaseHalf does nothing with.

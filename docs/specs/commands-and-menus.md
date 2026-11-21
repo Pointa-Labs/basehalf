@@ -109,7 +109,8 @@ key, a menu, or their id.
 | Preferences, Snippets | 19 | Settings, Keyboard Shortcuts, Color Theme, and snippets in Source |
 | Search | 7 | Search |
 
-After the change the palette lists 486 commands, under 485 names.
+After the change the palette lists 486 commands, under 485 names. JSON's
+language service adds two of its own (D142).
 
 - **The terminal's commands stay as a family.** An Agent Area terminal is a
   terminal of the base, and a command that acts on the active terminal acts

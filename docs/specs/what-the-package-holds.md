@@ -1,6 +1,7 @@
 # What the package holds
 
-Status: Active (2026-11-05). Implemented.
+Status: Active (2026-11-05). Implemented. Revised 2026-11-21 (D142): the two extensions of
+JSON's language service ship.
 Decision: [D122](../decisions.md#d122--the-package-holds-what-basehalf-runs-new-2026-11-05)
 Related: [app update](app-update.md) (the limit on an archive),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md) (which
@@ -70,7 +71,7 @@ Three more things came out of the same measurements:
   cost nothing, and admitting one later takes one line.
 - Updating Electron or the base.
 - Admitting another built-in extension. That is a product decision of its own, as D123
-  made one for two of them.
+  made one for two of them and D142 for the two of JSON's language service.
 
 ## Terms
 
@@ -114,6 +115,13 @@ Three more things came out of the same measurements:
    stay in the package: those of what the reader's bundle holds beside it, as
    `content-viewer-out/pdfViewerNotices.txt`, and those of `yjs` and `lib0`, which the
    workbench bundles, in `ThirdPartyNotices.txt`.
+
+The list of rule 1 holds, since D142, JSON's language service
+(`json-language-features`) and the extension that tells it which files are
+settings (`configuration-editing`). Each ships as its bundle: the client and
+the server of the service, 652 and 364 KB, and one bundle of 128 KB, with
+their manifests and icons, 1,175,247 bytes in 13 files, about 0.3 MiB of
+the archive. Neither needs `extensions/node_modules`.
 
 ### What the tree holds
 
