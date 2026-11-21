@@ -484,6 +484,48 @@ cursor, and the scrollback, works as in the base.
    says.
 5. A click on the terminal's scrollbar does none of this.
 
+#### The name of a session
+
+1. A tab shows the name of its session, of the pane in front where the tab
+   has several, and after the name, dimmer, the session's description when
+   it has one.
+2. **A plain terminal**, which is a Terminal session or a terminal that an
+   extension created, is named by the base.
+   `terminal.integrated.tabs.title` gives the name, by default the process
+   that runs in the terminal. `terminal.integrated.tabs.description` gives
+   the description, by default the folder the shell is in when that is not
+   the folder of the workspace. `terminal.integrated.tabs.separator` stands
+   between their parts. With `terminal.integrated.tabs.allowAgentCliTitle`
+   on, a program in it that the base knows as an agent's names the tab with
+   the title it sets, as in the base. A terminal that was created with a
+   name of its own keeps that name. The Agent Area gives a terminal no name.
+   Until the terminal has a title, the tab says Terminal.
+3. **An agent's session** shows the title that the agent's program sets for
+   its terminal, in place of the agent's name, while
+   `terminal.integrated.tabs.allowAgentCliTitle` is on and the program runs.
+   Before the program has set a title, after it has ended, and with the
+   setting off, the tab shows the agent's name, Codex or Claude Code. The
+   title template names plain terminals only: it would name an agent's
+   session by its process. The description of an agent's session follows
+   `terminal.integrated.tabs.description` like that of any terminal.
+4. A name that the user gave the tab stands in place of all this, and the
+   tab then shows no description.
+5. A name is one line. Line breaks and tabs in it are dropped, the icons
+   that the base's templates write as `$(name)` are drawn as icons, and what
+   comes after 256 characters is cut.
+6. **A name does not move the strip.** The tabs share the strip's width
+   equally whatever their names say. A name longer than its tab ends in an
+   ellipsis; the description gives way before the name does, and the compact
+   density leaves it out. When a name or a description changes, only that
+   text changes, at the next frame: the strip is not drawn again, it keeps
+   its place, and its tabs keep their elements, so that a press, a double
+   click, a drag, and the rename field on a tab go on. Changes within one
+   frame are one change.
+7. The toast of a closed tab and the question before a close name the
+   session as its tab does.
+8. The tab's key, its state, its activity dot, and the scrolling of the
+   strip are unchanged.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -704,3 +746,43 @@ cursor, and the scrollback, works as in the base.
     typed nothing and showed no menu, and with Shift held it showed the
     menu. A middle click typed the clipboard with `paste` and nothing with
     `default`.
+18. A unit test of the name shows: a plain terminal named by the base's
+    title and description, and Terminal until it has a title; an agent's
+    session showing the title its program set when the setting allows, and
+    the agent's name before a title, with the setting off, and for a title
+    of blanks; a session that an extension draws keeping its own name; a
+    name of several lines and of 1,000 characters shown as one line of 256;
+    and a name the user gave a tab standing alone. A unit test of the launch
+    configuration shows that the Agent Area gives a terminal no name and
+    keeps a name its creator gave.
+19. Recorded manual check, in a real window with two tabs:
+    - a Terminal session is named `zsh`, `sleep` while `sleep 600` runs, and
+      `zsh` again after it is interrupted; after `cd sub` the tab shows
+      `sub` after the name;
+    - a title that a program sets shows with `${sequence}` as
+      `terminal.integrated.tabs.title`, and a template with
+      `${separator}` shows the separator of the settings;
+    - a title of 440 characters leaves the tabs' places and widths and the
+      strip's scroll width as they were, and ends in an ellipsis;
+    - 300 titles set within about three seconds leave the tabs' elements
+      and places as they were, with no tab added or removed, and a tab
+      renamed in its field meanwhile keeps what was typed;
+    - an agent's session shows the title its program set, the agent's name
+      with `terminal.integrated.tabs.allowAgentCliTitle` off, the title
+      again with it on, and the agent's name once the program has ended;
+      the question before closing it names it as the tab does.
+
+    Recorded 2026-11-21 in a development build with real keys, with a
+    stand-in for the agent's program that sets the title it is told: the
+    tab read `zsh`, `sleep`, `zsh`, then `zsh` with `sub`; `my title` with
+    `${sequence}`; `zsh · sub` with `/private/tmp/bh-s3-ws/sub` after it
+    for a title of `${process}${separator}${cwdFolder}`, a separator of
+    ` · `, and a description of `${cwd}`. With the long title the two tabs
+    stayed at 128 px each and the name showed 256 characters, cut by an
+    ellipsis. Over 300 titles the two tabs kept their elements, one layout
+    was sampled over every frame, and the strip gained and lost no tab;
+    `mine`, typed into the rename field during another 300 titles, was the
+    tab's name afterwards. The agent's tab read `✳ Claude Code`, `✳ Fix
+    the flaky test`, `Claude Code` with the setting off, the title again
+    with it on, and `Claude Code` with Exited after `quit`; the question
+    said "“✳ Fix the flaky test” is still running."
