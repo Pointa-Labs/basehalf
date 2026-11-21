@@ -29,7 +29,7 @@ suite('BaseHalf settings catalog', () => {
 			'terminal.integrated.persistentSessionScrollback: unlisted', 'terminal.integrated.enablePersistentSessions: unlisted', 'terminal.integrated.suggest.enabled: unlisted',
 			'chat.editing.confirmEditRequestRemoval: unlisted', 'task.autoDetect: unlisted', 'editor.inlineSuggest.enabled: unlisted', 'editor.suggest.showMethods: unlisted', 'terminal.integrated.tabs.location: unlisted',
 			'workbench.browser.pageZoom: unlisted', 'breadcrumbs.filePath: unlisted', 'notebook.lineNumbers: unlisted', 'telemetry.telemetryLevel: unlisted',
-			'editor.suggest.showWords: advanced', 'editor.minimap.enabled: advanced', 'workbench.localHistory.enabled: advanced', 'workbench.colorTheme: advanced', 'git.autofetch: advanced', 'files.enableTrash: advanced',
+			'editor.suggest.showWords: advanced', 'editor.minimap.enabled: advanced', 'workbench.localHistory.enabled: advanced', 'workbench.colorTheme: shown', 'git.autofetch: advanced', 'files.enableTrash: advanced',
 			'terminal.integrated.cwd: advanced', 'terminal.integrated.tabs.title: advanced', 'http.proxy: advanced', 'window.menuStyle: advanced',
 			'editor.formatOnSave: advanced', 'json.format.enable: advanced', 'json.colorDecorators.enable: unlisted', 'problems.decorations.enabled: advanced', 'files.autoSaveWhenNoErrors: locked', 'editor.formatOnType: unlisted'
 		]);

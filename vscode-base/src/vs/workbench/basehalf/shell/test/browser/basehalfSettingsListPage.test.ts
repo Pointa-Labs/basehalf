@@ -51,7 +51,7 @@ suite('BaseHalf settings list pages', () => {
 
 	test('the rows of each page, in its order, with a line only under the names that need one', () => {
 		assert.deepStrictEqual(pages.flatMap(page => baseHalfShownSettings(page).map(section => `${page} / ${section.title ?? '-'}: ${section.settings.map(setting => `${setting.label}${setting.description ? '*' : ''} (${setting.control.kind})`).join(', ')}`)), [
-			'general / Window: Zoom (choice)',
+			'general / Window: Appearance (choice), Match the System* (switch), Zoom (choice)',
 			'general / Code: Font (text), Font Size* (number), Wrap Long Lines* (choice)',
 			'general / Files: Show the .bh Folder* (switch)',
 			'canvas / -: Zoom of a New Folder* (choice), Mouse Wheel* (choice), Snap to Cards* (switch), Background (choice), Play Videos Under the Pointer* (switch)',

@@ -8,6 +8,10 @@ import { BASEHALF_AGENT_SESSION_CHOICES } from '../../agentArea/common/basehalfA
 import { BASEHALF_NOTES_FONT_SIZE_MAX, BASEHALF_NOTES_FONT_SIZE_MIN, BASEHALF_NOTES_MONOSPACE_FONT, BASEHALF_NOTES_SERIF_FONT, BaseHalfSetting } from '../common/basehalfConfiguration.js';
 import { BaseHalfSettingsListPageId } from '../common/basehalfSettings.js';
 
+/** BaseHalf's two color themes, by the names the base gives them (light and dark, D148). */
+const BASEHALF_DARK_COLOR_THEME = 'Dark 2026';
+const BASEHALF_LIGHT_COLOR_THEME = 'Light 2026';
+
 /** How a setting is changed on a page. */
 export type BaseHalfSettingControl =
 	| { readonly kind: 'switch' }
@@ -50,6 +54,20 @@ function general(): IBaseHalfShownSettingsSection[] {
 			id: 'window',
 			title: localize('basehalf.settings.window', "Window"),
 			settings: [{
+				key: 'workbench.colorTheme',
+				label: localize('basehalf.settings.appearance', "Appearance"),
+				control: {
+					kind: 'choice', options: [
+						{ value: BASEHALF_DARK_COLOR_THEME, label: localize('basehalf.settings.appearance.dark', "Dark") },
+						{ value: BASEHALF_LIGHT_COLOR_THEME, label: localize('basehalf.settings.appearance.light', "Light") }
+					]
+				}
+			}, {
+				key: 'window.autoDetectColorScheme',
+				label: localize('basehalf.settings.matchSystem', "Match the System"),
+				description: localize('basehalf.settings.matchSystemDescription', "Dark or light, as the system is."),
+				control: { kind: 'switch' }
+			}, {
 				key: 'window.zoomLevel',
 				label: localize('basehalf.settings.zoom', "Zoom"),
 				control: { kind: 'choice', options: windowZoomOptions(), name: level => typeof level === 'number' ? percentage(Math.pow(1.2, level)) : String(level) }

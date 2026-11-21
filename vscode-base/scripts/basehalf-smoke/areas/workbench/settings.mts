@@ -70,7 +70,7 @@ export async function assertBaseHalfSettings(page) {
 		overlay: !!root.closest('.modal-editor-part'),
 		search: !!root.querySelector('input[type="search"], .suggest-input-container')
 	}));
-	const rows = ['Zoom', 'Font', 'Font Size', 'Wrap Long Lines', 'Show the .bh Folder'];
+	const rows = ['Appearance', 'Match the System', 'Zoom', 'Font', 'Font Size', 'Wrap Long Lines', 'Show the .bh Folder'];
 	if (JSON.stringify(seen.pages) !== JSON.stringify(['General*', 'Canvas', 'Notes', 'Agent Area', 'Providers', 'About']) || seen.advanced !== 'Advanced Settings…'
 		|| seen.keyboard !== 'Keyboard Shortcuts…' || JSON.stringify(seen.rows) !== JSON.stringify(rows) || !seen.overlay || seen.search) {
 		throw new Error(`Settings must open BaseHalf's own Settings at General, in the overlay, with its pages and rows: ${JSON.stringify(seen)}`);

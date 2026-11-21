@@ -100,6 +100,7 @@ export const BASEHALF_LOCKED_SETTINGS: Readonly<Record<string, unknown>> = Objec
 export const BASEHALF_SETTING_RULES: readonly IBaseHalfSettingRule[] = [
 	// Shown: BaseHalf's Settings lists them under its own names.
 	{ class: 'shown', family: 'BaseHalf', patterns: ['basehalf.*'] },
+	{ class: 'shown', family: 'Appearance', patterns: ['workbench.colorTheme', 'window.autoDetectColorScheme'] },
 	{ class: 'shown', family: 'Window size', patterns: ['window.zoomLevel'] },
 	{ class: 'shown', family: 'Code font', patterns: ['editor.fontFamily', 'editor.fontSize', 'editor.wordWrap'] },
 	{ class: 'shown', family: 'Terminal font', patterns: ['terminal.integrated.fontFamily', 'terminal.integrated.fontSize'] },
