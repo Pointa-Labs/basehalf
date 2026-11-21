@@ -105,7 +105,9 @@ Not in scope, and unchanged:
 
 12. A search that starts after a file was added to the workspace or deleted
     from it, by BaseHalf, by an agent, or by another program, finds the
-    files as they are. The base searched the list that its previous search
+    files as they are. BaseHalf's own files count from the moment they are
+    made; a file of git's own folder `.git`, which the search does not list,
+    does not count. The base searched the list that its previous search
     had made until its own was ready, and did not search again when it
     was: a note that an agent had just written was not found, and the list
     said "No matching results" until the next letter typed (2026-11-22).
