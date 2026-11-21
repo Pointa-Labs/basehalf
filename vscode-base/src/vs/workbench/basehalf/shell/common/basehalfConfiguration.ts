@@ -46,7 +46,7 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			default: false,
 			scope: ConfigurationScope.RESOURCE,
 			tags: [BASEHALF_SETTINGS_TAG],
-			description: localize('basehalf.editor.readingMode', 'Controls whether BaseHalf ADHD reading aids are enabled in rich Markdown documents.')
+			description: localize('basehalf.editor.readingMode', 'Keywords stand out in notes, and a paragraph can be marked as read.')
 		},
 		[BaseHalfSetting.CanvasDefaultZoom]: {
 			type: 'number',
@@ -55,14 +55,14 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			maximum: BASEHALF_CANVAS_DEFAULT_ZOOM_MAX,
 			scope: ConfigurationScope.RESOURCE,
 			tags: [BASEHALF_SETTINGS_TAG],
-			description: localize('basehalf.canvas.defaultZoom', 'The largest zoom at which the canvas first shows a folder that has no saved view on this computer, and frames cards you create: it fits the cards at this zoom or smaller. 1 is 100%.')
+			description: localize('basehalf.canvas.defaultZoom', 'The largest zoom at which a folder first shows all its cards, and at which a new card comes into view. 1 is 100%.')
 		},
 		[BaseHalfSetting.FilesShowHiddenFolder]: {
 			type: 'boolean',
 			default: false,
 			scope: ConfigurationScope.RESOURCE,
 			tags: [BASEHALF_SETTINGS_TAG],
-			description: localize('basehalf.files.showHiddenFolder', 'Controls whether Files shows the `.bh` folder, where BaseHalf keeps the files put into notes and what it records about cards. It stays hidden on the canvas, in Search, and in Quick Open. Changing what it holds can lose a note\'s files or a card\'s records.')
+			description: localize('basehalf.files.showHiddenFolder', 'Files shows the `.bh` folder, which holds the files of notes and the records of cards. Changing what it holds can lose them.')
 		},
 		[BaseHalfSetting.AgentDefaultSession]: {
 			type: 'string',
@@ -72,14 +72,14 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			enumDescriptions: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.description),
 			scope: ConfigurationScope.WINDOW,
 			tags: [BASEHALF_SETTINGS_TAG],
-			description: localize('basehalf.agent.defaultSession', 'Controls which Agent Area session is created when the Agent Area is opened with no active sessions.')
+			description: localize('basehalf.agent.defaultSession', 'The session started when the Agent Area opens with no session.')
 		},
 		[BaseHalfSetting.AgentsOfferSkill]: {
 			type: 'boolean',
 			default: true,
 			scope: ConfigurationScope.WINDOW,
 			tags: [BASEHALF_SETTINGS_TAG],
-			description: localize('basehalf.agents.offerSkill', 'Controls whether BaseHalf offers to install its skill for your agents: in a notification when you open a folder, and in the status bar until you answer. The skill tells agents such as Claude Code and Codex what you select and where a card\'s description and connections are.')
+			description: localize('basehalf.agents.offerSkill', 'BaseHalf offers to install its skill for agents. The skill tells agents what is selected and how cards connect.')
 		}
 	}
 };

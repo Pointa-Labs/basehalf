@@ -156,6 +156,11 @@
 	font: inherit;
 }
 
+/* The workbench gives every select a border of its own color: the choice keeps the border of a field. */
+.monaco-workbench .basehalf-settings .basehalf-settings-select {
+	border-color: var(--vscode-input-border, var(--vscode-widget-border, transparent));
+}
+
 .basehalf-settings-choice {
 	position: relative;
 	display: flex;

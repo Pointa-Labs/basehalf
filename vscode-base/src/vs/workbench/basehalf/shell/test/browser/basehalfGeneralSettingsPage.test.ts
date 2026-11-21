@@ -74,6 +74,13 @@ suite('BaseHalf General settings', () => {
 		assert.deepStrictEqual({ listed, chosen: '0.5', written: service.written }, { listed: ['0=100%', '0.5=0.5', '1=120%'], chosen: '0.5', written: [['a.choice', 1]] });
 	});
 
+	test('the zoom of a window that is none of the choices is listed by its percentage', () => {
+		const zoom = baseHalfGeneralSettings().flatMap(section => section.settings).find(setting => setting.key === 'window.zoomLevel')!;
+		const { element } = row(zoom, 0.5);
+		const select = element.querySelector('select')!;
+		assert.deepStrictEqual({ chosen: select.selectedOptions[0]?.textContent, around: Array.from(select.options).map(option => option.textContent).slice(3, 6) }, { chosen: '110%', around: ['100%', '110%', '120%'] });
+	});
+
 	test('a number outside what the setting takes becomes the nearest it takes, and an emptied field shows the value in effect', () => {
 		const { element, service } = row({ key: 'a.number', label: 'A Number', control: { kind: 'number', minimum: 6, maximum: 100 } }, 12);
 		const input = element.querySelector('input')!;

@@ -43,7 +43,8 @@ export class SettingsEditor2Input extends EditorInput {
 	}
 
 	override getName(): string {
-		return nls.localize('settingsEditor2InputName', "Settings");
+		// BaseHalf: Settings is BaseHalf's own; this editor is the advanced list (docs/specs/settings-pages.md).
+		return nls.localize('basehalfAdvancedSettingsInputName', "Advanced Settings");
 	}
 
 	override getIcon(): ThemeIcon {

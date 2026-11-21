@@ -60,7 +60,9 @@ bottom, is **Advanced Settings…**.
 - Settings has no search and no choice of a scope: it holds twelve settings
   and two pages, and writes the user's settings.
 - A page is drawn when it is first shown and stays while Settings is open:
-  what was typed in it is there when the page is chosen again.
+  what was typed in it is there when the page is chosen again, but for a
+  credential that was typed and not set, which is cleared when its page is
+  left.
 - Settings starts anew each time it opens: at General, unless the opening
   asks for a page.
 
@@ -93,9 +95,10 @@ of BaseHalf's own. `update.mode` is on the About page.
 - **A change is written to the user's settings.** A value equal to the
   default is written as no value, so the settings file holds only what
   differs.
-- **A value that is none of a choice's** is listed with the others, named
-  as it is written: the zoom of a window that was changed with the keys of
-  the menu, or a way of wrapping that only the advanced list offers.
+- **A value that is none of a choice's** is listed with the others: a zoom
+  by its percentage, as the zoom of a window that was changed with the keys
+  of the menu, and any other as it is written, as a way of wrapping that
+  only the advanced list offers.
 - **A number outside what the setting takes** becomes the nearest it takes.
   A number field left empty shows the value in effect again.
 - **A value changed elsewhere**, in the advanced list, in a settings file,
@@ -208,9 +211,9 @@ For every opening:
    command About BaseHalf open Settings at the page: sampled every frame in
    the real window from the click on, no frame shows Settings with another
    page chosen or without the page.
-6. With Settings open at General, the command Providers shows Providers in
-   place of General, and what was typed in a field of Providers before is
-   there when the page is chosen again.
+6. With Settings open at General, Providers of the application menu shows
+   Providers in place of General. A name typed in the form of Add Provider
+   is there when the page is chosen again; a key typed and not set is not.
 7. In the list, Arrow Down from General shows Providers and keeps the focus
    in the list; Enter puts it into the page; Escape closes Settings from the
    list and from a page.

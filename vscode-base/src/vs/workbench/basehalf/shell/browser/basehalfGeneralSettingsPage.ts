@@ -17,7 +17,7 @@ import { BaseHalfSetting } from '../common/basehalfConfiguration.js';
 /** How a setting is changed on the page. */
 export type BaseHalfSettingControl =
 	| { readonly kind: 'switch' }
-	| { readonly kind: 'choice'; readonly options: readonly IBaseHalfSettingOption[] }
+	| { readonly kind: 'choice'; readonly options: readonly IBaseHalfSettingOption[]; /** Names a value that is none of the choices, as the choices are named. */ readonly name?: (value: string | number) => string }
 	| { readonly kind: 'text'; readonly placeholder?: string }
 	| { readonly kind: 'number'; readonly minimum: number; readonly maximum: number };
 
@@ -58,7 +58,7 @@ export function baseHalfGeneralSettings(): IBaseHalfShownSettingsSection[] {
 			settings: [{
 				key: 'window.zoomLevel',
 				label: localize('basehalf.settings.zoom', "Zoom"),
-				control: { kind: 'choice', options: windowZoomOptions() }
+				control: { kind: 'choice', options: windowZoomOptions(), name: level => typeof level === 'number' ? percentage(Math.pow(1.2, level)) : String(level) }
 			}]
 		},
 		{
@@ -68,7 +68,11 @@ export function baseHalfGeneralSettings(): IBaseHalfShownSettingsSection[] {
 				key: BaseHalfSetting.CanvasDefaultZoom,
 				label: localize('basehalf.settings.canvasZoom', "Zoom of a New Folder"),
 				description: localize('basehalf.settings.canvasZoomDescription', "The largest zoom at which a folder first shows all its cards."),
-				control: { kind: 'choice', options: [0.25, 0.33, 0.5, 0.67, 0.75, 1].map(zoom => ({ value: zoom, label: percentage(zoom) })) }
+				control: {
+					kind: 'choice',
+					options: [0.25, 0.33, 0.5, 0.67, 0.75, 1].map(zoom => ({ value: zoom, label: percentage(zoom) })),
+					name: zoom => typeof zoom === 'number' ? percentage(zoom) : String(zoom)
+				}
 			}]
 		},
 		{
@@ -258,7 +262,7 @@ export class BaseHalfSettingRow extends Disposable {
 		}
 	}
 
-	/** The choices, and with them the value in effect when it is none of them, named as it is written. */
+	/** The choices, and with them the value in effect when it is none of them, named as they are or as it is written. */
 	private showChoice(select: HTMLSelectElement, value: unknown): void {
 		const control = this.setting.control;
 		if (control.kind !== 'choice') {
@@ -266,7 +270,7 @@ export class BaseHalfSettingRow extends Disposable {
 		}
 		const options: IBaseHalfSettingOption[] = [...control.options];
 		if ((typeof value === 'string' || typeof value === 'number') && !options.some(option => option.value === value)) {
-			options.push({ value, label: String(value) });
+			options.push({ value, label: control.name?.(value) ?? String(value) });
 			if (options.every(option => typeof option.value === 'number')) {
 				options.sort((a, b) => Number(a.value) - Number(b.value));
 			}
