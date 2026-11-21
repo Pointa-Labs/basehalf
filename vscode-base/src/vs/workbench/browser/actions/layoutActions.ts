@@ -1491,8 +1491,10 @@ registerAction2(class CustomizeLayoutAction extends Action2 {
 			};
 		};
 		// BaseHalf: a row whose command BaseHalf does not have is left out, and a heading with no row under it (D141).
+		// So is the row Panel: BaseHalf has no panel, and the row's command shows and hides the Agent Area, as the
+		// row of the secondary side bar does (commands and menus, criterion 6).
 		const section = (label: string, items: CustomizeLayoutItem[]): QuickPickItem[] => {
-			const shown = items.filter(item => !isBaseHalfHiddenCommand(item.id));
+			const shown = items.filter(item => !isBaseHalfHiddenCommand(item.id) && item.id !== TogglePanelAction.ID);
 			return shown.length ? [{ type: 'separator', label }, ...shown.map(toQuickPickItem)] : [];
 		};
 		return [

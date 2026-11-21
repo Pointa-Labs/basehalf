@@ -224,6 +224,8 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 	test('asks before a window closes with something running in the Agent Area', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.confirmOnExit'], 'hasChildProcesses');
+		// The window is named by the file, the folder of the canvas, and the workspace (the shown place and the workbench, rule 12).
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['window.title'], '${activeEditorShort}${separator}${activeFolderMedium}${separator}${rootName}');
 	});
 
 	test('shows the bell of a session on its tab', () => {

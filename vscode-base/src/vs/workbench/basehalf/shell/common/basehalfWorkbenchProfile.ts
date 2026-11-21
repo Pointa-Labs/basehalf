@@ -518,6 +518,10 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// Zoom of Settings and the keys that zoom are one setting: a zoom made with the keys shows in Settings,
 	// and one chosen there holds in every window (docs/specs/settings-pages.md).
 	'window.zoomPerWindow': false,
+	// The window is named by what is shown, from the nearest to the widest: the file in Card Detail, the folder of
+	// the canvas when it is not the workspace folder, and the workspace (the shown place and the workbench, rule
+	// 12). The base's default names no folder, and BaseHalf has no profile to name.
+	'window.title': '${activeEditorShort}${separator}${activeFolderMedium}${separator}${rootName}',
 	// Context menus are drawn in the window, as VS Code's Agents window does:
 	// they follow the product theme, and canvas state shown while a menu is
 	// open closes with it. A native menu is closed by the OS before the window

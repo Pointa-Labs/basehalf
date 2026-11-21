@@ -60,6 +60,10 @@ export class UnfocusedViewDimmingContribution extends Disposable implements IWor
 					rules.add(`.monaco-workbench .editor-instance:not(:focus-within) .monaco-editor-pane-placeholder { ${filterRule} }`);
 					// Welcome editor
 					rules.add(`.monaco-workbench .editor-instance:not(:focus-within) .gettingStartedContainer { ${filterRule} }`);
+					// BaseHalf: the views BaseHalf draws in the place of the base's editors and terminals dim as those do:
+					// a session of the Agent Area, and the canvas with what stands over it.
+					rules.add(`.monaco-workbench .basehalf-agent-area-session:not(:focus-within) > .basehalf-agent-session-surface { ${filterRule} }`);
+					rules.add(`.monaco-workbench .basehalf-canvas-workbench:not(:focus-within) { ${filterRule} }`);
 					cssTextContent = [...rules].join('\n');
 				}
 
