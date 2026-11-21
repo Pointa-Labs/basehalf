@@ -457,7 +457,20 @@ entry of the offer are each added anew when the one replaces the other.
    automated: text selected in Card Detail's rich and source projections is
    recorded with its lines; the entry in the light and the dark theme; a
    second window on the same folder takes the record when it gains focus.
-8. Recorded once per release of the skill text: an agent that has the skill
+8. Recorded manual check of Share the Selection, in a real window whose
+   skill is linked in a home folder of its own: with a card selected, the
+   record and the entry are there; with the setting off both are gone and
+   the skill is still linked, and a card selected then is not recorded;
+   with it on again both are back for what is selected.
+
+   Recorded 2026-11-21 in a development build: the record read `selected:
+   "card"`, `path: "sub"`, and the entry "sub". Turned off, the record was
+   gone 313 ms after the settings file was written and the entry with it,
+   with the link in place; another card selected wrote nothing. Turned on,
+   the record of that card, `black-holes.md`, was there after 270 ms, and
+   the entry read "black-holes". BaseHalf's own copy held the text of
+   version 16.
+9. Recorded once per release of the skill text: an agent that has the skill
    and gets a request that names no file, with a record present, works on
    what the record names (see [recorded trials](#recorded-trials)).
 

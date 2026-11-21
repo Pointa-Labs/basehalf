@@ -1199,6 +1199,55 @@ Accessibility Help.
     meanwhile, the session starts in the workspace folder. A session
     closed before the end is not there, and neither is one whose program
     had ended. With the setting off, the Agent Area opens with no session.
+
+    Recorded 2026-11-21 in a development build, driven over the debugging
+    port with real keys and pointer events, with a stand-in for the agents'
+    programs that writes a line each time it starts. The main process was
+    ended with a kill signal and started again with the same state; a
+    sampler read the Agent Area in every frame from 0.2 to 0.4 s of the
+    page, before the workbench was drawn. The dividers stood at 36% and at
+    70%.
+    - **After the end as in a crash.** The first frame that had the
+      workbench, 1.43 to 1.47 s into the page over six starts, had the
+      three tabs Terminal, Research in front, and Claude Code, with the
+      three panes at 104 by 797, 185 by 557, and 185 by 240 px, as before.
+      The panes showed the terminal's background for 5 or 6 frames and then
+      their terminals. No other state was sampled in the 3 to 6 s after: no
+      list of sessions, no word of a state, no other set of tabs. The
+      keyboard was not in the Agent Area. Three shells ran, with the prompt
+      of the third in `sub`; the stand-in had not started. Choosing the
+      first tab started a fourth shell in `sub`, with the keyboard in it;
+      choosing the third started the stand-in, with BaseHalf's launch
+      context, and the keyboard in it. With the Claude Code tab in front at
+      the end, the stand-in alone started.
+    - **Reload Window.** The first frame with the workbench, 1.10 s into
+      the page, had the tabs. The three shells of the window before were
+      gone and three new ones ran, and nothing else. A build before rule 8
+      started the stand-in of the next tab in the closing window and left
+      it running.
+    - **Quit and a new start**, with the Agent Area hidden at Quit: the
+      question was "“✳ claude” is still running." with Quit. After the
+      start the Agent Area was hidden and neither a shell nor the stand-in
+      ran. A click on the title bar's button showed the Agent Area with the
+      three tabs in its first frame, 62 ms after the click, and the
+      terminals 78 ms later.
+    - **Close Window**, and the folder opened again in the application that
+      stayed: the tabs in the first frame with the workbench, three shells.
+    - **Another folder opened in the window** had the Agent Area hidden and
+      no session. With one Terminal session made there and the first folder
+      opened in the window again, that folder had its three tabs in the
+      first frame, and the storage held one arrangement for each folder.
+    - **A folder that is gone.** With `sub` removed while BaseHalf was
+      ended, the first tab and the pane that were in `sub` started in the
+      workspace folder.
+    - **Closed and ended.** A pane that was closed was out of what the
+      storage kept 0.7 s later, with its Undo still offered, and was not
+      there after the start. The Claude Code session whose program had
+      ended, its tab saying Exited, was out of it likewise, and not there.
+    - **Off.** Turned off with two tabs open, what was kept was gone from
+      the storage and the tabs stayed; turned on, it was kept again. After
+      a start with it off the Agent Area showed the sessions to choose from
+      and no process ran.
 32. Recorded manual check, in a real window with a Terminal session that
     rings its bell after a few seconds: with the Agent Area hidden, the
     ring shows a dot on the title bar's button in the warning color, the
@@ -1207,19 +1256,53 @@ Accessibility Help.
     time. A ring while the Agent Area is shown puts no dot on the button.
     With `terminal.integrated.enableVisualBell` off no dot shows, and
     turning it off takes a dot away at once.
+
+    Recorded 2026-11-21 in a development build, sampled in every frame,
+    with `sleep 4; printf '\a'` typed before the Agent Area was hidden: the
+    dot showed from the frame of the ring, 6 px wide, 2 px from the top and
+    from the right of the button, in rgb(229, 186, 125), the color of the
+    bell on a tab; the button stood at the same 22 by 22 px in every frame,
+    and its name read "Toggle Secondary Side Bar (⌥⌘B). A session rang its
+    bell." Ten seconds later the dot was there. In the frame that showed
+    the Agent Area the dot was gone and the tab showed the bell, for 1,006
+    ms. A ring with the Agent Area shown showed the bell on the tab for
+    1,000 ms and no dot. With the setting off a ring showed neither; turned
+    off while a dot showed, the dot went 252 ms after the settings file was
+    written, and the tab showed no bell when the Agent Area was shown. With
+    the sidebar at the right the button would stand at the left end; the
+    settings BaseHalf offers keep the sidebar at the left, so that place
+    was read in the code only.
 33. Recorded manual check, in a real window with `sleep 600` in two
-    Terminal sessions and `terminal.integrated.confirmOnKill` as `always`:
-    Kill All Terminals asks one question, "2 sessions are still running.",
-    with Kill Sessions; Cancel leaves both; Kill Sessions ends both and
-    both `sleep`. With the setting as `editor` it ends both with no
-    question.
+    Terminal sessions, an agent's session, and
+    `terminal.integrated.confirmOnKill` as `always`: Kill All Terminals
+    asks one question, "3 sessions are still running.", with Kill Sessions;
+    Cancel leaves all three; Kill Sessions ends them and both `sleep`. With
+    the setting as `editor` it ends the sessions with no question.
+
+    Recorded 2026-11-21 in a development build with `sleep 600`, `sleep
+    601`, and the stand-in for Claude Code: one question, "3 sessions are
+    still running.", with Cancel and Kill Sessions. After Cancel no second
+    question came and the three tabs and processes were there. After Kill
+    Sessions no tab, no session, and no `sleep` was left. At the default,
+    two sessions with `sleep` ended with no question. Before the change, on
+    the commit this work started from, the base asked "Do you want to
+    terminate the active terminal session?" once for each terminal.
 34. Recorded manual check, in a real window with `sleep 600` in a Terminal
     session: opening another folder in the window asks with Close Folder;
     Cancel keeps the folder and the session.
+
+    Recorded 2026-11-21 in a development build, with Open Folder drawn in
+    the window: the question said "“sleep” is still running." with Cancel
+    and Close Folder. After Cancel the window had its folder and the
+    session with `sleep`. After Close Folder the other folder opened with
+    its own arrangement, and the shell of the folder that closed was gone.
 35. The smoke test shows, in the `workbench` suite, with a tab named by the
     user and a tab of two panes: after Reload Window the Agent Area has the
     two tabs in their order under their names, with the tab in front as it
     was and its two panes; the terminal of the tab that is not in front
     starts only when its tab is chosen; a tab that was closed before the
     reload is not there; and Kill All Terminals ends the sessions with no
-    question at the setting's default.
+    question at the setting's default. The step's function was run eight
+    times against a development window on 2026-11-21, from an Agent Area
+    shown and hidden, with and without sessions left open; the suite was
+    not run.

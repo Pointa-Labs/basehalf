@@ -6983,6 +6983,8 @@ With it, in the same part of the product:
 - `basehalf.agents.shareSelection` off removes the record of the selection and writes none; the skill's text, version 16,
   says what a missing record means ([the selection agents can see](specs/selection-for-agents.md#the-record)).
 - `basehalf.agent.defaultSession` is specified in the row's words: a new tab starts with it.
+- Choosing a tab gives the keyboard to the pane in front of it. A session that starts with a window does not take the
+  keyboard; one that starts because its tab was chosen does.
 
 **Why.** The owner's request of D143: settings are for what only a user can choose, and the product is polished along the
 way. Read in the code and run in the real window on 2026-11-21:
@@ -7001,6 +7003,11 @@ way. Read in the code and run in the real window on 2026-11-21:
 
 Starting when first in view follows from the cost: an agent's session is a program that signs in and reads the folder,
 and a folder closed with eight tabs would start eight at once. One tab's processes is what the user looks at.
+
+Seen in the real window on the way: a press on a tab left the keyboard nowhere, since the press, which lands on what
+takes no keyboard, took it back from the pane that had just been given it; and with the first build of this decision a
+window that reloaded started the agent of the next tab while it closed, and left that process running. Both are rules
+of the specification now.
 
 A session whose program ended is left out because what its pane showed was that program's text, which does not come
 back, and starting a program the user ended acts against them. A session that could not start is left out with it: at
