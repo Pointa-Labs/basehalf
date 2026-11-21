@@ -4,13 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCanvasTidy.css';
-import { $, addDisposableListener, append, isEditableElement, isHTMLElement } from '../../../../../base/browser/dom.js';
+import { $, addDisposableListener, append } from '../../../../../base/browser/dom.js';
 import { status } from '../../../../../base/browser/ui/aria/aria.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
-import { isMacintosh } from '../../../../../base/common/platform.js';
 import { localize } from '../../../../../nls.js';
+import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { baseHalfCanvasTidy } from '../../../canvas/common/basehalfCanvasArrangement.js';
+import { BaseHalfCanvasCommandId } from '../../../canvas/common/basehalfCanvasKeys.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
@@ -32,8 +33,9 @@ interface IBaseHalfCanvasTidyQuestion {
 
 /**
  * Tidy Canvas (canvas selection and arrangement): its button among the view
- * controls and Shift+Alt+F lay out every card of the canvas along its
- * connections. When a card moved, a question asks whether to keep the result.
+ * controls and its command, whose key is Shift+Alt+F until the user changes
+ * it, lay out every card of the canvas along its connections. When a card
+ * moved, a question asks whether to keep the result.
  */
 export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasContribution {
 	static readonly ID = 'basehalf.canvas.tidy';
@@ -47,6 +49,7 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 	constructor(
 		context: IBaseHalfCanvasContributionContext,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
+		@IKeybindingService private readonly keybindingService: IKeybindingService,
 	) {
 		super();
 		this.canvas = context.canvas;
@@ -55,11 +58,11 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 		this.button.setAttribute('data-testid', 'canvas-tidy');
 		const icon = append(this.button, $('span.codicon.codicon-type-hierarchy'));
 		icon.setAttribute('aria-hidden', 'true');
-		const label = localize('basehalf.canvas.tidy', "Tidy Canvas ({0})", isMacintosh ? '⇧⌥F' : localize('basehalf.canvas.tidyKey', "Shift+Alt+F"));
-		setBaseHalfHover(this.button, label);
-		this.button.setAttribute('aria-label', label);
+		this.updateLabel();
+		// The tooltip names the key the command has now (the keys of the canvas).
+		this._register(this.keybindingService.onDidUpdateKeybindings(() => this.updateLabel()));
 		this._register(addDisposableListener(this.button, 'click', () => void this.tidy()));
-		this._register(this.canvas.onKeyDown(event => this.onKeyDown(event)));
+		this._register(this.canvas.registerCommand(BaseHalfCanvasCommandId.Tidy, () => this.tidy()));
 		this._register(this.canvas.onDidChangeScene(change => this.onDidChangeScene(change.scene)));
 		this._register(toDisposable(() => {
 			this.closeQuestion();
@@ -68,14 +71,11 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 		this.updateButton(this.canvas.scene);
 	}
 
-	private onKeyDown(event: KeyboardEvent): void {
-		if (!this.canvasNavigationService.state.cardDetail && event.shiftKey && event.altKey && !event.metaKey && !event.ctrlKey
-			&& event.code === 'KeyF' && !event.isComposing
-			&& !(isHTMLElement(event.target) && (isEditableElement(event.target) || event.target.isContentEditable))) {
-			event.preventDefault();
-			event.stopPropagation();
-			void this.tidy();
-		}
+	private updateLabel(): void {
+		const key = this.keybindingService.lookupKeybinding(BaseHalfCanvasCommandId.Tidy)?.getLabel();
+		const label = key ? localize('basehalf.canvas.tidy', "Tidy Canvas ({0})", key) : localize('basehalf.canvas.tidyWithoutKey', "Tidy Canvas");
+		setBaseHalfHover(this.button, label);
+		this.button.setAttribute('aria-label', label);
 	}
 
 	private onDidChangeScene(scene: IBaseHalfCanvasViewScene): void {

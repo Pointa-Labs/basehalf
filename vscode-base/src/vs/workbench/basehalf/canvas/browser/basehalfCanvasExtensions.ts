@@ -12,6 +12,7 @@ import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgen
 import { BaseHalfCanvasCardPreview, IBaseHalfCanvasCodePreview } from '../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfCodePreviewPiece } from '../common/basehalfCanvasCodePreview.js';
 import { IBaseHalfCanvasCardPick } from '../common/basehalfCanvasCardPick.js';
+import { BaseHalfCanvasCommandId } from '../common/basehalfCanvasKeys.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../common/basehalfCanvasScene.js';
 
@@ -255,8 +256,11 @@ export interface IBaseHalfCanvasView {
 	closeNoteEditor(): Promise<boolean>;
 	/** Gives the keyboard focus to the canvas, where its keys and undo work. */
 	focus(): void;
-	/** A key pressed on the canvas, before the view's own keys. A feature that handles a key prevents its default and stops it. */
-	readonly onKeyDown: Event<KeyboardEvent>;
+	/**
+	 * The feature runs this command of the canvas, as Tidy Canvas runs its own (the keys of the canvas).
+	 * The canvas view runs it for the command's key and from the Command Palette.
+	 */
+	registerCommand(id: BaseHalfCanvasCommandId, run: () => void | Promise<void>): IDisposable;
 	/** Says on the canvas that what the user did could not be done, and logs the error. */
 	reportError(error: unknown): void;
 

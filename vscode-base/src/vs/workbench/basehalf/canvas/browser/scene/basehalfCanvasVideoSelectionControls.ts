@@ -15,6 +15,7 @@ import {
 	IBaseHalfCanvasSceneVideoPanelLayout,
 	IBaseHalfCanvasSceneVideoPanelSurface,
 	BaseHalfCanvasSceneVideoFrame,
+	BASEHALF_CANVAS_CARD_TOOLBAR_FOCUS_EVENT,
 	BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT
 } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfVideoPanelSide } from '../../../generation/common/basehalfVideoNodePanelPlacement.js';
@@ -114,18 +115,13 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 		}, [suppressed]);
 		vendor.useEffect(() => {
 			const element = node.data.card.element;
-			const focusToolbar = (event: KeyboardEvent): void => {
-				if (event.isComposing || event.keyCode === 229
-					|| !event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || event.key !== 'F10') {
-					return;
-				}
-				event.preventDefault();
-				event.stopPropagation();
+			// Focus Card Toolbar, which the canvas view runs for its key (the keys of the canvas).
+			const focusToolbar = (): void => {
 				setFocusIndex(0);
 				element.ownerDocument.defaultView?.setTimeout(() => buttonRefs.current[0]?.focus(), 0);
 			};
-			element.addEventListener('keydown', focusToolbar);
-			return () => element.removeEventListener('keydown', focusToolbar);
+			element.addEventListener(BASEHALF_CANVAS_CARD_TOOLBAR_FOCUS_EVENT, focusToolbar);
+			return () => element.removeEventListener(BASEHALF_CANVAS_CARD_TOOLBAR_FOCUS_EVENT, focusToolbar);
 		}, [node.data.card.element]);
 		vendor.useEffect(() => {
 			if (!captureOpen) {

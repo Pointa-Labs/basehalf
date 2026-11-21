@@ -370,7 +370,8 @@ export class PreferencesService extends Disposable implements IPreferencesServic
 	}
 
 	openDefaultKeybindingsFile(): Promise<IEditorPane | undefined> {
-		return this.editorService.openEditor({ resource: this.defaultKeybindingsResource, label: nls.localize('defaultKeybindings', "Default Keybindings") });
+		// BaseHalf: the default key bindings open where Keyboard Shortcuts does, in the overlay, not over the canvas (D146).
+		return this.editorService.openEditor({ resource: this.defaultKeybindingsResource, label: nls.localize('defaultKeybindings', "Default Keybindings") }, this.getEditorGroupFromOptions({}));
 	}
 
 	private getEditorGroupFromOptions(options: { groupId?: number; openToSide?: boolean }): PreferredGroup {
@@ -388,14 +389,15 @@ export class PreferencesService extends Disposable implements IPreferencesServic
 				if (modalEditorPart?.groups.some(modalGroup => modalGroup.id === group.id)) {
 					return MODAL_GROUP;
 				}
-				return group;
+				// BaseHalf: the one editor group of the main part is under the canvas, so what asks for the group it
+				// was run from, as Keyboard Shortcuts of the gear's menu does, opens in the overlay as Settings does.
+				if (!this.shouldOpenInModal()) {
+					return group;
+				}
 			}
 		}
 
-		if (
-			this.configurationService.getValue<string>('workbench.editor.useModal') !== 'off' &&					// modal editors enabled in settings
-			!this.environmentService.enableSmokeTestDriver && !this.environmentService.extensionTestsLocationURI	// but not in smoke test or extension test environments to reduce flakiness
-		) {
+		if (this.shouldOpenInModal()) {
 			return MODAL_GROUP;
 		}
 		if (options.openToSide) {
@@ -405,6 +407,11 @@ export class PreferencesService extends Disposable implements IPreferencesServic
 			return this.editorGroupService.getGroup(options.groupId) ?? this.editorGroupService.activeGroup;
 		}
 		return ACTIVE_GROUP;
+	}
+
+	private shouldOpenInModal(): boolean {
+		return this.configurationService.getValue<string>('workbench.editor.useModal') !== 'off' &&				// modal editors enabled in settings
+			!this.environmentService.enableSmokeTestDriver && !this.environmentService.extensionTestsLocationURI;	// but not in smoke test or extension test environments to reduce flakiness
 	}
 
 	private async openSettingsJson(resource: URI, options: IOpenSettingsOptions): Promise<IEditorPane | undefined> {

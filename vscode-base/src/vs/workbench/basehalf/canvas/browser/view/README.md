@@ -24,6 +24,7 @@ the shared state and the other parts through `view`:
 | `creation` | `basehalfCanvasCreation.ts` | Making things on the canvas: the inline editors that name a new item or rename one, new notes, drafts of images and videos, and PDF branches, where new cards go, and files imported or dropped onto the canvas. |
 | `folderDrops` | `basehalfCanvasFolderDrops.ts` | Dropping into a folder: the cards let go on a folder's card or on a folder of the path in the title bar, and items from Files or files from outside let go on a folder's card, handed to the feature that moves them (`canvasContrib/folderDrop/`). |
 | `cardDetailHost` | `basehalfCanvasCardDetailHost.ts` | Card Detail inside the canvas: its header, title, and save status, the host it gives each projection that draws a file (the projections register themselves from their own folders), and keeping the open item when it is renamed or moved. |
+| `keys` | `basehalfCanvasKeys.ts` | The keys of the canvas: at each key that enters the canvas area, says where the keyboard is and what is selected through the canvas's context keys, asks the base's key bindings which command the key has there, and runs it when it is a command of the canvas; runs a command that comes from the Command Palette on the selection; and stops the arrow keys before the canvas library. |
 
 `basehalfCanvasViewShared.ts` holds the types, constants, and small functions
 that several parts use. A helper that one part uses lives in that part's file.

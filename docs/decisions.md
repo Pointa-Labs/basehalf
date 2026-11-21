@@ -7121,6 +7121,88 @@ card already had the rule that a heading of level 4 to 6 is not smaller than the
   card still opens Rich.
 - The magnifying of a page (D109), the outline, and Source are unchanged.
 
+## D146 — The keys of the canvas are commands, and Keyboard Shortcuts opens over the canvas (NEW, 2026-11-21)
+
+**Decision.** A key that acts on the canvas or on its selection is a command of the base's key bindings: it has a name
+under BaseHalf, a default key that is the key it had, and a condition that is true exactly where the key acted. Keyboard
+Shortcuts lists the commands, and a user gives one another key or none. There are nineteen: Zoom Canvas In, Out, and to
+100%, Fit Canvas to Screen, Tidy Canvas, Move Card in four directions by 1 and by 10, Duplicate Selected Cards, Delete
+Selected Cards or Connections, Rename Card, Open Card, Select Card, and Focus Card Toolbar. A key inside a control stays
+the control's, and Escape stays with what is open or under way. Keyboard Shortcuts opens in the overlay over the canvas,
+as Settings does, and lists no command of what BaseHalf does not have. See [the keys of the canvas](specs/canvas-keys.md)
+and [the commands and menus BaseHalf has](specs/commands-and-menus.md#keyboard-shortcuts).
+
+**Why.** The owner asked for settings that let a user make the product their own, and for the product to be polished
+along the way (D143). The keys are the part of that which every user of a keyboard meets, and BaseHalf's were the one
+part of the product no list showed. Read in the code and pressed in the real window on 2026-11-21:
+
+- Seven listeners of the page compared key presses with keys written into the code: the scene (the arrow keys, the
+  duplicate key, Delete), the canvas view (the zoom keys), each card (F2, Enter, Space), a video card (Alt+F10), Tidy
+  Canvas, code cards (Enter), and the menu of the zoom control (the zoom keys a second time). Two rules of BaseHalf's
+  were in the base's list of keys.
+- Keyboard Shortcuts, from the gear's menu, opened in the editor area: it took the place of the canvas, and Escape did
+  not close it. The base opens it in the editor group it was asked from, and in BaseHalf that group is under the canvas.
+- Keyboard Shortcuts listed 1,852 rows. Among them were 15 commands of inline suggestions, which have no provider; 66
+  actions of the Extensions view by their bare ids; and commands of Run and Debug and of the base's chat. D141 had read
+  the two lists Keyboard Shortcuts is made from, and the palette, and had not opened it. After the change it lists
+  1,752: 112 commands are gone, and the 19 of the canvas have come.
+
+The weight of the change is that nothing a user does at the default keys changes. Before any code changed, each of 19
+keys was pressed with the real keyboard in 27 places of the window that take keys: on the blank canvas, on selected and
+unselected cards of each kind, in the toolbars, in a card's name, in a note and a code card being edited, in the prompts
+of a draft and of a badge, in the menu of the zoom control, in Card Detail, in Files, and in Quick Open. What each press
+changed was written down, and the same presses were made after: of 511, 510 changed the same, and one differed in a
+class of the note's editor that comes and goes with the moment of the reading.
+
+**How a key reaches its command.** The base looks a key up when the key press reaches the window, after every element
+under the keyboard has had it. The keys of the canvas acted earlier: before the controls of the canvas and before the
+canvas library, which moves selected cards by the arrow keys with steps of its own and selects a card at Enter. So the
+canvas view asks the base's key bindings itself, as the key enters the canvas area: it says where the keyboard is and
+what is selected through context keys, asks which command the key has there, and, when that is a command of the canvas,
+has the base run it and lets nothing else of the page receive the key. The conditions are worked out at the key press
+from the element under the keyboard and from the selection as the scene holds it, so they are never one drawing behind.
+
+**Alternatives.**
+- *Registering the commands and leaving the rest to the base.* The base would run a command after the canvas library
+  had the key: a card would move twice, by the library's five pixels and by the command's one.
+- *Context keys that follow the selection and the focus by their events alone.* The selection reaches the view a
+  drawing later than the key that follows a click; a key pressed at once would be judged by the selection before it.
+- *One condition per command, worked out in code* (`basehalfCanvasCanMoveCard`). Keyboard Shortcuts shows a command's
+  condition, and a user who writes a rule of their own needs to say "on a card" or "not in text": the context keys name
+  what is under the keyboard and what is selected.
+- *Escape as a command, Close Card Detail.* Escape is taken, innermost first, by a gesture, a menu, a field, an editor
+  on a card, the canvas library, and Card Detail, each of which says by the event that it took it. A command would run
+  whatever those did. Close Card Detail keeps its own key.
+- *Keeping every key press the listeners took.* They compared less than their keys: Control did what Command does on a
+  system that has both, and F2, Enter, Space, and Delete acted with any modifier held. Each would be a second and third
+  row of every command in Keyboard Shortcuts. A command has the keys the specifications named, and Command+Backspace
+  for the delete, which is the key that deletes in a file manager.
+- *Keyboard Shortcuts as a page of BaseHalf's Settings, drawn by BaseHalf.* The base's editor finds a command by its
+  name or its key, records a key press, shows what a key collides with, and writes the key bindings file. BaseHalf's
+  part is where it opens and what it lists.
+- *A `when` on the base's Keyboard Shortcuts command, or a command of BaseHalf's in its place.* Four ways lead to
+  Keyboard Shortcuts, and the base's service is the one place all of them pass.
+
+**Consequences.**
+- Keyboard Shortcuts lists the nineteen commands under BaseHalf. A changed key acts at once; the key it had is free.
+- The menu of the zoom control and the tooltip of Tidy Canvas show the keys the commands have now. The menu's labels
+  are the base's for a key, `⌘=` where they were `⌘ +`.
+- Fit Canvas to Screen, which had no key, can be given one. Five commands of the view and three of the selection are
+  in the Command Palette.
+- On a system with a Command key, Control+=, Control+-, Control+0, and Control+D no longer act on the canvas, nor
+  Shift+Command+D, nor F2, Enter, Space, Delete, and Backspace with a modifier held, but for Command+Backspace.
+- Where Move Card acts, an arrow key that a user took from it does nothing: the canvas library never moves a card.
+- The editor of a note on its card keeps Alt+F10 for its toolbar as a key of its own, with its other keys.
+- Keyboard Shortcuts, the key bindings file, and the default key bindings open in the overlay. Under the base's smoke
+  driver they open in the editor area, as the advanced list does. After the overlay closes the keyboard is on the editor
+  group under the canvas, as after Settings closes: giving it to the canvas is work for the shell.
+- The editor of a card's name keeps every key, as before: the canvas does not have the keyboard while a name is edited.
+- Two more families are hidden, inline suggestions and what only a language service other than JSON's makes, and four
+  earlier families name what Keyboard Shortcuts still listed of them. The Command Palette loses Snooze Inline
+  Suggestions and Cancel Snooze Inline Suggestions.
+- A feature of the canvas no longer hears the canvas's keys: it gives the canvas view the command it runs.
+- The catalog's line for the canvas's own keys, "none exists", is out of date: the keys are in Keyboard Shortcuts.
+
 ## D147 — A folder opens with the arrangement of its Agent Area, and every session starts anew (NEW, 2026-11-21)
 
 **Decision.** With `basehalf.agent.restoreSessions` on, as it is by default, a folder opens with the arrangement its Agent

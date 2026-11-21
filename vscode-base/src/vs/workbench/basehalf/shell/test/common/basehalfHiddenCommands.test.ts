@@ -50,7 +50,20 @@ suite('BaseHalfHiddenCommands', () => {
 				'workbench.action.toggleLightDarkThemes',
 				'workbench.action.moveView',
 				'workbench.action.openWalkthrough',
-				'workbench.action.showInteractivePlayground'
+				'workbench.action.showInteractivePlayground',
+				// What Keyboard Shortcuts still listed (D146).
+				'editor.action.inlineSuggest.commit',
+				'editor.action.accessibleViewAcceptInlineCompletion',
+				'editor.action.triggerParameterHints',
+				'editor.action.rename',
+				'inlayHints.startReadingLineWithHint',
+				'workbench.extensions.action.showExtensionsWithIds',
+				'editor.action.extensioneditor.showfind',
+				'variables.collapse',
+				'workbench.action.edits.submit',
+				'scm.input.triggerSetup',
+				'workbench.scm.action.graph.addHistoryItemToChat',
+				'editor.closeTestPeek'
 			].map(getBaseHalfHiddenCommandFamily),
 			[
 				'chat', 'chat', 'chat', 'chat', 'chat',
@@ -70,7 +83,13 @@ suite('BaseHalfHiddenCommands', () => {
 				'editor-tabs-and-groups', 'editor-tabs-and-groups', 'editor-tabs-and-groups',
 				'cloud',
 				'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape', 'shell-shape',
-				'welcome', 'welcome'
+				'welcome', 'welcome',
+				'inline-suggestions', 'inline-suggestions',
+				'language-service-features', 'language-service-features', 'language-service-features',
+				'marketplace', 'marketplace',
+				'debug',
+				'chat', 'chat', 'chat',
+				'testing'
 			]
 		);
 	});
@@ -92,6 +111,9 @@ suite('BaseHalfHiddenCommands', () => {
 			// Output, which opens as a document, and what a developer needs.
 			'workbench.action.showOutputChannels', 'workbench.action.showLogs', 'workbench.action.output.show.main',
 			'workbench.action.reloadWindow', 'workbench.action.toggleDevTools', 'workbench.extensions.action.devtoolsExtensionHost',
+			'workbench.extensions.action.openExtensionsFolder', 'workbench.extensions.action.extensionHostProfile',
+			// What JSON's language service makes, and what the editor does without one.
+			'editor.action.triggerSuggest', 'editor.action.showHover', 'editor.action.revealDefinition', 'editor.action.quickFix', 'editor.action.goToReferences',
 			// Installing an agent extension, Help, and the new file of the File menu.
 			'workbench.extensions.installExtension', 'workbench.action.showAboutDialog', 'workbench.action.openLicenseUrl', 'welcome.showNewFileEntries',
 			// The base's plumbing, which Git calls at a commit.

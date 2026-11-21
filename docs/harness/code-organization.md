@@ -350,6 +350,10 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   become a feature; measured by D126's own rule, a generation card is what
   the canvas's model, scene, and view are built with, as a note is. No part
   of the canvas core is left that is planned to become a feature.
+- 2026-11-21: the keys of the canvas are commands (D146). A feature no
+  longer hears the canvas's keys: it gives the canvas view the command it
+  runs (`registerCommand`), as Tidy Canvas does, and the view's part `keys`
+  says where a key acts.
 - Seven files stand between 1,539 and 1,761 lines, each one service or one
   model: following moved items, the mirror cascade, the canvas's layout
   file, reference edits, the reference index, the Markdown projection, and

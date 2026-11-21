@@ -66,7 +66,8 @@ Not in scope, and unchanged:
 - The default name of a new note: `untitled.md`, `untitled-1.md`, and so on.
 - The Files view, Search, and Quick Open. They list files and show file
   names.
-- F2, and Rename in the toolbar and the menu.
+- F2, and Rename in the toolbar and the menu. F2 is the key of the command
+  Rename Card ([the keys of the canvas](canvas-keys.md)).
 - The title of Card Detail and its Rename button.
 
 ## Terms

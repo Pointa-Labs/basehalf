@@ -69,7 +69,6 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 	/** The last card asked to be edited: one that had to wait gives way to it. */
 	private editAsked = 0;
 	private measuredFont: { readonly family: string; readonly digitWidth: number } | undefined;
-	private selectedPaths: readonly string[] = [];
 
 	constructor(
 		context: IBaseHalfCanvasContributionContext,
@@ -105,11 +104,6 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 			}
 		}));
 		this._register(lifecycleService.onBeforeShutdown(event => event.veto(this.finish(false).then(() => false), 'veto.basehalfCodeCardEditor')));
-		this._register(this.canvas.onDidChangeSelection(selection => {
-			this.selectedPaths = selection.paths;
-		}));
-		// Enter edits the selected code card from its place, wherever on the card the keyboard is (code cards, rule 18).
-		this._register(this.canvas.onKeyDown(event => this.onCanvasKey(event)));
 		this._register(this.configurationService.onDidChangeConfiguration(event => {
 			if (event.affectsConfiguration('editor.fontFamily')) {
 				this.measuredFont = undefined;
@@ -298,23 +292,6 @@ export class BaseHalfCanvasCodeCards extends Disposable implements IBaseHalfCanv
 		}
 		if (!this._store.isDisposed) {
 			this.canvas.requestRender();
-		}
-	}
-
-	private onCanvasKey(event: KeyboardEvent): void {
-		const target = event.target;
-		// Card Detail stands over the canvas, and its keys are its own.
-		if (event.key !== 'Enter' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || this.selectedPaths.length !== 1
-			|| this.navigation.state.cardDetail
-			|| !(target instanceof Element) || target.closest('input, textarea, button, [contenteditable="true"], .monaco-editor')) {
-			return;
-		}
-		const path = this.selectedPaths[0];
-		const item = this.canvas.getItem(path);
-		if (item && this.editsOnCard(item, this.canvas.getCardPreview(path))) {
-			event.preventDefault();
-			event.stopPropagation();
-			void this.edit(path);
 		}
 	}
 

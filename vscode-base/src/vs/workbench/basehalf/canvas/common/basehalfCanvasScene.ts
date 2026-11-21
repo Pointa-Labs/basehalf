@@ -10,6 +10,8 @@ import type { BaseHalfMarkdownFormatCommand, IBaseHalfMarkdownFormatState } from
 import type { BaseHalfGenerationToolbarAction } from '../../generation/common/basehalfVideoCardPresentation.js';
 
 export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
+/** Sent to the element of the selected image or video card: its toolbar takes the keyboard (Focus Card Toolbar). */
+export const BASEHALF_CANVAS_CARD_TOOLBAR_FOCUS_EVENT = 'basehalf-card-toolbar-focus';
 export const BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT = 'basehalf-note-format-state';
 export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP = 8;
 export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT = 24;

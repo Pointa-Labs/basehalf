@@ -19,7 +19,7 @@ import {
 import type { ReactElement } from 'react';
 import type { Root } from 'react-dom/client';
 import { createBaseHalfCanvasSceneComponent } from './scene/basehalfCanvasSceneComponent.js';
-import { BaseHalfCanvasReactVendor, IBaseHalfCanvasEdgeInteraction, IBaseHalfCanvasSceneEnvironment, IBaseHalfCanvasSceneRuntime } from './scene/basehalfCanvasSceneShared.js';
+import { BaseHalfCanvasReactVendor, IBaseHalfCanvasEdgeInteraction, IBaseHalfCanvasSceneEnvironment, IBaseHalfCanvasSceneKeys, IBaseHalfCanvasSceneRuntime } from './scene/basehalfCanvasSceneShared.js';
 
 const CANVAS_REACT_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-react-vendor-out';
 const CANVAS_REACT_VENDOR_SCRIPT = 'canvasReactVendor.js';
@@ -40,6 +40,7 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 	private latestSnapshot: IBaseHalfCanvasSceneSnapshot | undefined;
 	private videoPanelSurface: IBaseHalfCanvasSceneVideoPanelSurface | undefined;
 	private latestViewport: IBaseHalfCanvasSceneViewport = { x: 0, y: 0, zoom: 1 };
+	private readonly keys: { current: IBaseHalfCanvasSceneKeys | undefined } = { current: undefined };
 	private root: Root | undefined;
 	private rejectReady: ((error: unknown) => void) | undefined;
 	private readyError: unknown;
@@ -146,6 +147,11 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 		return this.runtime?.isInteracting() ?? false;
 	}
 
+	/** What the keys of the canvas ask of the scene, once it is mounted (the keys of the canvas). */
+	sceneKeys(): IBaseHalfCanvasSceneKeys | undefined {
+		return this.keys.current;
+	}
+
 	dispose(): void {
 		this.disposed = true;
 		this.videoPanelSurface = undefined;
@@ -154,6 +160,7 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 		this.root?.unmount();
 		this.root = undefined;
 		this.runtime = undefined;
+		this.keys.current = undefined;
 		this.host.classList.remove('basehalf-canvas-react-island');
 	}
 
@@ -193,7 +200,7 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 					onUncaughtError: rejectReady
 				});
 				this.root = root;
-				const mount = createCanvasSceneMount(vendor, this.host, this.delegate, viewport => {
+				const mount = createCanvasSceneMount(vendor, this.host, this.delegate, this.keys, viewport => {
 					this.latestViewport = viewport;
 				});
 				root.render(vendor.createElement(mount.Component, {
@@ -299,6 +306,7 @@ function createCanvasSceneMount(
 	vendor: BaseHalfCanvasReactVendor,
 	host: HTMLElement,
 	delegate: IBaseHalfCanvasSceneDelegate,
+	sceneKeys: { current: IBaseHalfCanvasSceneKeys | undefined },
 	onViewport: (viewport: IBaseHalfCanvasSceneViewport) => void
 ): {
 	readonly Component: (props: {
@@ -314,7 +322,8 @@ function createCanvasSceneMount(
 		delegate,
 		onViewport,
 		EdgeInteractionContext: vendor.createContext<IBaseHalfCanvasEdgeInteraction | undefined>(undefined),
-		SelectionSizeContext: vendor.createContext(0)
+		SelectionSizeContext: vendor.createContext(0),
+		sceneKeys
 	};
 	return { Component: createBaseHalfCanvasSceneComponent(environment) };
 }

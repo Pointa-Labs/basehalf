@@ -40,7 +40,7 @@ does each part of its work in a hook. It calls them in this order:
 | `useBaseHalfCanvasSceneGeometry` | `basehalfCanvasSceneGeometry.ts` | Moves and resizes cards, snapped, and saves their final places and sizes. |
 | `useBaseHalfCanvasScenePressGesture` | `basehalfCanvasScenePressGesture.ts` | The marquee and moving a set by its box; Shift-click on the box and Arrange. |
 | `useBaseHalfCanvasSceneConnections` | `basehalfCanvasSceneConnections.ts` | Connects, reconnects, and removes connections, and keeps the line for Create from Connection. |
-| `useBaseHalfCanvasSceneKeyboard` | `basehalfCanvasSceneKeyboard.ts` | The arrow keys, Command-D, and Delete. |
+| `useBaseHalfCanvasSceneKeyboard` | `basehalfCanvasSceneKeyboard.ts` | What the keys of the canvas ask of the scene: the selection as it is at a key press, Move Card, Duplicate, and Delete. The scene hears no key itself: the canvas view says where a key acts (the keys of the canvas). |
 | `useBaseHalfCanvasSceneRuntime` | `basehalfCanvasSceneRuntime.ts` | What the canvas view may ask of the mounted scene, such as the viewport. |
 | `useBaseHalfCanvasSceneMouse` | `basehalfCanvasSceneMouse.ts` | Clicks, double clicks, context menus, and the wheel. |
 

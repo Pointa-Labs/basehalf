@@ -74,11 +74,25 @@ suite('PreferencesService', () => {
 		assert.strictEqual(options.query, 'test query');
 	});
 
-	test('opens in the source group when it lives in the main editor part (even with modal editors enabled)', async () => {
+	// BaseHalf: the one editor group of the main part is under the canvas, so a source group there does not keep
+	// what the base opens out of the overlay (D146). It keeps it only while modal editors are off.
+	test('opens in the modal group when the source group lives in the main editor part and modal editors are enabled', async () => {
 		const mainGroup = new TestEditorGroupView(1);
 		const testObject = createTestObject(new TestEditorGroupsService([mainGroup]));
 
 		await testObject.openUserSettings({ jsonEditor: false, groupId: mainGroup.id });
+		assert.strictEqual(lastOpenEditorGroup, MODAL_GROUP);
+
+		await testObject.openGlobalKeybindingSettings(false, { groupId: mainGroup.id });
+		assert.strictEqual(lastOpenEditorGroup, MODAL_GROUP);
+	});
+
+	test('opens in the source group when it lives in the main editor part and modal editors are off', async () => {
+		const mainGroup = new TestEditorGroupView(1);
+		const configurationService = new TestConfigurationService({ workbench: { editor: { useModal: 'off' } } });
+		const testObject = createTestObject(new TestEditorGroupsService([mainGroup]), configurationService);
+
+		await testObject.openGlobalKeybindingSettings(false, { groupId: mainGroup.id });
 
 		assert.strictEqual(lastOpenEditorGroup, mainGroup);
 	});

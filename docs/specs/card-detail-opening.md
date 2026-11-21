@@ -103,6 +103,8 @@ rule 26).
   in their page. It does not when it was opened to keep the keyboard where it
   was, as a click in Files does, or when the keyboard went out of the canvas
   meanwhile.
+- Escape is no command: it belongs to what is open
+  ([the keys of the canvas](canvas-keys.md#which-keys-are-commands)).
 - Escape closes Card Detail, wherever in it the keyboard is: in its header,
   in the player, in a note's editor, in an image, in a PDF, in a book, or in
   the Sequence view ([Video Sequence](video-sequence.md#the-sequence-view)).

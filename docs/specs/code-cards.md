@@ -168,7 +168,8 @@ both would stay what they are.
 ### Editing on the card
 
 18. A double click on a face edits the file on the card, with the caret at the point of the
-    click. The name still renames. Enter on a selected code card edits it from its place. No
+    click. The name still renames. Enter on a selected code card edits it from its place: Enter is
+    the key of the command Open Card ([the keys of the canvas](canvas-keys.md)). No
     line moves or changes its colors on any frame when the editor comes and when it goes, and
     the marks stand where they stood.
 19. The card's editor is VS Code's editor of the same text model as Source, with the same

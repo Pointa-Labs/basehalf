@@ -4,12 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { mainWindow } from '../../../../../../base/browser/window.js';
 import { timeout } from '../../../../../../base/common/async.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { TestInstantiationService } from '../../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
+import { IKeybindingService } from '../../../../../../platform/keybinding/common/keybinding.js';
+import { MockKeybindingService } from '../../../../../../platform/keybinding/test/common/mockKeybindingService.js';
 import { IBaseHalfCanvasViewScene } from '../../../../canvas/browser/basehalfCanvasExtensions.js';
 import { baseHalfCanvasTidy } from '../../../../canvas/common/basehalfCanvasArrangement.js';
+import { BaseHalfCanvasCommandId } from '../../../../canvas/common/basehalfCanvasKeys.js';
 import { baseHalfTestSceneCard, baseHalfTestSceneEdge, createBaseHalfTestCanvasView, IBaseHalfTestCanvasView } from '../../../../canvas/test/browser/basehalfCanvasViewFixture.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasTidy } from '../../browser/basehalfCanvasTidy.contribution.js';
@@ -50,6 +52,7 @@ suite('BaseHalfCanvasTidy', () => {
 		const canvas = createBaseHalfTestCanvasView(store, { scene, viewport: { x: 10, y: 20, zoom: 0.5 } });
 		const instantiationService = store.add(new TestInstantiationService());
 		instantiationService.stub(IBaseHalfCanvasNavigationService, { get state() { return navigationState; } });
+		instantiationService.stub(IKeybindingService, new MockKeybindingService());
 		const tidy = store.add(instantiationService.createInstance(BaseHalfCanvasTidy, { canvas }));
 		const button = canvas.viewControls.querySelector<HTMLButtonElement>('[data-testid="canvas-tidy"]');
 		assert.ok(button);
@@ -71,7 +74,8 @@ suite('BaseHalfCanvasTidy', () => {
 	test('can be used once the canvas has two cards', () => {
 		const { canvas, button } = createTidy({ key: 'folder', structuralEpoch: 1, cards: [baseHalfTestSceneCard('a.md', 0, 0)], edges: [] });
 		assert.strictEqual(button.disabled, true);
-		assert.match(button.getAttribute('aria-label') ?? '', /^Tidy Canvas \(/);
+		// The command has no key in this test, so the name stands alone.
+		assert.strictEqual(button.getAttribute('aria-label'), 'Tidy Canvas');
 		canvas.showScene(untidyScene());
 		assert.strictEqual(button.disabled, false);
 	});
@@ -161,21 +165,14 @@ suite('BaseHalfCanvasTidy', () => {
 		assert.strictEqual(questionOf(canvas), null);
 	});
 
-	test('Shift+Alt+F tidies, but not in a field the user types in, and not over Card Detail', async () => {
+	test('its command tidies, and not over Card Detail', async () => {
 		const { canvas } = createTidy();
-		const input = mainWindow.document.createElement('input');
-		const typed = canvas.pressKey({ code: 'KeyF', key: 'Ï', shiftKey: true, altKey: true }, input);
-		assert.strictEqual(typed.defaultPrevented, false);
 		navigationState = { canvasFolder: undefined, cardDetail: {} as never };
-		const overDetail = canvas.pressKey({ code: 'KeyF', key: 'Ï', shiftKey: true, altKey: true });
-		assert.strictEqual(overDetail.defaultPrevented, false);
-		await timeout(0);
+		assert.strictEqual(await canvas.runCommand(BaseHalfCanvasCommandId.Tidy), true);
 		assert.deepStrictEqual(canvas.calls, []);
 
 		navigationState = { canvasFolder: undefined, cardDetail: undefined };
-		const pressed = canvas.pressKey({ code: 'KeyF', key: 'Ï', shiftKey: true, altKey: true });
-		assert.strictEqual(pressed.defaultPrevented, true);
-		await timeout(0);
+		await canvas.runCommand(BaseHalfCanvasCommandId.Tidy);
 		assert.ok(questionOf(canvas));
 	});
 

@@ -8,6 +8,7 @@ import { BaseHalfCanvasAnchor, baseHalfCanvasDrawnLineSides } from '../../common
 import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
 import { IBaseHalfCanvasArrangeCard } from '../../common/basehalfCanvasArrangement.js';
 import {
+	BaseHalfCanvasSceneSelectionSurface,
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneDelegate,
 	IBaseHalfCanvasSceneEdge,
@@ -39,6 +40,26 @@ export interface IBaseHalfCanvasSceneEnvironment {
 	readonly EdgeInteractionContext: Context<IBaseHalfCanvasEdgeInteraction | undefined>;
 	/** How many cards are selected, so that a card shows its resize controls only alone. */
 	readonly SelectionSizeContext: Context<number>;
+	/** What the keys of the canvas ask of the scene, while it is mounted (`useBaseHalfCanvasSceneKeyboard`). */
+	readonly sceneKeys: { current: IBaseHalfCanvasSceneKeys | undefined };
+}
+
+/** The selection as the scene holds it now: it is never one drawing behind. */
+export interface IBaseHalfCanvasSceneKeySelection {
+	readonly cards: readonly string[];
+	readonly connections: number;
+	/** The toolbar that stands by the selection. */
+	readonly toolbar: BaseHalfCanvasSceneSelectionSurface;
+}
+
+/** What the keys of the canvas ask of the scene (the keys of the canvas). */
+export interface IBaseHalfCanvasSceneKeys {
+	selection(): IBaseHalfCanvasSceneKeySelection;
+	/** Moves the one selected card by so many pixels of the canvas at 100%. */
+	moveSelectedCard(x: number, y: number): void;
+	duplicateSelection(): void;
+	/** Deletes the selected cards, or, when no card is selected, the selected connections. */
+	deleteSelection(): void;
 }
 
 interface IBaseHalfCanvasToolbarIconProps {

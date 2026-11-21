@@ -24,7 +24,9 @@ export type BaseHalfHiddenCommandFamilyId =
 	| 'editor-tabs-and-groups'
 	| 'cloud'
 	| 'welcome'
-	| 'shell-shape';
+	| 'shell-shape'
+	| 'inline-suggestions'
+	| 'language-service-features';
 
 export interface IBaseHalfHiddenCommandFamily {
 	readonly family: BaseHalfHiddenCommandFamilyId;
@@ -100,7 +102,13 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'sessions.tunnelHost.*',
 			'lm.*',
 			'welcome.newWorkspaceChat',
-			'search.action.searchWithAI'
+			'search.action.searchWithAI',
+			// What Keyboard Shortcuts still listed of the family (D146): the palette never listed these.
+			'workbench.action.edits.*',
+			'keywordActivation.*',
+			'scm.input.triggerSetup',
+			'scm.editor.triggerSetup',
+			'workbench.scm.action.graph.addHistoryItem*ToChat'
 		],
 		paletteCategories: ['Chat', 'Inline Chat', 'MCP', 'Voice', 'Agent Sessions', 'Agent Plugins'],
 		reason: 'The Agent Area is BaseHalf\'s surface for agents. The base\'s chat, its agents, its tool servers, its voice input, and its setup are off, and none of their commands turns them on.'
@@ -125,7 +133,13 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'closeBreakpointWidget',
 			'workbench.action.debugRenderer',
 			'workbench.action.debugExtensionHostAndRenderer',
-			'workbench.extensions.action.debugExtensionHost'
+			'workbench.extensions.action.debugExtensionHost',
+			// The views of Run and Debug, whose own commands Keyboard Shortcuts still listed (D146).
+			'callStack.*',
+			'callStackWidget.*',
+			'variables.*',
+			'watch.*',
+			'loadedScripts.*'
 		],
 		paletteCategories: ['Debug', 'Run and Debug', 'Debug Console'],
 		reason: 'No debugger ships, and Run and Debug with its console is hidden.'
@@ -150,7 +164,8 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'workbench.panel.testResults*',
 			'workbench.view.testing.*',
 			'workbench.view.testCoverage.*',
-			'workbench.view.extension.test*'
+			'workbench.view.extension.test*',
+			'editor.closeTestPeek'
 		],
 		paletteCategories: ['Test', 'Testing', 'Test Results'],
 		reason: 'No test provider ships, and Testing with its results is hidden.'
@@ -191,7 +206,11 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 			'extensions.*',
 			'extension.bisect.*',
 			'workbench.action.browseColorThemesInMarketplace',
-			'workbench.extensions.actions.gallery.signIn'
+			'workbench.extensions.actions.gallery.signIn',
+			// The actions of the Extensions view and of an extension's page, which Keyboard Shortcuts still
+			// listed by their ids (D146). What a developer needs of the extension host is kept, below.
+			'workbench.extensions.action.*',
+			'editor.action.extensioneditor.*'
 		],
 		paletteCategories: [],
 		reason: 'BaseHalf has no Extensions view and no Marketplace (D45, D76): it runs its built-in extensions and installs only the agent extensions.'
@@ -390,6 +409,33 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
 		],
 		paletteCategories: [],
 		reason: 'Each only changes what BaseHalf keeps as it is: it writes a setting that BaseHalf keeps at its own value (D137), needs one at another value, as the tabs of the system\'s windows do, switches to a theme BaseHalf never switches to, or moves a view out of its place.'
+	},
+	{
+		family: 'inline-suggestions',
+		commands: ['editor.action.inlineSuggest.*', 'editor.action.accessibleViewAcceptInlineCompletion'],
+		paletteCategories: [],
+		reason: 'Inline suggestions and inline edits have no provider in BaseHalf: the base\'s chat extension makes them, and it does not run (D137 has their settings as unlisted).'
+	},
+	{
+		family: 'language-service-features',
+		commands: [
+			'editor.action.triggerParameterHints',
+			'closeParameterHints',
+			'showNextParameterHint',
+			'showPrevParameterHint',
+			'editor.inlayHints.*',
+			'inlayHints.*',
+			'editor.action.rename',
+			'acceptRenameInput',
+			'acceptRenameInputWithPreview',
+			'cancelRenameInput',
+			'focusNextRenameSuggestion',
+			'focusPreviousRenameSuggestion',
+			'editor.action.linkedEditing',
+			'cancelLinkedEditingInput'
+		],
+		paletteCategories: [],
+		reason: 'Parameter hints, inlay hints, renaming a symbol, and linked editing come from a language service, and JSON\'s, the one that runs (D142), makes none of them (D137 has their settings as unlisted).'
 	}
 ];
 
@@ -397,7 +443,14 @@ export const BASEHALF_HIDDEN_COMMAND_FAMILIES: readonly IBaseHalfHiddenCommandFa
  * Commands that a pattern above names and that BaseHalf has. Each needs its reason: a kept command is
  * offered and runs like any other.
  */
-export const BASEHALF_KEPT_COMMANDS: readonly IBaseHalfKeptCommand[] = [];
+export const BASEHALF_KEPT_COMMANDS: readonly IBaseHalfKeptCommand[] = [
+	{ id: 'workbench.extensions.action.devtoolsExtensionHost', reason: 'A developer debugs the extension host, which runs the agent extensions and BaseHalf\'s own.' },
+	{ id: 'workbench.extensions.action.openExtensionsFolder', reason: 'A developer looks at the folder an agent extension was installed into.' },
+	{ id: 'workbench.extensions.action.extensionHostProfile', reason: 'The profiler of the extension host, a developer\'s tool.' },
+	{ id: 'workbench.extensions.action.stopExtensionHostProfile', reason: 'The profiler of the extension host, a developer\'s tool.' },
+	{ id: 'workbench.extensions.action.saveExtensionHostProfile', reason: 'The profiler of the extension host, a developer\'s tool.' },
+	{ id: 'workbench.extensions.action.openExtensionHostProfile', reason: 'The profiler of the extension host, a developer\'s tool.' }
+];
 
 const KEPT_COMMAND_IDS = new Set<string>(BASEHALF_KEPT_COMMANDS.map(command => command.id));
 const HIDDEN_COMMAND_IDS = new Map<string, BaseHalfHiddenCommandFamilyId>();
