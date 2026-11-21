@@ -23,6 +23,7 @@ const LONG = `${FOLDER}/long.ts`;
 const SHORT = `${FOLDER}/short.ts`;
 const LARGE = `${FOLDER}/large.ts`;
 const EMPTY = `${FOLDER}/empty.ts`;
+const JSON_MISTAKE = `${FOLDER}/mistake.json`;
 const IGNORED = `${FOLDER}/ignored.ts`;
 const NEAR_TOP = `${FOLDER}/near-top.ts`;
 const NOTE = `${FOLDER}/note.md`;
@@ -981,4 +982,33 @@ export async function assertLargeFileKeepsItsHead(page) {
 		throw new Error(`A file above 5 MiB must show the last lines of its head for a place beyond it: ${JSON.stringify(shown)}`);
 	}
 	fs.rmSync(inWorkspace(LARGE));
+}
+
+/**
+ * JSON has its language service, the one that runs (D142): a mistake in a JSON file is marked in Source,
+ * and a file of another language gets no mark from it.
+ */
+export async function assertJsonHasItsLanguageService(page) {
+	const marks = () => page.evaluate(() => {
+		const editor = document.querySelector('.basehalf-card-detail-surface.active .monaco-editor');
+		return {
+			open: !!editor,
+			language: document.querySelector('#status\\.editor\\.mode')?.textContent?.trim() ?? null,
+			marks: (editor?.querySelectorAll('.squiggly-error, .squiggly-warning').length ?? 0)
+		};
+	});
+	// The same key twice is a mistake that needs no schema.
+	fs.writeFileSync(inWorkspace(JSON_MISTAKE), '{\n\t"kite": 1,\n\t"kite": 2\n}\n');
+	await quickOpen(page, JSON_MISTAKE);
+	await waitForReading(marks, reading => reading.open && !!reading.language?.includes('JSON') && reading.marks > 0, 'a mistake of a JSON file marked in Source', 30_000);
+	await closeCardDetailIfOpen(page);
+	await quickOpen(page, SHORT);
+	await waitForReading(marks, reading => reading.open && !!reading.language?.includes('TypeScript'), 'a TypeScript file in Source', 15_000);
+	await page.waitForTimeout(1_500);
+	const other = await marks();
+	if (other.marks) {
+		throw new Error(`Only JSON has a language service: ${JSON.stringify(other)}`);
+	}
+	await closeCardDetailIfOpen(page);
+	fs.rmSync(inWorkspace(JSON_MISTAKE));
 }

@@ -13,7 +13,7 @@ import { Testing } from '../../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../../services/search/common/search.js';
-import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
+import { BASEHALF_GIT_EXTENSION_IDS, BASEHALF_GITHUB_AUTHENTICATION_EXTENSION_IDS, BASEHALF_GITHUB_EXTENSION_IDS, BASEHALF_JSON_EXTENSION_IDS, BASEHALF_LANGUAGE_EXTENSION_IDS, BASEHALF_MEDIA_PREVIEW_EXTENSION_IDS, BASEHALF_THEME_EXTENSION_IDS } from './basehalfBuiltInExtensions.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 
@@ -433,7 +433,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'git' | 'media-preview' | 'github' | 'github-authentication' | 'codex' | 'claude';
+export type BaseHalfExtensionFamily = 'theme' | 'languages' | 'json' | 'git' | 'media-preview' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -672,6 +672,14 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 		externalSlotIds: [],
 		source: 'extensions/<language>/package.json',
 		reason: 'A language and its grammar give a code card, an editor, and a diff the colors of the language. These extensions run no code.'
+	},
+	{
+		family: 'json',
+		builtInExtensionIds: BASEHALF_JSON_EXTENSION_IDS,
+		externalExtensionIds: [],
+		externalSlotIds: [],
+		source: 'extensions/json-language-features/package.json; extensions/configuration-editing/package.json',
+		reason: 'The one language service that runs (D142): a settings file, a package.json, and an agent\'s configuration are JSON, and the service completes, formats, and marks mistakes in one file at a time.'
 	},
 	{
 		family: 'git',
