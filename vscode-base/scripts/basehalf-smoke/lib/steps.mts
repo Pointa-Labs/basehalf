@@ -7,9 +7,22 @@
 
 const passed = [];
 
+/** A step that has not finished in this time hangs: it fails, and the suite keeps its folder (README). */
+const STEP_LIMIT_MS = 5 * 60_000;
+
 export async function step(name, run) {
 	console.error(`[basehalf-smoke] start ${name}`);
-	await run();
+	let limit;
+	try {
+		await Promise.race([
+			run(),
+			new Promise((_, reject) => {
+				limit = setTimeout(() => reject(new Error(`The step ${name} did not finish within ${STEP_LIMIT_MS / 60_000} minutes`)), STEP_LIMIT_MS);
+			})
+		]);
+	} finally {
+		clearTimeout(limit);
+	}
 	console.error(`[basehalf-smoke] pass ${name}`);
 	passed.push(name);
 }

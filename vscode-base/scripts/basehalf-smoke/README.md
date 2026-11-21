@@ -20,6 +20,12 @@ smoke before delivery ([verification and delivery](../../../docs/harness/verific
 `--verbose` echoes the window's console. A suite that fails keeps its folder,
 with `logs/failure.png`, and the others still run.
 
+A step that does not finish in five minutes fails as any other. The longest
+step takes well under two. A call into the window that the browser never
+answers would otherwise wait for ever: once, a key whose delivery the browser
+never confirmed held a run for half an hour, while the window itself took
+keys from another session.
+
 BaseHalf keeps drawing while another window covers it: it is launched with
 `--disable-backgrounding-occluded-windows` and
 `--disable-renderer-backgrounding`. Without them, macOS stops the frames of a
