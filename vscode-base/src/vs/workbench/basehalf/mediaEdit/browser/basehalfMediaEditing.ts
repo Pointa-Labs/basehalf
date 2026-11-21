@@ -11,6 +11,7 @@ import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '..
 import { basename, isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfVideoPlayer } from '../../playback/browser/basehalfVideoPlayer.js';
@@ -90,7 +91,8 @@ export class BaseHalfMediaEditing extends Disposable {
 		private readonly file: IBaseHalfWorkspaceResource,
 		@IBaseHalfMediaEditService private readonly mediaEditService: IBaseHalfMediaEditService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@IFileService private readonly fileService: IFileService
+		@IFileService private readonly fileService: IFileService,
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
 		super();
 		// A failure of a write of the file is said under its editor, not in a notification.
@@ -169,7 +171,7 @@ export class BaseHalfMediaEditing extends Disposable {
 		let editor: IBaseHalfMediaEditor;
 		let drawn = Promise.resolve();
 		if (session.video && view.player) {
-			editor = store.add(new BaseHalfVideoFrameViewer(host, { video: session.video, player: view.player, stage: view.stage, choices }));
+			editor = store.add(new BaseHalfVideoFrameViewer(host, { video: session.video, player: view.player, stage: view.stage, choices, reducedMotion: () => this.accessibilityService.isMotionReduced() }));
 		} else if (state.image) {
 			const crop = store.add(this.instantiationService.createInstance(BaseHalfImageCropView, host, { source: session.source, size: { width: state.image.width, height: state.image.height }, choices }));
 			drawn = crop.drawn;

@@ -8,6 +8,8 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { IAccessibilityService } from '../../../../../platform/accessibility/common/accessibility.js';
+import { TestAccessibilityService } from '../../../../../platform/accessibility/test/common/testAccessibilityService.js';
 import { IContextMenuService } from '../../../../../platform/contextview/browser/contextView.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
@@ -69,7 +71,7 @@ suite('BaseHalfImageCropView', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
 	/** A crop view in a place of 1000 × 600 pixels of a workbench, laid out by its own styles as Card Detail lays it out. */
-	function setUp(choices: IBaseHalfMediaChoices, size = { width: 2400, height: 1600 }) {
+	function setUp(choices: IBaseHalfMediaChoices, size = { width: 2400, height: 1600 }, reducedMotion = false) {
 		const disposables = store.add(new DisposableStore());
 		const workbench = mainWindow.document.createElement('div');
 		workbench.className = 'monaco-workbench';
@@ -82,6 +84,7 @@ suite('BaseHalfImageCropView', () => {
 		const instantiation = disposables.add(new TestInstantiationService());
 		instantiation.stub(IContextMenuService, {});
 		instantiation.stub(IHoverService, NullHoverService);
+		instantiation.stub(IAccessibilityService, new class extends TestAccessibilityService { override isMotionReduced(): boolean { return reducedMotion; } });
 		const clock = new TestClock();
 		const crop = disposables.add(instantiation.createInstance(BaseHalfImageCropView, container, {
 			source: URI.parse('data:image/gif;base64,R0lGODlhAQABAAAAACw='),
@@ -270,6 +273,25 @@ suite('BaseHalfImageCropView', () => {
 		view.dispatchEvent(new MouseEvent('dblclick', { clientX: 300, clientY: 200, bubbles: true, cancelable: true }));
 		clock.advance(500);
 		assert.deepStrictEqual({ transform: picture.style.transform, frame: frame(), changes, zoomed: element.classList.contains('zoomed') }, { transform: before, frame: atRest, changes: [], zoomed: false });
+	});
+
+	test('with motion reduced, Edit takes a zoom of the view back to as it fits at once, with no frame between', () => {
+		const { crop, clock, element, scale, wheel } = setUp({ crop: { x: 1200, y: 800, width: 1200, height: 800 } }, undefined, true);
+		const restScale = scale();
+		for (let i = 0; i < 3; i++) {
+			wheel(300, 200, { deltaY: -40, ctrlKey: true });
+		}
+		const zoomed = scale();
+		crop.setEditing(true);
+		const atOnce = scale();
+		const scales: number[] = [];
+		clock.advance(320, () => scales.push(scale()));
+		assert.deepStrictEqual({
+			wasZoomed: zoomed > restScale,
+			atOnce: Math.abs(atOnce - restScale) < 1e-9,
+			between: scales.filter(value => Math.abs(value - restScale) > 1e-9).length,
+			zoomed: element.classList.contains('zoomed')
+		}, { wasZoomed: true, atOnce: true, between: 0, zoomed: false });
 	});
 
 	test('Edit takes a zoom of the view back to as it fits, in a glide, and while editing the rest of the original shows (D97)', () => {

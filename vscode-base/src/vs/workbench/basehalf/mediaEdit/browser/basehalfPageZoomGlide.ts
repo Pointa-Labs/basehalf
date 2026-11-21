@@ -28,7 +28,9 @@ export class BaseHalfPageZoomGlide extends Disposable {
 	constructor(
 		private readonly clock: IBaseHalfTimeZoomClock,
 		private readonly page: () => IBaseHalfPageZoom,
-		private readonly show: (page: IBaseHalfPageZoom) => void
+		private readonly show: (page: IBaseHalfPageZoom) => void,
+		/** Whether the window reduces motion (`workbench.reduceMotion`): the zoom is then where a glide would end at once. */
+		private readonly reducedMotion: () => boolean
 	) {
 		super();
 	}
@@ -42,11 +44,18 @@ export class BaseHalfPageZoomGlide extends Disposable {
 		}, BASEHALF_ZOOM_REST_MS);
 	}
 
-	/** Glides the zoom to `target`, fast at first and slow at the end; a zoom that is there already stays. */
+	/**
+	 * Glides the zoom to `target`, fast at first and slow at the end; a zoom that is there already stays, and with
+	 * motion reduced the zoom is at `target` at once.
+	 */
 	glide(target: IBaseHalfPageZoom): void {
 		this.stop();
 		const from = this.page();
 		if (from.zoom === target.zoom && from.origin.x === target.origin.x && from.origin.y === target.origin.y) {
+			return;
+		}
+		if (this.reducedMotion()) {
+			this.show(target);
 			return;
 		}
 		const start = this.clock.now();

@@ -11,6 +11,7 @@ import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../
 import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { BASEHALF_EDIT_MAX_STRAIGHTEN, IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
@@ -205,7 +206,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		container: HTMLElement,
 		options: IBaseHalfImageCropViewOptions,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
-		@IHoverService private readonly hoverService: IHoverService
+		@IHoverService private readonly hoverService: IHoverService,
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
 		super();
 		const targetWindow = getWindow(container);
@@ -224,7 +226,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			this.page = page;
 			this.mapping = this.viewMapping();
 			this.render();
-		}));
+		}, () => this.accessibilityService.isMotionReduced()));
 		this.original = options.size;
 		this.state = baseHalfCropStateOf(this.original, options.choices);
 		this.setRatioOf(options.choices);
@@ -554,9 +556,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private glideTo(to: IMapping): void {
 		this.stopGlide();
 		const from = this.mapping;
-		const window = getWindow(this.element);
-		const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-		if (reduced || sameMapping(from, to)) {
+		if (this.accessibilityService.isMotionReduced() || sameMapping(from, to)) {
 			this.mapping = to;
 			this.render();
 			return;

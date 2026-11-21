@@ -17,6 +17,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import type { VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -251,7 +252,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		@IHoverService private readonly hoverService: IHoverService,
 		@IOpenerService private readonly openerService: IOpenerService,
 		@IBaseHalfDocumentCoverService private readonly documentCoverService: IBaseHalfDocumentCoverService,
-		@IBaseHalfMediaEditService private readonly mediaEditService: IBaseHalfMediaEditService
+		@IBaseHalfMediaEditService private readonly mediaEditService: IBaseHalfMediaEditService,
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
 		super();
 		this.root = append(container, $('.basehalf-card-detail-media'));
@@ -659,7 +661,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			// A pinch zooms the place under the fingers over the media area, as a browser zooms its page, and a swipe
 			// moves it; over the edit bar and the line under the editor a gesture is theirs (editing media,
 			// "Zooming the picture and the time").
-			const zoom = store.add(new BaseHalfVideoPictureZoom(player.element, player.video, this.webviewHost,
+			const zoom = store.add(new BaseHalfVideoPictureZoom(player.element, player.video, () => this.accessibilityService.isMotionReduced(), this.webviewHost,
 				target => target instanceof Element && !!target.closest('.basehalf-video-frames, .basehalf-media-edit-line')));
 			// Edit shows the whole picture, as a phone's editor does: a zoomed one glides back to as it fits (D97, D101).
 			const editing = this.editingStore.value;
@@ -1118,7 +1120,7 @@ function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: stri
 		.loading .status-content { opacity: 0; animation: basehalf-pdf-status-show 160ms ease-out 1s forwards; }
 		@keyframes basehalf-pdf-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 		@keyframes basehalf-pdf-status-show { to { opacity: 1; } }
-		@media (prefers-reduced-motion: reduce) { .loading .status-placeholder { animation: none; } .loading .status-content { animation-duration: 0s; } }
+		.vscode-reduce-motion .loading .status-placeholder { animation: none; } .vscode-reduce-motion .loading .status-content { animation-duration: 0s; }
 	</style>
 </head>
 <body>

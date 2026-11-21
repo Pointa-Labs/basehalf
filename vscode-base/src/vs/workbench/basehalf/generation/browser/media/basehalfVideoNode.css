@@ -868,22 +868,20 @@
 
 /* --- Motion and contrast -------------------------------------------------------------------- */
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .bh-video-panel *,
-	.monaco-workbench .bh-generation-card * {
-		transition: none !important;
-	}
+.monaco-workbench.monaco-reduce-motion .bh-video-panel *,
+.monaco-workbench.monaco-reduce-motion .bh-generation-card * {
+	transition: none !important;
+}
 
-	.monaco-workbench .bh-video-panel-generate.busy > .codicon[class*='codicon-'] {
-		animation: none;
-		opacity: 0.5;
-	}
+.monaco-workbench.monaco-reduce-motion .bh-video-panel-generate.busy > .codicon[class*='codicon-'] {
+	animation: none;
+	opacity: 0.5;
+}
 
-	.monaco-workbench .bh-generation-card-progress.indeterminate .bh-generation-card-progress-value {
-		width: 100%;
-		animation: none;
-		opacity: 0.45;
-	}
+.monaco-workbench.monaco-reduce-motion .bh-generation-card-progress.indeterminate .bh-generation-card-progress-value {
+	width: 100%;
+	animation: none;
+	opacity: 0.45;
 }
 
 @media (forced-colors: active) {

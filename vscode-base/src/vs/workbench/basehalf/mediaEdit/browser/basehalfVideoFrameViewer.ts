@@ -45,6 +45,8 @@ export interface IBaseHalfVideoFrameViewerOptions {
 	readonly stage: HTMLElement;
 	/** The choices that the viewer starts with: those of the edit before. */
 	readonly choices: IBaseHalfMediaChoices;
+	/** Whether the window reduces motion (`workbench.reduceMotion`): the strip is then where a glide would end at once. */
+	readonly reducedMotion: () => boolean;
 }
 
 /** The height of the strip, in pixels; its pictures are this high. */
@@ -271,6 +273,10 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			return;
 		}
 		this.glide = { target, done };
+		if (this.options.reducedMotion()) {
+			this.finishGlide();
+			return;
+		}
 		const window = getWindow(this.element);
 		const start = window.performance.now();
 		const step = () => {

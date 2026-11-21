@@ -134,8 +134,6 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly editable: boolean;
 		readonly surface: BaseHalfMarkdownRichSurface;
 		readonly selection?: IBaseHalfMarkdownRichTextSelection;
-		/** Whether motion is reduced, for the outline (zoom and outline of a note, rule 20). */
-		readonly reducedMotion?: boolean;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.zoomGesture';
@@ -521,8 +519,7 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& typeof candidate.content === 'string'
 				&& typeof candidate.editable === 'boolean'
 				&& isBaseHalfMarkdownRichSurface(candidate.surface)
-				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection))
-				&& (candidate.reducedMotion === undefined || typeof candidate.reducedMotion === 'boolean');
+				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection));
 		case 'basehalf.markdownRich.zoomGesture':
 			return isBaseHalfMarkdownRichZoomGesture(candidate.gesture);
 		case 'basehalf.markdownRich.applyYjsUpdate':

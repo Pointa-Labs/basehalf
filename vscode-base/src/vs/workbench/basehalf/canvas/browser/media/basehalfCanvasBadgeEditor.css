@@ -605,8 +605,6 @@
 	}
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-card-detail-badge-body {
-		animation: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-card-detail-badge-body {
+	animation: none;
 }

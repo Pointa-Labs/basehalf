@@ -92,11 +92,9 @@
 	background: var(--bh-canvas-intent);
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-canvas-card-connect-handle,
-	.monaco-workbench .basehalf-canvas-card-connect-handle::before {
-		transition: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-canvas-card-connect-handle,
+.monaco-workbench.monaco-reduce-motion .basehalf-canvas-card-connect-handle::before {
+	transition: none;
 }
 
 .monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
@@ -241,10 +239,8 @@
 	opacity: 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-canvas-node-resize-corner-indicator {
-		transition: none;
-	}
+.monaco-workbench.monaco-reduce-motion .basehalf-canvas-node-resize-corner-indicator {
+	transition: none;
 }
 
 .monaco-workbench .basehalf-canvas-node-resizer-handle.top:not(.left):not(.right),

@@ -105,6 +105,11 @@
 	transform: scale(0.97);
 }
 
+/* With motion reduced (`workbench.reduceMotion`), the button is pressed at once, as Generate of a draft's panel is. */
+.monaco-workbench.monaco-reduce-motion .bh-record-panel-new-version {
+	transition: none;
+}
+
 .monaco-workbench .bh-record-panel-new-version.busy {
 	cursor: default;
 	opacity: 0.6;

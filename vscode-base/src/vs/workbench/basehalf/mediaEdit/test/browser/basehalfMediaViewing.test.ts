@@ -9,6 +9,8 @@ import { Event } from '../../../../../base/common/event.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { IAccessibilityService } from '../../../../../platform/accessibility/common/accessibility.js';
+import { TestAccessibilityService } from '../../../../../platform/accessibility/test/common/testAccessibilityService.js';
 import { IContextMenuService } from '../../../../../platform/contextview/browser/contextView.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
@@ -112,14 +114,15 @@ suite('BaseHalfMediaViewing', () => {
 	suite('the frame viewer of a video', () => {
 		const TRIMMED: IBaseHalfMediaChoices = { keep: [{ start: 1, end: 4.5 }] };
 
-		function setUp(choices: IBaseHalfMediaChoices = TRIMMED) {
+		function setUp(choices: IBaseHalfMediaChoices = TRIMMED, reducedMotion = false) {
 			const { disposables, container } = mount();
 			const player = disposables.add(new TestPlayer(container));
 			const viewer = disposables.add(new BaseHalfVideoFrameViewer(container, {
 				video: { file: { format: 'mp4', video: videoTrack(), audio: undefined, metadata: [] }, source: { size: 500, read: () => new Promise<Uint8Array>(() => { }) } },
 				player: player as unknown as IBaseHalfVideoPlayer,
 				stage: container,
-				choices
+				choices,
+				reducedMotion: () => reducedMotion
 			}));
 			const element = viewer.element;
 			const strip = element.querySelector('.basehalf-video-frames-strip') as HTMLElement;
@@ -233,6 +236,22 @@ suite('BaseHalfMediaViewing', () => {
 			assert.deepStrictEqual({ before, spread, after: [strip.dataset.from, strip.dataset.to, element.classList.contains('spread')] }, {
 				before: false,
 				spread: { spread: true, length: 2 },
+				after: ['0.000', '5.000', false]
+			});
+		});
+
+		test('with motion reduced, a held handle spreads the strip at once, and let go the strip shows the whole original at once', async () => {
+			const { viewer, element, handles, strip } = setUp({}, true);
+			viewer.setEditing(true);
+			const end = handles[1].getBoundingClientRect();
+			const x = end.left + end.width / 2;
+			press(strip, x);
+			// The hold of 0.8 s, and no time for a glide of 250 ms after it.
+			await wait(900);
+			const spread = { spread: element.classList.contains('spread'), gliding: element.classList.contains('gliding'), length: Math.round((Number(strip.dataset.to) - Number(strip.dataset.from)) * 10) / 10 };
+			release(strip, x);
+			assert.deepStrictEqual({ spread, after: [strip.dataset.from, strip.dataset.to, element.classList.contains('gliding')] }, {
+				spread: { spread: true, gliding: false, length: 2 },
 				after: ['0.000', '5.000', false]
 			});
 		});
@@ -435,6 +454,7 @@ suite('BaseHalfMediaViewing', () => {
 			const instantiation = disposables.add(new TestInstantiationService());
 			instantiation.stub(IContextMenuService, {});
 			instantiation.stub(IHoverService, NullHoverService);
+			instantiation.stub(IAccessibilityService, new class extends TestAccessibilityService { override isMotionReduced(): boolean { return false; } });
 			const crop = disposables.add(instantiation.createInstance(BaseHalfImageCropView, container, {
 				source: URI.parse('data:image/gif;base64,R0lGODlhAQABAAAAACw='),
 				size: { width: 1600, height: 900 },

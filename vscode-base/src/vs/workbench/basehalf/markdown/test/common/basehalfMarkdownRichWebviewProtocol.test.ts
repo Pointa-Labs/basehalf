@@ -499,18 +499,15 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		}), false);
 	});
 
-	test('carries a pinch the window took and whether motion is reduced, and no level of zoom either way', () => {
-		const init = { type: 'basehalf.markdownRich.init', key: 'k', resource: 'file:///n.md', baseUri: 'vscode-webview://x/', content: '', editable: true, surface: 'detail' };
+	test('carries a pinch the window took, and no level of zoom either way', () => {
 		assert.deepStrictEqual([
-			isBaseHalfMarkdownRichHostMessage({ ...init, reducedMotion: false }),
-			isBaseHalfMarkdownRichHostMessage({ ...init, reducedMotion: 'yes' }),
 			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.zoomGesture', key: 'k', gesture: { deltaY: -2.4, deltaMode: 0, x: 300, y: 120 } }),
 			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.zoomGesture', key: 'k', gesture: { deltaY: Number.NaN, deltaMode: 0, x: 0, y: 0 } }),
 			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.zoomGesture', key: 'k', gesture: { deltaY: 1, deltaMode: 3, x: 0, y: 0 } }),
 			// The zoom is the page's view, kept nowhere (zoom and outline of a note, rule 8).
 			isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.setZoom', key: 'k', zoom: 2 }),
 			isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.zoomChanged', key: 'k', zoom: 1.25 }),
-		], [true, false, true, false, false, false, false]);
+		], [true, false, false, false, false]);
 	});
 
 	test('copies YJS updates into exact transferable buffers', () => {

@@ -475,11 +475,9 @@ body,
 	outline-offset: 2px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.basehalf-adhd-check,
-	.basehalf-adhd-check::after {
-		transition: none;
-	}
+.vscode-reduce-motion .basehalf-adhd-check,
+.vscode-reduce-motion .basehalf-adhd-check::after {
+	transition: none;
 }
 
 @media (forced-colors: active) {
@@ -870,10 +868,8 @@ body,
 	display: none !important;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.basehalf-markdown-rich .basehalf-note-media-hidden {
-		transition: none;
-	}
+.vscode-reduce-motion .basehalf-markdown-rich .basehalf-note-media-hidden {
+	transition: none;
 }
 
 /* The title line of a note shows a pale word while it holds no character, with the caret in it or not, as on the card (note title). */
