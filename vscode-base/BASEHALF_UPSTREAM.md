@@ -29,8 +29,8 @@ When the whole tree is updated from upstream later, take upstream's version
 of every file below and apply BaseHalf's own changes to it again. Only
 `viewPaneContainer.ts` (the option `fillsToBottomEdge`), `titlebarPart.ts`
 (the tool bar at the left end, see below), `scmViewPane.ts` (how Changes
-starts, see below), and the two theme files (terminal colors) hold a BaseHalf
-change among them.
+starts, see below), and the two theme files (no terminal colors) hold a
+BaseHalf change among them.
 
 ### Identical to 1.141.0
 - `extensions/theme-defaults/themes/dark_modern.json`
@@ -109,8 +109,8 @@ Only the changes that the layout needs were taken. The other changes of
 these files between the two releases belong to features this tree does not
 have.
 
-- `extensions/theme-defaults/themes/2026-dark.json`: merged; the terminal colors are BaseHalf's.
-- `extensions/theme-defaults/themes/2026-light.json`: merged; the terminal colors are BaseHalf's.
+- `extensions/theme-defaults/themes/2026-dark.json`: merged; without the terminal's background, foreground, cursor, selection, and 16 colors, which are defaults of the color registry by the kind of the theme (D148).
+- `extensions/theme-defaults/themes/2026-light.json`: merged; without the same terminal colors (D148).
 - `src/vs/base/browser/dom.ts`: only the singleton mark of `ModifierKeyEmitter`.
 - `src/vs/workbench/browser/layout.ts`: merged; the chat setting import was left out.
 - `src/vs/workbench/browser/parts/editor/editor.ts`: only the connected-tabs class names.

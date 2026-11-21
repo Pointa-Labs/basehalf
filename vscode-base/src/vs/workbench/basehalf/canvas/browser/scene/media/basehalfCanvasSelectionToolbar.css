@@ -34,7 +34,7 @@
 	color: var(--vscode-menu-foreground);
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
-	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	box-shadow: 0 4px 16px var(--vscode-basehalf-shadow32);
 	position: absolute;
 	z-index: 32;
 	display: flex;
@@ -79,7 +79,7 @@
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 8px;
-	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	box-shadow: 0 4px 16px var(--vscode-basehalf-shadow32);
 }
 
 .monaco-workbench .basehalf-canvas-selection-toolbar.above .basehalf-canvas-arrange-menu {

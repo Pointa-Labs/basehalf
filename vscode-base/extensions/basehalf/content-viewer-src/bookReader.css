@@ -161,7 +161,7 @@ foliate-view {
 	box-sizing: border-box;
 	background: var(--vscode-sideBar-background, var(--vscode-editorWidget-background));
 	border-right: 1px solid var(--vscode-widget-border, transparent);
-	box-shadow: 0 6px 24px rgb(0 0 0 / 22%);
+	box-shadow: 0 6px 24px var(--vscode-basehalf-shadow22);
 }
 
 #panel[hidden] {
@@ -272,7 +272,7 @@ foliate-view {
 
 .result mark {
 	color: var(--vscode-foreground);
-	background: var(--vscode-editor-findMatchHighlightBackground, rgb(234 92 0 / 33%));
+	background: var(--vscode-editor-findMatchHighlightBackground);
 	border-radius: 2px;
 }
 
@@ -297,7 +297,7 @@ foliate-view {
 	background: var(--vscode-button-background);
 	border: 0;
 	border-radius: 6px;
-	box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
+	box-shadow: 0 4px 14px var(--vscode-basehalf-shadow28);
 	font: inherit;
 	white-space: nowrap;
 	cursor: pointer;
@@ -320,7 +320,7 @@ foliate-view {
 	background: var(--vscode-editorHoverWidget-background);
 	border: 1px solid var(--vscode-editorHoverWidget-border, transparent);
 	border-radius: 4px;
-	box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
+	box-shadow: 0 2px 8px var(--vscode-basehalf-shadow22);
 	font-size: 12px;
 	pointer-events: none;
 }
@@ -366,7 +366,7 @@ foliate-view {
 	border-radius: 3px;
 	background: linear-gradient(100deg, var(--vscode-editorWidget-background) 20%, var(--vscode-toolbar-hoverBackground) 45%, var(--vscode-editorWidget-background) 70%);
 	background-size: 220% 100%;
-	box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+	box-shadow: 0 8px 28px var(--vscode-basehalf-shadow18);
 	animation: basehalf-book-loading 1.4s ease-in-out infinite;
 }
 

@@ -127,7 +127,7 @@
 }
 
 .monaco-workbench .basehalf-note-media-done {
-	--basehalf-note-media-done-yellow: #f5c400;
+	--basehalf-note-media-done-yellow: var(--vscode-basehalf-editModeBackground);
 	position: absolute;
 	right: 16px;
 	/* In the middle of the row of tools, which stands over the line. */
@@ -136,7 +136,7 @@
 	min-width: 48px;
 	padding: 0 10px;
 	box-sizing: border-box;
-	color: #1c1c1e;
+	color: var(--vscode-basehalf-editModeForeground);
 	background: var(--basehalf-note-media-done-yellow);
 	border: 0;
 	border-radius: 12px;
@@ -147,13 +147,8 @@
 	cursor: pointer;
 }
 
-.monaco-workbench.vs-dark .basehalf-note-media-done,
-.monaco-workbench.hc-black .basehalf-note-media-done {
-	--basehalf-note-media-done-yellow: #ffd60a;
-}
-
 .monaco-workbench .basehalf-note-media-done:hover {
-	background: color-mix(in srgb, var(--basehalf-note-media-done-yellow) 88%, #fff);
+	background: color-mix(in srgb, var(--basehalf-note-media-done-yellow) 88%, var(--vscode-basehalf-overlayForeground));
 }
 
 .monaco-workbench .basehalf-note-media-done:focus:not(:focus-visible) {

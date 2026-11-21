@@ -39,7 +39,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-card[data-basehalf-pick="connect"]:hover {
-	box-shadow: 0 0 0 calc(2 * var(--bh-pick-px)) var(--vscode-focusBorder), 0 1px 3px rgb(7 8 9 / 46%), 0 6px 18px rgb(7 8 9 / 12%);
+	box-shadow: 0 0 0 calc(2 * var(--bh-pick-px)) var(--vscode-focusBorder), 0 1px 3px var(--vscode-basehalf-cardShadow46), 0 6px 18px var(--vscode-basehalf-cardShadow12);
 }
 
 /* A connected card is darkened, with a check mark at its top left. */
@@ -48,13 +48,13 @@
 	position: absolute;
 	inset: 0;
 	z-index: 3;
-	background: rgb(0 0 0 / 45%);
+	background: var(--vscode-basehalf-overlayBackground45);
 	border-radius: inherit;
 	pointer-events: none;
 }
 
 .monaco-workbench .basehalf-canvas-card[data-basehalf-pick="remove"]:hover::after {
-	background: rgb(0 0 0 / 55%);
+	background: var(--vscode-basehalf-overlayBackground55);
 }
 
 .monaco-workbench .basehalf-canvas-card[data-basehalf-pick="remove"]::before {
@@ -68,7 +68,7 @@
 	color: var(--vscode-button-foreground);
 	background: var(--vscode-button-background);
 	border-radius: 50%;
-	box-shadow: 0 0 0 calc(1.5 * var(--bh-pick-px)) rgb(255 255 255 / 85%);
+	box-shadow: 0 0 0 calc(1.5 * var(--bh-pick-px)) var(--vscode-basehalf-overlayForeground85);
 	font-size: calc(12 * var(--bh-pick-px));
 	font-weight: 700;
 	line-height: calc(20 * var(--bh-pick-px));
@@ -108,7 +108,7 @@
 	color: var(--vscode-button-foreground);
 	background: var(--vscode-button-background);
 	border-radius: 18px;
-	box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+	box-shadow: 0 6px 18px var(--vscode-basehalf-shadow35);
 	font-size: 12px;
 	line-height: 18px;
 	pointer-events: auto;
@@ -126,7 +126,7 @@
 	flex: none;
 	padding: 3px 12px;
 	color: inherit;
-	background: rgb(255 255 255 / 18%);
+	background: var(--vscode-basehalf-overlayForeground18);
 	border: 0;
 	border-radius: 13px;
 	font: inherit;
@@ -135,7 +135,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-pick-done:hover {
-	background: rgb(255 255 255 / 28%);
+	background: var(--vscode-basehalf-overlayForeground28);
 }
 
 .monaco-workbench .basehalf-canvas-pick-label {
@@ -143,8 +143,8 @@
 	max-width: 280px;
 	box-sizing: border-box;
 	padding: 4px 8px;
-	color: #fff;
-	background: rgb(0 0 0 / 82%);
+	color: var(--vscode-basehalf-overlayForeground);
+	background: var(--vscode-basehalf-overlayBackground82);
 	border-radius: 6px;
 	font-size: 12px;
 	line-height: 16px;

@@ -170,7 +170,7 @@ const baseHalfBlockNoteTheme: Theme = {
 		hovered: { text: 'var(--vscode-menu-selectionForeground)', background: 'var(--vscode-menu-selectionBackground)' },
 		selected: { text: 'var(--vscode-list-activeSelectionForeground)', background: 'var(--vscode-list-activeSelectionBackground)' },
 		disabled: { text: 'var(--vscode-disabledForeground)', background: 'transparent' },
-		shadow: '0 4px 18px rgb(0 0 0 / 28%)',
+		shadow: '0 4px 18px var(--vscode-basehalf-shadow28)',
 		border: 'var(--vscode-widget-border)',
 		sideMenu: 'var(--vscode-descriptionForeground)',
 		// The nine colors as the note stores them, in every appearance (note formats, rules 46 and 47).

@@ -35,9 +35,9 @@
 	background: var(--bh-card-surface, var(--vscode-editorWidget-background));
 	border-width: 1px;
 	border-style: solid;
-	border-color: color-mix(in srgb, var(--bh-card-border-strong, var(--vscode-widget-border)) 88%, rgb(255 255 255 / 12%));
+	border-color: color-mix(in srgb, var(--bh-card-border-strong, var(--vscode-widget-border)) 88%, var(--vscode-basehalf-tint12));
 	border-radius: 14px;
-	box-shadow: 0 10px 30px rgb(5 6 7 / 34%), inset 0 1px 0 rgb(255 255 255 / 6%);
+	box-shadow: 0 10px 30px var(--vscode-basehalf-panelShadow34), inset 0 1px 0 var(--vscode-basehalf-panelHighlight);
 	font-family: var(--vscode-font-family);
 	font-size: 12px;
 	line-height: 16px;
@@ -360,7 +360,7 @@
 	border-style: solid;
 	border-color: var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 10px;
-	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	box-shadow: 0 8px 24px var(--vscode-basehalf-shadow36);
 	pointer-events: auto;
 	scrollbar-width: thin;
 }
@@ -765,7 +765,7 @@
 }
 
 .monaco-workbench .bh-video-panel-switch[aria-checked="true"] .bh-video-panel-switch-thumb {
-	background: var(--vscode-button-foreground, #fff);
+	background: var(--vscode-button-foreground);
 	transform: translateX(12px);
 }
 
@@ -788,7 +788,7 @@
 	overflow: hidden;
 	color: var(--bh-card-text-tertiary, var(--vscode-descriptionForeground));
 	text-align: center;
-	background: color-mix(in srgb, var(--bh-card-surface, #222426) 90%, black);
+	background: color-mix(in srgb, var(--bh-card-surface, var(--vscode-basehalf-cardBackground)) 90%, var(--vscode-basehalf-shade));
 	isolation: isolate;
 }
 
@@ -830,7 +830,7 @@
 
 .monaco-workbench .bh-generation-card[data-state="failed"] .bh-generation-card-message,
 .monaco-workbench .bh-generation-card[data-state="unshowable"] .bh-generation-card-message {
-	color: color-mix(in srgb, var(--bh-card-danger, var(--vscode-errorForeground)) 82%, var(--bh-card-text-primary, white));
+	color: color-mix(in srgb, var(--bh-card-danger, var(--vscode-errorForeground)) 82%, var(--bh-card-text-primary, var(--vscode-basehalf-cardForeground)));
 }
 
 .monaco-workbench .bh-generation-card-progress {
@@ -841,7 +841,7 @@
 	z-index: 2;
 	height: 3px;
 	overflow: hidden;
-	background: color-mix(in srgb, var(--bh-card-text-primary, white) 10%, transparent);
+	background: color-mix(in srgb, var(--bh-card-text-primary, var(--vscode-basehalf-cardForeground)) 10%, transparent);
 }
 
 .monaco-workbench .bh-generation-card-progress-value {

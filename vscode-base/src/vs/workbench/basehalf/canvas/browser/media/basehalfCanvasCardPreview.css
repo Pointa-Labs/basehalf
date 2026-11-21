@@ -75,7 +75,7 @@
 	padding: 0;
 	mask-image: none;
 	-webkit-mask-image: none;
-	background: color-mix(in srgb, var(--bh-card-surface) 82%, black);
+	background: color-mix(in srgb, var(--bh-card-surface) 82%, var(--vscode-basehalf-shade));
 }
 
 .monaco-workbench .basehalf-canvas-card-media-visual {
@@ -83,7 +83,7 @@
 	width: 100%;
 	height: 100%;
 	object-fit: contain;
-	background: rgb(0 0 0 / 16%);
+	background: var(--vscode-basehalf-shade16);
 	user-select: none;
 }
 

@@ -12,7 +12,7 @@
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 12px;
-	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	box-shadow: 0 8px 24px var(--vscode-basehalf-shadow36);
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
 }

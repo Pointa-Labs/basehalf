@@ -41,37 +41,37 @@
 .monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 0px;
 	--basehalf-canvas-zoom-bottom-offset: 16px;
-	--bh-card-bg: #0b0c0d;
-	--bh-card-surface: #222426;
-	--bh-card-surface-muted: #191a1b;
-	--bh-card-text-primary: #e1e2e3;
-	--bh-card-text-secondary: #b0b3b5;
-	--bh-card-text-tertiary: #898d90;
-	--bh-card-text-ghost: #666a6d;
-	--bh-card-border: #3a3c3f;
-	--bh-card-border-strong: #565a5e;
+	--bh-card-bg: var(--vscode-basehalf-canvasBackground);
+	--bh-card-surface: var(--vscode-basehalf-cardBackground);
+	--bh-card-surface-muted: var(--vscode-basehalf-cardMutedBackground);
+	--bh-card-text-primary: var(--vscode-basehalf-cardForeground);
+	--bh-card-text-secondary: var(--vscode-basehalf-cardSecondaryForeground);
+	--bh-card-text-tertiary: var(--vscode-basehalf-cardTertiaryForeground);
+	--bh-card-text-ghost: var(--vscode-basehalf-cardFaintForeground);
+	--bh-card-border: var(--vscode-basehalf-cardBorder);
+	--bh-card-border-strong: var(--vscode-basehalf-cardStrongBorder);
 	--bh-card-radius: 22px;
 	--bh-card-inner-radius: 21px;
 	/* Pointer selection and geometry stay neutral. Keyboard focus and
 	 * commit-ready intents are independent semantic layers. */
 	--bh-canvas-active-border: var(--vscode-contrastActiveBorder, var(--bh-card-border-strong));
-	--bh-canvas-active-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-card-text-tertiary) 32%, transparent), 0 4px 14px rgb(7 8 9 / 34%);
+	--bh-canvas-active-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-card-text-tertiary) 32%, transparent), 0 4px 14px var(--vscode-basehalf-cardShadow34);
 	--bh-canvas-geometry: var(--bh-card-text-tertiary);
 	--bh-canvas-geometry-strong: var(--bh-card-text-primary);
 	--bh-canvas-marquee-fill: color-mix(in srgb, var(--bh-canvas-geometry) 10%, transparent);
 	--bh-canvas-focus-ring: var(--vscode-focusBorder, var(--bh-card-text-primary));
-	--bh-card-accent: var(--vscode-textLink-foreground, #0078d4);
+	--bh-card-accent: var(--vscode-textLink-foreground);
 	--bh-card-accent-soft: color-mix(in srgb, var(--bh-card-accent) 28%, var(--bh-card-surface));
 	--bh-canvas-intent: var(--bh-card-accent);
 	--bh-canvas-intent-soft: var(--bh-card-accent-soft);
-	--bh-card-warning: #cca700;
-	--bh-card-danger: #f14c4c;
-	--bh-card-danger-soft: #5a1d1d;
-	--bh-card-folder: #252524;
-	--bh-card-folder-border: #494437;
-	--bh-card-folder-glyph: #c5ad69;
+	--bh-card-warning: var(--vscode-basehalf-cardWarning);
+	--bh-card-danger: var(--vscode-basehalf-cardDanger);
+	--bh-card-danger-soft: var(--vscode-basehalf-cardDangerBackground);
+	--bh-card-folder: var(--vscode-basehalf-folderBackground);
+	--bh-card-folder-border: var(--vscode-basehalf-folderBorder);
+	--bh-card-folder-glyph: var(--vscode-basehalf-folderGlyph);
 	/* A folder that would take a drop: the gold of its glyph made bright. */
-	--bh-card-folder-drop: #f0c54c;
+	--bh-card-folder-drop: var(--vscode-basehalf-folderDropBorder);
 	--basehalf-detail-badge-ghost: color-mix(in srgb, var(--vscode-descriptionForeground) 64%, transparent);
 
 	position: absolute;
@@ -160,7 +160,7 @@
 	background-color: var(--vscode-input-background);
 	border: 1px solid var(--bh-canvas-intent);
 	border-radius: 4px;
-	box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
+	box-shadow: 0 4px 14px var(--vscode-basehalf-shadow28);
 	font-size: 12px;
 	font-weight: 600;
 	transform: translate(-50%, -50%);

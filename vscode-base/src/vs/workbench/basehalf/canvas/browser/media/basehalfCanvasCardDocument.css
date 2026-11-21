@@ -24,7 +24,7 @@
 	width: min(100cqw, calc(100cqh * var(--bh-document-cover-ratio, 0.75)));
 	height: auto;
 	aspect-ratio: var(--bh-document-cover-ratio, 0.75);
-	background: #fff;
+	background: var(--vscode-basehalf-documentPage);
 	user-select: none;
 	-webkit-user-drag: none;
 }

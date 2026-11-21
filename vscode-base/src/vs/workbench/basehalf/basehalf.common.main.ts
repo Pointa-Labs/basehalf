@@ -10,6 +10,8 @@
 
 //#region Services
 
+// The colors of everything BaseHalf draws, before anything is drawn with them (light and dark, D148).
+import './ui/common/basehalfColors.js';
 import './navigation/common/basehalfCanvasNavigationService.js';
 import './navigation/common/basehalfShownPlaceTitle.js';
 import './canvas/common/basehalfCanvasViewportState.js';

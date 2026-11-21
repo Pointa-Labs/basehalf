@@ -16,8 +16,8 @@ interface IBaseHalfCanvasConnectCaptureStyle extends CSSProperties {
 	readonly '--bh-connect-reach-limit': string;
 }
 
-/** The color of a line's arrowhead: the one React Flow gives a marker by default, which the canvas has always drawn. */
-const LINE_ARROW_COLOR = '#b1b1b7';
+/** The color of a line's arrowhead (light and dark): under a dark theme the one React Flow gives a marker by default. */
+const LINE_ARROW_COLOR = 'var(--vscode-basehalf-connectionArrow)';
 
 /** Each canvas has an arrowhead of its own: hiding one canvas does not take the arrows of another. */
 let lineArrows = 0;

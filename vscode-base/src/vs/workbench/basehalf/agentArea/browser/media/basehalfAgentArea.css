@@ -12,9 +12,9 @@
 .monaco-workbench .basehalf-agent-area {
 	--basehalf-agent-extension-background: var(--vscode-sideBar-background);
 	--basehalf-agent-extension-foreground: var(--vscode-sideBar-foreground);
-	--basehalf-agent-terminal-background: var(--vscode-terminal-background, #1f1f1f);
-	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground, #cccccc);
-	--basehalf-agent-terminal-divider: color-mix(in srgb, var(--basehalf-agent-terminal-background) 58%, black);
+	--basehalf-agent-terminal-background: var(--vscode-terminal-background);
+	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground);
+	--basehalf-agent-terminal-divider: color-mix(in srgb, var(--basehalf-agent-terminal-background) 58%, var(--vscode-basehalf-shade));
 	--basehalf-agent-terminal-sheen: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 2%, transparent);
 	--basehalf-agent-terminal-inactive-opacity: 0.15;
 	/* Browser-style tab chrome: the bar is a darker frame; the active tab takes
@@ -23,7 +23,7 @@
 	   is re-pointed per active session kind. */
 	--basehalf-agent-content-background: var(--basehalf-agent-extension-background);
 	--basehalf-agent-content-foreground: var(--basehalf-agent-extension-foreground);
-	--basehalf-agent-frame-background: color-mix(in srgb, black 32%, var(--basehalf-agent-content-background));
+	--basehalf-agent-frame-background: color-mix(in srgb, var(--vscode-basehalf-shade) 32%, var(--basehalf-agent-content-background));
 	--basehalf-agent-frame-divider: color-mix(in srgb, var(--basehalf-agent-content-foreground) 12%, var(--basehalf-agent-frame-background));
 	--basehalf-agent-tab-separator: color-mix(in srgb, var(--basehalf-agent-content-foreground) 24%, var(--basehalf-agent-frame-background));
 	--basehalf-agent-tab-inactive-foreground: color-mix(in srgb, var(--basehalf-agent-content-foreground) 60%, var(--basehalf-agent-frame-background));
@@ -45,7 +45,6 @@
    into the content and the active tab is marked by an outline instead. */
 .monaco-workbench.vs .basehalf-agent-area {
 	--basehalf-agent-terminal-sheen: transparent;
-	--basehalf-agent-frame-background: color-mix(in srgb, black 11%, var(--basehalf-agent-content-background));
 }
 
 .monaco-workbench.hc-black .basehalf-agent-area,
@@ -872,7 +871,7 @@
 .monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-resize-hud {
 	background: var(--basehalf-agent-terminal-background);
 	color: var(--basehalf-agent-terminal-foreground);
-	box-shadow: 0 2px 8px color-mix(in srgb, black 36%, transparent);
+	box-shadow: 0 2px 8px var(--vscode-basehalf-shadow36);
 }
 
 .monaco-workbench .basehalf-agent-resize-hud.visible {
