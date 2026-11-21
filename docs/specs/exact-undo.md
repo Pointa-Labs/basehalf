@@ -198,7 +198,13 @@ Not in scope, and unchanged:
 
 - When the window closes, or reloads, everything it kept goes to the Trash.
   When the Trash is turned off (`files.enableTrash: false`) or the disk has
-  none, it is deleted for good, as a delete without the Trash is.
+  none, it is deleted for good, as a delete without the Trash is. Only the
+  value `false` turns the Trash off: a setting that is not set means the
+  Trash, as its default does. Everything of BaseHalf's that deletes asks
+  this one way (`baseHalfUsesTrash` in
+  `workspace/common/basehalfTrash.ts`): the kept versions, the mirror
+  cascade, the files of a note that nothing mentions, the original of an
+  edited file, and the cleanup of what earlier releases wrote.
 - A window marks what it keeps as its own and renews the mark every minute.
   When a window opens a workspace folder, it sends to the Trash what a
   window kept whose mark is more than five minutes old: one that crashed or
