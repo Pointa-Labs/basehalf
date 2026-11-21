@@ -170,7 +170,6 @@ export interface IBaseHalfAgentAreaSession {
  * as a launch failure and process exit means the agent session ended.
  */
 export interface IBaseHalfTuiSessionLaunchConfig {
-	readonly name: string;
 	readonly executable: string;
 	/** Launch-time context arguments; see {@link baseHalfTuiSessionLaunchConfig}. */
 	readonly args?: readonly string[];
@@ -217,7 +216,6 @@ export function baseHalfTuiSessionLaunchConfig(kind: BaseHalfAgentSessionKind, c
 	}
 
 	return {
-		name: choice.label,
 		executable: choice.terminalCommand,
 		...(baseHalfTuiSessionReceivesLaunchInstructions(kind, context)
 			? { args: [BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG, context.agentSkillInstalled ? BASEHALF_AGENT_LAUNCH_POINTER : BASEHALF_AGENT_LAUNCH_INSTRUCTIONS] }

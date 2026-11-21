@@ -4,7 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { activeAgentTab, selectAgentTab, IBaseHalfAgentTab, setAgentTabTitle, reorderAgentTab } from '../common/basehalfAgentTabsModel.js';
-import { $, append, clearNode } from '../../../../base/browser/dom.js';
+import { $, append, clearNode, reset, scheduleAtNextAnimationFrame } from '../../../../base/browser/dom.js';
+import { renderLabelWithIcons } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
+import { stripIcons } from '../../../../base/common/iconLabels.js';
+import { IDisposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { IBaseHalfAgentSessionName, baseHalfAgentTabName } from '../common/basehalfAgentSessionName.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { baseHalfRevealInStrip } from '../../ui/browser/basehalfSidewaysStrip.js';
 import { mainWindow } from '../../../../base/browser/window.js';
@@ -19,7 +23,20 @@ import type { BaseHalfAgentAreaService } from './basehalfAgentAreaService.js';
  * A part of the Agent Area (`basehalfAgentAreaService.ts`): it keeps its own state, and reaches the
  * Agent Area's as `area`.
  */
-export class BaseHalfAgentAreaTabStrip {
+/** A tab as the strip drew it: the elements that hold its name, and the name they show. */
+interface IBaseHalfDrawnAgentTab {
+	readonly element: HTMLElement;
+	readonly label: HTMLElement;
+	readonly description: HTMLElement;
+	readonly close: HTMLElement;
+	readonly index: number;
+	shown: IBaseHalfAgentSessionName;
+}
+
+export class BaseHalfAgentAreaTabStrip implements IDisposable {
+	/** The tabs that show a name, by their id; a tab that is being renamed shows its field. */
+	private readonly drawn = new Map<string, IBaseHalfDrawnAgentTab>();
+	private readonly namesFrame = new MutableDisposable();
 	private editingTabId: string | undefined;
 	private editingDraft = '';
 	private tabDropIndex: number | undefined;
@@ -27,6 +44,47 @@ export class BaseHalfAgentAreaTabStrip {
 	private drawnActiveTabId: string | null = null;
 
 	constructor(private readonly area: BaseHalfAgentAreaService) { }
+
+	dispose(): void {
+		this.namesFrame.dispose();
+	}
+
+	/**
+	 * A session's name or description changed. Only the text of its tab changes, at the next frame: the strip
+	 * is not drawn again, so it keeps its place and its tabs keep their elements, with a press, a drag, or the
+	 * rename field that is under way on them. A program may set its title many times a second.
+	 */
+	namesChanged(): void {
+		if (!this.namesFrame.value) {
+			this.namesFrame.value = scheduleAtNextAnimationFrame(mainWindow, () => {
+				this.namesFrame.clear();
+				this.updateNames();
+			});
+		}
+	}
+
+	private updateNames(): void {
+		for (const tab of this.area.tabsState.tabs) {
+			const drawn = this.drawn.get(tab.id);
+			const name = this.tabName(tab);
+			if (drawn && (drawn.shown.name !== name.name || drawn.shown.description !== name.description)) {
+				this.showName(drawn, name);
+			}
+		}
+	}
+
+	private showName(drawn: IBaseHalfDrawnAgentTab, name: IBaseHalfAgentSessionName): void {
+		if (drawn.shown.name !== name.name) {
+			reset(drawn.label, ...renderLabelWithIcons(name.name));
+		}
+		if (drawn.shown.description !== name.description) {
+			reset(drawn.description, ...renderLabelWithIcons(name.description));
+		}
+		drawn.shown = name;
+		const words = stripIcons(`${name.name} ${name.description}`).trim();
+		drawn.element.setAttribute('aria-label', words ? `Tab ${drawn.index + 1}: ${words}` : `Tab ${drawn.index + 1}`);
+		drawn.close.setAttribute('aria-label', `Close ${stripIcons(name.name).trim() || 'tab'}`);
+	}
 
 	/**
 	 * Draws the tabs. A strip with more tabs than it has room for scrolls
@@ -38,6 +96,7 @@ export class BaseHalfAgentAreaTabStrip {
 		const strip = this.area.tabStrip;
 		const scrolled = strip.scrollLeft;
 		clearNode(strip);
+		this.drawn.clear();
 		this.area.tabsBar.classList.toggle('empty', state.tabs.length === 0);
 		this.area.empty.classList.toggle('visible', state.tabs.length === 0);
 		this.area.zoomResetButton.classList.toggle('visible', !!activeAgentTab(state)?.zoomedPaneId);
@@ -67,15 +126,16 @@ export class BaseHalfAgentAreaTabStrip {
 		this.area.tabsBar.classList.toggle('compact', compact);
 	}
 
-	private tabTitle(tab: IBaseHalfAgentTab): string {
-		return tab.titleOverride ?? this.area.runtime.get(tab.activePaneId)?.label ?? '';
+	/** What a tab shows: the name the user gave it, or the name and the description of the session in front. */
+	private tabName(tab: IBaseHalfAgentTab): IBaseHalfAgentSessionName {
+		const session = this.area.runtime.get(tab.activePaneId);
+		return baseHalfAgentTabName(tab.titleOverride, session ? this.area.sessionNaming(session) : undefined);
 	}
 
 	private renderTab(tab: IBaseHalfAgentTab, index: number): HTMLElement {
 		const state = this.area.tabsState;
 		const active = tab.id === state.activeTabId;
 		const activePane = this.area.runtime.get(tab.activePaneId);
-		const title = this.tabTitle(tab);
 		const attention = activePane?.state === 'unavailable' || activePane?.state === 'failed';
 
 		const el = $('.basehalf-agent-tab');
@@ -85,7 +145,7 @@ export class BaseHalfAgentAreaTabStrip {
 		el.classList.toggle('drop-after', this.tabDropIndex === state.tabs.length && index === state.tabs.length - 1);
 		el.setAttribute('role', 'tab');
 		el.setAttribute('aria-selected', String(active));
-		el.setAttribute('aria-label', title ? `Tab ${index + 1}: ${title}` : `Tab ${index + 1}`);
+		el.setAttribute('aria-label', `Tab ${index + 1}`);
 
 		// Concave feet flaring the active tab into the content below (shown by
 		// CSS only while this tab is active).
@@ -184,10 +244,8 @@ export class BaseHalfAgentAreaTabStrip {
 		const shortcut = append(labelWrap, $('span.basehalf-agent-tab-shortcut'));
 		shortcut.setAttribute('aria-hidden', 'true');
 		shortcut.textContent = index < 9 ? `${isMacintosh ? '⌘' : 'Ctrl+'}${index === 8 ? 9 : index + 1}` : '';
-		if (title) {
-			const label = append(labelWrap, $('span.basehalf-agent-tab-label'));
-			label.textContent = title;
-		}
+		const label = append(labelWrap, $('span.basehalf-agent-tab-label'));
+		const description = append(labelWrap, $('span.basehalf-agent-tab-description'));
 		if (activePane && activePane.state !== 'ready') {
 			const stateLabel = append(labelWrap, $('span.basehalf-agent-tab-state'));
 			stateLabel.textContent = this.area.stateLabel(activePane.state);
@@ -197,7 +255,6 @@ export class BaseHalfAgentAreaTabStrip {
 		const close = append(indicator, $('button.basehalf-agent-tab-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
 		setBaseHalfHover(close, 'Close Tab');
-		close.setAttribute('aria-label', `Close ${title || 'tab'}`);
 		close.addEventListener('mousedown', e => {
 			e.preventDefault();
 			e.stopPropagation();
@@ -206,6 +263,10 @@ export class BaseHalfAgentAreaTabStrip {
 		const dot = append(indicator, $('span.basehalf-agent-tab-activity'));
 		dot.setAttribute('aria-hidden', 'true');
 		indicator.classList.toggle('has-activity', state.activity.includes(tab.id));
+
+		const drawn: IBaseHalfDrawnAgentTab = { element: el, label, description, close, index, shown: { name: '', description: '' } };
+		this.showName(drawn, this.tabName(tab));
+		this.drawn.set(tab.id, drawn);
 
 		return el;
 	}

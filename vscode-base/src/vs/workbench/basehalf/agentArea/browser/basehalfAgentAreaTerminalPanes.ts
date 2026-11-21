@@ -7,7 +7,7 @@ import { BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind, IBaseHalfC
 import { ITerminalInstance, ICreateTerminalOptions } from '../../../contrib/terminal/browser/terminal.js';
 import { removeAgentPane, markAgentPaneActivity } from '../common/basehalfAgentTabsModel.js';
 import { Severity } from '../../../../platform/notification/common/notification.js';
-import { TerminalSettingId, type IShellLaunchConfig, type ITerminalLaunchError } from '../../../../platform/terminal/common/terminal.js';
+import { TerminalSettingId, TitleEventSource, type IShellLaunchConfig, type ITerminalLaunchError } from '../../../../platform/terminal/common/terminal.js';
 import { isObject, hasKey } from '../../../../base/common/types.js';
 import { baseHalfInstallTerminalEdges } from './basehalfTerminalEdges.js';
 import { isMacintosh, OS } from '../../../../base/common/platform.js';
@@ -37,7 +37,7 @@ export class BaseHalfAgentAreaTerminalPanes {
 			// context only points at it. Read at each launch, so a session
 			// started after the user installs the skill uses the pointer.
 			const agentSkillInstalled = session.kind === 'tui-claude' && await this.area.agentSkillService.isInstalledFor('claude').catch(() => false);
-			const terminalOptions = this.createTerminalOptions(session.kind, session.label, options, {
+			const terminalOptions = this.createTerminalOptions(session.kind, options, {
 				hasMarkedWorkspaceFolder,
 				launchInstructions: session.launchInstructions.enabled,
 				agentSkillInstalled
@@ -62,16 +62,19 @@ export class BaseHalfAgentAreaTerminalPanes {
 		this.area.rememberTerminalProcess(session, terminal);
 		session.disposables.add(terminal.onDisposed(() => this.handleTerminalDisposed(session)));
 		session.disposables.add(terminal.onTitleChanged(instance => {
-			if (instance.title && session.label !== instance.title) {
-				session.label = instance.title;
-				this.area.render();
+			if (instance.titleSource === TitleEventSource.Sequence) {
+				session.programTitle = instance.sequence;
 			}
+			this.area.tabs.namesChanged();
 		}));
 		session.disposables.add(terminal.onData(() => {
 			this.area.mutateTabs(state => markAgentPaneActivity(state, session.id));
 		}));
 		session.disposables.add(terminal.onDidInputData(() => session.launchInstructions.didReceiveUserInput()));
 		session.disposables.add(terminal.onProcessIdReady(() => {
+			// A title belongs to the program that set it: a program that starts has set none yet.
+			session.programTitle = undefined;
+			this.area.tabs.namesChanged();
 			this.area.rememberTerminalProcess(session, terminal);
 			this.area.surface.clearSessionStatePanel(session);
 			if (session.state === 'starting' || session.state === 'exited' || session.state === 'failed') {
@@ -202,7 +205,6 @@ export class BaseHalfAgentAreaTerminalPanes {
 
 	private createTerminalOptions(
 		kind: BaseHalfAgentSessionKind,
-		label: string,
 		options: IBaseHalfCreateAgentTerminalOptions,
 		launch: { readonly hasMarkedWorkspaceFolder: boolean; readonly launchInstructions: boolean; readonly agentSkillInstalled: boolean }
 	): ICreateTerminalOptions | undefined {
@@ -211,17 +213,16 @@ export class BaseHalfAgentAreaTerminalPanes {
 		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind, { isRemote, os: OS, ...launch });
 		if (tuiConfig) {
 			return {
-				config: baseHalfCreateAgentAreaTerminalConfig(label, {
+				config: baseHalfCreateAgentAreaTerminalConfig({
 					...tuiConfig,
-					args: tuiConfig.args ? [...tuiConfig.args] : undefined,
-					name: label
+					args: tuiConfig.args ? [...tuiConfig.args] : undefined
 				}, usesNodeRunBridge)
 			};
 		}
 
 		const raw = this.asTerminalOptions(options.rawTerminalOptions);
 		const terminalOptions: ICreateTerminalOptions = raw ? { ...raw } : {};
-		terminalOptions.config = baseHalfCreateAgentAreaTerminalConfig(label, terminalOptions.config, usesNodeRunBridge);
+		terminalOptions.config = baseHalfCreateAgentAreaTerminalConfig(terminalOptions.config, usesNodeRunBridge);
 		return terminalOptions;
 	}
 
@@ -277,6 +278,7 @@ export class BaseHalfAgentAreaTerminalPanes {
 		if (session.closing || session.state === 'disposed') {
 			return;
 		}
+		session.programTitle = undefined;
 
 		if (typeof exit === 'number' && session.terminal && !session.terminal.isDisposed && session.launchInstructions.shouldRelaunchWithoutInstructions(exit)) {
 			this.relaunchWithoutLaunchInstructions(session, session.terminal, exit);

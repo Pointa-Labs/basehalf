@@ -31,7 +31,9 @@ import { $, append, trackFocus } from '../../../../base/browser/dom.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { baseHalfMoveStripWithWheel } from '../../ui/browser/basehalfSidewaysStrip.js';
 import { mainWindow } from '../../../../base/browser/window.js';
-import { TerminalExitReason } from '../../../../platform/terminal/common/terminal.js';
+import { TerminalExitReason, TerminalSettingId } from '../../../../platform/terminal/common/terminal.js';
+import { stripIcons } from '../../../../base/common/iconLabels.js';
+import { IBaseHalfAgentSessionName, baseHalfAgentSessionName } from '../common/basehalfAgentSessionName.js';
 import { BaseHalfSplitDir, BaseHalfFocusDir, dropEdge } from '../common/basehalfAgentSplitTree.js';
 import { normalizeBaseHalfAgentDefaultSession, BaseHalfSetting } from '../../shell/common/basehalfConfiguration.js';
 import { BaseHalfAgentAreaTabStrip } from './basehalfAgentAreaTabStrip.js';
@@ -67,6 +69,8 @@ export interface IBaseHalfRuntimeAgentSession {
 	/** The edges around the terminal's grid, which take the background of the nearest cell (D86). */
 	readonly edges: MutableDisposable<IDisposable>;
 	terminal?: ITerminalInstance;
+	/** The title that the program of the terminal set for it, while that program runs. */
+	programTitle?: string;
 	terminalPersistentProcessId?: number;
 	/** Tracks whether launches carry the BaseHalf launch instruction and falls
 	 *  back once when the installed CLI rejects it. */
@@ -152,6 +156,13 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 	) {
 		super();
 
+		this._register(this.tabs);
+		// The name of an agent's session depends on this setting; the base draws a terminal's title again itself.
+		this._register(this.configurationService.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration(TerminalSettingId.TabsAllowAgentCliTitle)) {
+				this.tabs.namesChanged();
+			}
+		}));
 		this._register(lifecycleService.onBeforeShutdown(event => event.veto(this.closing.vetoWindowClose(event.reason), 'veto.basehalfAgentArea')));
 
 		const extensionAgentProvider = this.instantiationService.createInstance(BaseHalfViewContainerExtensionAgentProvider);
@@ -383,9 +394,6 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 
 		const existing = [...this.runtime.values()].find(session => session.terminal === terminal);
 		if (existing) {
-			if (options.label && options.label !== existing.label) {
-				existing.label = options.label;
-			}
 			if (options.reveal !== false) {
 				const owner = agentTabForPane(this.tabsState, existing.id);
 				if (owner) {
@@ -944,9 +952,22 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		};
 	}
 
-	/** The name a session shows on its tab and in a question about it. */
+	/** The name and the description a session shows on its tab, as the settings of a terminal's tab say. */
+	sessionNaming(session: IBaseHalfRuntimeAgentSession): IBaseHalfAgentSessionName {
+		const terminal = session.terminal && !session.terminal.isDisposed ? session.terminal : undefined;
+		return baseHalfAgentSessionName({
+			kind: session.kind,
+			ownName: session.label,
+			terminalTitle: terminal?.title,
+			terminalDescription: terminal?.description,
+			programTitle: session.state === 'ready' ? session.programTitle : undefined,
+			allowAgentCliTitle: this.configurationService.getValue<boolean>(TerminalSettingId.TabsAllowAgentCliTitle) !== false
+		});
+	}
+
+	/** The name of a session in words, as a toast or a question says it. */
 	sessionName(session: IBaseHalfRuntimeAgentSession): string {
-		return session.label;
+		return stripIcons(this.sessionNaming(session).name).trim() || session.label;
 	}
 
 	stateLabel(state: BaseHalfAgentSessionState): string {

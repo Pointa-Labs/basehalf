@@ -39,12 +39,16 @@ const BASEHALF_SYNCHRONIZED_OUTPUT_ENV: ITerminalEnvironment = {
  * The launch configuration of an Agent Area terminal. Launch arguments of a
  * plain shell launch configuration (such as a TUI session's launch
  * instruction) pass through unchanged.
+ *
+ * The Agent Area gives the terminal no name: a terminal with a name keeps it as its title, and one without is
+ * named by `terminal.integrated.tabs.title` and hears the titles its program sets
+ * (docs/specs/agent-area-terminal.md, The name of a session). A name that the creator gave stays.
  */
-export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean, os: OperatingSystem = OS): ICreateTerminalOptions['config'] {
+export function baseHalfCreateAgentAreaTerminalConfig(config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean, os: OperatingSystem = OS): ICreateTerminalOptions['config'] {
 	const baseHalfAgentAreaNodeCommandBridge = usesNodeRunBridge ? true : undefined;
 	const isTransient = baseHalfAgentAreaNodeCommandBridge ? true : undefined;
 	if (!config) {
-		return { name: label, env: createAgentAreaTerminalEnv(os), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
+		return { env: createAgentAreaTerminalEnv(os), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
 	}
 
 	if (hasKey(config, { extensionIdentifier: true })) {
@@ -59,7 +63,7 @@ export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICr
 			env: createAgentAreaTerminalEnv(os, profile.env),
 			icon: profile.icon,
 			color: profile.color,
-			name: profile.overrideName ? profile.profileName : label,
+			name: profile.overrideName ? profile.profileName : undefined,
 			hideFromUser: true,
 			baseHalfAgentAreaNodeCommandBridge,
 			isTransient
@@ -70,7 +74,6 @@ export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICr
 	return {
 		...shellLaunchConfig,
 		env: createAgentAreaTerminalEnv(os, shellLaunchConfig.env),
-		name: shellLaunchConfig.name ?? label,
 		hideFromUser: true,
 		baseHalfAgentAreaNodeCommandBridge,
 		isTransient: isTransient ?? shellLaunchConfig.isTransient
