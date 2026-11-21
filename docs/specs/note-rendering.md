@@ -407,7 +407,16 @@ HTML has no form in it. Read and written back, it would lose:
     block's first line at every text size and beside a heading of every
     level ([zoom and outline of a note](note-zoom-and-outline.md), rule 22),
     and the box of the reading aids stands beside the first line of its
-    paragraph.
+    block, a heading of every level and the title line among them, its
+    middle on the middle of that line. Before, the box of a heading stood at
+    the top of the heading's room, above its text, and the box of a
+    paragraph 3 px above the middle of its line.
+34b. **The reading aids take no room from the text.** Their box stands in
+    the room beside the text column, on its right, as the handles of a block
+    stand on its left: with the reading aids on, a note's text has the width
+    it has without them, and turning them on or off breaks no line anew.
+    Before, a paragraph made room for the box inside the column, 24 px, and
+    with the aids on Rich broke a note's lines where Preview did not.
 35. **The font.** `basehalf.notes.fontFamily` is a list of fonts, of which
     the first that the computer has is used. Without a value a note is in
     the font of the window, the font of the names in Files. The font of the
@@ -739,6 +748,12 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     the text column shows that line unbroken in Rich and in Preview, each
     block as high as its number of lines, with a background of its own; in
     Preview its lines keep their indentation.
+30c. With the reading aids on, Rich and Preview break the first paragraph
+    of a note at the same words, and Rich breaks it as it does with them
+    off; the box of a paragraph stands right of the text, within the room of
+    Card Detail. At 12, 16, and 28 px the middle of each box is within 2 px
+    of the middle of its block's first line, beside the title line, a
+    heading of each level, and a paragraph.
 31. With `"basehalf.notes.openIn": "preview"` a note opens in Preview from
     a card's Expand, from Files, and from the search of the title bar, and
     with `"source"` in Source; a picture, a text file, and a code file open
