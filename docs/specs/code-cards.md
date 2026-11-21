@@ -1,11 +1,13 @@
 # A code file on its card and in Card Detail
 
-Status: Active (2026-11-05)
-Decision: [D121](../decisions.md#d121--a-code-card-is-a-small-window-on-its-file-and-source-is-vs-codes-editor-new-2026-11-05)
+Status: Active (2026-11-05; the settings of the card's editor, rules 30 to 32, 2026-11-21)
+Decision: [D121](../decisions.md#d121--a-code-card-is-a-small-window-on-its-file-and-source-is-vs-codes-editor-new-2026-11-05),
+[D138](../decisions.md#d138--a-card-follows-the-settings-its-file-follows-elsewhere-new-2026-11-21)
 Related: [note rendering](note-rendering.md) (what other cards show), [canvas wheel
 gestures](canvas-wheel-gestures.md), [the changes of a file](changes-of-a-file.md),
 [opening and closing Card Detail](card-detail-opening.md), [the selection agents can
-see](selection-for-agents.md), [canvas card resize](canvas-card-resize.md)
+see](selection-for-agents.md), [canvas card resize](canvas-card-resize.md), [the settings
+BaseHalf offers](settings-catalog.md)
 
 ## The rule
 
@@ -170,7 +172,8 @@ both would stay what they are.
     the marks stand where they stood.
 19. The card's editor is VS Code's editor of the same text model as Source, with the same
     gutter as the face and without a minimap, folding, sticky scroll, or suggestions, which do
-    not fit a card. Undo, redo, the clipboard, Find, and many cursors are as in any editor.
+    not fit a card. Undo, redo, the clipboard, Find, and many cursors are as in any editor, and
+    they follow the user's settings as Source does (rules 30 to 32).
 20. It writes the file as Source does. A letter typed there shows in Source, on the card's
     next drawing, and in the marks.
 21. Escape ends the editing once the editor has no other use for it, such as a Find or several
@@ -207,6 +210,33 @@ both would stay what they are.
     when the editor has no other use for it, also with text selected ([opening and closing Card
     Detail](card-detail-opening.md)).
 
+### The card's editor and the settings
+
+30. The card's editor follows the settings `editor.*` for the file and its language, as Source
+    does, in everything that says how editing behaves: the look, the width, and the blinking of
+    the cursor; closing and surrounding with brackets and quotes; indenting, also of what is
+    pasted; the key that adds a cursor, and what several cursors do; the options of Find; what a
+    copy and a paste hold; the characters that end a word; the highlight of the bracket at the
+    cursor and of what equals the selection; dragging selected text; how a scroll moves. A
+    setting that changes is followed at once, also on a card that is being edited, and so is
+    another language chosen for the file.
+31. What has to stand where the face stood is BaseHalf's, whatever the settings say, so that
+    rule 18 holds:
+
+    | Fixed on a card | Why |
+    | --- | --- |
+    | The font of rule 1: the family, 12 px, lines of 18 px, normal weight, no letter spacing, no ligatures, no variations; the wheel does not zoom the font | A line of the editor is the line the face drew. |
+    | No wrapping, the room above the first line and below the last, nothing to scroll to below the last line | A line stands at the height it had, and the file ends where the face ends. |
+    | Line numbers, of at least 3 digits, with the number of a last empty line; the lane of the marks; no glyph margin and no folding controls | The gutter is as wide as the face's, with the same numbers. |
+    | No minimap, no sticky scroll, no overview ruler, no vertical rulers; scroll bars of 8 px without shadows | Beside and over its lines a face has only its own ruler. |
+    | No highlight of the current line, no indent or bracket guides, no marks of problems; whitespace shows in a selection, or never when `editor.renderWhitespace` is `none` | Nothing comes onto a line with the editor that the face did not draw. |
+    | The text area of an input method, widgets that scale with the card, and a size given by the card | The card is scaled by the canvas (rule 22). |
+    | Whether it can be written | It is the file's. |
+32. A setting of a feature the card's editor does not have changes nothing on a card: those of
+    the minimap, folding, sticky scroll, suggestions, hovers, links, and of what a drop inserts.
+    They work in Source. What a setting gives the text model itself, as the width of a tab and
+    indenting with spaces, is the same in every view of the file.
+
 ## Limits
 
 - The canvas stays dark under a light theme ([workbench appearance](workbench-appearance.md#limits)).
@@ -218,6 +248,9 @@ both would stay what they are.
 - A place is a line. A wrapped view in Source comes back at the start of the line.
 - A face draws marks as the editor does by default. The settings `scm.diffDecorations*` apply in
   the editor only.
+- A zoom of the editor's font, which VS Code's Editor Font Zoom In makes, and the wheel in Source with
+  `editor.mouseWheelZoom`, is the window's: it enlarges the lines of the card's editor too, and not those
+  of a face.
 - Marks need the file's text model, so a canvas with many changed files on the screen holds that
   many models. At most 24 are kept, of the faces used last; the marks of a face that lost its model
   stay as they were until it is used again.
@@ -261,10 +294,19 @@ both would stay what they are.
 17. An input method writes at the caret at 150%, and its Escape leaves the editing.
 18. A change near a file's top, in view when the Changes view opens there, is what the card shows afterwards.
     In a note, Rich to Changes shows the first change, and Rich to Source shows the selection it was opened at.
+19. With `editor.cursorStyle` as `block`, `editor.autoClosingBrackets` as `never`, and `editor.multiCursorModifier`
+    as `ctrlCmd` in the user's settings, the caret on a code card is a block, a typed `(` stays alone, and a
+    Command-click adds a cursor, as in Source. Written while the card is edited, each holds from the next key.
+    A setting under the file's language holds for that file's card and for no other.
+20. With `editor.fontSize` 20, `editor.lineHeight` 30, `editor.wordWrap` `on`, `editor.lineNumbers` `off`,
+    `editor.minimap.enabled`, `editor.folding`, `editor.renderLineHighlight` `all`, and `editor.renderWhitespace`
+    `all` in the user's settings, criterion 4 holds, and the editor shows no minimap, no highlighted line, and
+    no whitespace outside a selection.
 
 ## Verification
 
-- Unit tests of the lines a face draws, of the double click's action, and of the place.
+- Unit tests of the lines a face draws, of the double click's action, of the place, and of the options the
+  card's editor takes from the settings and those it keeps.
 - The smoke's `code-card-*` and `source-is-the-editor` steps in `workbench`, and `agent-sees-selection` in
   `canvas`.
 - Once in a real window on a folder of real files, with frames sampled: criteria 2, 3, and 4, and the timing
