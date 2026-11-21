@@ -5,7 +5,7 @@ do what [the first version](#the-first-version) describes.
 Decision: [D47](../decisions.md#d47--an-update-is-downloaded-once-and-is-there-at-the-next-start-new-2026-10-12)
 Related: [verification and delivery](../harness/verification-and-delivery.md),
 [architecture invariants](../harness/architecture-invariants.md),
-[BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
+[BaseHalf's Settings](settings-pages.md) (how Settings opens at the
 About page)
 
 ## The rule
@@ -294,12 +294,17 @@ Decision: [D49](../decisions.md#d49--the-state-of-an-update-is-a-page-in-setting
   download, install, or restart.
 - **The entry has no card.** Resting the pointer on it shows one line that
   names the state. Nothing appears by itself.
-- **Settings, BaseHalf, About** holds what the card held, in the status
+- **The About page of Settings** holds what the card held, in the status
   element of the base: the name, the running version, the version of an
   update and its date when there is one, the state with its progress, and
   "Release Notes". Below it is the one action the state calls for: Check
   for Updates, Download, Install, or Restart to Update. A state without an
   action has none.
+- Under them, **Check for Updates** says when BaseHalf looks for an update
+  by itself, the setting `update.mode`: Automatically, When BaseHalf Starts,
+  Only When Asked, or Never. A change holds from the next start
+  ([BaseHalf's Settings](settings-pages.md#the-general-page) for how a
+  setting is changed on a page).
 - The image beside the name is BaseHalf's icon, the one of the application.
 - Choosing the entry of the title bar in a state without an action, a
   download that runs, opens the About page.
@@ -430,7 +435,7 @@ Unit tests unless another kind is named.
     Updates when idle, Download, Install, or Restart to Update when the state
     calls for one, and none otherwise. A failed check that the user asked for
     is told once, and one that BaseHalf started by itself is not. Smoke: the
-    About page is in Settings below BaseHalf and shows BaseHalf's version and
+    About page is a page of Settings and shows BaseHalf's version and
     "Release Notes".
 
 ## Verification

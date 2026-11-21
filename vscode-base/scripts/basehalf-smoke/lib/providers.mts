@@ -6,7 +6,6 @@
 // The Providers page (providers and the model catalog, "Credentials, regions,
 // and endpoints"), which Settings and the panel of a generation card both open.
 
-import process from 'process';
 import { runCommand } from './quickInput.mts';
 
 /**
@@ -17,31 +16,35 @@ import { runCommand } from './quickInput.mts';
 export const SMOKE_PROVIDER = 'bytedance';
 export const SMOKE_REGION = 'intl';
 
-// The page is in Settings below BaseHalf, in the place of the former Models &
-// Providers page, and opens from its command, BaseHalf: Providers. The
-// command is named with its category: other commands have Providers in
-// their names.
+// The page is a page of BaseHalf's Settings, and opens from its command,
+// BaseHalf: Providers. The command is named with its category: other commands
+// have Providers in their names.
 export async function openProvidersPage(page) {
 	await runCommand(page, 'BaseHalf: Providers');
 	return waitForProvidersPage(page);
 }
 
-// Providers inside Settings, however it was opened.
+// Providers inside BaseHalf's Settings, however it was opened: the page shown, and chosen in the list of pages.
 export async function waitForProvidersPage(page) {
-	const settingsEditor = page.locator('.settings-editor').first();
-	await settingsEditor.waitFor({ state: 'visible', timeout: 20_000 });
-	const providers = settingsEditor.locator('.basehalf-video-providers').first();
+	const settings = page.locator('.basehalf-settings').first();
+	await settings.waitFor({ state: 'visible', timeout: 20_000 });
+	const providers = settings.locator('.basehalf-video-providers').first();
 	await providers.waitFor({ state: 'visible', timeout: 20_000 });
 	await providers.locator('h1', { hasText: /^Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
-	await settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await settings.locator('.basehalf-settings-page-tab[aria-selected="true"]', { hasText: /^Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	if (await page.locator('.quick-input-widget:visible').count() !== 0) {
 		throw new Error('Providers remained inside QuickInput instead of opening inside Settings');
 	}
 	return providers;
 }
 
+// Escape closes Settings wherever in it the keyboard is; a field that takes Escape for itself, as one of a
+// credential being replaced, takes it first.
 export async function closeProvidersPage(page, providers) {
-	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
+	for (let attempt = 0; attempt < 3 && await providers.isVisible(); attempt++) {
+		await page.keyboard.press('Escape');
+		await providers.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
+	}
 	await providers.waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
@@ -87,8 +90,7 @@ export function readProviderEditor(providers) {
 			regions: Array.from(root.querySelectorAll('.basehalf-video-provider-region')).map(region => ({ id: region.getAttribute('data-region'), checked: region.getAttribute('aria-checked') === 'true' })),
 			credentials: Array.from(root.querySelectorAll('.basehalf-video-provider-field.credential')).map(field => ({
 				id: field.getAttribute('data-credential'),
-				set: field.querySelector('.basehalf-video-provider-key-state')?.classList.contains('set') ?? false,
-				state: field.querySelector('.basehalf-video-provider-key-state')?.textContent?.trim() ?? null,
+				set: field.getAttribute('data-set') === 'true',
 				input: field.querySelector('input')?.getAttribute('type') ?? null
 			})),
 			endpoint: endpoint?.value ?? null,

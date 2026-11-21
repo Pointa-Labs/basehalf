@@ -8,10 +8,11 @@
 	display: flex;
 	flex-direction: column;
 	box-sizing: border-box;
-	padding: 26px clamp(20px, 3.2vw, 42px) 32px;
+	padding: 26px 36px 28px;
 	overflow: hidden;
 	color: var(--vscode-foreground);
 	background: var(--vscode-editor-background);
+	font-size: 13px;
 }
 
 .basehalf-video-providers[hidden] {
@@ -40,22 +41,19 @@
 
 .basehalf-video-providers-heading h1 {
 	margin: 0;
-	font-size: 26px;
-	font-weight: 650;
+	font-size: 20px;
+	font-weight: 600;
 }
 
-.basehalf-video-providers-heading p {
-	max-width: 680px;
-	margin: 7px 0 0;
-	line-height: 1.45;
-	color: var(--vscode-descriptionForeground);
-}
-
+/* The line says only what was not saved, and takes no room otherwise. */
 .basehalf-video-providers-status {
-	min-height: 18px;
-	margin: 12px 0 0;
+	margin: 8px 0 0;
 	font-size: 12px;
 	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-video-providers-status:empty {
+	display: none;
 }
 
 .basehalf-video-providers-status[data-state='success'] {
@@ -71,7 +69,7 @@
 	grid-template-columns: minmax(170px, 240px) minmax(0, 1fr);
 	min-height: 0;
 	flex: 1;
-	margin-top: 10px;
+	margin-top: 16px;
 	border: 1px solid var(--vscode-widget-border, transparent);
 	border-radius: 8px;
 	overflow: hidden;
@@ -90,7 +88,7 @@
 	flex-direction: column;
 	min-height: 0;
 	border-right: 1px solid var(--vscode-widget-border, transparent);
-	background: color-mix(in srgb, var(--vscode-sideBar-background) 72%, transparent);
+	background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
 }
 
 .basehalf-video-providers-list {
@@ -152,11 +150,11 @@
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	min-height: 38px;
-	margin-top: 4px;
+	min-height: 34px;
+	margin-top: 2px;
 	padding: 6px 10px;
-	border: 1px dashed var(--vscode-widget-border, var(--vscode-descriptionForeground));
-	border-radius: 8px;
+	border: 1px solid transparent;
+	border-radius: 6px;
 	background: transparent;
 	color: var(--vscode-descriptionForeground);
 	font: inherit;
@@ -170,10 +168,8 @@
 }
 
 .basehalf-video-provider-add[aria-current='page'] {
-	border-style: solid;
-	border-color: color-mix(in srgb, var(--vscode-focusBorder) 76%, transparent);
-	background: var(--vscode-list-activeSelectionBackground);
-	color: var(--vscode-list-activeSelectionForeground);
+	background: var(--vscode-list-inactiveSelectionBackground);
+	color: var(--vscode-foreground);
 }
 
 .monaco-workbench .basehalf-video-providers .basehalf-video-provider-add:focus-visible {
@@ -215,9 +211,9 @@
 /* The card type of a model added to a custom provider. */
 .basehalf-video-provider-kind-select {
 	flex: none;
-	min-height: 30px;
-	padding: 4px 6px;
-	border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border, transparent));
+	height: 28px;
+	padding: 2px 6px;
+	border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent));
 	border-radius: 6px;
 	background: var(--vscode-dropdown-background);
 	color: var(--vscode-dropdown-foreground);
@@ -262,10 +258,10 @@
 	align-items: center;
 	width: 100%;
 	gap: 10px;
-	min-height: 52px;
-	padding: 8px 10px;
+	min-height: 46px;
+	padding: 6px 10px;
 	border: 1px solid transparent;
-	border-radius: 8px;
+	border-radius: 6px;
 	text-align: left;
 	background: transparent;
 	color: inherit;
@@ -283,9 +279,7 @@
 }
 
 .basehalf-video-provider-row[aria-current='page'] {
-	border-color: color-mix(in srgb, var(--vscode-focusBorder) 76%, transparent);
-	background: var(--vscode-list-activeSelectionBackground);
-	color: var(--vscode-list-activeSelectionForeground);
+	background: var(--vscode-list-inactiveSelectionBackground);
 }
 
 .basehalf-video-provider-row-copy {
@@ -300,11 +294,11 @@
 }
 
 .basehalf-video-provider-row-name {
-	font-weight: 650;
+	font-weight: 600;
 }
 
 .basehalf-video-provider-row-detail {
-	margin-top: 3px;
+	margin-top: 2px;
 	font-size: 12px;
 	color: var(--vscode-descriptionForeground);
 }
@@ -314,16 +308,9 @@
 	opacity: .85;
 }
 
+/* The mark of a provider that is set up, in the color of the words under its name. */
 .basehalf-video-provider-row-state {
-	color: var(--vscode-testing-iconPassed);
-}
-
-.basehalf-video-provider-row-state.missing {
 	color: var(--vscode-descriptionForeground);
-}
-
-.basehalf-video-provider-row[aria-current='page'] .basehalf-video-provider-row-state {
-	color: inherit;
 }
 
 .basehalf-video-provider-editor {
@@ -331,16 +318,17 @@
 	flex-direction: column;
 	gap: 18px;
 	box-sizing: border-box;
-	padding: clamp(20px, 2.7vw, 30px);
+	padding: 22px 26px 26px;
 }
 
 .basehalf-video-provider-editor > * {
-	max-width: 720px;
+	max-width: 620px;
 }
 
 .basehalf-video-provider-editor-heading h2 {
-	margin: 0 0 5px;
-	font-size: 20px;
+	margin: 0 0 4px;
+	font-size: 16px;
+	font-weight: 600;
 	overflow-wrap: anywhere;
 }
 
@@ -372,7 +360,7 @@
 }
 
 .basehalf-video-provider-field-label {
-	font-weight: 650;
+	font-weight: 600;
 }
 
 .basehalf-video-provider-field-hint {
@@ -385,9 +373,9 @@
 .basehalf-video-provider-field input {
 	box-sizing: border-box;
 	width: 100%;
-	min-height: 30px;
-	padding: 5px 9px;
-	border: 1px solid var(--vscode-input-border, transparent);
+	height: 28px;
+	padding: 3px 8px;
+	border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent));
 	border-radius: 6px;
 	outline: 0;
 	background: var(--vscode-input-background);
@@ -412,15 +400,12 @@
 	display: none;
 }
 
-.basehalf-video-provider-key-state {
-	display: flex;
-	align-items: center;
-	gap: 7px;
+/* A value that is set: dots in the place of the field, never the value. */
+.basehalf-video-provider-key-set {
+	flex: 1;
+	min-width: 0;
 	color: var(--vscode-descriptionForeground);
-}
-
-.basehalf-video-provider-key-state.set > .codicon {
-	color: var(--vscode-testing-iconPassed);
+	letter-spacing: 2px;
 }
 
 .basehalf-video-provider-key-row {
@@ -443,8 +428,9 @@
 
 .basehalf-video-provider-region {
 	display: inline-flex;
-	min-height: 30px;
-	padding: 5px 12px;
+	align-items: center;
+	height: 28px;
+	padding: 0 12px;
 	border: 1px solid var(--vscode-widget-border, transparent);
 	border-radius: 6px;
 	background: transparent;
@@ -458,8 +444,8 @@
 }
 
 .basehalf-video-provider-region[aria-checked='true'] {
-	border-color: var(--vscode-focusBorder);
-	background: color-mix(in srgb, var(--vscode-focusBorder) 16%, transparent);
+	border-color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
+	background: var(--vscode-list-inactiveSelectionBackground);
 }
 
 .monaco-workbench .basehalf-video-providers .basehalf-video-provider-region:focus-visible {
@@ -492,22 +478,23 @@
 	display: inline-flex;
 	flex: none;
 	align-items: center;
-	gap: 6px;
-	min-height: 28px;
-	padding: 4px 10px;
-	border: 1px solid var(--vscode-button-border, transparent);
-	border-radius: 5px;
-	background: var(--vscode-button-secondaryBackground);
-	color: var(--vscode-button-secondaryForeground);
+	justify-content: center;
+	height: 28px;
+	padding: 0 12px;
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 6px;
+	background: transparent;
+	color: var(--vscode-foreground);
 	font: inherit;
 	cursor: pointer;
 }
 
 .basehalf-video-providers-button:hover:not(:disabled) {
-	background: var(--vscode-button-secondaryHoverBackground);
+	background: var(--vscode-list-hoverBackground);
 }
 
 .basehalf-video-providers-button.primary {
+	border-color: transparent;
 	background: var(--vscode-button-background);
 	color: var(--vscode-button-foreground);
 }

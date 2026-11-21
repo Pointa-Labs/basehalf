@@ -3,7 +3,7 @@
 Status: Active (2026-11-21). Decided; being implemented: until the catalog is
 in the product, the Settings editor of the base lists every setting.
 Decision: [D137](../decisions.md#d137--every-setting-has-one-of-five-classes-and-a-setting-nothing-follows-is-work-not-waste-new-2026-11-21)
-Related: [BaseHalf's pages in Settings](settings-pages.md) (the pages, which
+Related: [BaseHalf's Settings](settings-pages.md) (the pages, which
 change with the Settings of BaseHalf's own),
 [a code file on its card and in Card Detail](code-cards.md),
 [Agent Area terminal](agent-area-terminal.md),
@@ -15,7 +15,7 @@ This specification owns which settings BaseHalf offers to a user, which it
 keeps at a value of its own, which it leaves out, and which it does not
 follow yet. It gives every setting that the base registers one of five
 classes. How the pages of Settings look and what they say is owned by
-[BaseHalf's pages in Settings](settings-pages.md). The specification that
+[BaseHalf's Settings](settings-pages.md). The specification that
 owns a surface owns what its settings do there.
 
 ## Problem
@@ -64,7 +64,7 @@ the configuration registry of the window:
 - **A settings file**: the user's `settings.json`, or the `settings.json` in
   the `.vscode` folder of an opened folder.
 - **BaseHalf's Settings**: the pages BaseHalf draws for its settings
-  ([BaseHalf's pages in Settings](settings-pages.md)).
+  ([BaseHalf's Settings](settings-pages.md)).
 - **The advanced list**: the Settings editor of the base, with its search and
   its table of contents.
 - **The catalog**: the rules that give each setting its class.

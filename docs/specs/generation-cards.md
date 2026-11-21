@@ -737,7 +737,7 @@ the image models, a video card the video models, and an audio card the
 audio models, of speech, music, and sound effects alike. Every way from a
 card to the page, Set Up and Providers… of its panel and Set Up of its voice
 menu, opens it at the card's type and the card's provider
-([settings pages](settings-pages.md#opening-settings-at-a-page)).
+([BaseHalf's Settings](settings-pages.md#opening-settings)).
 
 ## Settings
 

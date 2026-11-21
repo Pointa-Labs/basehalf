@@ -3,10 +3,10 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// What Settings paints while it opens at one of BaseHalf's pages (settings
-// pages, "Opening Settings at a page"), sampled every frame inside the window:
-// a page that shows a few frames late, after another entry or the settings
-// list, passes every check of the state at the end.
+// What BaseHalf's Settings paints while it opens at a page (BaseHalf's
+// Settings, "Opening Settings"), sampled every frame inside the window: a page
+// that shows a few frames late, after another page or an empty body, passes
+// every check of the state at the end.
 
 /** Starts reading, every frame, what Settings shows. */
 export async function watchSettingsFrames(page) {
@@ -20,14 +20,13 @@ export async function watchSettingsFrames(page) {
 		globalThis.__basehalfSettingsFrames = watch;
 		let ticks = 0;
 		const tick = () => {
-			const editor = Array.from(document.querySelectorAll('.settings-editor')).find(element => element.getClientRects().length > 0);
-			if (editor) {
-				const list = editor.querySelector('.settings-tree-container > .monaco-list');
-				const shownPage = Array.from(editor.querySelectorAll('.settings-custom-section-container:not([hidden]) > *')).find(element => !element.hidden);
+			const settings = Array.from(document.querySelectorAll('.basehalf-settings')).find(element => element.getClientRects().length > 0);
+			if (settings) {
+				const shown = Array.from(settings.querySelectorAll('.basehalf-settings-body > *')).filter(element => !element.hidden && element.getClientRects().length > 0);
+				const known = ['basehalf-settings-general', 'basehalf-video-providers', 'basehalf-about'];
 				frames.push({
-					entry: editor.querySelector('.settings-toc-container .monaco-list-row.selected .settings-toc-entry')?.textContent ?? null,
-					list: !!list && !list.hidden && list.getClientRects().length > 0,
-					page: shownPage ? shownPage.classList[0] ?? null : null
+					entry: settings.querySelector('.basehalf-settings-page-tab[aria-selected="true"]')?.textContent ?? null,
+					page: shown.length === 1 ? known.find(name => shown[0].classList.contains(name)) ?? shown[0].className : `${shown.length} pages`
 				});
 			}
 			// At most about ten seconds of frames, so that a step that fails before its check leaves no loop behind.
@@ -41,7 +40,7 @@ export async function watchSettingsFrames(page) {
 
 /**
  * Stops reading, and checks that Settings, closed before, showed the page from
- * its first frame on: its entry selected, the page shown, and no settings list.
+ * its first frame on: the page chosen in the list, and that page alone shown.
  */
 export async function assertSettingsFramesShowedOnly(page, entry, pageClass, description) {
 	const frames = await page.evaluate(() => {
@@ -49,7 +48,7 @@ export async function assertSettingsFramesShowedOnly(page, entry, pageClass, des
 		watch.stop = true;
 		return watch.frames;
 	});
-	const wrong = frames.filter(frame => frame.entry !== entry || frame.list || frame.page !== pageClass);
+	const wrong = frames.filter(frame => frame.entry !== entry || frame.page !== pageClass);
 	if (!frames.length || wrong.length) {
 		throw new Error(`${description} must show ${entry} from the first frame of Settings on; of ${frames.length} frames, ${wrong.length} showed something else, first ${JSON.stringify(wrong[0] ?? null)}`);
 	}

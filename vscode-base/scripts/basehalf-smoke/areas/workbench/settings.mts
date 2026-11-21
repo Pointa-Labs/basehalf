@@ -3,16 +3,16 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// BaseHalf's Settings, its About page, and the Providers page.
+// BaseHalf's Settings: its General page, the advanced list, its About page, and the Providers page.
 
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
-import { logsPath, root } from '../../context.mts';
+import { logsPath, root, userDataDir } from '../../context.mts';
 import { chooseProviderKind, closeProvidersPage, openProvidersPage, readProviderEditor, readProviderKinds, readProviderLayout, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION } from '../../lib/providers.mts';
 import { runCommand } from '../../lib/quickInput.mts';
 import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
-import { waitForReading } from '../../lib/steps.mts';
+import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 // Every setting that the base and the shipped extensions register has a class in the catalog (the settings
 // BaseHalf offers, criterion 1): the window names the ones without in its log, once its extensions are registered.
@@ -29,36 +29,77 @@ export function assertEverySettingHasAClass() {
 	}
 }
 
-export async function assertBaseHalfSettingsCategory(page) {
-	await runCommand(page, 'Open Settings (UI)');
-	const editor = page.locator('.settings-editor').first();
-	await editor.waitFor({ state: 'visible', timeout: 20_000 });
+// BaseHalf's Settings, criteria 1, 2, 7, and 9: the key of Settings opens BaseHalf's own Settings at General, in
+// the overlay, with its three pages and the rows of General under BaseHalf's names; a switch writes the user's
+// settings at once and takes its line away again at the default; the arrow keys choose a page; Advanced Settings…
+// shows the Settings editor of the base, which lists BaseHalf's settings in one group and nothing of the base's
+// chat; and Escape closes Settings.
+export async function assertBaseHalfSettings(page) {
+	const settingsFile = path.join(userDataDir, 'User', 'settings.json');
+	const written = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8') || '{}');
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
+	const settings = page.locator('.basehalf-settings').first();
+	await settings.waitFor({ state: 'visible', timeout: 20_000 });
+	const seen = await settings.evaluate(root => ({
+		pages: Array.from(root.querySelectorAll('.basehalf-settings-page-tab')).map(tab => `${tab.textContent}${tab.getAttribute('aria-selected') === 'true' ? '*' : ''}`),
+		advanced: root.querySelector('.basehalf-settings-advanced')?.textContent ?? null,
+		rows: Array.from(root.querySelectorAll('.basehalf-settings-general .basehalf-settings-row-label')).map(label => label.textContent),
+		overlay: !!root.closest('.modal-editor-part'),
+		search: !!root.querySelector('input[type="search"], .suggest-input-container')
+	}));
+	const rows = ['Zoom', 'Zoom of a New Folder', 'Reading Aids', 'Font', 'Font Size', 'Wrap Long Lines', 'Show the .bh Folder', 'First Session', 'Terminal Font', 'Terminal Font Size', 'Offer the BaseHalf Skill'];
+	if (JSON.stringify(seen.pages) !== JSON.stringify(['General*', 'Providers', 'About']) || seen.advanced !== 'Advanced Settings…'
+		|| JSON.stringify(seen.rows) !== JSON.stringify(rows) || !seen.overlay || seen.search) {
+		throw new Error(`Settings must open BaseHalf's own Settings at General, in the overlay, with its pages and rows: ${JSON.stringify(seen)}`);
+	}
 
-	const toc = editor.locator('.settings-toc-container').first();
-	await toc.waitFor({ state: 'visible', timeout: 20_000 });
-	const basehalfEntry = toc.locator('.settings-toc-entry', { hasText: /^BaseHalf$/ }).first();
-	await basehalfEntry.waitFor({ state: 'visible', timeout: 20_000 });
-	await basehalfEntry.click();
+	const readingAids = settings.locator('[data-setting="basehalf.editor.readingMode"] [role="switch"]');
+	const before = await readingAids.getAttribute('aria-checked');
+	await readingAids.click();
+	await waitUntil(() => written()['basehalf.editor.readingMode'] === (before !== 'true'), 'the switch of Reading Aids to be written to the user\'s settings', 10_000);
+	await readingAids.click();
+	await waitUntil(() => !('basehalf.editor.readingMode' in written()), 'Reading Aids at its default to leave the user\'s settings', 10_000);
 
-	await page.waitForFunction(() => {
-		const settingsEditor = document.querySelector('.settings-editor');
-		const text = (settingsEditor?.textContent ?? '').replace(/\s+/g, ' ');
-		return text.includes('BaseHalf')
-			&& text.includes('ADHD')
-			&& (text.includes('Reading Mode') || text.includes('basehalf.editor.readingMode'));
-	}, null, { timeout: 20_000 });
+	// The arrow keys choose a page and keep the keyboard in the list.
+	await settings.locator('.basehalf-settings-page-tab[data-page="general"]').focus();
+	await page.keyboard.press('ArrowDown');
+	await settings.locator('.basehalf-settings-page-tab[data-page="providers"][aria-selected="true"]').waitFor({ state: 'visible', timeout: 10_000 });
+	const inList = await page.evaluate(() => document.activeElement?.getAttribute('data-page'));
+	if (inList !== 'providers') {
+		throw new Error(`Arrow Down in the list of pages must choose Providers and keep the keyboard in the list: the focus is on ${inList}`);
+	}
+
+	await settings.locator('.basehalf-settings-advanced').click();
+	const advanced = page.locator('.settings-editor').first();
+	await advanced.waitFor({ state: 'visible', timeout: 20_000 });
+	const groups = await waitForReading(
+		() => advanced.locator('.settings-toc-container .settings-toc-entry').evaluateAll(entries => entries.map(entry => entry.textContent?.trim() ?? '')),
+		entries => entries.includes('BaseHalf'), 'the advanced list to show its groups', 20_000);
+	if (groups.includes('Chat') || groups.includes('Providers') || groups.includes('About')) {
+		throw new Error(`The advanced list must hold no group of the base's chat and no page of BaseHalf's: ${JSON.stringify(groups)}`);
+	}
+
+	// Settings of its key shows BaseHalf's Settings again, and Escape closes it.
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
+	await settings.waitFor({ state: 'visible', timeout: 20_000 });
+	await settings.locator('.basehalf-settings-page-tab[aria-selected="true"]').focus();
+	await page.keyboard.press('Escape');
+	await settings.waitFor({ state: 'hidden', timeout: 15_000 });
+	if (await advanced.isVisible()) {
+		await page.keyboard.press('Escape');
+		await advanced.waitFor({ state: 'hidden', timeout: 15_000 });
+	}
 }
 
-// The About page is in Settings below BaseHalf, and holds BaseHalf's own
+// The About page is a page of BaseHalf's Settings, and holds BaseHalf's own
 // version and the way to the release notes (app update, "Where an update
 // shows"). The smoke runs with updates switched off, so the state it shows
 // is that one. Settings, closed, opens on the page from its first frame on
-// (settings pages, criterion 1), also when it was open on another entry
-// before: in the smoke, Settings keeps its place between openings.
+// (BaseHalf's Settings, criterion 5).
 export async function assertBaseHalfAboutPage(page) {
-	const settingsEditor = page.locator('.settings-editor').first();
+	const settingsEditor = page.locator('.basehalf-settings').first();
 	if (await settingsEditor.isVisible()) {
-		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
+		await page.keyboard.press('Escape');
 		await settingsEditor.waitFor({ state: 'hidden', timeout: 15_000 });
 	}
 	await watchSettingsFrames(page);
@@ -67,7 +108,7 @@ export async function assertBaseHalfAboutPage(page) {
 	const about = settingsEditor.locator('.basehalf-about').first();
 	await about.waitFor({ state: 'visible', timeout: 20_000 });
 	await about.locator('h1', { hasText: /^About$/ }).waitFor({ state: 'visible', timeout: 15_000 });
-	await settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^About$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await settingsEditor.locator('.basehalf-settings-page-tab[aria-selected="true"]', { hasText: /^About$/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	await assertSettingsFramesShowedOnly(page, 'About', 'basehalf-about', 'The command About BaseHalf');
 
 	const version = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8')).basehalfVersion;
@@ -155,7 +196,7 @@ export async function assertProvidersPage(page) {
 // credentials, both in view as the provider opens; the region first listed
 // is chosen in a new profile.
 async function assertRegionsEasyToFind(providers, rows) {
-	const hint = 'Each region has its own console, keys, and models. Choose the region your key comes from.';
+	const hint = 'A key works in the region it comes from.';
 	const seen = [];
 	for (const row of rows) {
 		await providers.locator(`.basehalf-video-provider-row[data-provider="${row.id}"]`).click();

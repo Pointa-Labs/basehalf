@@ -250,7 +250,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 			stored: [...credentials.values.values()],
 			inDom: container.outerHTML.includes(key) || inputs(container).some(element => element.value.includes(key)),
 			passwordInputs: inputs(credentialField(container, 'apiKey')).filter(element => element.type === 'password').length,
-			says: credentialField(container, 'apiKey').textContent?.includes('Set. It is encrypted on this computer and never shown.'),
+			says: credentialField(container, 'apiKey').querySelector('.basehalf-video-provider-key-set')?.getAttribute('aria-label'),
 			replace: !!action(credentialField(container, 'apiKey'), 'replace')
 		}, {
 			before: ['acme:not set up*', 'borealis:not set up'],
@@ -259,7 +259,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 			stored: [JSON.stringify({ apiKey: key })],
 			inDom: false,
 			passwordInputs: 0,
-			says: true,
+			says: 'Set',
 			replace: true
 		});
 	});
@@ -347,7 +347,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 				stored: 'https://west.acme.example/api/v1'
 			},
 			relay: { endpoint: 'http://127.0.0.1:8123/api/v1', custom: 'true' },
-			console: 'Get credentials in the console of Acme Video (West · Acme Global)',
+			console: 'Get credentials in the console of Acme Video',
 			opened: ['https://console.acme.example/west']
 		});
 	});
@@ -374,10 +374,10 @@ suite('BaseHalfVideoProvidersPage', () => {
 		assert.deepStrictEqual({ before, after: parts(), region: providers.getStatus(acme).region.id }, {
 			before: {
 				// The region the catalog lists first is chosen until the user chooses.
-				parts: ['heading', 'region', 'console: Get credentials in the console of Acme Video (East · Acme Cloud)', 'credential: apiKey', 'endpoint'],
-				hint: { text: 'Each region has its own console, keys, and models. Choose the region your key comes from.', describes: true }
+				parts: ['heading', 'region', 'console: Get credentials in the console of Acme Video', 'credential: apiKey', 'endpoint'],
+				hint: { text: 'A key works in the region it comes from.', describes: true }
 			},
-			after: ['heading', 'region', 'console: Get credentials in the console of Acme Video (West · Acme Global)', 'credential: apiKey', 'endpoint'],
+			after: ['heading', 'region', 'console: Get credentials in the console of Acme Video', 'credential: apiKey', 'endpoint'],
 			region: 'west'
 		});
 	});
@@ -458,7 +458,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 			shown: 'https://relay.example.com/v1',
 			custom: 'true',
 			stored: 'https://relay.example.com/v1',
-			status: 'Saved.'
+			status: ''
 		});
 	});
 
@@ -522,7 +522,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 		assert.deepStrictEqual({ focused: focused(), stored: providers.getStatus(acme).endpoint, status: statusLine(container) }, {
 			focused: 'endpoint',
 			stored: 'https://relay.example.com/v1',
-			status: 'Saved.'
+			status: ''
 		});
 	});
 
@@ -563,7 +563,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 		await settle();
 		assert.deepStrictEqual({ rows: rows(container), status: statusLine(container) }, {
 			rows: ['acme:set up', 'borealis:not set up*'],
-			status: 'Acme Video: API Key saved.'
+			status: ''
 		});
 	});
 
@@ -819,7 +819,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 			// No region, console, or endpoint of its own: its API address is its own.
 			fields: ['custom:model', 'custom:modelKind', 'custom:addModel', 'custom:label', 'custom:address', 'credential:apiKey:replace', 'credential:apiKey:remove', 'custom:removeProvider'],
 			regions: 0,
-			status: 'Harbour Relay added.',
+			status: '',
 			inDom: false
 		});
 	});

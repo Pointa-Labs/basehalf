@@ -12,7 +12,7 @@ Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-
 [D108](../decisions.md#d108--users-add-the-providers-basehalf-does-not-integrate-in-the-formats-that-relays-share-new-2026-10-31)
 Related: [generation cards](generation-cards.md),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
-[BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
+[BaseHalf's Settings](settings-pages.md) (how Settings opens at the
 Providers page)
 
 This specification owns which providers BaseHalf runs, the catalog that
@@ -400,8 +400,8 @@ whether it knows it.
 ## Credentials, regions, and endpoints
 
 Settings has one **Providers** page
-([BaseHalf's pages in Settings](settings-pages.md) owns how it opens). It
-sorts the providers by card type (D107):
+([BaseHalf's Settings](settings-pages.md) owns how it opens, and what no
+page of Settings says). It sorts the providers by card type (D107):
 
 - **The card types.** Above the list of providers, a choice of **Image**,
   **Video**, and **Audio**, in this order, one of them chosen. A type that no
@@ -413,7 +413,7 @@ sorts the providers by card type (D107):
   providers make images, 12 videos, and 6 audio, and 10 of the 16 make more
   than one. A row shows the provider's name; under it, its region when it
   has more than one, and otherwise how many models of the type it has; and
-  whether it is set up.
+  a mark when it is set up.
 - **Choosing another type** keeps the provider shown when the type lists it,
   and shows the type's first provider otherwise.
 - **One setup.** A provider is set up once for all of its types: its region,
@@ -432,18 +432,17 @@ It shows the provider selected, in this order:
   the provider has no model of has no line; a model the region does not
   offer is dimmed and says so.
 - **Region**, when the provider has more than one: a button per region, in
-  the catalog's order, the chosen one marked. Its hint says that each region
-  has its own console, keys, and models, and asks for the region the user's
-  key comes from ([Choosing a region](#choosing-a-region)). The region sets
-  the base URL and which models are offered.
-- A link to the provider's console for the region, named by the provider, and
-  by the region too when the provider has more than one ("Get credentials in
-  the console of OpenAI", "Get credentials in the console of Kling (China)").
-  It comes before the credentials, where the user looks for a key, and
-  changes with the region.
+  the catalog's order, the chosen one marked. Its hint says that a key works
+  in the region it comes from ([Choosing a region](#choosing-a-region)). The
+  region sets the base URL and which models are offered.
+- A link to the provider's console for the region, named by the provider
+  ("Get credentials in the console of OpenAI"). It comes before the
+  credentials, right under the region chosen, where the user looks for a
+  key, and leads to the console of that region.
 - **Credentials**: one field per value the provider declares. A value is
   stored encrypted on this computer, never in the workspace, and never shown
-  again: the field says whether it is set and offers Replace and Remove.
+  again: a value that is set shows as dots in the place of its field, with
+  Replace and Remove beside them.
   Remove asks first, and names the cards that can no longer use the
   provider, those of all of its types: "It is deleted from this computer, and
   image and video cards cannot use ByteDance until you set it again."
@@ -471,11 +470,15 @@ The page saves each change at once, one after another:
   is, without drawing the page again, so the click that took the focus
   reaches what it clicked. An address the page cannot take is shown with
   the reason while the page is open, and is not kept when the page closes.
+- A change that was saved says nothing: the page shows it where it was
+  made, the dots of a value that is set, the region marked, the mark of a
+  provider that is set up. Only what was not saved is said, under its field
+  and in the status line above the list.
 - Enter that an input method uses to choose its text is not for the page.
 - A second change does not wait for the first to be shown and is not
-  dropped; the same change is not made twice. A change that ends after
-  another provider is shown says so in the status line, with the provider's
-  name, and leaves that provider's fields alone.
+  dropped; the same change is not made twice. A change that was not saved
+  and ends after another provider is shown says so in the status line, with
+  the provider's name, and leaves that provider's fields alone.
 - While the catalog loads, the page says so; when it could not be loaded,
   the page says why and offers **Try Again**. Removing the credentials of a provider leaves its cards
 as they are; they show that the provider is not set up. Changing the region
@@ -503,10 +506,8 @@ ByteDance, Kling, Alibaba, MiniMax, and Vidu list China first, and
 International second. A key works only in the region whose console made it,
 so BaseHalf shows where the other region is chosen wherever that matters:
 
-- On the Providers page, the region's hint says that each region has its own
-  console, keys, and models, and asks for the region the user's key comes
-  from: "Each region has its own console, keys, and models. Choose the region
-  your key comes from." The choice and the console link of the region chosen
+- On the Providers page, the region's hint says so: "A key works in the
+  region it comes from." The choice and the console link of the region chosen
   come before the credential fields; in Settings at 1440 × 900 points both
   are in view without scrolling for each of the five providers, the longest
   list of models among them included. Choosing another region changes the

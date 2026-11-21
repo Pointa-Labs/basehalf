@@ -5089,7 +5089,7 @@ Up of its voice menu, open the page at the card's type and the card's
 provider. A company whose models of one kind need credentials of their own
 is listed as a second provider, under the types of those models. See
 [providers](specs/providers.md#credentials-regions-and-endpoints) and
-[BaseHalf's pages in Settings](specs/settings-pages.md#opening-settings-at-a-page).
+[BaseHalf's pages in Settings](specs/settings-pages.md#opening-settings).
 
 **Why.** On 2026-10-31 the user asked for the providers in Settings to be
 sorted, since one key of some providers serves several kinds of media and
@@ -6569,7 +6569,7 @@ its own. The owner then left the open choices to me: "你来决定吧".
   the lists without its feature leaving the build.
 
 **Consequences.**
-- [BaseHalf's pages in Settings](specs/settings-pages.md) become a Settings of BaseHalf's own, and the two pages leave the
+- [BaseHalf's Settings](specs/settings-pages.md) is BaseHalf's own, and the two pages leave the
   Settings editor of the base.
 - The defaults of the product profile that are locked move into the catalog.
 - A check names every setting without a class, so a base update classifies its new settings before it ships.
