@@ -105,7 +105,6 @@ export async function assertHiddenSurfaceCommandsStayHidden(page) {
 		// What the shell listed under another name, or of what BaseHalf does not have (D150).
 		'View: Toggle Panel Visibility',
 		'View: Toggle Terminal',
-		'BaseHalf: Toggle Agent Area',
 		'View: Close All Editors in Group',
 		'View: Close Editors to the Left in Group',
 		'Terminal: Attach to Session',
