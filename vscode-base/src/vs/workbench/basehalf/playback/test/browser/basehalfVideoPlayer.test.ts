@@ -6,13 +6,14 @@
 import * as assert from 'assert';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { timeout } from '../../../../../base/common/async.js';
+import { Emitter } from '../../../../../base/common/event.js';
 import { toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
-import { BASEHALF_VIDEO_CONTROLS_FADE_MS, createBaseHalfVideoPlayer, formatBaseHalfVideoTime, IBaseHalfVideoPlayer, layoutBaseHalfVideoPlayers } from '../../browser/basehalfVideoPlayer.js';
+import { BASEHALF_VIDEO_CONTROLS_FADE_MS, createBaseHalfVideoPlayer, formatBaseHalfVideoTime, IBaseHalfVideoPlayer, IBaseHalfVideoPointerPlays, layoutBaseHalfVideoPlayers } from '../../browser/basehalfVideoPlayer.js';
 
 suite('BaseHalfCanvasCardVideoPlayer', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
@@ -41,7 +42,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 	});
 
 	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail; with `sound`, of a sound; with `note`, of a note; with `hoverService`, whose hovers that service draws, as a card's. */
-	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false, sound = false, note?: 'card' | 'page', hoverService?: IHoverService): IPlayerFixture {
+	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false, sound = false, note?: 'card' | 'page', hoverService?: IHoverService, pointerPlays?: IBaseHalfVideoPointerPlays): IPlayerFixture {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';
 		mainWindow.document.body.appendChild(frame);
@@ -63,6 +64,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			sound,
 			...(note ? { note } : {}),
 			...(hoverService ? { hoverService } : {}),
+			...(pointerPlays ? { pointerPlays } : {}),
 			// No audio graph: the sound starts and stops at once (basehalfVideoSound.test.ts has the fades).
 			soundGraph: () => undefined
 		}));
@@ -127,6 +129,59 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		point(player.element, 'pointerenter');
 		point(player.element, 'pointerleave');
 		assert.deepStrictEqual(media, ['play muted', 'pause', 'play muted', 'pause']);
+	});
+
+	test('with the pointer playing nothing, a card\'s video plays by Play and goes on while its card is selected or under the pointer, and the setting is followed while a video plays (criterion 106)', () => {
+		const changed = store.add(new Emitter<void>());
+		const setting = { value: false, onDidChange: changed.event };
+		const { player, media, control } = createPlayer(320, undefined, false, false, undefined, undefined, setting);
+		const set = (value: boolean) => {
+			setting.value = value;
+			changed.fire();
+		};
+
+		point(player.element, 'pointerenter');
+		const underThePointer = { media: [...media], controls: player.element.dataset.controls };
+		// On a card that is not selected, Play plays it, and leaving pauses it.
+		control('play').click();
+		point(player.element, 'pointerleave');
+		const notSelected = [...media];
+		// On a selected card it goes on when the pointer leaves and comes back, and pauses when the card is deselected.
+		player.setSelected(true);
+		point(player.element, 'pointerenter');
+		control('play').click();
+		point(player.element, 'pointerleave');
+		point(player.element, 'pointerenter');
+		point(player.element, 'pointerleave');
+		const selected = [...media];
+		player.setSelected(false);
+		const deselected = [...media];
+
+		// The setting turned on with the pointer on the card: its video plays. Turned off: what the pointer started pauses.
+		media.length = 0;
+		point(player.element, 'pointerenter');
+		set(true);
+		const turnedOn = [...media];
+		set(false);
+		const turnedOff = [...media];
+		// What Play started on a selected card goes on when the setting is turned off.
+		set(true);
+		player.setSelected(true);
+		control('play').click();
+		control('play').click();
+		media.length = 0;
+		set(false);
+		point(player.element, 'pointerleave');
+
+		assert.deepStrictEqual({ underThePointer, notSelected, selected, deselected, turnedOn, turnedOff, startedByPlay: media }, {
+			underThePointer: { media: [], controls: 'shown' },
+			notSelected: ['play muted', 'pause'],
+			selected: ['play muted', 'pause', 'play muted'],
+			deselected: ['play muted', 'pause', 'play muted', 'pause'],
+			turnedOn: ['play muted'],
+			turnedOff: ['play muted', 'pause'],
+			startedByPlay: []
+		});
 	});
 
 	test('the controls show while the pointer is on the card or the card is selected, and not on a narrow card', () => {

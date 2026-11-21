@@ -6,6 +6,7 @@
 import './media/basehalfVideoPlayer.css';
 import { $, addDisposableListener, append, clearNode, getActiveElement, isHTMLElement } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ResourceMap } from '../../../../base/common/map.js';
 import { isEqual } from '../../../../base/common/resources.js';
@@ -39,6 +40,16 @@ const RANGE_START_INSIDE = 0.0002;
  */
 const RANGE_JUMP_AFTER = 0.5;
 
+/**
+ * Whether the pointer on a card plays the card's video (generation cards,
+ * "The pointer plays it"), as the user chose: what holds now, and when that
+ * changes.
+ */
+export interface IBaseHalfVideoPointerPlays {
+	readonly value: boolean;
+	readonly onDidChange: Event<void>;
+}
+
 export interface IBaseHalfVideoPlayerOptions {
 	/** The video file, or the sound file. */
 	readonly source: URI;
@@ -50,6 +61,12 @@ export interface IBaseHalfVideoPlayerOptions {
 	readonly onError: () => void;
 	/** Draws the tooltips of the controls. */
 	readonly hoverService?: IHoverService;
+	/**
+	 * On a card: whether the pointer plays its video. By default it does.
+	 * Where it does not, the video plays as a sound does: by Play, going on
+	 * while its card is selected or under the pointer.
+	 */
+	readonly pointerPlays?: IBaseHalfVideoPointerPlays;
 	/**
 	 * The player of Card Detail, not of a card (generation cards, "The
 	 * player"): its controls show as a player's do and fade while it plays
@@ -239,6 +256,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfVideo
 	private readonly sound: BaseHalfVideoSound;
 	private hovered = false;
 	private selected = false;
+	/** The pointer on the card started the video that plays, and nothing paused it since. */
+	private playedByPointer = false;
 	/** In Card Detail: the pointer moved over the player, or a key was pressed, in the last {@link BASEHALF_VIDEO_CONTROLS_FADE_MS}. */
 	private woken = false;
 	private wakeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -392,6 +411,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfVideo
 	}
 
 	pause(): void {
+		this.playedByPointer = false;
 		this.sound.pause();
 		this.updatePlayButton();
 	}
@@ -598,15 +618,16 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfVideo
 				this._register(addDisposableListener(this.picture ?? video, 'click', () => this.togglePlay()));
 			}
 		} else {
-			// The pointer plays the video, also on a selected card; it plays no sound, which has no picture to show.
+			// The pointer plays the video, also on a selected card, unless the user turned that off;
+			// it plays no sound, which has no picture to show.
 			this._register(addDisposableListener(element, 'pointerenter', event => {
 				if (event.pointerType === 'touch') {
 					return;
 				}
 				this.hovered = true;
 				this.updateControls();
-				if (!isSound) {
-					this.play();
+				if (!isSound && this.pointerPlays) {
+					this.playByPointer();
 				}
 			}));
 			this._register(addDisposableListener(element, 'pointerleave', event => {
@@ -615,11 +636,25 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfVideo
 				}
 				this.hovered = false;
 				this.updateControls();
-				// A sound goes on while its card is selected, whose controls stay.
-				if (!isSound || !this.selected) {
+				// What the pointer plays stops when the pointer leaves. A sound, and a video
+				// that the pointer does not play, go on while their card is selected, whose controls stay.
+				if (!this.selected || (!isSound && this.pointerPlays)) {
 					this.pause();
 				}
 			}));
+			if (!isSound && this.options.pointerPlays) {
+				// The setting is followed at once: turned off, a video that the pointer started
+				// pauses and one that Play started goes on; turned on, the pointer on the card plays it.
+				this._register(this.options.pointerPlays.onDidChange(() => {
+					if (!this.pointerPlays) {
+						if (this.playedByPointer) {
+							this.pause();
+						}
+					} else if (this.hovered && (this.video.paused || this.video.ended || this.sound.pausing)) {
+						this.playByPointer();
+					}
+				}));
+			}
 			// A double click on the picture opens the card, which shows the video large: this one pauses.
 			this._register(addDisposableListener(element, 'dblclick', () => this.pause()));
 		}
@@ -768,6 +803,16 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfVideo
 			// Otherwise it was paused again before it began, or there is nothing to play: the picture stays.
 		});
 		this.updatePlayButton();
+	}
+
+	/** Whether the pointer on the card plays its video: it does unless the user turned that off. */
+	private get pointerPlays(): boolean {
+		return this.options.pointerPlays?.value ?? true;
+	}
+
+	private playByPointer(): void {
+		this.play();
+		this.playedByPointer = true;
 	}
 
 	togglePlay(): void {
