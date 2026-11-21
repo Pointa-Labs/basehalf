@@ -451,6 +451,39 @@ cursor, and the scrollback, works as in the base.
    `terminal.integrated.confirmOnKill` stays the base's `editor`, which asks
    nothing in the Agent Area: a closed session comes back with Undo.
 
+#### Clicks
+
+1. A secondary click on the terminal of a session follows
+   `terminal.integrated.rightClickBehavior`:
+   - `default` shows the session's menu;
+   - `selectWord` selects the word under the pointer and shows the menu.
+     The terminal selects the word itself, and selects none while the
+     program tracks the mouse;
+   - `copyPaste` copies the selection and takes it away when there is one,
+     and pastes otherwise. It shows no menu;
+   - `paste` pastes and shows no menu;
+   - `nothing` shows no menu. The click goes to the program, as it does with
+     every value while the program tracks the mouse.
+
+   With Shift held, a secondary click shows the menu whatever the setting
+   says, as in the base. The menu also opens from the keyboard, with the key
+   that opens a menu.
+2. A middle click follows `terminal.integrated.middleClickBehavior`: `paste`
+   pastes, and `default` gives the terminal the keyboard and leaves the rest
+   to the system.
+3. The menu holds Copy, Paste, and Select All; Clear; Split Pane Right and
+   Split Pane Down; and Close Pane. Copy is disabled while the terminal has
+   no selection. Each item does what its key does, and the menu shows the
+   keys. The pane that was clicked is the pane in front, and the items act
+   on it. The menu is drawn as the window draws its menus
+   (`window.menuStyle`), where the tab's menu is drawn.
+4. A paste from a click or from the menu is the base's paste: files on the
+   clipboard are typed as their paths
+   ([copy, paste, and drop](copy-paste-and-drop.md)), and text of several
+   lines asks first as `terminal.integrated.enableMultiLinePasteWarning`
+   says.
+5. A click on the terminal's scrollbar does none of this.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -638,3 +671,36 @@ cursor, and the scrollback, works as in the base.
     Cancel; it closed the window with no question when the shell ran
     nothing, and with `never` though `sleep 600` ran; with `always` it asked
     "The Agent Area has an open session." for a shell that ran nothing.
+16. A unit test of clicks shows what a secondary click does for each value
+    of `terminal.integrated.rightClickBehavior`, with and without a
+    selection and with Shift, and what a middle click does for each value of
+    `terminal.integrated.middleClickBehavior`.
+17. Recorded manual check, in a real window with a Terminal session that
+    printed `hello world`:
+    - with `default`, a secondary click on a word shows the menu with its
+      seven items and their keys, with Copy disabled; Select All and then
+      Copy from the menu put the terminal's text on the clipboard; Paste
+      types the clipboard at the prompt; Clear leaves the prompt alone;
+    - with `selectWord`, the word is selected, and Copy from the menu copies
+      it;
+    - with `copyPaste`, a secondary click with a selection copies it and
+      shows no menu, and the next secondary click types it at the prompt;
+    - with `paste`, a secondary click types the clipboard and shows no menu;
+    - with `nothing`, a secondary click shows no menu and types nothing, and
+      with Shift held it shows the menu;
+    - a middle click types the clipboard with
+      `terminal.integrated.middleClickBehavior` as `paste`, and nothing with
+      `default`.
+
+    Recorded 2026-11-21 in a development build with real pointer events:
+    with `default` the menu held Copy ⌘C, disabled, Paste ⌘V, Select All ⌘A,
+    Clear ⌘K, Split Pane Right ⌘D, Split Pane Down ⇧⌘D, and Close Pane ⌘W,
+    and nothing was selected; after Select All, Copy put the whole text on
+    the clipboard, Paste typed `echo pasted` at the prompt, and Clear left
+    the prompt's row. With `selectWord` the click selected `hello`, and Copy
+    copied it. With `copyPaste` a click over the selected `world` copied it,
+    took the selection away, and showed no menu, and the next click typed
+    `world`. With `paste` a click typed the clipboard, with `nothing` it
+    typed nothing and showed no menu, and with Shift held it showed the
+    menu. A middle click typed the clipboard with `paste` and nothing with
+    `default`.
