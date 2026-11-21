@@ -38,9 +38,15 @@ export function assertHiddenFamiliesNameTheirCommands() {
 		throw new Error(`No log of a window under ${logsPath}`);
 	}
 	for (const log of logs) {
-		const line = fs.readFileSync(path.join(logsPath, log), 'utf8').split('\n').find(candidate => candidate.includes('[BaseHalf] commands of a hidden family that no pattern names:'));
+		const lines = fs.readFileSync(path.join(logsPath, log), 'utf8').split('\n');
+		const line = lines.find(candidate => candidate.includes('[BaseHalf] commands of a hidden family that no pattern names:'));
 		if (line) {
 			throw new Error(`Commands of a hidden family that no pattern names: ${line.slice(line.indexOf('names:') + 6).trim()}`);
+		}
+		// A command of BaseHalf's own that has a key has a name: Keyboard Shortcuts lists none by its id (D150).
+		const keyed = lines.find(candidate => candidate.includes('[BaseHalf] commands of BaseHalf with a key and no name:'));
+		if (keyed) {
+			throw new Error(`Commands of BaseHalf with a key and no name: ${keyed.slice(keyed.indexOf('name:') + 5).trim()}`);
 		}
 	}
 }

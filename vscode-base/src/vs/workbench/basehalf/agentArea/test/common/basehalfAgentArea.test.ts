@@ -15,7 +15,6 @@ import {
 	BASEHALF_AGENT_AREA_NEW_TERMINAL_COMMAND_ID,
 	BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_RESTART_ACTIVE_COMMAND_ID,
-	BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID,
 	BASEHALF_AGENT_SESSION_CHOICES,
 	type BaseHalfAgentSessionState,
 	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
@@ -282,7 +281,6 @@ suite('BaseHalfAgentArea', () => {
 	});
 
 	test('takes over the VS Code terminal toggle command without losing the stock view open command', () => {
-		assert.strictEqual(BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID, 'basehalf.agentArea.toggle');
 		assert.strictEqual(BASEHALF_AGENT_AREA_RESTART_ACTIVE_COMMAND_ID, 'basehalf.agentArea.restartActive');
 		assert.strictEqual(BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID, 'basehalf.agentArea.killActive');
 		assert.strictEqual(TerminalCommandId.Toggle, 'workbench.action.terminal.toggleTerminal');

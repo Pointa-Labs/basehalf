@@ -36,6 +36,7 @@ import { IPreferencesService } from '../../services/preferences/common/preferenc
 import { QuickInputAlignmentContextKey } from '../../../platform/quickinput/browser/quickInput.js';
 import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { isBaseHalfHiddenCommand } from '../../basehalf/shell/common/basehalfHiddenCommands.js';
+import { toBaseHalfWords } from '../../basehalf/shell/common/basehalfWords.js';
 
 // Register Icons
 const menubarIcon = registerIcon('menuBar', Codicon.layoutMenubar, localize('menuBarIcon', "Represents the menu bar"));
@@ -332,7 +333,7 @@ export class ToggleSidebarVisibilityAction extends Action2 {
 		const alertMessage = isCurrentlyVisible
 			? localize('sidebarHidden', "Primary Side Bar hidden")
 			: localize('sidebarVisible', "Primary Side Bar shown");
-		alert(alertMessage);
+		alert(toBaseHalfWords(alertMessage)); // BaseHalf: a screen reader hears BaseHalf's words (D150)
 	}
 }
 
@@ -1338,7 +1339,7 @@ const CreateToggleLayoutItem = (id: string, active: ContextKeyExpression, label:
 	return {
 		id,
 		active,
-		label,
+		label: toBaseHalfWords(label), // BaseHalf: a row names its part in BaseHalf's words (D150)
 		visualIcon,
 		activeIcon: Codicon.eye,
 		inactiveIcon: Codicon.eyeClosed,

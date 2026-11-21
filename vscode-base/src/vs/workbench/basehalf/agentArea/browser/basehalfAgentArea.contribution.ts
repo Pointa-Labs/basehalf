@@ -15,7 +15,6 @@ import { KeybindingWeight } from '../../../../platform/keybinding/common/keybind
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
 import {
-	BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_RESTART_ACTIVE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_NEW_TAB_COMMAND_ID,
@@ -66,26 +65,14 @@ registerAction2(class BaseHalfToggleTerminalAgentAreaAction extends Action2 {
 			title: localize2('basehalf.toggleAgentAreaTerminal', 'Toggle Agent Area Terminal'),
 			category: localize2('basehalf.category', 'BaseHalf'),
 			f1: true,
+			// The two keys that show a terminal in the base: the terminal's own, and the key of the panel,
+			// which BaseHalf does not have (commands and menus, "One command for one thing", D150).
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyCode.Backquote,
-				mac: { primary: KeyMod.WinCtrl | KeyCode.Backquote },
+				secondary: [KeyMod.CtrlCmd | KeyCode.KeyJ],
+				mac: { primary: KeyMod.WinCtrl | KeyCode.Backquote, secondary: [KeyMod.CtrlCmd | KeyCode.KeyJ] },
 				weight: KeybindingWeight.WorkbenchContrib
 			}
-		});
-	}
-
-	run(accessor: ServicesAccessor): Promise<void> {
-		return accessor.get(IBaseHalfAgentAreaService).toggle();
-	}
-});
-
-registerAction2(class BaseHalfToggleAgentAreaAction extends Action2 {
-	constructor() {
-		super({
-			id: BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID,
-			title: localize2('basehalf.toggleAgentArea', 'Toggle Agent Area'),
-			category: localize2('basehalf.category', 'BaseHalf'),
-			f1: true
 		});
 	}
 

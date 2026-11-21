@@ -50,6 +50,7 @@ import { ITelemetryService } from '../../platform/telemetry/common/telemetry.js'
 import { IAuxiliaryWindowService } from '../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { CodeWindow, mainWindow } from '../../base/browser/window.js';
 import { localize } from '../../nls.js';
+import { toBaseHalfWords } from '../basehalf/shell/common/basehalfWords.js';
 
 //#region Layout Implementation
 
@@ -2347,9 +2348,10 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 	toggleSecondarySideBar(): void {
 		const visible = !this.isSecondarySideBarVisible();
 		this.setPartHidden(!visible, Parts.AUXILIARYBAR_PART);
-		alert(visible
+		// BaseHalf: a screen reader hears BaseHalf's words (D150).
+		alert(toBaseHalfWords(visible
 			? localize('auxiliaryBarVisible', "Secondary Side Bar shown")
-			: localize('auxiliaryBarHidden', "Secondary Side Bar hidden"));
+			: localize('auxiliaryBarHidden', "Secondary Side Bar hidden")));
 	}
 
 	isSecondarySideBarVisible(): boolean {

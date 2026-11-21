@@ -139,17 +139,17 @@ export async function assertAgentSeesSelection(page) {
 	const agentArea = page.locator('.part.auxiliarybar');
 	const agentAreaWasShown = await agentArea.isVisible();
 	if (agentAreaWasShown) {
-		await runCommand(page, 'Toggle Agent Area');
+		await runCommand(page, 'Toggle Agent Area Terminal');
 		await agentArea.waitFor({ state: 'hidden', timeout: 10_000 });
 	}
 	await page.waitForTimeout(300);
 	const alone = await measureEntry();
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await agentArea.waitFor({ state: 'visible', timeout: 10_000 });
 	await page.waitForTimeout(500);
 	const underAgentArea = await measureEntry();
 	if (!agentAreaWasShown) {
-		await runCommand(page, 'Toggle Agent Area');
+		await runCommand(page, 'Toggle Agent Area Terminal');
 		await agentArea.waitFor({ state: 'hidden', timeout: 10_000 });
 	}
 	// Under the Agent Area the entry is as wide as its text and takes at most

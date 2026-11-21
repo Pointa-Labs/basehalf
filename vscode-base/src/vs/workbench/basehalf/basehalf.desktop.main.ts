@@ -20,3 +20,5 @@ import '../../platform/basehalfFiles/electron-browser/basehalfFileClonesService.
 // The write of the clipboard in several forms at once, with the window's clipboard of BaseHalf over it (D104).
 import '../../platform/basehalfClipboard/electron-browser/basehalfPasteboardService.js';
 import './clipboard/electron-browser/basehalfClipboardService.js';
+// Every context menu of the window, also one the base draws itself, as BaseHalf has it (D150).
+import './shell/electron-browser/basehalfContextMenuService.js';

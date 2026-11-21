@@ -23,6 +23,7 @@ import { Categories } from '../../../../platform/action/common/actionCommonCateg
 import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
 import { IDebugService, REPL_VIEW_ID } from '../../debug/common/debug.js';
 import { isBaseHalfViewContainerOffered, isBaseHalfViewOffered } from '../../../basehalf/shell/common/basehalfOfferedViews.js';
+import { toBaseHalfWords } from '../../../basehalf/shell/common/basehalfWords.js';
 
 interface IViewQuickPickItem extends IPickerQuickAccessItem {
 	containerLabel: string;
@@ -87,7 +88,7 @@ export class ViewQuickAccessProvider extends PickerQuickAccessProvider<IViewQuic
 					separatorLabel = lastContainer;
 				}
 
-				filteredViewEntriesWithSeparators.push({ type: 'separator', label: separatorLabel });
+				filteredViewEntriesWithSeparators.push({ type: 'separator', label: toBaseHalfWords(separatorLabel) }); // BaseHalf: a group names its part in BaseHalf's words (D150)
 
 			}
 

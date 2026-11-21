@@ -59,6 +59,7 @@ import { IEditorGroupsService, IEditorPart } from '../../../services/editor/comm
 import { InputMode } from '../../../../editor/common/inputMode.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { baseHalfShownTextEditors } from '../../../basehalf/cardDetail/common/basehalfShownTextEditor.js';
+import { isBaseHalfHiddenCommand } from '../../../basehalf/shell/common/basehalfHiddenCommands.js';
 
 class SideBySideEditorEncodingSupport implements IEncodingSupport {
 	constructor(private primary: IEncodingSupport, private secondary: IEncodingSupport) { }
@@ -1207,7 +1208,8 @@ export class ChangeLanguageAction extends Action2 {
 		if (hasLanguageSupport && resource) {
 			const ext = extname(resource) || basename(resource);
 
-			if (galleryService.isEnabled()) {
+			// BaseHalf: no entry for a search of the Marketplace, whose command BaseHalf does not have (D150).
+			if (galleryService.isEnabled() && !isBaseHalfHiddenCommand('workbench.extensions.action.showExtensionsForLanguage')) {
 				galleryAction = toAction({
 					id: 'workbench.action.showLanguageExtensions',
 					label: localize('showLanguageExtensions', "Search Marketplace Extensions for '{0}'...", ext),

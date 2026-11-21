@@ -74,7 +74,7 @@ key: Command, or Control where the system has no Command key.
 | Command | Default keys | Where the key acts |
 | --- | --- | --- |
 | Zoom Canvas In | Cmd+=, Cmd+Shift+=, Cmd+NumPad + | the canvas has the keyboard, wherever in it |
-| Zoom Canvas Out | Cmd+-, Cmd+NumPad - | the same |
+| Zoom Canvas Out | Cmd+-, Cmd+Shift+-, Cmd+NumPad - | the same |
 | Zoom Canvas to 100% | Cmd+0, Cmd+NumPad 0 | the same |
 | Fit Canvas to Screen | none | |
 | Tidy Canvas | Shift+Alt+F | the canvas has the keyboard, outside a place for text |
@@ -89,7 +89,12 @@ key: Command, or Control where the system has no Command key.
 
 - **Zoom.** The three keys are the keys that zoom the window. While the
   canvas has the keyboard they zoom the canvas, also from a note or a code
-  card that is edited there; anywhere else they zoom the window.
+  card that is edited there; anywhere else they zoom the window. Each
+  command has every key the window's command has: Zoom Canvas Out had no
+  Cmd+Shift+-, so on the canvas Cmd+Shift+= zoomed the canvas in and
+  Cmd+Shift+- zoomed the window out (D150). On a system where the base
+  gives Control+Shift+- to Go Forward, the window's zoom has no such key;
+  BaseHalf is released for a system where it has.
 - **Fit Canvas to Screen** is what the menu of the zoom control does. It had
   no key, and has none until a user gives it one.
 - **Move Card** moves by one pixel of the canvas at 100%, **by 10** by ten.

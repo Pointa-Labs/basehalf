@@ -35,7 +35,7 @@ export async function assertAgentAreaChoices(page) {
 	await dismissAgentToasts(page);
 	// With no tabs left the empty-state picker is the whole surface.
 	await page.locator('.basehalf-agent-area-empty.visible').waitFor({ state: 'visible', timeout: 15_000 });
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
@@ -55,11 +55,12 @@ async function assertAgentAreaOwnsAuxiliaryBarChrome(page) {
 	}, null, { timeout: 15_000 });
 }
 
+// The base's toggle of the part is the one command named Toggle Agent Area (commands and menus, D150).
 export async function assertGlobalAuxiliaryToggleOpensAgentArea(page) {
-	await runCommand(page, 'Toggle Secondary Side Bar Visibility');
+	await runCommand(page, 'View: Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 15_000 });
 	await assertAgentAreaOwnsAuxiliaryBarChrome(page);
-	await runCommand(page, 'Toggle Secondary Side Bar Visibility');
+	await runCommand(page, 'View: Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
@@ -89,7 +90,7 @@ export async function assertAgentAreaTerminalCommand(page) {
 	await assertAgentAreaTerminalVersionAndWheelReports(page);
 	await assertAgentAreaTerminalEdges(page);
 	await assertStockTerminalPanelHidden(page);
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 	await assertStockTerminalPanelHidden(page);
 }
@@ -248,12 +249,12 @@ export async function assertAgentAreaTuiSession(page) {
 	await page.locator('.basehalf-agent-tab.active .basehalf-agent-tab-close').click();
 	await page.waitForFunction(expected => document.querySelectorAll('.basehalf-agent-tab').length < expected, tabCountBefore, { timeout: 20_000 });
 	await dismissAgentToasts(page);
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 export async function assertAgentAreaTabsAndSplits(page) {
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
 	await runCommand(page, 'Split Agent Pane Right');
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 2, null, { timeout: 20_000 });
@@ -267,7 +268,7 @@ export async function assertAgentAreaTabsAndSplits(page) {
 	await dismissAgentToasts(page);
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 1, null, { timeout: 20_000 });
 	await assertStockTerminalPanelHidden(page);
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
@@ -277,7 +278,7 @@ export async function assertAgentAreaTabsAndSplits(page) {
  * when it is drawn again. The step makes the strip narrow, so that three tabs are more than it shows.
  */
 export async function assertAgentAreaTabStripMovesWithTheWheel(page) {
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
 	const strip = page.locator('.basehalf-agent-tabstrip');
 	await strip.evaluate(element => { element.style.flex = '0 0 130px'; });
@@ -321,7 +322,7 @@ export async function assertAgentAreaTabStripMovesWithTheWheel(page) {
 		await dismissAgentToasts(page);
 	}
 	await strip.evaluate(element => { element.style.flex = ''; });
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
@@ -919,7 +920,7 @@ export async function assertAgentAreaReopensSessions(page) {
 
 	await killAll();
 	await waitForReading(tabs, shown => shown.length === 0, 'no tab after Kill All Terminals');
-	await runCommand(page, 'Toggle Agent Area');
+	await runCommand(page, 'Toggle Agent Area Terminal');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 

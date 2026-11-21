@@ -18,6 +18,7 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { SwitchCompositeViewAction } from '../compositeBarActions.js';
+import { toBaseHalfWords } from '../../../basehalf/shell/common/basehalfWords.js';
 
 const maximizeIcon = registerIcon('auxiliarybar-maximize', Codicon.screenFull, localize('maximizeIcon', 'Icon to maximize the secondary side bar.'));
 const closeIcon = registerIcon('auxiliarybar-close', Codicon.close, localize('closeIcon', 'Icon to close the secondary side bar.'));
@@ -77,7 +78,7 @@ export class ToggleAuxiliaryBarAction extends Action2 {
 		const alertMessage = isCurrentlyVisible
 			? localize('auxiliaryBarHidden', "Secondary Side Bar hidden")
 			: localize('auxiliaryBarVisible', "Secondary Side Bar shown");
-		alert(alertMessage);
+		alert(toBaseHalfWords(alertMessage)); // BaseHalf: a screen reader hears BaseHalf's words (D150)
 	}
 }
 

@@ -7371,3 +7371,88 @@ canvas that named the scene element ask the part instead. No file of the base ch
 - Code that closes something of the canvas asks `keyboardHome` and names no element
   ([architecture invariants](harness/architecture-invariants.md#product-shell)).
 - What a screen reader says at a return was not heard; the names were read from the page.
+
+## D150 — The shell says Sidebar and Agent Area, and one thing has one command (NEW, 2026-11-21)
+
+**Decision.** Wherever a user reads a name of the base's for a part of the window, the shell shows BaseHalf's: the part at
+the left is the Sidebar, the part at the right the Agent Area. The two names are one table with one function, and the
+places that hand names out ask it: BaseHalf's menu service for every item of every menu, a context menu service of
+BaseHalf's for every context menu, Keyboard Shortcuts for the name of a row, and the Settings editor for a description. A
+user sees one command for one thing. A command of BaseHalf's own is listed in Keyboard Shortcuts by its name or not at
+all. A context menu holds no hidden command, whoever makes it. See
+[the commands and menus BaseHalf has](specs/commands-and-menus.md#the-words-of-the-shell).
+
+With it:
+
+- **Toggle Agent Area** is the base's toggle of the part: the title bar's button, View › Appearance, Customize Layout, the
+  Command Palette, and Keyboard Shortcuts name it so, with Option+Command+B. BaseHalf's own command of that name is gone.
+- **Toggle Agent Area Terminal** stays, with Control+Backquote and Command+J: it shows the Agent Area with a session,
+  starting the First Session when there is none.
+- Hidden, by D141's rule: the panel's toggle and the toggle of the base's terminal view, comment threads, the Refactor
+  Preview, the terminal's kept sessions, the commands "in Group" that a command without the words does, the order of
+  tabs, the sides of a split editor, an editor's own window, the places of views, Product Icon Theme, and the quick
+  access of the base's agents.
+- Configure Snippets is a command of the Command Palette only: the gear's menu and the Preferences menu do not hold it.
+- Zoom Canvas Out has Command+Shift+-, as Zoom Canvas In has Command+Shift+=.
+
+**Why.** The owner's request of D143: the product is polished along the way. Seen in the real window on 2026-11-21, after
+D141 and D146 had taken out what BaseHalf does not have:
+
+- The base's names stood where BaseHalf has its own: "Toggle Primary Side Bar (⌘B)" and "Toggle Secondary Side Bar (⌥⌘B)"
+  on the title bar's buttons, eleven commands of the palette, the rows of Customize Layout, the groups of Open View,
+  the context menus, and "Secondary Side Bar shown" for a screen reader. The base's files hold the two names 76 times in
+  13 files.
+- Five commands showed and hid the Agent Area under five names, three of them BaseHalf's own remaps of the terminal's
+  and the panel's toggle.
+- "View: Toggle Terminal" of the palette stopped the window. It opens the base's terminal view in the panel, BaseHalf
+  closes that view, and the two went on until the window was killed: a whole processor, memory growing to 3.6 GB, no
+  answer to the debugger. Reproduced twice.
+- Keyboard Shortcuts listed 29 commands of BaseHalf's own by bare ids. 23 had no key: the commands of the canvas's
+  menus, which take what the menu was opened on, and commands that BaseHalf's parts call. Six had a key and no name.
+- The context menu of the sidebar's icons, which the base draws without the menu service, offered Extensions, Run and
+  Debug, Move To, Activity Bar Position, and "Move Primary Side Bar Right", which runs a hidden command.
+
+**Where the words are applied, and why there.** A name reaches a user from a registry through a few places, and a change
+at those places covers what a base update adds: the menu service (the title bar, the application menu, the gear's menu,
+the palette, the menus of views), the context menu service (every context menu, also one made by hand), the model of
+Keyboard Shortcuts, and the Settings editor's description. An item whose name holds a word of the base's is handed out as
+a copy; the registry keeps the base's text, so the base's own lookups by name still work. Five places are the base's own
+drawing code and hold no name of a registry: the rows of Customize Layout, the groups of Open View, and what the layout and
+the two toggles say to a screen reader. There the same function is called at the place, a marked line each.
+
+**Alternatives.**
+- *Editing the 76 strings.* Most are in commands BaseHalf hides, every one is a conflict at a base update, and a string
+  a base update adds would come in the base's words.
+- *Changing the text where the base localizes it.* It is the base's lowest layer, and it would change texts no user
+  reads, the names of hidden commands among them.
+- *Rewriting the entries of the menu registry at a start.* Extensions register later, several entries are separate
+  objects for one command, and the base's code would read changed names where it expects its own.
+- *BaseHalf's own Toggle Agent Area as the one command.* The title bar's button, the View menu, and Customize Layout run
+  the base's toggle, and a button's tooltip shows the key of its own command: the key a user changes in Keyboard
+  Shortcuts has to be the key the button shows.
+- *One command for the button and for the keys of a terminal.* The button shows the Agent Area as it is and starts no
+  session; Control+Backquote and Command+J start the First Session when there is none
+  ([Agent Area terminal](specs/agent-area-terminal.md#the-first-session)). Making them one changes one of the two rules,
+  which are the Agent Area's to change. They stay two commands, under two names that say which is which.
+- *Names for the canvas's menu commands, and a key on the selection.* The keys of the selection are commands already
+  (D146): Duplicate, Delete, Rename, Open. A second set under the menu's ids would be two commands for one thing.
+- *A marked change in each menu the base draws itself.* There are at least four, and a base update adds entries to
+  each. Every context menu passes one service.
+- *Hiding Close Other Editors in Group and Close Saved Editors in Group.* They have no twin without the words; they stay
+  under the base's names.
+
+**Consequences.**
+- The Command Palette lists 471 commands where it listed 491, and Keyboard Shortcuts 1,631 rows where it listed 1,757:
+  124 commands left it, and none of BaseHalf's own is listed by its id.
+- The panel's command is hidden. Command+J does what it did, as a key of Toggle Agent Area Terminal.
+  [Layout controls](specs/layout-controls.md) says so, and says where the sidebar is as the catalog keeps it.
+- "Toggle Agent Area" of the palette is the base's toggle: with no session it shows the sessions to choose from. Before,
+  that name ran BaseHalf's own toggle, which started the First Session.
+- The names of six commands that have only a key are in one list of the shell
+  (`shell/common/basehalfKeyedCommands.ts`), since two of the commands are registered in folders this decision stayed
+  out of. The window names a command of BaseHalf's with a key and no name in its log, and the smoke fails on the line.
+- Nine of the base's files carry a marked line or two for the words, for an entry that led nowhere, or for what
+  Keyboard Shortcuts lists.
+- Left under the base's words, since BaseHalf has no word of its own for them: Focus Activity Bar, which goes to the
+  sidebar's icons; Close, Maximize, and Toggle Sidebar of the "Modal Editor", which is the overlay; and "editor" for
+  Source and for what Source Control opens.
