@@ -6997,7 +6997,25 @@ to be polished along the way. D143 named the four; this decision is what each do
   the icon color and the color of a description, are both `#8c8c8c` in the product's theme. A user could not see
   whether cards snap.
 - The field of the zoom menu drew two frames, its own and the workbench's ring for a focused field inside it.
-- The library's dots scale with the zoom: 0.4 pixels across at 20%, 8 at 400%. Its lines stay 1 pixel wide.
+- The library's dots scale with the zoom, read in its source: 0.4 pixels across at 20% and 8 at 400% for dots of 2 at
+  100%. Its lines stay 1 pixel wide.
+
+And after the change, in the same window:
+
+- With Zooms, 100 pixels of the wheel made the zoom 0.8706 times what it was and the place under the pointer moved 0.006
+  pixels over ten notches; with the zoom key they moved the canvas 100 pixels. Thirty events of 4 pixels zoomed in one
+  direction over 31 frames to 0.8467. One event of 1,200 pixels zoomed by 0.7071. A wheel on a long note and on a code
+  card scrolled the card; at the note's bottom the next gesture zoomed the canvas. A pinch, and a drag with the middle
+  and with the right button, did what they did before with both values.
+- The setting written while events of one gesture arrived 100 ms apart changed none of the 22 events; the first event
+  after the quiet time did what the new value says.
+- The magnet: a click showed in the frame of the click and was in the settings file 71 ms later; the row of Settings and a
+  settings file changed the magnet at once (232 ms from the file); after a restart with it off, it never showed on.
+- Dots: every whole dot was the same 2 by 2 pixels at 22% at 20%, 37%, 100%, and 400%, also with the canvas at six
+  places a part of a pixel apart; over a zoom from 20% to 400% no fading dot changed by more than 0.028 of a whole dot
+  from frame to frame. Moving the canvas for two seconds took the same frames with dots, with lines, and with nothing
+  drawn (6.0 to 6.1 ms at the median).
+- A video that played under the pointer paused 237 ms after the setting was turned off in the settings file.
 
 **What was set aside.**
 - *Handing the choice to the canvas library* (its pan-on-scroll and zoom-on-scroll options, and its zoom key). A change
@@ -7026,8 +7044,10 @@ to be polished along the way. D143 named the four; this decision is what each do
   feature reads and writes `basehalf.canvas.snap`; the card renderer hands the player whether the pointer plays.
 - A gesture of the canvas that zooms goes through the library's viewport, as a pinch does, so the zoom control, the
   cards, and the saved view follow it in the same way.
-- The dots are drawn on a canvas element of the scene's size, redrawn when the view changes: about 1,200 dots at most
-  on a scene of 1,130 by 831 pixels.
+- The dots are drawn on a canvas element of the scene's size, redrawn when the view, the color theme, or the pixels of
+  the screen change: at most about 2,400 dots on a scene of 1,130 by 831 pixels, three in four of them the fading ones.
+- The canvas library has no zoom key of its own any more, and the wheel with the zoom key zooms through the same code
+  as the wheel that zooms.
 - The view controls: the magnet on has the look of a toggle that is on; its name is Snap to Cards, as its row; the field
   of the zoom menu has one frame.
 - How a mouse wheel feels was not measured, no mouse being at hand: a wheel that the system reports in small steps when
