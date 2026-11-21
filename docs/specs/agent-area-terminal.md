@@ -120,6 +120,8 @@ went with them. Run in the real window that day:
 - A Terminal session was named Terminal whatever ran in it, and a title
   that a program set showed nowhere.
 - A secondary click selected the word under it and showed no menu.
+- Open in Integrated Terminal on a folder in Files showed nothing: it
+  created a terminal of the base's panel, which BaseHalf hides.
 
 ## Goals
 
@@ -554,6 +556,24 @@ who shows the Agent Area again after hiding it.
 6. A bell changes only its mark on the tab: the strip is not drawn again
    ([The name of a session](#the-name-of-a-session), rule 6).
 
+#### Open in Integrated Terminal
+
+`terminal.explorerKind` and `terminal.sourceControlRepositoriesKind` say
+which terminal Open in Terminal starts from Files and from the repositories
+of Source Control. With `integrated` or `both`, their menus hold Open in
+Integrated Terminal.
+
+1. Open in Integrated Terminal opens a Terminal session of the Agent Area
+   whose shell starts in the folder: the folder that was chosen, the folder
+   of a file that was chosen, or the root of the repository. The Agent Area
+   shows, with the session in front and the keyboard in it.
+2. With several items chosen in Files, each folder among them gets one
+   session.
+3. No terminal of the base's panel is created. The entry goes the way the
+   terminal commands go that BaseHalf turns into sessions of the Agent Area.
+4. With `external`, Open in External Terminal starts the system's terminal
+   as in the base.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -844,3 +864,20 @@ who shows the Agent Area again after hiding it.
     to sound, the base played `terminalBell.mp3` for a ring in view and for
     one out of view, and nothing at the signal's default or with the sound
     off. The tabs kept their elements throughout.
+22. Recorded manual check, in a real window whose folder holds a folder
+    `sub` and is a repository: Open in Integrated Terminal on `sub` in Files
+    opens a Terminal session in the Agent Area whose `pwd` is `sub`, with
+    the keyboard in it; on a file it opens one in the file's folder; and
+    from a repository of Source Control one in the repository's root. The
+    base's panel stays hidden, and the window answers half a minute later.
+
+    Recorded 2026-11-21 in a development build with real pointer events:
+    from `sub` in Files the tab read `zsh` with `sub` and `pwd` printed the
+    path of `sub`; from `scene.md` and from the repository's row in
+    Changes, shown with `scm.alwaysShowRepositories`, `pwd` printed the
+    folder's root; the keyboard was in the new session each time. Half a
+    minute later the window answered, with three sessions and no panel.
+    Before the change, on this branch, the entry from Files showed nothing,
+    and about ten seconds later the window no longer answered, its renderer
+    at a whole core; this was not run on the commit the branch started from.
+
