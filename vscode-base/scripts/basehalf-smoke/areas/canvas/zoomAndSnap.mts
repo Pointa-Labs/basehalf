@@ -126,6 +126,38 @@ export async function assertCanvasWheelFollowsItsSetting(page) {
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 }
 
+/**
+ * Each part zooms by itself, criteria 2 and 3 (D153): at a window's zoom of 120% a card is as large on the screen as
+ * at 100%, the zoom control says what it said, and the canvas draws at its zoom divided by the window's.
+ */
+export async function assertCanvasKeepsItsSizeAtAWindowZoom(page) {
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	const read = () => page.evaluate(() => {
+		const card = document.querySelector('.basehalf-canvas-workbench .react-flow__node')?.getBoundingClientRect();
+		return {
+			ratio: window.devicePixelRatio,
+			card: card ? card.width * window.devicePixelRatio : -1,
+			control: document.querySelector('.basehalf-canvas-zoom-value')?.textContent?.trim(),
+			drawn: Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom'))
+		};
+	});
+	const before = await read();
+	if (before.card <= 0 || before.control !== '100%') {
+		throw new Error(`Expected a card on the canvas at 100%: ${JSON.stringify(before)}`);
+	}
+	await withWorkspaceSettings(page, { 'window.zoomLevel': 1 }, async () => {
+		const zoomed = await waitForReading(read, reading => Math.abs(reading.ratio / before.ratio - 1.2) < 0.01 && Math.abs(reading.drawn - 0.833333) < 0.000001, 'the window at 120% and the canvas drawn at 100% / 1.2');
+		if (Math.abs(zoomed.card - before.card) > 1 || zoomed.control !== before.control) {
+			throw new Error(`At a window's zoom of 120% the card should keep its size on the screen and the zoom control its percentage: ${JSON.stringify({ before, zoomed })}`);
+		}
+	});
+	const back = await waitForReading(read, reading => Math.abs(reading.ratio - before.ratio) < 0.01 && reading.drawn === 1, 'the window back at 100% and the canvas drawn at 100%');
+	if (Math.abs(back.card - before.card) > 1 || back.control !== before.control) {
+		throw new Error(`Back at a window's zoom of 100% the card should have its size: ${JSON.stringify({ before, back })}`);
+	}
+}
+
 // Canvas selection and arrangement, criteria 39, 40, and 42 (D144): the magnet
 // and the setting Snap to Cards are one value, and the magnet on and off
 // differ to the eye.

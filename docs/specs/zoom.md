@@ -183,6 +183,10 @@ Pressed in the real window on 2026-11-22, with the window at 100%:
   Area's text with their range and their default; the terminal's font at a
   window's zoom of 120%.
 - The smoke's workbench suite presses the three keys in a terminal of the
-  Agent Area (criterion 1); its canvas suite zooms the window from Files and
-  measures a card and the zoom control (criteria 2 and 3).
-- In the real window: criteria 2 to 6, with a terminal that runs an agent.
+  Agent Area (`agent-area-text-zooms-by-itself`, criterion 1); its canvas
+  suite sets the window's zoom to 120% in the folder's settings and measures
+  a card, the zoom control, and the zoom the canvas draws at
+  (`canvas-keeps-its-size-at-a-window-zoom`, criterion 2).
+- In the real window, measured on 2026-11-22: criteria 1 to 6 with a shell
+  in the terminal, and every frame drawn over four changes of the window's
+  zoom (575 frames, no card and no text at another size).

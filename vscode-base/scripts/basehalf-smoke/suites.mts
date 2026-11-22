@@ -31,7 +31,7 @@ import { assertNoteHasOneTypography, assertNoteOpensInTheFormOfItsSetting, asser
 import { assertCanvasNoteUndoAsksNothing } from './areas/canvas/noteUndo.mts';
 import { assertCanvasNoteLinksOpenTheirTargets, assertCanvasNoteMediaPlaysOnWhenDrawnAgain, assertCanvasNoteMediaReactAtRest, assertCanvasNotePaletteInBothAppearances, assertCanvasNotePictureEditsOnTheCard, assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
 import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
-import { assertCanvasBackgroundFollowsItsSetting, assertCanvasMagnetIsItsSetting, assertCanvasSnapGuides, assertCanvasWheelFollowsItsSetting, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
+import { assertCanvasBackgroundFollowsItsSetting, assertCanvasKeepsItsSizeAtAWindowZoom, assertCanvasMagnetIsItsSetting, assertCanvasSnapGuides, assertCanvasWheelFollowsItsSetting, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
 import {
 	assertBadgeClosesOnRichEditorActivation,
 	assertBadgeQuickAccessFindsNote,
@@ -96,6 +96,7 @@ import {
 	assertAgentAreaChoices,
 	assertAgentAreaReopensSessions,
 	assertAgentAreaTabStripMovesWithTheWheel,
+	assertAgentAreaTextZoomsByItself,
 	assertAgentAreaTabsAndSplits,
 	assertAgentAreaTerminalCommand,
 	assertAgentAreaTuiSession,
@@ -174,6 +175,7 @@ async function runWorkbenchSuite(page) {
 	await step('agent-area-tabs-and-splits', () => assertAgentAreaTabsAndSplits(page));
 	await step('agent-area-tab-strip-moves-with-the-wheel', () => assertAgentAreaTabStripMovesWithTheWheel(page));
 	await step('agent-area-reopens-sessions', () => assertAgentAreaReopensSessions(page));
+	await step('agent-area-text-zooms-by-itself', () => assertAgentAreaTextZoomsByItself(page));
 	await step('source-control-git-provider', () => assertSourceControlPanel(page));
 	await step('source-control-changes-as-tree', () => assertSourceControlChangesAsTree(page));
 	await step('source-control-leaves-out-system-files', () => assertSourceControlLeavesOutSystemFiles(page));
@@ -266,6 +268,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-create-from-connection', () => assertCanvasCreateFromConnection(page));
 	await step('canvas-pulled-line-is-the-connection', () => assertCanvasPulledLineIsTheConnection(page));
 	await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
+	await step('canvas-keeps-its-size-at-a-window-zoom', () => assertCanvasKeepsItsSizeAtAWindowZoom(page));
 	await step('canvas-wheel-follows-its-setting', () => assertCanvasWheelFollowsItsSetting(page));
 	await step('canvas-magnet-is-its-setting', () => assertCanvasMagnetIsItsSetting(page));
 	await step('canvas-background-follows-its-setting', () => assertCanvasBackgroundFollowsItsSetting(page));

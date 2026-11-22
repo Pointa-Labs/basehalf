@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
-import { app, product, runRoot } from '../../context.mts';
+import { app, product, runRoot, userDataDir } from '../../context.mts';
 import { waitForAgentAreaTerminalPrompt } from '../../lib/agentArea.mts';
 import { runCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 import { waitForReading } from '../../lib/steps.mts';
@@ -326,6 +326,39 @@ export async function assertAgentAreaTabStripMovesWithTheWheel(page) {
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
+/**
+ * Each part zooms by itself, criterion 1 (D153): the keys that zoom, pressed in a terminal of the Agent Area, change
+ * the size of its text, written as terminal.integrated.fontSize, and leave the window's zoom as it was.
+ */
+export async function assertAgentAreaTextZoomsByItself(page) {
+	await runCommand(page, 'Toggle Agent Area Terminal');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
+	await page.locator('.basehalf-agent-area-session.active .xterm').first().click();
+	const settingsFile = path.join(userDataDir, 'User', 'settings.json');
+	const read = () => page.evaluate(() => {
+		const wrapper = document.querySelector('.basehalf-agent-area-session.active .terminal-wrapper') as (HTMLElement & { xterm?: { options?: { fontSize?: number } } }) | null;
+		return { ratio: window.devicePixelRatio, font: wrapper?.xterm?.options?.fontSize ?? 0 };
+	}).then(reading => {
+		const text = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, 'utf8') : '';
+		const written = /"terminal\.integrated\.fontSize":\s*([\d.]+)/.exec(text)?.[1];
+		return { ...reading, written: written === undefined ? undefined : Number(written) };
+	});
+	const key = process.platform === 'darwin' ? 'Meta' : 'Control';
+	const before = await read();
+	await page.keyboard.press(`${key}+Equal`);
+	const larger = await waitForReading(read, reading => reading.font === before.font + 1 && reading.written === before.font + 1, 'the text of the Agent Area one pixel larger, written to the settings');
+	await page.keyboard.press(`${key}+Minus`);
+	const smaller = await waitForReading(read, reading => reading.font === before.font && reading.written === undefined, 'the text back at its default size, with no value written');
+	await page.keyboard.press(`${key}+Equal`);
+	await page.keyboard.press(`${key}+Digit0`);
+	const reset = await waitForReading(read, reading => reading.font === before.font && reading.written === undefined, 'the text at its default size after Cmd+0');
+	if ([larger, smaller, reset].some(reading => reading.ratio !== before.ratio)) {
+		throw new Error(`The keys in the Agent Area should not zoom the window: ${JSON.stringify({ before, larger, smaller, reset })}`);
+	}
+	await runCommand(page, 'Toggle Agent Area Terminal');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
 export async function assertTogglePanelRemapsToAgentArea(page) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+J' : 'Control+J');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 15_000 });
@@ -396,25 +429,18 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 				&& paletteStyle.backgroundColor === 'rgb(247, 73, 73)');
 		paletteProbe.remove();
 
-		// Browser-style tab chrome: the tab bar is a darker frame than the
-		// content, the active tab adopts the exact content background so it
-		// flows into the pane below, and the frame/content hairline is a 1px
-		// overlay (breakable under the active tab) rather than a border.
+		// The connected tabs of the base's panel (workbench appearance, rule 14): the strip and the active tab have
+		// the session's own background, so that the tab opens into the pane below; the line at the foot is a 1px
+		// overlay that the active tab breaks, and the active tab's sides are drawn.
 		const tabsBar = area.querySelector('.basehalf-agent-area-tabs');
 		const activeTab = area.querySelector('.basehalf-agent-tab.active');
-		const meanChannel = (color: string): number => {
-			const parts = (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
-			if (parts.length < 3) {
-				return NaN;
-			}
-			const scale = parts.every(value => value <= 1.001) ? 255 : 1;
-			return (parts[0] + parts[1] + parts[2]) / 3 * scale;
-		};
-		const terminalHasBrowserTabChrome = !terminal
-			|| (tabsBar instanceof HTMLElement && activeTab instanceof HTMLElement
-				&& meanChannel(getComputedStyle(tabsBar).backgroundColor) < meanChannel(expectedBackground)
+		const activeEdge = activeTab?.querySelector('.basehalf-agent-tab-edge');
+		const terminalHasConnectedTabs = !terminal
+			|| (tabsBar instanceof HTMLElement && activeTab instanceof HTMLElement && activeEdge instanceof HTMLElement
+				&& getComputedStyle(tabsBar).backgroundColor === expectedBackground
 				&& getComputedStyle(activeTab).backgroundColor === expectedBackground
-				&& getComputedStyle(tabsBar, '::after').height === '1px');
+				&& getComputedStyle(tabsBar, '::after').height === '1px'
+				&& getComputedStyle(activeEdge).display === 'block');
 
 		// Ghostty-style terminal surface: keep the configured terminal
 		// background as the dominant surface. A neutral linear sheen is okay;
@@ -463,7 +489,7 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 		return getComputedStyle(area).backgroundColor === expectedBackground
 			&& getComputedStyle(activeSession).backgroundColor === expectedBackground
 			&& terminalHasGhosttyPalette
-			&& terminalHasBrowserTabChrome
+			&& terminalHasConnectedTabs
 			&& terminalHasNeutralSurface
 			&& terminalHasOverlayScroller
 			&& terminalHasTightGutter;
