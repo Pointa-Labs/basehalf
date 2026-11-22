@@ -123,7 +123,10 @@ their theme as in VS Code.
 13. **The user's material looks as it does.** A picture, a video, a page of a PDF, a book's cover, and the
     colors of a code card's language are not recolored. What BaseHalf draws over a picture or a video (the
     player's controls and its black ground, the crop frame, the marks of a pick, the duration on a tile) is
-    light on a dark scrim under both kinds: it lies on the material, not on the theme.
+    light on a dark scrim under both kinds: it lies on the material, not on the theme. A PDF's page is paper
+    under both kinds, and so is what BaseHalf draws on it: the matches of Find, a selection, and the wavy line
+    of a comment. The five colors of a highlight are the same under both kinds; how strongly a tint shows on a
+    page follows the kind ([comments](comments.md), rule 15).
 14. **Behind a picture, a video, a sound, and a PDF in Card Detail stands the paper of the canvas**, not white
     and not black. The same file lies on the same ground on the canvas and when it is opened; a picture with a
     white ground keeps its edge, which it would lose on a white page; and a dark stage would be a dark room
@@ -226,6 +229,9 @@ The values are in `ui/common/basehalfColors.ts`. The base colors:
 | A note's backgrounds: red, orange, yellow, green, cyan, blue, purple | `#392626` `#3b2c22` `#373320` `#22332a` `#203238` `#222f3d` `#30273c` | `#fce6e4` `#fcead6` `#fbf1c8` `#e0f2e4` `#dbf0f4` `#dfeafb` `#ece4f9` |
 | A block of code in a note: ground, text | `#161616` `#ffffff` | `#f1f1ef` `#1d1e20` |
 | Behind a picture in Card Detail | Card Detail's page | `#f3f3f1` |
+| A highlight: yellow (also a comment's mark and note), green, blue, pink, purple | `#e8b923` `#3fae6a` `#3b8fe6` `#e2558c` `#8d63da` | the same |
+| A comment's note: its paper under the tint of its color, its words | `#24232a` `#efece4` | `#fffdf6` `#2b2a26` |
+| The wavy line of a comment; on a PDF's page | `#e3b54a`; `#d29b14` | `#d29b14`; `#d29b14` |
 | The terminal: ground, text | `#1f1f1f` `#cccccc` | `#fdfdfc` `#1f2328` |
 
 The contrast of each text color against its ground, measured on 2026-11-21 (WCAG 2 contrast ratio). The dark

@@ -910,6 +910,39 @@ body,
 	transition: none;
 }
 
+/* Comments of a note in Card Detail (comments): the wavy line under a passage,
+ * as comments.css draws it, and its mark in the margin to the right of the
+ * text, on the line the passage begins on. The text's own element is the box
+ * the mark stands beside. */
+.basehalf-markdown-rich.surface-detail .ProseMirror {
+	position: relative;
+}
+
+.basehalf-markdown-rich .ProseMirror .note-comment-wave {
+	padding-bottom: 2px;
+	background: var(--bh-comment-wave) repeat-x 0 100% / 6px 4px;
+}
+
+.basehalf-markdown-rich .ProseMirror .note-comment-mark {
+	position: absolute;
+	right: -40px;
+	width: 14px;
+	height: 14px;
+	margin-top: 5px;
+	padding: 0;
+	border: 0;
+	border-radius: 2px 2px 2px 6px;
+	background: var(--bh-comment-yellow);
+	box-shadow: 0 1px 3px var(--vscode-basehalf-shadow28);
+	cursor: pointer;
+	user-select: none;
+}
+
+.basehalf-markdown-rich .ProseMirror .note-comment-mark.missing {
+	top: 6px;
+	opacity: 0.55;
+}
+
 /* The title line of a note shows a pale word while it holds no character, with the caret in it or not, as on the card (note title). */
 .basehalf-markdown-rich .bn-block-content[data-basehalf-title-line]:has(.ProseMirror-trailingBreak:only-child)::after {
 	content: attr(data-placeholder) !important;

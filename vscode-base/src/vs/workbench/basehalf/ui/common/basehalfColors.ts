@@ -124,7 +124,7 @@ function registerShares(name: string, shares: readonly number[], values: (share:
 // one the ink is a dark blue-gray at three tenths of that share: the same rule lifts a menu, a toolbar, or a card
 // from paper without a dark edge. High contrast light draws no shadow, as the base's own widgets there.
 const LIGHT_SHADOW_SHARE = 0.3;
-registerShares('shadow', [16, 18, 22, 25, 28, 32, 35, 36, 38, 60],
+registerShares('shadow', [10, 12, 14, 16, 18, 22, 25, 28, 32, 35, 36, 38, 45, 60],
 	share => ({ dark: ink(0, 0, 0, share), light: ink(20, 24, 31, share * LIGHT_SHADOW_SHARE), highContrast: { light: ink(20, 24, 31, 0) } }),
 	share => localize('basehalf.color.shadow', "The shadow under a menu, a toolbar, and a panel BaseHalf draws, at {0} percent.", share));
 registerShares('cardShadow', [12, 34, 46],
@@ -140,7 +140,7 @@ export const BASEHALF_SHADE = register('shade', '#000000', '#b0b0ac', localize('
 registerShares('shade', [16],
 	share => ({ dark: ink(0, 0, 0, share), light: ink(176, 176, 172, share) }),
 	share => localize('basehalf.color.shadeShare', "What lies over a surface to set a part of it back, at {0} percent.", share));
-registerShares('tint', [6, 12],
+registerShares('tint', [6, 10, 12],
 	share => ({ dark: ink(255, 255, 255, share), light: ink(0, 0, 0, share) }),
 	share => localize('basehalf.color.tint', "What lies over a surface to bring a part of it forward, at {0} percent.", share));
 
@@ -172,6 +172,26 @@ registerShares('mediaControlBackground', [62, 78],
 	share => localize('basehalf.color.mediaControlBackground', "The backing of a player's controls, at {0} percent.", share));
 export const BASEHALF_DOCUMENT_PAGE = register('documentPage', '#ffffff', '#ffffff', localize('basehalf.color.documentPage', "The page of a PDF or a book before its picture is drawn."));
 export const BASEHALF_MEDIA_STAGE_BACKGROUND = register('mediaStageBackground', editorBackground, '#f3f3f1', localize('basehalf.color.mediaStageBackground', "What stands behind a picture, a video, and a PDF in Card Detail."), { light: editorBackground });
+
+// The reader of a PDF or a book, and comments (comments, "How comments show"). A highlight's color lies on the
+// user's material and is the same under every kind of theme; so is what is drawn on a PDF's page, which is paper
+// under every kind. A comment's note and the wavy line in a book follow the kind.
+export const BASEHALF_READER_HIGHLIGHT = {
+	yellow: register('readerHighlightYellow', '#e8b923', '#e8b923', localize('basehalf.color.readerHighlightYellow', "The yellow of a highlight, a comment's mark, and its note.")),
+	green: register('readerHighlightGreen', '#3fae6a', '#3fae6a', localize('basehalf.color.readerHighlightGreen', "The green of a highlight.")),
+	blue: register('readerHighlightBlue', '#3b8fe6', '#3b8fe6', localize('basehalf.color.readerHighlightBlue', "The blue of a highlight.")),
+	pink: register('readerHighlightPink', '#e2558c', '#e2558c', localize('basehalf.color.readerHighlightPink', "The pink of a highlight.")),
+	purple: register('readerHighlightPurple', '#8d63da', '#8d63da', localize('basehalf.color.readerHighlightPurple', "The purple of a highlight."))
+} as const;
+export const BASEHALF_COMMENT_WAVE = register('commentWave', '#e3b54a', '#d29b14', localize('basehalf.color.commentWave', "The wavy line under the passage of a comment in a book, a note, and the Comments panel."));
+export const BASEHALF_PAGE_COMMENT_WAVE = register('pageCommentWave', '#d29b14', '#d29b14', localize('basehalf.color.pageCommentWave', "The wavy line under the passage of a comment on a PDF's page."));
+export const BASEHALF_COMMENT_NOTE_PAPER = register('commentNotePaper', '#24232a', '#fffdf6', localize('basehalf.color.commentNotePaper', "The paper of a comment's note, under the tint of its color."));
+export const BASEHALF_COMMENT_NOTE_FOREGROUND = register('commentNoteForeground', '#efece4', '#2b2a26', localize('basehalf.color.commentNoteForeground', "The words of a comment's note."));
+export const BASEHALF_COMMENT_MARK_FOLD = register('commentMarkFold', '#000000', '#000000', localize('basehalf.color.commentMarkFold', "What the folded corner of a comment's mark is mixed with."));
+export const BASEHALF_PAGE_FIND_MATCH = register('pageFindMatch', ink(255, 170, 0, 0.32), ink(255, 170, 0, 0.32), localize('basehalf.color.pageFindMatch', "A match of Find on a PDF's page."));
+export const BASEHALF_PAGE_FIND_MATCH_ACTIVE = register('pageFindMatchActive', ink(255, 128, 0, 0.55), ink(255, 128, 0, 0.55), localize('basehalf.color.pageFindMatchActive', "The match of Find shown, on a PDF's page."));
+export const BASEHALF_PAGE_FIND_MATCH_BORDER = register('pageFindMatchBorder', ink(240, 118, 0, 0.9), ink(240, 118, 0, 0.9), localize('basehalf.color.pageFindMatchBorder', "The ring of the match of Find shown, on a PDF's page."));
+export const BASEHALF_PAGE_SELECTION = register('pageSelection', ink(51, 136, 255, 0.3), ink(51, 136, 255, 0.3), localize('basehalf.color.pageSelection', "Text selected on a PDF's page."));
 
 // The button that ends an edit of a picture, a video, or a sound.
 export const BASEHALF_EDIT_MODE_BACKGROUND = register('editModeBackground', '#ffd60a', '#f5c400', localize('basehalf.color.editModeBackground', "The button that ends an edit of a picture, a video, or a sound, and the frame of what is kept."));

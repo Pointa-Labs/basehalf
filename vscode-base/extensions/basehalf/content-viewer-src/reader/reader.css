@@ -1,0 +1,391 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The reader of PDFs and books and the comments on what it shows (PDFs and books, "The reader"; comments). */
+
+/* The colors of comments, the surface, the border, and the shadow are in comments.css, which the Rich view of a note shares. */
+:root {
+	--bh-reader-panel-width: 260px;
+}
+
+[hidden] {
+	display: none !important;
+}
+
+.reader-icon {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.25;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	flex: none;
+}
+
+.reader-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	height: 26px;
+	min-width: 26px;
+	padding: 0 5px;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.reader-button.with-text {
+	padding: 0 8px 0 6px;
+}
+
+.reader-button:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.reader-button:focus-visible,
+.reader-chrome-button:focus-visible,
+.reader-tab:focus-visible,
+.reader-menu-item:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+/* The panel at the left (PDFs and books, "The panels"); the Comments panel at the right is in readerComments.css. */
+.reader-panel {
+	position: absolute;
+	z-index: 20;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: var(--bh-reader-panel-width);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	background: var(--vscode-sideBar-background, var(--bh-reader-surface));
+	color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
+	border-right: 1px solid var(--bh-reader-border);
+	font-size: 13px;
+}
+
+.reader:not(.wide) .reader-panel {
+	box-shadow: var(--bh-reader-shadow);
+}
+
+.reader-tabs {
+	display: flex;
+	gap: 2px;
+	margin: 10px 10px 6px;
+	padding: 2px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
+}
+
+.reader-tab {
+	flex: 1;
+	height: 24px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.reader-tab.selected {
+	background: var(--vscode-editor-background);
+	color: var(--vscode-foreground);
+	box-shadow: 0 1px 2px var(--vscode-basehalf-shadow12);
+}
+
+.reader-section {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	margin: 0;
+	padding: 2px 6px 16px;
+	list-style: none;
+}
+
+.reader-tabs[hidden] ~ .reader-section {
+	padding-top: 8px;
+}
+
+.reader-section ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.toc-entry {
+	display: block;
+	width: 100%;
+	padding: 5px 8px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	line-height: 1.4;
+	cursor: pointer;
+}
+
+.toc-entry {
+	padding-inline-start: calc(8px + var(--depth, 0) * 14px);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.toc-entry:hover:not(:disabled) {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.toc-entry.current {
+	background: var(--vscode-list-inactiveSelectionBackground);
+	color: var(--vscode-list-inactiveSelectionForeground, inherit);
+}
+
+.toc-entry:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+/* The pictures of the pages of a PDF. */
+.thumbnail {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	width: 100%;
+	padding: 8px 0 6px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.thumbnail img,
+.thumbnail .thumbnail-paper {
+	display: block;
+	border-radius: 2px;
+	background: var(--vscode-basehalf-documentPage);
+	box-shadow: 0 0 0 1px var(--vscode-basehalf-tint10), 0 1px 4px var(--vscode-basehalf-shadow14);
+}
+
+.thumbnail:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.thumbnail.current {
+	background: var(--vscode-list-inactiveSelectionBackground);
+	color: var(--vscode-foreground);
+}
+
+.thumbnail.current img,
+.thumbnail.current .thumbnail-paper {
+	box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+}
+
+/* At the bottom left (PDFs and books, rule 20): the zoom of the canvas, on a small surface. */
+.reader-chrome {
+	position: absolute;
+	z-index: 15;
+	left: 14px;
+	bottom: 16px;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--bh-reader-border);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--bh-reader-surface) 94%, transparent);
+	box-shadow: 0 2px 10px var(--vscode-basehalf-shadow12);
+	backdrop-filter: blur(8px);
+}
+
+.reader.panel-open.wide .reader-chrome {
+	left: calc(var(--bh-reader-panel-width) + 14px);
+}
+
+.reader-chrome-button {
+	display: inline-flex;
+	align-items: center;
+	height: 26px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	font: inherit;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.reader-chrome-button:hover,
+.reader-chrome-button.open {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.reader-chrome-button .page-field {
+	outline: none;
+	min-width: 1ch;
+	caret-color: var(--vscode-editorCursor-foreground, currentColor);
+}
+
+/* A menu above a control at the bottom left. */
+.reader-menu {
+	position: absolute;
+	z-index: 40;
+	min-width: 196px;
+	padding: 4px;
+	border: 1px solid var(--vscode-menu-border, var(--bh-reader-border));
+	border-radius: 8px;
+	background: var(--vscode-menu-background, var(--bh-reader-surface));
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	box-shadow: var(--bh-reader-shadow);
+	font-size: 13px;
+}
+
+.reader-menu-field {
+	display: flex;
+	align-items: center;
+	margin: 2px 2px 4px;
+	padding: 0 8px;
+	height: 28px;
+	border: 1px solid var(--vscode-input-border, var(--bh-reader-border));
+	border-radius: 5px;
+	background: var(--vscode-input-background);
+}
+
+.reader-menu-field:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.reader-menu-field.invalid {
+	border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+
+.reader-menu-field input {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: var(--vscode-input-foreground);
+	font: inherit;
+	font-variant-numeric: tabular-nums;
+}
+
+.reader-menu-field .suffix {
+	color: var(--vscode-descriptionForeground);
+}
+
+.reader-menu-item {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: 26px;
+	padding: 0 8px 0 4px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+}
+
+.reader-menu-item:hover:not(:disabled),
+.reader-menu-item:focus-visible {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+	color: var(--vscode-menu-selectionForeground, inherit);
+}
+
+.reader-menu-item:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.reader-menu-item .check {
+	width: 18px;
+	flex: none;
+	text-align: center;
+}
+
+.reader-menu-item .label {
+	flex: 1;
+}
+
+.reader-menu-item .shortcut {
+	margin-inline-start: 16px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.reader-menu-separator {
+	height: 1px;
+	margin: 4px 6px;
+	background: var(--vscode-menu-separatorBackground, var(--bh-reader-border));
+}
+
+.reader-place {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 8px 6px;
+	min-width: 240px;
+}
+
+.reader-place input {
+	flex: 1;
+	accent-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+}
+
+.reader-place .percent {
+	min-width: 4ch;
+	text-align: end;
+	font-variant-numeric: tabular-nums;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+/* The menu of a text selection (PDFs and books, "The selection menu"). */
+.reader-selection-menu {
+	position: absolute;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	gap: 1px;
+	padding: 3px;
+	border: 1px solid var(--vscode-menu-border, var(--bh-reader-border));
+	border-radius: 8px;
+	background: var(--vscode-menu-background, var(--bh-reader-surface));
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	box-shadow: var(--bh-reader-shadow);
+	white-space: nowrap;
+}
+
+/* The tint of a passage on a page of paper, under its text. */
+.comment-tint {
+	position: absolute;
+	background: color-mix(in srgb, var(--bh-comment) 42%, transparent);
+	mix-blend-mode: multiply;
+	border-radius: 1px;
+	cursor: pointer;
+}
+

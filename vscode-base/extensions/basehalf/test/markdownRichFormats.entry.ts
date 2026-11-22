@@ -53,6 +53,8 @@ import { baseHalfNoteSchema, renderedNote } from '../markdown-rich-src/noteSchem
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from '../markdown-rich-src/noteToggleState.js';
 import { createBaseHalfNoteUndo, type IBaseHalfNoteUndo } from '../markdown-rich-src/noteUndo.js';
 import { makeBaseHalfSelectionRevealExtension } from '../markdown-rich-src/selectionRevealDecorations.js';
+import { baseHalfNoteCommentFollowUps, makeBaseHalfNoteCommentsExtension, setBaseHalfNoteComments } from '../markdown-rich-src/noteComments.js';
+import type { BaseHalfCommentColor, IBaseHalfComment } from '../../../src/vs/workbench/basehalf/comments/common/basehalfComments.js';
 
 /**
  * How the test runs Rich: `basehalf`, as BaseHalf builds Rich, or `baseline`
@@ -178,6 +180,9 @@ const openedLinks: string[] = [];
 /** Rich's undo of the note open now, and whether a load reads it: the shape extension asks for them as editor.tsx's does. */
 const openNow: { history?: IBaseHalfNoteUndo; reading: boolean } = { reading: false };
 
+/** How often an edit told the comments of the note that their passages may have to be quoted anew. */
+const noteCommentEdits = { count: 0 };
+
 const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 	basehalf: {
 		editorApi: editor => createBaseHalfNoteEditorApi(editor),
@@ -186,7 +191,12 @@ const MODES: Record<NoteFormatsMode, INoteFormatsModeSetup> = {
 			openLink: href => openedLinks.push(href),
 			undoManager: () => openNow.history?.ensure(),
 			reading: () => openNow.reading,
-		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems })],
+		}), makeBaseHalfNoteFileDropExtension({ requestItems: requestTestItems }), makeBaseHalfNoteCommentsExtension({
+			hover: () => undefined,
+			leave: () => undefined,
+			open: () => undefined,
+			changed: () => noteCommentEdits.count++,
+		}, { comment: 'Comment', passageNotFound: 'Passage not found' })],
 		paste: { handler: makeBaseHalfNotePasteHandler(requestTestItems, () => noteNow.resource), install: (editor, api) => installBaseHalfNotePaste(editor, api) },
 		copy: editor => installBaseHalfNoteCopy(editor, document.body, () => noteNow.resource, (files, text, mark) => copiedFiles.push({ files: [...files], text, mark })),
 		blockIndex: editor => installBaseHalfNoteBlockIndex(editor),
@@ -2168,6 +2178,114 @@ async function blockMenu(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
+ * Part u, comments on a note in its Rich view of Card Detail (comments): a wavy line
+ * under each passage and a mark beside it, no highlights, passages that follow
+ * an edit, and a note whose Markdown and undo know nothing of them.
+ */
+async function comments(t: INoteFormatsTest): Promise<void> {
+	if (t.mode === 'baseline') {
+		t.log('comments', 'Rich had no comments before D135');
+		return;
+	}
+	const view = t.editor.prosemirrorView;
+	await t.load('# Comments\n\nBackprop sends the error back layer by layer.\n\nVanishing gradients starve the first layers.\n');
+	await t.frames();
+	const saved = await t.save();
+	const comment = (id: string, quote: string, color: BaseHalfCommentColor, text: string): IBaseHalfComment => ({ id, quote, color, text, replies: [] });
+	// A highlight in a note's file is kept and not shown; a comment just made, without words yet, is shown.
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
+		comment('eeeeeeee', 'first layers', 'green', ''),
+		comment('ffffffff', 'layer by layer', 'yellow', ''),
+	], undefined, new Set(['ffffffff']));
+	await t.frames();
+	const waves = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-wave')].map(wave => wave.textContent);
+	const marks = () => [...view.dom.querySelectorAll<HTMLElement>('.note-comment-mark')].map(mark => `${mark.dataset.comment}${mark.classList.contains('missing') ? ' (not found)' : ''}`).sort();
+	t.check('each comment\'s passage has the wavy line, the one just made too, and a highlight shows nothing', waves(), ['the error back', 'layer by layer', 'Vanishing gradients']);
+	t.check('each comment has a mark, and one whose passage is not found has its own', marks(), ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)', 'ffffffff']);
+	t.check('the wavy line is the yellow wave under the text', getComputedStyle(view.dom.querySelector<HTMLElement>('.note-comment-wave')!).backgroundImage.includes('svg'), true);
+	// Two comments that begin on the same line: their marks stand one under the other.
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
+		comment('dddddddd', 'Backprop sends', 'yellow', 'and this?'),
+	]);
+	await t.frames();
+	const waveTop = (id: string) => view.dom.querySelector<HTMLElement>(`.note-comment-wave[data-comment="${id}"]`)!.getBoundingClientRect().top;
+	const markBox = (id: string) => view.dom.querySelector<HTMLElement>(`.note-comment-mark[data-comment="${id}"]`)!.getBoundingClientRect();
+	const [first, second] = [markBox('dddddddd'), markBox('aaaaaaaa')];
+	t.check('the marks of two comments that begin on the same line do not cover each other', {
+		sameLine: waveTop('dddddddd') === waveTop('aaaaaaaa'),
+		apart: second.top >= first.bottom || first.top >= second.bottom,
+	}, { sameLine: true, apart: true });
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
+	]);
+	await t.frames();
+	t.check('showing comments is no step of undo', t.command('undo'), false);
+	t.check('the Markdown holds no trace of them', await t.save(), saved);
+
+	const editsBefore = noteCommentEdits.count;
+	t.caret('the error', 'end');
+	await t.keyboard.type(' signal');
+	await t.frames();
+	t.check('text typed inside a passage joins it, and the comment quotes it anew', {
+		waves: waves(),
+		quotes: baseHalfNoteCommentFollowUps(view.state).map(followed => followed.quote),
+	}, { waves: ['the error signal back', 'Vanishing gradients'], quotes: ['the error signal back'] });
+	t.check('an edit tells the comments, which quote their passages anew a moment later', noteCommentEdits.count > editsBefore, true);
+	// The comments come again before the new words are written, as after a change of another comment.
+	setBaseHalfNoteComments(view, [
+		comment('aaaaaaaa', 'the error back', 'yellow', 'why?'),
+		comment('bbbbbbbb', 'Vanishing gradients', 'yellow', 'starve, really?'),
+		comment('cccccccc', 'residual connections', 'yellow', 'see'),
+	]);
+	await t.frames();
+	t.check('a passage being edited keeps its comment when the comments come again before its new words are written', waves(), ['the error signal back', 'Vanishing gradients']);
+	t.caret('signal back', 'end');
+	await t.keyboard.type('wards');
+	t.caret('sends ', 'end');
+	await t.keyboard.type('all ');
+	await t.frames();
+	t.check('text typed at either end of a passage stays out of it', waves()[0], 'the error signal back');
+
+	// A comment's passage deleted whole, then given back by undo.
+	const passage = 'Vanishing gradients';
+	let from = -1;
+	view.state.doc.descendants((node, position) => {
+		const offset = from < 0 && node.isText ? (node.text ?? '').indexOf(passage) : -1;
+		if (offset >= 0) {
+			from = position + offset;
+		}
+		return from < 0;
+	});
+	view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, from + passage.length)));
+	t.editor.focus();
+	await t.keyboard.press('Backspace');
+	await t.frames();
+	t.check('a passage deleted whole leaves its comment not found', marks(), ['aaaaaaaa', 'bbbbbbbb (not found)', 'cccccccc (not found)']);
+	t.command('undo');
+	await t.frames();
+	t.check('undo gives the comment its passage back', { underlined: waves().includes('Vanishing gradients'), marks: marks() }, { underlined: true, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
+
+	// The shared document's binding writes an undo as a new document: the passage follows the part that changed.
+	t.history.current?.stopCapturing();
+	const passageBefore = waves()[0];
+	t.caret('the error', 'end');
+	await t.keyboard.type(' X');
+	await t.frames();
+	t.history.current?.stopCapturing();
+	t.command('undo');
+	await t.frames();
+	t.check('undo of words typed inside a passage keeps its comment there', { passage: waves()[0], marks: marks() }, { passage: passageBefore, marks: ['aaaaaaaa', 'bbbbbbbb', 'cccccccc (not found)'] });
+}
+
+/**
  * Part t, the title line (note title, "The title line and the text under it";
  * D136): every note starts with its title line, the note's first heading or
  * an empty one that shows a pale `Title` and writes nothing; there is a line
@@ -2426,6 +2544,7 @@ const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	r: fileBlocks,
 	s: blockMenu,
 	t: titleLine,
+	u: comments,
 };
 
 // As editor.tsx does before the first note is drawn.

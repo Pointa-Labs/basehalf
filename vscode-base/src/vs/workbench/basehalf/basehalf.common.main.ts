@@ -20,6 +20,7 @@ import './references/common/basehalfReferenceIndex.js';
 // The commands BaseHalf does not have are in no menu and are refused: in place of the base's two services (D141).
 import './shell/common/basehalfCommandService.js';
 import './shell/common/basehalfMenuService.js';
+import './comments/browser/basehalfCommentService.js';
 
 //#endregion
 

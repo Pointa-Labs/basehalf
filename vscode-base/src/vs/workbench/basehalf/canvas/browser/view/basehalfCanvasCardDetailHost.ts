@@ -20,7 +20,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction } from '../../common/basehalfCanvasEditing.js';
 import { BaseHalfCardDetailProjection, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
+import { BaseHalfAgentSelectionDetail } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BASEHALF_CHANGES_PROJECTION_ID } from '../../../changes/common/basehalfFileChanges.js';
 import { BaseHalfCardDetailSaveStatus, IBaseHalfCardDetailHost, IBaseHalfCardDetailSurfaceInstance } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
@@ -659,6 +659,7 @@ export class BaseHalfCanvasCardDetailHost {
 			close: () => void this.view.canvasNavigationService.closeCardDetail(),
 			modeActions: this.view.detailModeActions,
 			editActions: this.view.detailEditActions,
+			leadingActions: this.view.detailLeadingActions,
 			closeBadgePopover: () => this.view.badgeEditor.closeDetailBadgePopover(cardDetail, false),
 			takeFormatCommands: () => this.view.noteEditing.takeMarkdownRichFormatCommands(cardDetail.resource),
 			createDocumentBranch: (resource, selection) => this.view.creation.createDocumentBranch(resource, selection),
@@ -751,7 +752,7 @@ export class BaseHalfCanvasCardDetailHost {
 		}
 	}
 
-	private setAgentSelectionDetailText(projection: BaseHalfCardDetailProjection, selected: IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText | undefined): void {
+	private setAgentSelectionDetailText(projection: BaseHalfCardDetailProjection, selected: BaseHalfAgentSelectionDetail | undefined): void {
 		if (selected) {
 			this.view.agentSelectionDetailText.set(projection, selected);
 		} else if (!this.view.agentSelectionDetailText.delete(projection)) {

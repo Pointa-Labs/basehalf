@@ -334,6 +334,21 @@ Not in scope, and unchanged:
   changes nothing, as the other steps do: "'shot.mp4' changed meanwhile.
   Undo did not change it." and "'shot.mp4' is not there any more."
 
+### Comments
+
+- Each change of a highlight or a comment that the user makes is one step of
+  the canvas undo, named for what it did: Highlight, Add Comment, Edit
+  Comment, Change Color, Reply, Delete Highlight, and Delete Comment
+  ([comments](comments.md#undo)); a comment note closed without words is
+  Delete Comment. Words saved within 0.6 s of each other in one comment are
+  one step.
+- The step holds the comment as it was before and after, by its `id`. Undo
+  and redo put that comment back into `comments.yaml` as it is now, and leave
+  the other comments as they are, also those an agent wrote since.
+- A comment that changed outside BaseHalf since the step, or is gone, is not
+  changed: "The comment changed meanwhile. Undo did not change it."
+- The step keeps nothing in the kept versions.
+
 ### Undo in an editor of text
 
 - Cmd+Z and Shift+Cmd+Z in an editor of text undo and redo what was done in

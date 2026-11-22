@@ -103,7 +103,7 @@ suite('BaseHalfMediaCardDetail', () => {
 		const container = mainWindow.document.createElement('div');
 		mainWindow.document.body.append(container);
 		mounted.push(container);
-		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }, undefined, undefined));
+		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }, undefined, undefined, undefined));
 		void detail.open({ resource: SOUND, workspaceFolder: WORKSPACE, relativePath: 'shots/speech.mp3', source: 'explorer', projection: 'media' });
 		await settle();
 		return container;
@@ -121,7 +121,7 @@ suite('BaseHalfMediaCardDetail', () => {
 		mounted.push(container);
 		const modeActions = mainWindow.document.createElement('div');
 		const editActions = mainWindow.document.createElement('div');
-		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }, modeActions, editActions));
+		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }, modeActions, editActions, undefined));
 		void detail.open({ resource: SOUND, workspaceFolder: WORKSPACE, relativePath: 'shots/speech.mp3', source: 'explorer', projection: 'media' });
 		await settle();
 		detail.setVisible(false);

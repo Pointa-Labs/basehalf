@@ -105,6 +105,19 @@ suite('BaseHalfAgentSelection', () => {
 		assert.deepStrictEqual(baseHalfAgentSelectionLabel(records[0]), { icon: 'selectedText', text: 'A matrix times a vector' });
 	});
 
+	test('an open comment wins, with its id, its passage, and its words (comments, "Agents")', () => {
+		const pdf = { path: 'sources/strang.pdf', isFolder: false };
+		const records = [
+			baseHalfAgentSelectionFor({ ...canvas, detail: pdf, text: { path: 'sources/strang.pdf', pages: { first: 1, last: 1 }, text: 'selected too' }, comment: { path: 'sources/strang.pdf', comment: 'k3f9a2xq', quote: 'A matrix times a vector', text: '这里没看懂' } }),
+			baseHalfAgentSelectionFor({ ...canvas, detail: pdf, comment: { path: 'sources/strang.pdf', comment: 'p0w8r4zz', text: '' } })
+		];
+		assert.deepStrictEqual(records.map(selection => toPlain(parseYaml(serializeBaseHalfAgentSelection(selection), []))), [
+			{ selected: 'comment', path: 'sources/strang.pdf', comment: 'k3f9a2xq', quote: 'A matrix times a vector', text: '这里没看懂' },
+			{ selected: 'comment', path: 'sources/strang.pdf', comment: 'p0w8r4zz', text: '' }
+		]);
+		assert.deepStrictEqual(records.map(baseHalfAgentSelectionLabel), [{ icon: 'comment', text: '这里没看懂' }, { icon: 'comment', text: '' }]);
+	});
+
 	test('text that is only white space shows nothing, and a card is shown as its caption', () => {
 		assert.deepStrictEqual([
 			baseHalfAgentSelectionFor({ ...canvas, cards: [note], text: { ...text, text: '\n \n' } }),

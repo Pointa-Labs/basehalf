@@ -1,0 +1,246 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The PDF reader (PDFs and books, "The PDF reader"). Behind the pages stands the paper of the canvas (light and dark, rule 14). */
+
+html,
+body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0 !important;
+	overflow: hidden;
+	background: var(--vscode-basehalf-mediaStageBackground);
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: 13px;
+}
+
+#basehalf-reader {
+	position: fixed;
+	inset: 0;
+	overflow: hidden;
+	isolation: isolate;
+}
+
+#basehalf-pdf-document {
+	position: absolute;
+	inset: 0;
+}
+
+.reader.panel-open.wide #basehalf-pdf-document {
+	left: var(--bh-reader-panel-width);
+}
+
+.reader.comments-open.wide #basehalf-pdf-document {
+	right: var(--bh-reader-comments-width);
+}
+
+.pdf-viewport {
+	/* The library pads the pages inside this element: the padding is part of its width, or its right part and its scroll bar stand out of sight. */
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	overflow: auto;
+	background: var(--vscode-basehalf-mediaStageBackground);
+	/* Scroll bars lie over what they scroll (D127). */
+	scrollbar-width: thin;
+}
+
+.pdf-page {
+	position: relative;
+	background: var(--vscode-basehalf-documentPage);
+	box-shadow: 0 0 0 1px var(--vscode-basehalf-tint6), 0 2px 12px var(--vscode-basehalf-shadow45);
+}
+
+.pdf-page-content {
+	position: absolute;
+	inset: 0;
+}
+
+.pdf-render {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+	user-select: none;
+}
+
+.pdf-tiles {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.pdf-tints {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.pdf-link {
+	position: absolute;
+	cursor: pointer;
+}
+
+.comment-mark.pin {
+	transform: translate(-50%, -50%);
+}
+
+.pdf-waves {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+/* The matches of Find on a page, under the text as a marker's ink, and the one shown more strongly, with a ring (PDFs and books, rule 19). */
+.pdf-find-matches {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.find-match {
+	position: absolute;
+	border-radius: 2px;
+	background: var(--vscode-basehalf-pageFindMatch);
+	mix-blend-mode: multiply;
+}
+
+.find-match.active {
+	background: var(--vscode-basehalf-pageFindMatchActive);
+	box-shadow: 0 0 0 1.5px var(--vscode-basehalf-pageFindMatchBorder);
+}
+
+.thumbnails {
+	position: relative;
+	overflow: auto;
+}
+
+/* While the PDF opens, and when it does not. */
+.status {
+	position: absolute;
+	inset: 0;
+	z-index: 50;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--vscode-basehalf-mediaStageBackground);
+	color: var(--vscode-descriptionForeground);
+}
+
+.status-content {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+}
+
+.loading .status-placeholder {
+	width: min(390px, 54vw);
+	height: min(520px, 66vh);
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 3px;
+	background: linear-gradient(100deg, var(--vscode-editorWidget-background) 20%, var(--vscode-toolbar-hoverBackground) 45%, var(--vscode-editorWidget-background) 70%);
+	background-size: 220% 100%;
+	box-shadow: 0 8px 28px var(--vscode-basehalf-shadow18);
+	animation: basehalf-pdf-loading 1.4s ease-in-out infinite;
+}
+
+.error .status-placeholder {
+	display: none;
+}
+
+/* The status covers the reader until the page it opens at is drawn; what it says comes only for a PDF that takes longer than a second (PDFs and books, rule 28). */
+.loading .status-content {
+	opacity: 0;
+	animation: basehalf-pdf-status-show 160ms ease-out 1s forwards;
+}
+
+.status-message {
+	margin: 0;
+}
+
+@keyframes basehalf-pdf-loading {
+	from { background-position: 100% 0; }
+	to { background-position: -100% 0; }
+}
+
+@keyframes basehalf-pdf-status-show {
+	to { opacity: 1; }
+}
+
+.vscode-reduce-motion .loading .status-placeholder {
+	animation: none;
+}
+
+.vscode-reduce-motion .loading .status-content {
+	animation-duration: 0s;
+}
+
+/* A PDF that a password locks (PDFs and books, rule 31). */
+.pdf-password {
+	position: absolute;
+	z-index: 60;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: min(320px, calc(100% - 48px));
+	padding: 18px;
+	border: 1px solid var(--bh-reader-border);
+	border-radius: 10px;
+	background: var(--bh-reader-surface);
+	box-shadow: var(--bh-reader-shadow);
+}
+
+.pdf-password input {
+	height: 28px;
+	padding: 0 8px;
+	border: 1px solid var(--vscode-input-border, var(--bh-reader-border));
+	border-radius: 5px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font: inherit;
+	outline: none;
+}
+
+.pdf-password input:focus {
+	border-color: var(--vscode-focusBorder);
+}
+
+.pdf-password-problem {
+	min-height: 1.3em;
+	color: var(--vscode-errorForeground);
+	font-size: 12px;
+}
+
+.pdf-password-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.pdf-password-buttons button {
+	height: 26px;
+	padding: 0 14px;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	font: inherit;
+	cursor: pointer;
+}
+
+.pdf-password-buttons .primary {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.pdf-password-buttons .secondary {
+	background: var(--vscode-button-secondaryBackground, transparent);
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+}

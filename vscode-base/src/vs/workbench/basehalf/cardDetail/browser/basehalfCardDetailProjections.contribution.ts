@@ -4,13 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { $, append } from '../../../../base/browser/dom.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IBaseHalfCardDetailSurfaceRegistryService } from './basehalfCardDetailSurface.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './basehalfMarkdownRichCardDetail.js';
 import { BaseHalfMediaCardDetail } from './basehalfMediaCardDetail.js';
+import { BaseHalfReaderFocusContext } from './basehalfReaderHost.js';
 import { BaseHalfSourceCardDetail } from './basehalfSourceCardDetail.js';
 
 /**
@@ -68,7 +72,8 @@ export class BaseHalfCardDetailProjectionsContribution extends Disposable implem
 						() => host.close(),
 						selected => host.setSelectionForAgents(selected),
 						host.modeActions,
-						host.editActions
+						host.editActions,
+						host.leadingActions
 					)
 				};
 			}
@@ -91,3 +96,26 @@ export class BaseHalfCardDetailProjectionsContribution extends Disposable implem
 }
 
 registerWorkbenchContribution2(BaseHalfCardDetailProjectionsContribution.ID, BaseHalfCardDetailProjectionsContribution, WorkbenchPhase.BlockRestore);
+
+// The keys that zoom the window are the document's while a reader has the keyboard: the page zoomed
+// the PDF or changed the size of the book's text itself, and the window, which would zoom on the
+// same keys, does not. Cmd+0 is a PDF's Zoom to 100% (PDFs and books, rules 22 and 24).
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'basehalf.reader.zoomKeys',
+	weight: KeybindingWeight.WorkbenchContrib + 1,
+	when: ContextKeyExpr.or(BaseHalfReaderFocusContext.isEqualTo('pdf'), BaseHalfReaderFocusContext.isEqualTo('book')),
+	primary: KeyMod.CtrlCmd | KeyCode.Equal,
+	secondary: [
+		KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Equal, KeyMod.CtrlCmd | KeyCode.NumpadAdd,
+		KeyMod.CtrlCmd | KeyCode.Minus, KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Minus, KeyMod.CtrlCmd | KeyCode.NumpadSubtract
+	],
+	handler: () => undefined
+});
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'basehalf.reader.zoomReset',
+	weight: KeybindingWeight.WorkbenchContrib + 1,
+	when: BaseHalfReaderFocusContext.isEqualTo('pdf'),
+	primary: KeyMod.CtrlCmd | KeyCode.Digit0,
+	secondary: [KeyMod.CtrlCmd | KeyCode.Numpad0],
+	handler: () => undefined
+});

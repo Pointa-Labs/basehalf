@@ -78,38 +78,160 @@ export async function assertPdfCardDetail(page, expectedName = 'textbook.pdf') {
 		throw new Error('A binary PDF exposed the raw Source projection');
 	}
 
+	// The header is the reader's only bar: Sidebar before the name, Find and Comments before Close (PDFs and books, criterion 19).
+	if (await page.locator('.basehalf-card-detail-leading .basehalf-card-detail-reader-button.codicon-list-unordered').count() !== 1
+		|| await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-search').count() !== 1
+		|| await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-comment').count() !== 1) {
+		throw new Error('The header of Card Detail does not hold the reader\'s Sidebar, Find, and Comments');
+	}
+
 	const started = Date.now();
 	let diagnostic = '';
 	while (Date.now() - started < 15_000) {
 		for (const frame of page.frames()) {
-			const root = frame.locator('#basehalf-pdf-viewer');
+			const root = frame.locator('#basehalf-reader.pdf');
 			if (await root.count().catch(() => 0) === 0) {
 				continue;
 			}
-			const container = root.locator('embedpdf-container');
-			const documentContent = container.locator('#document-content');
 			const status = await root.getAttribute('data-status');
-			const pageCount = await root.getAttribute('data-page-count');
-			if (status === 'ready' && pageCount === '1' && await container.count() > 0 && await documentContent.count() > 0) {
+			const shown = await frame.evaluate(() => ({
+				pages: document.querySelectorAll('.pdf-page').length,
+				drawn: [...document.querySelectorAll('.pdf-page img')].some(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0),
+				chrome: document.querySelector('.reader-chrome')?.textContent ?? '',
+				// No screen of the library the reader is built on.
+				library: document.querySelector('embedpdf-container') !== null
+			}));
+			if (shown.library) {
+				throw new Error('The PDF reader still shows the screens of the library it is built on');
+			}
+			if (status === 'ready' && shown.pages === 1 && shown.drawn && /^1 \/ 1/.test(shown.chrome)) {
 				return;
 			}
-			diagnostic = await frame.locator('body').evaluate(body => {
-				const viewer = body.querySelector('#basehalf-pdf-viewer');
-				const error = body.querySelector('#basehalf-pdf-error');
-				return JSON.stringify({
-					source: viewer?.getAttribute('data-source'),
-					status: viewer?.getAttribute('data-status'),
-					pageCount: viewer?.getAttribute('data-page-count'),
-					container: viewer?.querySelector('embedpdf-container') !== null,
-					error: error?.textContent,
-					errorHidden: error?.hasAttribute('hidden'),
-					body: body.textContent?.replace(/\s+/g, ' ').trim()
-				});
-			});
+			diagnostic = JSON.stringify({ status, ...shown });
 		}
 		await page.waitForTimeout(100);
 	}
 	throw new Error(`PDF projection webview did not render the local fixture: ${diagnostic}`);
+}
+
+/**
+ * Highlight marks a passage beside the PDF, never in it; Cmd+Z and
+ * Shift+Cmd+Z in the reader take it away and bring it back; and a comment
+ * that an agent writes into the file shows in the open reader with its wavy
+ * line, its mark, and its entry in the Comments panel (comments, criteria 1,
+ * 5, 6, and 15).
+ */
+export async function assertPdfComments(page) {
+	const pdfPath = path.join(workspacePath, 'docs', 'textbook.pdf');
+	const file = path.join(workspacePath, '.bh', 'mirror', 'docs', 'textbook.pdf', 'comments.yaml');
+	const pdfBytes = fs.readFileSync(pdfPath);
+	const read = () => fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+	const action = await selectPdfFixtureText(page, 'Highlight');
+	await action.click();
+	await waitUntil(() => /quote: "BaseHalf/.test(read()) && /page: 1\n/.test(read()), 'Highlight to write the passage into comments.yaml', 10_000);
+	if (!fs.readFileSync(pdfPath).equals(pdfBytes)) {
+		throw new Error('Highlight changed the bytes of the PDF');
+	}
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => !/quote:/.test(read()), 'Cmd+Z in the reader to take the highlight away', 10_000);
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Shift+Z');
+	await waitUntil(() => /quote: "BaseHalf/.test(read()), 'Shift+Cmd+Z in the reader to bring the highlight back', 10_000);
+
+	// What an agent writes shows at once, with its wavy line and its mark, and the highlight keeps its tint.
+	fs.writeFileSync(file, `${read()}  - page: 1\n    quote: "smoke"\n    text: "Written by an agent"\n    by: "Smoke Agent"\n`);
+	const shown = async () => {
+		for (const frame of page.frames()) {
+			const found = await frame.evaluate(() => document.querySelector('#basehalf-reader') ? {
+				marks: document.querySelectorAll('#basehalf-reader .comment-mark').length,
+				markLeft: document.querySelector('#basehalf-reader .comment-mark:not(.pin)')?.getBoundingClientRect().left,
+				pageRight: document.querySelector('#basehalf-reader .pdf-page')?.getBoundingClientRect().right,
+				waves: document.querySelectorAll('#basehalf-reader .comment-wave').length,
+				tints: document.querySelectorAll('#basehalf-reader .comment-tint').length,
+				listed: [...document.querySelectorAll('.reader-comments-item')].map(item => item.classList.contains('highlight') ? 'highlight' : 'comment')
+			} : undefined).catch(() => undefined);
+			if (found) {
+				return found;
+			}
+		}
+		return undefined;
+	};
+	let seen = await shown();
+	const deadline = Date.now() + 10_000;
+	while ((seen?.marks !== 1 || !seen.waves) && Date.now() < deadline) {
+		await page.waitForTimeout(100);
+		seen = await shown();
+	}
+	if (seen?.marks !== 1 || !seen.waves || !seen.tints) {
+		throw new Error(`The comment an agent wrote did not show its wavy line and its mark beside the highlight's tint: ${JSON.stringify(seen)}`);
+	}
+	// The mark stands in the blank outside the page, never on it (comments, rule 7 and criterion 18).
+	if (!(seen.markLeft >= seen.pageRight)) {
+		throw new Error(`The comment's mark stands on the page instead of beside it: ${JSON.stringify(seen)}`);
+	}
+	// The Comments panel at the right lists both (comments, criterion 15).
+	await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-comment').click();
+	const listedBy = Date.now() + 5_000;
+	while (JSON.stringify(seen?.listed) !== JSON.stringify(['highlight', 'comment']) && Date.now() < listedBy) {
+		await page.waitForTimeout(100);
+		seen = await shown();
+	}
+	if (JSON.stringify(seen?.listed) !== JSON.stringify(['highlight', 'comment'])) {
+		throw new Error(`Comments did not list the highlight and the comment in the panel at the right: ${JSON.stringify(seen)}`);
+	}
+	await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-comment').click();
+	fs.rmSync(file);
+}
+
+/**
+ * Find in the header shows the find bar with the keyboard in its field;
+ * typing a word of the PDF in another case marks its match strongly and
+ * counts it; Escape takes the marks away and hides the bar (PDFs and books,
+ * rule 19 and criterion 22).
+ */
+export async function assertPdfFind(page) {
+	await page.locator('.basehalf-card-detail-actions .basehalf-card-detail-reader-button.codicon-search').click();
+	const state = async () => {
+		for (const frame of page.frames()) {
+			const found = await frame.evaluate(() => document.querySelector('#basehalf-reader.pdf') ? {
+				open: !(document.querySelector('.reader-find') as HTMLElement | null)?.hidden,
+				focused: document.activeElement?.classList.contains('reader-find-field') ?? false,
+				count: document.querySelector('.reader-find-count')?.textContent ?? '',
+				matches: document.querySelectorAll('.find-match').length,
+				active: document.querySelectorAll('.find-match.active').length
+			} : undefined).catch(() => undefined);
+			if (found) {
+				return found;
+			}
+		}
+		return undefined;
+	};
+	let seen = await state();
+	const openBy = Date.now() + 5_000;
+	while (!(seen?.open && seen.focused) && Date.now() < openBy) {
+		await page.waitForTimeout(100);
+		seen = await state();
+	}
+	if (!seen?.open || !seen.focused) {
+		throw new Error(`Find did not show the find bar with the keyboard in its field: ${JSON.stringify(seen)}`);
+	}
+	await page.keyboard.type('pdf', { delay: 60 });
+	const countBy = Date.now() + 5_000;
+	while (!(seen?.count === '1 of 1' && seen.active) && Date.now() < countBy) {
+		await page.waitForTimeout(100);
+		seen = await state();
+	}
+	if (seen?.count !== '1 of 1' || !seen.active) {
+		throw new Error(`Find did not mark and count the word of the PDF: ${JSON.stringify(seen)}`);
+	}
+	await page.keyboard.press('Escape');
+	const closeBy = Date.now() + 5_000;
+	while ((seen?.open || seen?.matches) && Date.now() < closeBy) {
+		await page.waitForTimeout(100);
+		seen = await state();
+	}
+	if (seen?.open || seen?.matches) {
+		throw new Error(`Escape did not hide the find bar and take its marks away: ${JSON.stringify(seen)}`);
+	}
 }
 
 // Each branch note is created with the PDF in its `upstream` frontmatter, in
@@ -184,34 +306,26 @@ export async function assertPdfGrowsThreeBranches(page) {
 	}
 }
 
-async function selectPdfFixtureText(page) {
+async function selectPdfFixtureText(page, label = 'Grow branch') {
 	let diagnostic = '';
 	const deadline = Date.now() + 15_000;
 	while (Date.now() < deadline) {
 		for (const frame of page.frames()) {
-			const root = frame.locator('#basehalf-pdf-viewer[data-status="ready"]');
+			const root = frame.locator('#basehalf-reader.pdf[data-status="ready"]');
 			if (await root.count().catch(() => 0) === 0) {
 				continue;
 			}
-			const images = root.locator('embedpdf-container').locator('#document-content img');
-			const candidates = [];
-			for (let index = 0; index < await images.count(); index++) {
-				const box = await images.nth(index).boundingBox();
-				if (box) {
-					candidates.push({ box, area: box.width * box.height });
-				}
-			}
-			const pageImage = candidates.sort((a, b) => b.area - a.area)[0]?.box;
+			const pageImage = await frame.locator('.pdf-page').first().boundingBox();
 			if (!pageImage) {
-				diagnostic = JSON.stringify({ status: 'ready', renderedPageImages: await images.count() });
+				diagnostic = JSON.stringify({ status: 'ready', pages: await frame.locator('.pdf-page').count() });
 				continue;
 			}
 
-			const action = frame.locator('button', { hasText: 'Grow branch' }).last();
-			// Both ends of an EmbedPDF text-selection drag must land on glyphs.
-			// The fixture line starts at x=40pt and has a 120pt baseline on a
-			// 300x200pt page, so keep the drag comfortably inside the rendered text
-			// instead of ending in the large blank area to its right.
+			const action = frame.locator('.reader-selection-menu button', { hasText: label });
+			// Both ends of a text-selection drag must land on glyphs. The fixture
+			// line starts at x=40pt and has a 120pt baseline on a 300x200pt page,
+			// so keep the drag comfortably inside the rendered text instead of
+			// ending in the large blank area to its right.
 			for (const yRatio of [0.39, 0.36, 0.42]) {
 				await page.mouse.move(pageImage.x + pageImage.width * 0.15, pageImage.y + pageImage.height * yRatio);
 				await page.mouse.down();
@@ -221,20 +335,11 @@ async function selectPdfFixtureText(page) {
 					return action;
 				}
 			}
-			diagnostic = await root.locator('embedpdf-container').evaluate(async element => {
-				const registry = await element.registry;
-				const interaction = registry.getPlugin('interaction-manager')?.provides();
-				const selection = registry.getPlugin('selection')?.provides();
-				return JSON.stringify({
-					plugins: registry.getAllPlugins().map(plugin => plugin.id),
-					mode: interaction?.forDocument('basehalf-document').getActiveMode(),
-					selection: selection?.getState('basehalf-document')
-				});
-			});
+			diagnostic = JSON.stringify({ menu: await frame.locator('.reader-selection-menu').isVisible().catch(() => false) });
 		}
 		await page.waitForTimeout(100);
 	}
-	throw new Error(`The PDF selection menu did not expose Grow branch for the fixture text: ${diagnostic}`);
+	throw new Error(`The PDF selection menu did not expose ${label} for the fixture text: ${diagnostic}`);
 }
 
 export async function assertBaseHalfTitlebarBreadcrumbs(page) {

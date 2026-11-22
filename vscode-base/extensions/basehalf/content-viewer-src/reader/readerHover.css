@@ -1,0 +1,19 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The name of a control that shows only an icon, in the readers and in the comment notes of the Rich view of a note. */
+.reader-hover {
+	position: fixed;
+	z-index: 100;
+	max-width: 280px;
+	padding: 4px 8px;
+	border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, transparent));
+	border-radius: 4px;
+	background: var(--vscode-editorHoverWidget-background);
+	color: var(--vscode-editorHoverWidget-foreground);
+	font-size: 12px;
+	pointer-events: none;
+	box-shadow: 0 2px 8px var(--vscode-basehalf-shadow16);
+}

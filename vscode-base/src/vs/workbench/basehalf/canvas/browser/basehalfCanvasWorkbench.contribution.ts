@@ -65,7 +65,7 @@ import { BaseHalfCanvasUndoRedoQueue } from '../common/basehalfCanvasUndoRedoQue
 import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } from '../common/basehalfCanvasActionContext.js';
 import { BaseHalfCanvasViewportPersister, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { BaseHalfAgentSelectionDetail, IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { setBaseHalfHover } from '../../ui/browser/basehalfHover.js';
 import { baseHalfUserFacingErrorMessage } from '../../workspace/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
@@ -196,6 +196,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly detailModeActions: HTMLElement;
 	/** Revert to Original of an edited video, image, or sound, after its name and apart from Done (D120). */
 	readonly detailEditActions: HTMLElement;
+	/** Where the reader of a PDF or a book holds its Sidebar, before the name. */
+	readonly detailLeadingActions: HTMLElement;
 	readonly detailBadgeZone: HTMLElement;
 	readonly detailBody: HTMLElement;
 	/** The base's editor part, which the canvas lies over: its empty group is under the canvas. */
@@ -307,7 +309,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	/** The feature that draws code cards and edits them where they stand. */
 	codeCards: IBaseHalfCanvasCodeCards | undefined;
 	/** Text selected in each projection of Card Detail, in a note, a PDF, or a book; the one shown counts. */
-	readonly agentSelectionDetailText = new Map<BaseHalfCardDetailProjection, IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText>();
+	readonly agentSelectionDetailText = new Map<BaseHalfCardDetailProjection, BaseHalfAgentSelectionDetail>();
 	pendingCanvasNoteFocus: IBaseHalfPendingCanvasNoteFocus | undefined;
 	pendingCreatedCanvasNoteActivation: IBaseHalfPendingCreatedCanvasNoteActivation | undefined;
 	readonly canvasNotePreviewMounts = new WeakMap<HTMLElement, IBaseHalfCanvasNotePreviewMount>();
@@ -524,6 +526,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.detail = DOM.append(this.root, DOM.$('.basehalf-card-detail'));
 		const detailHeader = append(this.detail, $('.basehalf-card-detail-header'));
 		const detailTitleBlock = append(detailHeader, $('.basehalf-card-detail-title-block'));
+		// The reader of a PDF or a book holds its Sidebar here, before the name (D135).
+		this.detailLeadingActions = append(detailTitleBlock, $('.basehalf-card-detail-leading'));
 		this.detailTitle = append(detailTitleBlock, $('.basehalf-card-detail-title'));
 		this.detailMeta = append(detailTitleBlock, $('.basehalf-card-detail-meta'));
 		this.detailEditActions = append(detailTitleBlock, $('.basehalf-card-detail-edit-actions'));

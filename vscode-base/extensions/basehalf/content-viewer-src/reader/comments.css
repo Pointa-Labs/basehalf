@@ -1,0 +1,244 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The comment note, the tools of a highlight, the mark, and the wavy line, which the readers and the Rich view of a note share (comments, "How comments show"). */
+
+:root {
+	--bh-comment-yellow: var(--vscode-basehalf-readerHighlightYellow);
+	--bh-comment-green: var(--vscode-basehalf-readerHighlightGreen);
+	--bh-comment-blue: var(--vscode-basehalf-readerHighlightBlue);
+	--bh-comment-pink: var(--vscode-basehalf-readerHighlightPink);
+	--bh-comment-purple: var(--vscode-basehalf-readerHighlightPurple);
+	/* The wavy line under a comment's passage (comments, rule 6) is a tile, which commentNotes.ts writes in the theme's colors: --bh-comment-wave, and --bh-comment-wave-paper on a PDF's page, which is paper in both kinds. */
+	--bh-reader-surface: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+	--bh-reader-border: var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
+	--bh-reader-shadow: 0 6px 22px var(--vscode-basehalf-shadow45);
+}
+
+.comment-tools .reader-button,
+.comment-tools.floating .reader-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	height: 24px;
+	min-width: 24px;
+	padding: 0 5px;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.comment-tools .reader-icon {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.25;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	flex: none;
+}
+
+/* The colors of highlights; a comment is yellow (comments, "How comments show"). */
+[data-color="yellow"] { --bh-comment: var(--bh-comment-yellow); }
+[data-color="green"] { --bh-comment: var(--bh-comment-green); }
+[data-color="blue"] { --bh-comment: var(--bh-comment-blue); }
+[data-color="pink"] { --bh-comment: var(--bh-comment-pink); }
+[data-color="purple"] { --bh-comment: var(--bh-comment-purple); }
+
+.comment-note,
+.comment-mark {
+	--bh-comment: var(--bh-comment-yellow);
+}
+
+/* The wavy line under each line of a comment's passage on a page of a PDF, which is paper in both themes. */
+.comment-wave {
+	position: absolute;
+	height: 4px;
+	background: var(--bh-comment-wave-paper) repeat-x 0 0 / 6px 4px;
+	pointer-events: none;
+}
+
+.comment-note {
+	position: absolute;
+	z-index: 35;
+	width: 240px;
+	max-height: 320px;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	padding: 10px 12px;
+	border-radius: 4px 4px 4px 14px;
+	background: color-mix(in srgb, var(--bh-comment) 24%, var(--vscode-basehalf-commentNotePaper));
+	color: var(--vscode-basehalf-commentNoteForeground);
+	box-shadow: 0 1px 2px var(--vscode-basehalf-shadow10), var(--bh-reader-shadow);
+	font-size: 13px;
+	line-height: 1.45;
+	overflow: auto;
+}
+
+body.vscode-dark .comment-note,
+body.vscode-high-contrast:not(.vscode-high-contrast-light) .comment-note {
+	background: color-mix(in srgb, var(--bh-comment) 30%, var(--vscode-basehalf-commentNotePaper));
+}
+
+.comment-note:not(.open) {
+	cursor: pointer;
+}
+
+.comment-tools {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin: -4px -6px 6px;
+}
+
+.comment-tools .spacer {
+	flex: 1;
+}
+
+.comment-tools .reader-button {
+	height: 24px;
+	min-width: 24px;
+	color: inherit;
+	opacity: 0.8;
+}
+
+.comment-tools .reader-button:hover {
+	opacity: 1;
+	background: var(--vscode-basehalf-tint6);
+}
+
+.comment-tools.floating {
+	position: absolute;
+	z-index: 35;
+	margin: 0;
+	padding: 3px;
+	border: 1px solid var(--vscode-menu-border, var(--bh-reader-border));
+	border-radius: 8px;
+	background: var(--vscode-menu-background, var(--bh-reader-surface));
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	box-shadow: var(--bh-reader-shadow);
+}
+
+.comment-color {
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	cursor: pointer;
+	position: relative;
+}
+
+.comment-color::after {
+	content: '';
+	position: absolute;
+	inset: 5px;
+	border-radius: 50%;
+	background: var(--bh-comment);
+}
+
+.comment-color.selected::before {
+	content: '';
+	position: absolute;
+	inset: 2px;
+	border-radius: 50%;
+	border: 1.5px solid var(--bh-comment);
+}
+
+.comment-status,
+.comment-tools-status {
+	margin-bottom: 4px;
+	font-size: 11px;
+	opacity: 0.7;
+}
+
+.comment-tools-status {
+	margin: 0 6px;
+	white-space: nowrap;
+}
+
+.comment-author {
+	margin-bottom: 2px;
+	font-size: 11px;
+	font-weight: 600;
+	opacity: 0.7;
+}
+
+.comment-text,
+.comment-reply-text,
+.comment-reply-field {
+	outline: none;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	min-height: 1.45em;
+}
+
+.comment-text:empty::before,
+.comment-reply-field:empty::before {
+	content: attr(data-placeholder);
+	opacity: 0.5;
+}
+
+.comment-replies:empty {
+	display: none;
+}
+
+.comment-replies {
+	margin-top: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.comment-reply {
+	padding-top: 8px;
+	border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.comment-reply-field {
+	padding-top: 8px;
+	border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/* The mark of a comment with words: a small square folded at one corner. */
+.comment-mark {
+	position: absolute;
+	z-index: 6;
+	width: 14px;
+	height: 14px;
+	padding: 0;
+	border: 0;
+	border-radius: 2px 2px 2px 6px;
+	background: var(--bh-comment);
+	box-shadow: 0 1px 3px var(--vscode-basehalf-shadow28);
+	cursor: pointer;
+	transform: translate(-50%, 0);
+}
+
+/* The mark of the comment whose note is open. */
+.comment-mark.open {
+	outline: 2px solid color-mix(in srgb, var(--bh-comment) 50%, transparent);
+	outline-offset: 2px;
+}
+
+.comment-mark::after {
+	content: '';
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 5px;
+	height: 5px;
+	background: linear-gradient(135deg, color-mix(in srgb, var(--bh-comment) 60%, var(--vscode-basehalf-commentMarkFold)) 50%, transparent 50%);
+	border-radius: 0 0 2px 0;
+	opacity: 0.55;
+}

@@ -34,6 +34,10 @@ declare module 'foliate-js/view.js' {
 	export interface IFoliateRenderer extends HTMLElement {
 		setStyles?(css: string): void;
 		getContents(): readonly { readonly doc: Document; readonly index: number }[];
+		/** In pages: the width of a page, and where the page shown starts and ends in the pages laid side by side, one page before the section's first. */
+		readonly size?: number;
+		readonly start?: number;
+		readonly end?: number;
 	}
 
 	export interface IFoliateSearchMatch {
@@ -70,6 +74,11 @@ declare module 'foliate-js/view.js' {
 		deselect(): void;
 		search(options: { readonly query: string; readonly matchCase?: boolean; readonly matchDiacritics?: boolean; readonly matchWholeWords?: boolean; readonly draw?: FoliateDraw; readonly drawOptions?: { readonly color?: string } }): AsyncGenerator<FoliateSearchResult>;
 		clearSearch(): void;
+		/** Draws a place of the book, named by its canonical fragment, by the overlay of its section, which asks how with `draw-annotation`. */
+		addAnnotation(annotation: { readonly value: string }, remove?: boolean): Promise<unknown>;
+		deleteAnnotation(annotation: { readonly value: string }): Promise<unknown>;
+		/** The canonical fragment of a range of a section. */
+		getCFI(index: number, range?: Range): string;
 		close(): void;
 	}
 
@@ -83,6 +92,11 @@ declare module 'foliate-js/overlayer.js' {
 		static readonly highlight: FoliateDraw;
 		static readonly outline: FoliateDraw;
 	}
+}
+
+declare module 'foliate-js/epubcfi.js' {
+	/** Which of two canonical fragments comes first in the book: below 0 when `a` does. */
+	export function compare(a: string, b: string): number;
 }
 
 declare module 'foliate-js/comic-book.js' {

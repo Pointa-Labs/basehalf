@@ -1,10 +1,12 @@
 # PDFs and books
 
-Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27; the cover is the card, 2026-11-13)
-Decision: [D81](../decisions.md), [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27), [D133](../decisions.md#d133--the-cover-of-a-pdf-or-a-book-is-its-card-new-2026-11-13)
+Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27; the cover is the card, 2026-11-13; one reader of BaseHalf's own with comments, 2026-11-16; Find at the top right and the Comments panel at the right, 2026-11-17; Find matches what a person means and leaves an input method alone, 2026-11-17)
+Decision: [D81](../decisions.md), [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16), [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27), [D133](../decisions.md#d133--the-cover-of-a-pdf-or-a-book-is-its-card-new-2026-11-13)
 Related: [canvas card placement](canvas-card-placement.md) (the size of a
 card), [canvas card resize](canvas-card-resize.md#which-cards-resize),
 [opening and closing Card Detail](card-detail-opening.md),
+[comments](comments.md) (what the readers mark and keep beside a document),
+[layout controls](layout-controls.md#card-detail) (the header of Card Detail),
 [the selection agents can see](selection-for-agents.md),
 [agent skill](agent-skill.md), [reference graph](reference-graph.md) (the
 upstream list of a grown note),
@@ -20,7 +22,10 @@ be read.** The cover is the first page of a PDF and the cover picture of a
 book. A button at the card's top right corner hides it, and the card then
 shows the grey face of a file card. A book opens in Card Detail as a PDF
 does: to read it, to grow a note from a passage, and to let an agent see the
-passage the user selected.
+passage the user selected. Both open in one reader of BaseHalf's own, whose
+only bar is the header of Card Detail, with its zoom at the bottom left as
+the canvas has it, Find at the top right, and the
+[highlights and comments](comments.md) at the right.
 
 ## Problem
 
@@ -36,6 +41,21 @@ Measured on 2026-10-25 in a development window of main `1d0c13e50`:
 - Text selected in a PDF was not what an agent could see: the record named
   the PDF's card. "Explain this" told the agent nothing about the passage.
 
+Measured on 2026-11-16 on main `273d6bedf`, in the user's window: the PDF
+reader showed the toolbar of the library it was built on under the header of
+Card Detail, two bars where one holds what is needed. The toolbar held a menu
+whose items BaseHalf had turned off, a hand and a pointer tool that select
+nothing a scroll and a press do not, page settings, and the zoom between
+them. The book reader had bars of its own at its top and its bottom, with
+the same words in other places. Selecting text offered Copy and Grow branch
+in a PDF, and Grow branch alone in a book.
+
+Measured on 2026-11-17 on the branch of D135: the search field stood at the
+top of the panel at the left, and its matches in a list in place of the
+tabs, so that going from one match to the next took the panel and a click
+on each; and the Comments list was a tab of that panel, beside the pictures
+of the pages.
+
 People learn from material that is mostly PDF, and a hard book is often an
 e-book file. They import it into a folder and read it there, with the notes
 they grow from it beside it and an agent in the Agent Area.
@@ -48,8 +68,10 @@ they grow from it beside it and an agent in the Agent Area.
 - A book in a common e-book format opens in Card Detail and reads well:
   pages, its contents, search, the size of its text, and the place where the
   user stopped.
-- What works for a PDF works for a book: Grow Branch, and agents seeing the
-  selected passage.
+- What works for a PDF works for a book: Grow Branch, comments, and agents
+  seeing the selected passage.
+- One reader for both, with one bar, and controls where the rest of
+  BaseHalf has them.
 - Making a cover writes nothing into the workspace.
 
 ## Non-goals
@@ -58,8 +80,11 @@ they grow from it beside it and an agent in the Agent Area.
   comes in as every file does: dropped on the canvas or into Files, copied
   into the folder, or written by an agent.
 - Changing a document: no highlights, annotations, forms, or edits are
-  written into it. Both readers show a document as it is, and what the user
-  takes from it goes into notes grown from it.
+  written into it. Both readers show a document as it is; the user's
+  highlights and comments are kept beside it ([comments](comments.md)), and
+  what the user takes from it goes into notes grown from it.
+- Printing, saving a copy, rotating pages, and showing two pages side by
+  side.
 - DjVu, CBR, and KFX files, and books with DRM. DjVu and RAR have no
   library under a license BaseHalf takes, and a book with DRM cannot be read
   without its key. Such files stay as the other files are; a book with DRM
@@ -186,13 +211,154 @@ show the same files ([architecture invariants](../harness/architecture-invariant
 14. The worker that draws PDFs starts with the first PDF cover the window
     needs and ends after it was not used for 30 s.
 
+### The reader
+
+The PDF reader and the book reader are one reader: the same bar, the same
+panels, the same Find, the same controls at the bottom left, the same
+selection menu, and the same [highlights and comments](comments.md). What
+differs is what a PDF and a book are: a PDF has pages and a zoom, a book has
+text that flows and a size of text.
+
+15. **One bar.** The header of Card Detail is the reader's only bar
+    ([layout controls](layout-controls.md#card-detail)). At its left end,
+    before the name, **Sidebar** opens and closes the panel at the left; its
+    hover says "Show Sidebar" or "Hide Sidebar". In its right group, before
+    Close, **Find** shows the find bar, and **Comments** opens and closes the
+    Comments panel at the right; its hover says "Show Comments" or "Hide
+    Comments". For a book, the header shows the title of the chapter after
+    the name, in the color of the header's other words. The reader draws no
+    bar of its own.
+16. **What is not there.** No hand and no pointer: a two-finger scroll or the
+    wheel moves the pages, and a press in text selects. No menu of the
+    library the reader is built on, no page settings, no two pages side by
+    side, no turned pages, and no scrolling to the side page by page: a PDF
+    is one column of pages, top to bottom.
+
+#### The panels
+
+17. The panel at the left takes the reader somewhere; the Comments panel at
+    the right shows what the user marked in what the reader shows. Each
+    stands beside the document when the reader is at least 900 px wide, and
+    over it otherwise, where it closes once it took the reader somewhere.
+    - **The panel** stands at the left, 260 px wide. It has the tabs
+      **Pages** and **Contents** for a PDF, and **Contents** for a book; a
+      PDF without an outline has Pages alone. A panel with one tab shows no
+      tabs.
+      - **Pages**: a picture of each page, the page shown marked. A click
+        goes to the page.
+      - **Contents**: the outline of a PDF or the table of contents of a
+        book, the entry shown marked; a click goes there. A book without a
+        table of contents shows its sections by their order. A comic book's
+        pages are its pictures in natural name order, each listed by its file
+        name without the extension, and the hidden files of the system that
+        packed it are no pages.
+    - **The Comments panel** stands at the right, 280 px wide, and lists the
+      document's highlights and comments
+      ([comments](comments.md#the-comments-panel)).
+18. Whether each panel is open, and the tab of the panel at the left, are
+    kept on this computer for PDFs and for books apart, and a document opens
+    with the panels as they were when the last one of its kind closed.
+19. **Find.** Find in the header, or Cmd+F, shows the find bar at the top
+    right of the document, under the header and left of the Comments panel,
+    with the cursor in its field and all of it selected. With text selected
+    in the document, on one line and at most 200 characters, Find and Cmd+F
+    put that text into the field and search for it at once, as the editor's
+    Find does. The bar holds the field, the count, **Previous Match**, **Next
+    Match**, and **Close**.
+    - Typing searches the whole document 250 ms after the last key. While an
+      input method composes, as for Chinese, nothing is searched: the search
+      starts 250 ms after the composed text is committed.
+    - Every match is marked in the pages in the color of a match of Find,
+      and the reader goes to the first match at or after the top of what it
+      shows, round to the first of the document, which is marked more
+      strongly. It scrolls only when that match is out of sight or under the
+      find bar, and then puts it a little above the middle.
+    - The words match text whatever its case, its accents (`cafe` finds
+      `café`), its full-width or half-width forms (`2026` finds `２０２６`),
+      and its curly or straight quotation marks; runs of white space match
+      one space. In a PDF, letters made into one glyph match their letters, a
+      word that a hyphen broke over two lines matches whole (`compile` finds
+      `com-` and `pile`), a phrase matches across a line break, and a line
+      break inside Chinese or Japanese text is nothing.
+    - The count says "3 of 27", or "No results". While a long document is
+      still searched, a thin line at the foot of the bar grows with the part
+      searched, and the count shows once the place of the match shown among
+      all of them is known.
+    - Enter, Next Match, and Cmd+G go to the next match, and Shift+Enter,
+      Previous Match, and Shift+Cmd+G to the one before, round from the last
+      to the first. Cmd+G and Shift+Cmd+G work with the keyboard in the
+      document too, while the bar shows.
+    - Emptying the field takes the marks away. Escape in the bar, or Close,
+      takes them away and hides the bar; Find again shows the bar with the
+      words it held.
+    - A new search ends the one before. A PDF's text is read once, the first
+      time it is searched, and later searches use it.
+    - Measured before (2026-11-17), on a paper of 14 pages: `performance`
+      found 23 of its 28 places and `alternative` 2 of 3, missing every
+      word a hyphen broke at a line's end; `2026`, `don't`, `naive`, and
+      `cafe` found nothing in a PDF that holds `２０２６`, `don’t`, `naïve`,
+      and `café`; pinyin was searched while the input method still composed
+      it, which showed "No results"; and the count read "? of 60" while
+      pages were searched.
+
+#### At the bottom left
+
+20. Two controls stand over the document at its bottom left, 14 px from the
+    left and 16 px from the bottom, as the zoom of the canvas does, on a
+    small surface of the editor's widget color so that they read over a
+    page:
+    - for a PDF, the **page**, "3 / 9", and the **zoom**, "95%";
+    - for a book, the **place**, "34%", and **Aa**, the size of the text.
+21. **The page.** A click makes the page number editable where it stands,
+    with all of it selected. Enter goes to the page typed; Escape, or a
+    click outside, leaves it as it was. A number out of range goes to the
+    first or the last page.
+22. **The zoom.** A click opens the zoom menu above the control, as the
+    canvas's: a field with the percentage, from 25 % to 500 %; **Zoom In**
+    (Cmd+=), **Zoom Out** (Cmd+-), **Fit Width**, and **Fit Page**; then
+    **Zoom to 50%**, **Zoom to 100%** (Cmd+0), and **Zoom to 200%**. The keys
+    zoom the PDF with the menu closed too, wherever the keyboard is in the
+    reader, and never the window. Measured before (2026-11-17): Cmd+= zoomed
+    the PDF from 190 % to 205 % and the window to 120 %, since the page hands
+    every key to the window too.
+23. **The place.** A click opens a slider above the control, from the start
+    of the book to its end, at the place shown; moving it shows the
+    percentage, and letting go goes there.
+24. **Aa.** A click opens a menu above the control: **Larger Text** (Cmd+=),
+    **Smaller Text** (Cmd+-), **Pages**, and **One Scroll**, the one in use
+    checked. The keys change the text and never zoom the window. A comic book
+    and a book with a fixed layout have no Aa.
+
+#### The selection menu
+
+25. Selecting text in a PDF or a book shows a menu just above the
+    selection's first line, or below its last line when there is no room
+    above: **Highlight**, **Comment**, **Grow branch**, and **Copy**
+    ([comments](comments.md#making-a-comment)). It shows once the selection
+    has stopped changing for 30 ms and no button is pressed, moves with the
+    selection when the document scrolls, and goes when the selection ends.
+    Copy puts the selected text on the clipboard; Cmd+C does too.
+
+#### The keyboard
+
+26. The reader takes the keyboard when Card Detail is drawn. Escape closes,
+    one at a time and in this order: a menu, a comment note or the tools of
+    a highlight, the find bar, the selection, a panel while it stands over
+    the document, and then Card Detail. Cmd+F shows the find bar.
+
 ### The PDF reader
 
-15. A PDF opens at the width of Card Detail, but at most 125 %, as long as
+27. A PDF opens at the width of Card Detail, but at most 125 %, as long as
     the user has not zoomed this PDF. The width follows Card Detail when it
     changes. Once the user zooms, the PDF opens at the zoom and the page
-    where the user was, as before.
-15a. **The PDF shows itself drawn.** The reader shows itself, its toolbar and
+    where the user was, as before. The pages keep 30 px from the sides of
+    the reader at its width, the room where the marks of comments stand
+    outside the page ([comments](comments.md#on-the-page), rule 7), and
+    the reader's scroll bar stands at its right edge. Measured before
+    (2026-11-17): the scrolling area was 32 px wider than the reader, so
+    that a page at the width of Card Detail ran 16 px past its right edge,
+    under the edge with the scroll bar.
+28. **The PDF shows itself drawn.** The reader shows itself, its controls and
     its pages at once, in the frame in which the page it opens at has its
     picture: until then Card Detail shows its background. No frame shows a
     page without its picture, which was a white page, or a page at another
@@ -201,78 +367,69 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     (2026-11-13): after the fade of Card Detail, a grey page with "Opening
     PDF...", then the toolbar over an empty page, then a white page for
     about 80 ms, then the cover.
-16. Everything else is as before: thumbnails, the outline, search, zoom,
-    text selection, and Grow branch from a selection. A pinch of the
-    trackpad zooms the PDF with its zoom, around the fingers, as the wheel
+29. A pinch of the trackpad zooms the PDF around the fingers, as the wheel
     with Ctrl held does inside it, and the zoom is the user's. The browser
     gives a pinch to the window, never to the page of the PDF, so the window
     takes it and hands it to the page
-    ([zoom and outline of a note](note-zoom-and-outline.md), D87). A PDF that a password
-    locks asks for it in place of the PDF, says so when it is not right,
-    and asks again; Cancel closes Card Detail. BaseHalf keeps no password:
-    the PDF asks each time it opens. Any other PDF that does not open shows
-    "BaseHalf could not open this PDF." in its place, and the reason goes to
-    the log.
+    ([zoom and outline of a note](note-zoom-and-outline.md), D87). The
+    pages are magnified while the fingers move and take the new zoom when
+    they rest, as a pinch of a note does, so what is under the fingers stays
+    under them in every frame. A notch of the wheel with Ctrl held is one
+    step of Card Detail's zoom. Measured before (2026-11-17): a zoom asked
+    once a frame started from a scroll that the step before had not reached,
+    and a pinch over page 9 ended on page 7.
+30. **Links.** A link to a place in the PDF goes there. A link to the web
+    opens in the browser, after the question that every link to a website
+    asks. Other links do nothing.
+31. **Locked and damaged.** A PDF that a password locks asks for it in place
+    of the PDF, with a field and **Open** and **Cancel**: a wrong password is
+    said so under the field, and the field asks again; Cancel closes Card
+    Detail. BaseHalf keeps no password: the PDF asks each time it opens. Any
+    other PDF that does not open shows "BaseHalf could not open this PDF." in
+    its place, and the reason goes to the log.
+32. The reader is BaseHalf's own, on the engine and the parts of the library
+    that draw the covers (EmbedPDF, on PDFium), without the library's own
+    screens.
 
 ### The book reader
 
-17. A book opens in Card Detail at the place where the user was, or at its
+33. A book opens in Card Detail at the place where the user was, or at its
     start. While it opens, the page shows a quiet placeholder, as a PDF's
     does. Card Detail fades in first and the book draws itself after the
     transition ([opening and closing Card Detail](card-detail-opening.md)).
-18. **Layout.** A bar at the top: Contents, the title of the chapter shown,
-    and on the right Search, Smaller Text, Larger Text, and the choice of
-    pages or one scroll. The book in the middle, in one column, or in two
-    when Card Detail is wide enough. A bar at the bottom: Previous Page, how
-    far into the book the place is, as a bar the user can drag and as a
-    percentage, and Next Page.
-19. **Turning pages.** The arrows of the bottom bar, the Left and Right
-    arrow keys, Page Up and Page Down, Space and Shift+Space, and a click in
-    the outer fifth of the page at either side. A book that reads from right
-    to left turns the other way. In one scroll, the wheel and the keys
-    scroll.
-20. **Contents.** Contents opens the book's table of contents beside the
-    book, with the chapter shown marked. A click on an entry goes there.
-    Contents closes with its button or with Escape. A book without a table
-    of contents shows its sections by their order. A comic book's pages are
-    its pictures in natural name order, each listed by its file name without
-    the extension, and the hidden files of the system that packed it are no
-    pages.
-21. **Search.** Search opens a field over the contents. Enter searches the
-    whole book and lists each match with the words around it, in the order
-    of the book, as they are found. A click on a match goes there and marks
-    it. Escape in the field closes the search.
-22. **Text.** Smaller Text and Larger Text change the size of the text in
+34. **Layout.** The book in the middle, in one column, or in two when the
+    reader is wide enough, with the [panels](#the-panels) at its left and
+    its right and the place and Aa at its bottom left.
+35. **Turning pages.** The Left and Right arrow keys, Page Up and Page Down,
+    Space and Shift+Space, and a click in the outer fifth of the page at
+    either side, where a chevron shows while the pointer is there. A book
+    that reads from right to left turns the other way. In one scroll, the
+    wheel and the keys scroll.
+36. **Text.** Larger Text and Smaller Text change the size of the text in
     steps, from 70 % to 200 %, and the choice of pages or one scroll is
     kept. A pinch of the trackpad changes the text by one step each time
     the fingers have spread or closed by as much as that step, as Larger
     Text and Smaller Text do. Both are the user's for every book on this
-    computer. They do not
-    apply to a comic book or to a book with a fixed layout, whose pages are
-    pictures.
-23. **Colors.** The pages take the colors of the workbench's editor, light
+    computer. They do not apply to a comic book or to a book with a fixed
+    layout, whose pages are pictures.
+37. **Colors.** The pages take the colors of the workbench's editor, light
     or dark, and follow a change of the theme. Pictures keep theirs.
-24. **The place.** Where the user is in a book is kept for that book in the
+38. **The place.** Where the user is in a book is kept for that book in the
     workspace's storage on this computer, and the book opens there again.
-25. **Links.** A link inside the book goes to its place in the book. A link
+39. **Links.** A link inside the book goes to its place in the book. A link
     to the web opens in the browser, after the question that every link to
     a website asks. Other links do nothing.
-26. **Selecting.** Text selected in a book shows the button Grow branch
-    just above the selection. Copy works as everywhere.
-27. **The keyboard.** The reader takes the keyboard when Card Detail is
-    drawn. Escape closes Card Detail, except in the search field and while
-    Contents or the search is open, which Escape closes first.
-28. **What it cannot open.** A book with DRM shows "BaseHalf can't open
+40. **What it cannot open.** A book with DRM shows "BaseHalf can't open
     this book: it is protected with DRM." Any other file that does not open
     shows "BaseHalf could not open this book." Both stay in place of the
     book; the reason goes to the log.
-29. **What a book may not do.** Scripts in a book never run, and a book
+41. **What a book may not do.** Scripts in a book never run, and a book
     loads nothing from the network: no page, picture, font, or style. What
     a book holds is shown from the file itself.
 
 ### Grow branch from a book
 
-30. Grow branch makes a note from the selected passage as it does for a PDF
+42. Grow branch makes a note from the selected passage as it does for a PDF
     ([reference graph](reference-graph.md#creating-connected-nodes)): next
     to the book's card, named after the book with `-note`, its title the
     passage's first sentence, the passage quoted, and a line
@@ -282,25 +439,35 @@ show the same files ([architecture invariants](../harness/architecture-invariant
 
 ### What agents can see
 
-31. Text selected in a PDF or a book is what agents can see
+43. Text selected in a PDF or a book is what agents can see
     ([the selection agents can see](selection-for-agents.md)), as text
     selected in a note is: `selected: "text"`, `path` the document, and
     `text`. For a PDF the record adds `first_page` and `last_page`, the
     pages the selection begins and ends on, counted from 1. For a book it
     adds `chapter`, the entry of the contents that the selection begins in,
     when the book has one. The status bar shows the start of the text.
-32. The record follows 30 ms after the selection stops changing. When the
+44. The record follows 30 ms after the selection stops changing. When the
     selection ends, it is the document's card again. Text longer than 10,000
     characters is cut there, as for a note.
-33. The skill describes the two new fields, and its version becomes 10
+45. The skill describes the two new fields, and its version becomes 10
     (D78 made it 9 the same day).
+46. While a comment note is open, the record names the comment
+    ([comments](comments.md#agents)).
 
 ## Limits
 
 - A cover is 800 pixels wide. On a card zoomed to more than 150 % on a
   retina screen it is less sharp than the page in Card Detail.
-- The search of a long book takes seconds; matches appear as they are
-  found, and a new search ends the one before.
+- Find in a long book takes seconds, and a new search ends the one before.
+  A book's text is searched as the library it is read with searches it:
+  its curly quotation marks are not its straight ones, and a word is not
+  matched across two blocks of text.
+- The first Find in a PDF reads the text of every page. Measured
+  (2026-11-18) in the development window, on a PDF of 700 pages at a load
+  of about 5: from page 300, `compile` marked its first match on that page
+  0.2 s after the last key and counted 4,050 matches 2.5 s after it, with
+  no frame over 50 ms; `trace` then counted its 20,800 within 0.2 s.
+- A phrase is not found across the end of a PDF's page.
 - Text that a book sets in absolute sizes does not follow Smaller Text and
   Larger Text.
 - A PDF over 512 MB has no cover, so that a cover never needs half a
@@ -327,10 +494,10 @@ show the same files ([architecture invariants](../harness/architecture-invariant
    the card.
 7. A password-locked PDF, a damaged PDF, an EPUB without a cover, and a
    MOBI with DRM show the grey face, and the EPUB its title.
-8. Each book opens in Card Detail: pages turn with the arrows, the keys, and
-   the side of the page; Contents goes to a chapter; Search lists matches
-   and goes to one; Larger Text makes the text larger; Escape closes
-   Card Detail.
+8. Each book opens in Card Detail: pages turn with the keys and the side of
+   the page; Contents in the panel goes to a chapter; Find goes to a match
+   and Enter to the next; Larger Text in the Aa menu makes the text larger;
+   Escape closes Card Detail.
 9. Closing a book on page N and opening it again shows page N.
 10. A book whose page holds a script and an image from the web runs no
     script and requests nothing from the network.
@@ -355,24 +522,66 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     frame.
 18. Opening a PDF, no frame of Card Detail shows a white page, a page
     without its picture, or "Opening PDF..." when the PDF shows itself
-    within a second: the reader shows its toolbar and the page it opens at
+    within a second: the reader shows its controls and the page it opens at
     in the same frame.
+19. With a PDF open, Card Detail shows one bar, its header, with Sidebar
+    before the name and Find and Comments before Close, and no other bar;
+    the reader has no hand, pointer, menu, or page settings.
+20. The page and the zoom stand at the bottom left, 14 px from the left and
+    16 px from the bottom of the reader. Zoom In from the zoom menu and
+    Cmd+= zoom the PDF by the same step, and the window keeps its zoom;
+    typing 7 into the page goes to page 7.
+21. Sidebar opens the panel with Pages and Contents for a PDF with an
+    outline, and with Contents and no tabs for a book; a click on a page's
+    picture goes to it; after Card Detail closes and another PDF opens, the
+    panel is open at the same tab. Comments opens the Comments panel at the
+    right, and it is open again in the next PDF.
+22. Find with a word of a PDF marks its matches, says "1 of N", and shows the
+    first at or after the page shown; Enter goes to the next and Shift+Enter
+    back; Escape takes the marks away and hides the bar.
+23. Selecting text in a PDF and in a book shows Highlight, Comment, Grow
+    branch, and Copy above it; Copy puts the text on the clipboard.
+24. A link to a page in a PDF goes to that page; a link to a website asks
+    before it opens.
+25. The book reader has no bar of its own; the place and Aa stand at its
+    bottom left, and a chevron shows in the outer fifth of a page while the
+    pointer is there.
+26. In the paper of the measure in rule 19, Find finds `performance` 28 times
+    and `alternative` 3 times, the second of them across the line break of
+    `al-ternative`, marked on both lines; in a PDF that holds `２０２６`,
+    `don’t`, `naïve`, `café`, and `规律` broken over two lines, `2026`,
+    `don't`, `naive`, `cafe`, and `规律` each find it.
+27. Composing `xuexi` with an input method searches nothing and leaves the
+    count and the pages as they were; committing `学习` searches it.
+28. Text selected on one line and Cmd+F show the bar with that text and its
+    first match marked strongly; Cmd+G with the keyboard in the document goes
+    to the next match.
+29. While the first Find of a PDF of 700 pages runs, the first match after
+    the page shown is marked within a second, the thin line grows, no frame
+    of the reader takes longer than 50 ms, and the count shows when it is
+    done; the same Find again counts at once.
 
 ## Verification
 
-- Unit tests: the formats and their glyphs; the cover readers of EPUB,
+- Unit tests: the formats and their glyphs; the reader's zoom steps, the
+  page field, and the kept state of both panels; the cover readers of EPUB,
   Kindle, FictionBook, and comic book archives against small files made in
   the test (covers by property, by `meta`, by guide; a Kindle file with
   DRM; FictionBook in windows-1251); the cache key and its entries; the
   `appearance.yaml` grammar with `cover`; the size and resize rule of a
   document card; the record of PDF and book text; the branch note of a
-  book; the skill text.
+  book; the skill text; the text Find matches in (case, accents, widths,
+  quotation marks, glyphs of two letters, hyphens and line breaks of a PDF,
+  line breaks in Chinese text, the places of characters of two units) and
+  the words it looks for.
 - `npm run basehalf:smoke`: the canvas suite checks the covers, the size,
   and Hide Cover and Show Cover (criteria 1 and 3), the book's 3:4 cover
   filling its card and the landscape page whole (criterion 16), and every
   frame while the PDF's card is selected (criterion 17); the cardDetail suite
-  opens an EPUB, turns a page, and grows a branch (criteria 8 and 11). A unit
-  test holds the rule of which covers fill the card.
+  checks the header of a PDF (criterion 19), finds a word of a PDF in
+  another case and takes the marks away with Escape (criterion 22), opens an
+  EPUB, turns a page, and grows a branch (criteria 8 and 11). A unit test holds the rule of
+  which covers fill the card.
 - Criterion 18 was measured in a development window (2026-11-13), recording
   the screen at about 120 frames a second while the course PDF of the launch
   film opened four times: each time Card Detail showed its background until
@@ -385,3 +594,8 @@ show the same files ([architecture invariants](../harness/architecture-invariant
   a FictionBook, and a comic book archive; per-frame sampling while a
   folder of twenty documents appears; a capture of every card face and of
   the book reader in the light and the dark theme.
+- Find (criteria 26 to 29) in the real window, typing at a person's speed and
+  composing through the input method over CDP, with every frame of the bar,
+  the marks, and the strong match sampled (`.build/rw-read/findprobe.mjs`):
+  the paper of 14 pages, a Chinese PDF made for it, and a PDF of 700
+  pages.

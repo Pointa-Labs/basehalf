@@ -37,11 +37,14 @@ import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '..
 import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
 import { BASEHALF_PAGE_PINCH_MESSAGE } from '../common/basehalfCardDetailZoom.js';
 import { BaseHalfVideoPictureZoom } from './basehalfVideoPictureZoom.js';
-import { IBaseHalfAgentSelectionDocumentText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { BaseHalfAgentSelectionDetail } from '../../agentArea/common/basehalfAgentSelection.js';
 import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocumentBranch.js';
 import { baseHalfDocumentVersion } from '../../documents/common/basehalfDocuments.js';
 import { baseHalfBookReaderMessage, IBaseHalfBookViewState, normalizeBaseHalfBookReaderPreferences, normalizeBaseHalfBookViewState } from '../../documents/common/basehalfBookReaderProtocol.js';
 import { baseHalfBookReaderHtml, baseHalfBookReaderLabels } from '../../documents/browser/basehalfBookReaderPage.js';
+import { DEFAULT_BASEHALF_READER_PANEL_STATE } from '../../documents/common/basehalfReaderProtocol.js';
+import { baseHalfPdfReaderHtml, baseHalfReaderLabels } from '../../documents/browser/basehalfReaderPage.js';
+import { BaseHalfReaderHost } from './basehalfReaderHost.js';
 import { IBaseHalfDocumentCoverService } from '../../documents/browser/basehalfDocumentCovers.js';
 import { formatBaseHalfVideoElapsed } from '../../generation/common/basehalfVideoCardPresentation.js';
 import {
@@ -57,6 +60,7 @@ import { BASEHALF_AUDIO_DEFAULT_MODE_INPUTS, BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
+const pdfViewerStyle = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.css');
 const bookReaderScript = URI.joinPath(contentViewerMediaRoot, 'bookReader.js');
 const bookReaderStyle = URI.joinPath(contentViewerMediaRoot, 'bookReader.css');
 const pdfiumWasm = URI.joinPath(contentViewerMediaRoot, 'pdfium.wasm');
@@ -226,6 +230,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private pdfViewState: IBaseHalfPdfViewState | undefined;
 	private bookViewState: IBaseHalfBookViewState | undefined;
 	private branchPending = false;
+	/** The reader's Sidebar and Search, its panel, its links, and the comments of a PDF or a book (PDFs and books, "The reader"). */
+	private readonly readerHost = this._register(new MutableDisposable<BaseHalfReaderHost>());
 
 	constructor(
 		container: HTMLElement,
@@ -234,12 +240,14 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		private readonly onDocumentInteraction: () => void,
 		/** Escape in the page of an image, a sound, a PDF, or a book, which closes Card Detail (opening and closing Card Detail, "The keyboard"). */
 		private readonly onEscape: () => void,
-		/** The text selected in a PDF or a book, which agents can see (PDFs and books, "What agents can see"). */
-		private readonly onSelectionChange: (selected: IBaseHalfAgentSelectionDocumentText | undefined) => void,
+		/** The text selected in a PDF or a book, or its comment that is open, which agents can see (PDFs and books, "What agents can see"). */
+		private readonly onSelectionChange: (selected: BaseHalfAgentSelectionDetail | undefined) => void,
 		/** Where the header of Card Detail holds Edit and Done (layout controls, "Card Detail"). */
 		private readonly modeActions: HTMLElement | undefined,
 		/** Where the header of Card Detail holds Revert to Original (editing media, "Revert to Original"). */
 		private readonly editActions: HTMLElement | undefined,
+		/** Where the header of Card Detail holds the reader's Sidebar, before the name (PDFs and books, rule 15). */
+		private readonly leadingActions: HTMLElement | undefined,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
@@ -420,6 +428,19 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			}
 		}));
 		webview.mountTo(this.webviewHost, mainWindow);
+		this.readerHost.value = kind === 'pdf' || kind === 'book' ? this.instantiationService.createInstance(BaseHalfReaderHost, {
+			kind,
+			target: state,
+			post: message => void webview.postMessage(message),
+			leadingActions: this.leadingActions,
+			trailingActions: this.modeActions,
+			onComment: selected => this.onSelectionChange(selected),
+			growBranch: selection => this.growBranch(state.resource, selection),
+			pageHost: this.webviewHost,
+			titleActions: this.editActions,
+			page: webview
+		}) : undefined;
+		this.readerHost.value?.setVisible(this.visible);
 		store.add(webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
 		store.add(webview.onFatalError(error => {
 			this.logService.error(`[BaseHalf] media webview failed: ${error.message}`);
@@ -444,6 +465,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		}
 		// What this view holds in the header is its own, and another view of the file shows without it.
 		this.renderModeButton();
+		this.readerHost.value?.setVisible(visible);
 		if (this.editActions) {
 			this.editActions.hidden = !visible;
 		}
@@ -704,30 +726,46 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				viewState: this.bookViewState ?? {},
 				preferences: normalizeBaseHalfBookReaderPreferences(this.storageService.getObject(BOOK_READER_PREFERENCES_STORAGE_KEY, StorageScope.PROFILE)),
 				locale: language,
-				labels: baseHalfBookReaderLabels()
+				labels: baseHalfBookReaderLabels(),
+				reader: baseHalfReaderLabels(),
+				panel: this.readerHost.value?.panelState
 			}));
 			return;
 		}
-		// EmbedPDF fetches the resource from inside the webview before handing
-		// bytes to PDFium. Keep that URI identical to the file URI: the
-		// webview resource loader treats synthetic queries as a different local
-		// resource. Image/media elements can keep a cache-busting version.
-		const resource = kind === 'pdf' ? state.resource : state.resource.with({
+		if (kind === 'pdf') {
+			// The reader fetches the PDF from inside the webview before handing
+			// bytes to PDFium. Keep that URI identical to the file URI: the
+			// webview resource loader treats synthetic queries as a different
+			// local resource.
+			const viewState = normalizeBaseHalfPdfViewState(this.pdfViewState);
+			webview.setHtml(baseHalfPdfReaderHtml({
+				source: escapeAttribute(asWebviewUri(state.resource).toString(true)),
+				script: asWebviewUri(pdfViewerScript).toString(true),
+				style: asWebviewUri(pdfViewerStyle).toString(true),
+				wasm: asWebviewUri(pdfiumWasm).toString(true),
+				fontSc: asWebviewUri(simplifiedChinesePdfFont).toString(true),
+				name: basename(state.resource),
+				locale: baseHalfPdfLocale(language),
+				page: viewState.page,
+				zoom: viewState.zoom === undefined ? '' : String(viewState.zoom),
+				panel: this.readerHost.value?.panelState ?? DEFAULT_BASEHALF_READER_PANEL_STATE,
+				labels: baseHalfReaderLabels()
+			}));
+			return;
+		}
+		// An image can keep a version that its cache does not have.
+		const resource = state.resource.with({
 			query: [state.resource.query, `basehalfMediaVersion=${version}`].filter(Boolean).join('&')
 		});
-		webview.setHtml(baseHalfMediaWebviewHtml(
-			kind,
-			resource,
-			pdfViewerScript,
-			pdfiumWasm,
-			this.pdfViewState,
-			simplifiedChinesePdfFont
-		));
+		webview.setHtml(baseHalfMediaWebviewHtml(kind, resource));
 	}
 
 	private handleWebviewMessage(kind: BaseHalfWebviewContentKind, resource: URI, message: unknown): void {
 		if (isBaseHalfMediaEscapeMessage(message)) {
 			this.onEscape();
+			return;
+		}
+		if (this.readerHost.value?.handleMessage(message)) {
 			return;
 		}
 		if (kind === 'book') {
@@ -760,7 +798,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		const change = baseHalfPdfSelectionChangeFromMessage(message);
 		if (change && this.state) {
 			const pages = change.selection?.pages;
-			this.onSelectionChange(change.selection && pages?.length
+			this.setSelectedText(change.selection && pages?.length
 				? { path: this.state.relativePath, text: change.selection.text, pages: { first: pages[0], last: pages[pages.length - 1] } }
 				: undefined);
 		}
@@ -793,7 +831,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				return;
 			case 'basehalf.book.selectionChanged':
 				if (this.state) {
-					this.onSelectionChange(message.selection
+					this.setSelectedText(message.selection
 						? { path: this.state.relativePath, text: message.selection.text, ...(message.selection.chapter ? { chapter: message.selection.chapter } : {}) }
 						: undefined);
 				}
@@ -817,6 +855,15 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			case 'basehalf.book.failed':
 				this.logService.warn(`[BaseHalf] the book reader could not open ${resource.toString()}: ${message.message}`);
 				return;
+		}
+	}
+
+	/** Text selected in a PDF or a book: the reader host lets a comment that is open win over it (comments, rule 25). */
+	private setSelectedText(selected: BaseHalfAgentSelectionDetail | undefined): void {
+		if (this.readerHost.value) {
+			this.readerHost.value.setSelectedText(selected);
+		} else {
+			this.onSelectionChange(selected);
 		}
 	}
 
@@ -960,23 +1007,9 @@ function provenanceUse(item: IBaseHalfVideoInputPlanItem): string {
 	}
 }
 
-export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resource: URI, viewerScript = pdfViewerScript, wasm = pdfiumWasm, pdfViewState?: IBaseHalfPdfViewState, fontSc = simplifiedChinesePdfFont): string {
+export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resource: URI): string {
 	const nonce = generateUuid();
 	const source = escapeAttribute(asWebviewUri(resource).toString(true));
-	if (kind === 'pdf') {
-		return baseHalfPdfWebviewHtml(
-			source,
-			asWebviewUri(viewerScript).toString(true),
-			asWebviewUri(wasm).toString(true),
-			asWebviewUri(fontSc).toString(true),
-			nonce,
-			normalizeBaseHalfPdfViewState(pdfViewState),
-			basename(resource),
-			baseHalfPdfLocale(language),
-			localize('basehalf.pdf.branch.action', "Grow branch"),
-			localize('basehalf.pdf.failed', "BaseHalf could not open this PDF.")
-		);
-	}
 	const resourceName = escapeAttribute(basename(resource));
 	const media = `<div class="image-stage" id="stage"><img id="media" src="${source}" alt="${resourceName}"></div>
 			<div class="toolbar" role="toolbar" aria-label="Image zoom">
@@ -1098,47 +1131,6 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 	</style>
 </head>
 <body>${media}<div class="error" id="error" role="alert" hidden>The media file could not be decoded by this system.</div>${script}</body>
-</html>`;
-}
-
-function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: string, fontSc: string, nonce: string, viewState: IBaseHalfPdfViewState, name: string, locale: string, branchActionLabel: string, failedLabel: string): string {
-	return `<!DOCTYPE html>
-<html lang="${escapeAttribute(locale)}">
-<head>
-	<meta charset="UTF-8">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src blob: ${webviewGenericCspSource}; img-src blob: data: ${webviewGenericCspSource}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' 'wasm-unsafe-eval' ${webviewGenericCspSource}; worker-src blob: ${webviewGenericCspSource};">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<style>
-		/* A webview's body has padding at its sides by default: the viewer would be shifted out of Card Detail by it. */
-		html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); }
-		body { position: relative; }
-		#basehalf-pdf-viewer, embedpdf-container { display: block; width: 100%; height: 100%; }
-		/* What the reader draws stays under the status while it covers the reader, its floating page numbers too. */
-		#basehalf-pdf-viewer { isolation: isolate; }
-		.status { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; box-sizing: border-box; padding: 24px; color: var(--vscode-descriptionForeground); background: var(--vscode-editor-background); pointer-events: none; }
-		.status[hidden] { display: none; }
-		.status-content { display: grid; justify-items: center; gap: 14px; max-width: 520px; text-align: center; }
-		.status-message { margin: 0; font-size: 12px; line-height: 18px; }
-		.loading .status-placeholder { width: min(390px, 54vw); height: min(520px, 66vh); border: 1px solid var(--vscode-widget-border, transparent); border-radius: 3px; background: linear-gradient(100deg, var(--vscode-editorWidget-background) 20%, var(--vscode-toolbar-hoverBackground) 45%, var(--vscode-editorWidget-background) 70%); background-size: 220% 100%; box-shadow: 0 8px 28px var(--vscode-basehalf-shadow18); animation: basehalf-pdf-loading 1.4s ease-in-out infinite; }
-		.error .status-placeholder { display: none; }
-		.error .status-message { color: var(--vscode-errorForeground, var(--vscode-descriptionForeground)); }
-		/* The status covers the reader until the page it opens at is drawn; what it says comes only for a PDF that takes longer than a second (PDFs and books, rule 15a). */
-		.loading .status-content { opacity: 0; animation: basehalf-pdf-status-show 160ms ease-out 1s forwards; }
-		@keyframes basehalf-pdf-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-		@keyframes basehalf-pdf-status-show { to { opacity: 1; } }
-		.vscode-reduce-motion .loading .status-placeholder { animation: none; } .vscode-reduce-motion .loading .status-content { animation-duration: 0s; }
-	</style>
-</head>
-<body>
-	<div id="basehalf-pdf-viewer" data-source="${source}" data-wasm="${escapeAttribute(wasm)}" data-font-sc="${escapeAttribute(fontSc)}" data-name="${escapeAttribute(name)}" data-locale="${escapeAttribute(locale)}" data-branch-action-label="${escapeAttribute(branchActionLabel)}" data-failed-label="${escapeAttribute(failedLabel)}" data-page="${viewState.page}" data-zoom="${viewState.zoom ?? ''}" data-status="loading"></div>
-	<div class="status loading" id="basehalf-pdf-status" role="status" aria-live="polite">
-		<div class="status-content">
-			<div class="status-placeholder" aria-hidden="true"></div>
-			<p class="status-message" id="basehalf-pdf-status-message">Opening PDF...</p>
-		</div>
-	</div>
-	<script nonce="${nonce}" type="module" src="${escapeAttribute(viewerScript)}"></script>
-</body>
 </html>`;
 }
 

@@ -3,10 +3,11 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { addDisposableListener, EventType, isHTMLElement } from '../../../../base/browser/dom.js';
+import { addDisposableListener, EventType, getWindow, isHTMLElement } from '../../../../base/browser/dom.js';
 import type { IHoverWidget } from '../../../../base/browser/ui/hover/hover.js';
-import { IDisposable } from '../../../../base/common/lifecycle.js';
+import { DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { webviewMouseActivityEvent } from '../../../contrib/webview/common/webview.js';
 import { BASEHALF_HOVER_ATTRIBUTE } from '../common/basehalfHover.js';
 
 /** BaseHalf's hovers are one group: moving from one to the next shows it without the delay, as along a toolbar. */
@@ -58,7 +59,12 @@ export function hideBaseHalfHoverOfRenamedButton(button: Element, hoverService: 
  * events to itself still has its hover.
  */
 export function setupBaseHalfHovers(root: HTMLElement, hoverService: IHoverService): IDisposable {
-	return addDisposableListener(root, EventType.MOUSE_OVER, event => {
+	const store = new DisposableStore();
+	// A pointer that went from an element straight into a webview, such as from
+	// the reader's Sidebar into the PDF, leaves no mouseleave in the window: the
+	// hover goes once the webview says that the pointer moves in it.
+	store.add(addDisposableListener(getWindow(root), webviewMouseActivityEvent, () => hoverService.hideHover()));
+	store.add(addDisposableListener(root, EventType.MOUSE_OVER, event => {
 		const start = event.target as Element | null;
 		const target = typeof start?.closest === 'function' ? start.closest(`[${BASEHALF_HOVER_ATTRIBUTE}]`) : null;
 		const content = target?.getAttribute(BASEHALF_HOVER_ATTRIBUTE);
@@ -68,5 +74,6 @@ export function setupBaseHalfHovers(root: HTMLElement, hoverService: IHoverServi
 				hoversOfElements.set(target, hover);
 			}
 		}
-	}, true);
+	}, true));
+	return store;
 }
