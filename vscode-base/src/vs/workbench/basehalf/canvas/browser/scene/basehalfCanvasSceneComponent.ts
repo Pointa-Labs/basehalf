@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../../nls.js';
-import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasDrawnZoomRange } from '../basehalfCanvasWindowZoom.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import {
 	BaseHalfCanvasSceneBackground,
@@ -123,6 +123,9 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const snapEnabledRef = vendor.useRef(initialSettings.snap);
 		const wheelZoomsRef = vendor.useRef(initialSettings.wheelZooms);
 		const [background, setBackground] = vendor.useState<BaseHalfCanvasSceneBackground>(initialSettings.background);
+		// The library's range of zoom: the canvas's range at the window's zoom (each part zooms by itself, rule 5).
+		const zoomRangeRef = vendor.useRef(baseHalfCanvasDrawnZoomRange(initialSettings.windowZoomFactor));
+		const [zoomRange, setZoomRange] = vendor.useState(zoomRangeRef.current);
 		const [guides, setGuides] = vendor.useState<readonly IBaseHalfCanvasSnapGuide[]>([]);
 		// The released connection line, kept while the Create from Connection
 		// menu is open and until the chosen node's edge replaces it.
@@ -453,7 +456,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 
 		useBaseHalfCanvasSceneRuntime(environment, {
 			ready, sceneKeyRef, viewportRef, flowRef, viewportCommandKey, viewportCommandQueue,
-			interacting, snapEnabledRef, wheelZoomsRef, setBackground, setGuides, setVideoPanelSurfaceState, nodesRef,
+			interacting, snapEnabledRef, wheelZoomsRef, setBackground, zoomRangeRef, setZoomRange, setGuides, setVideoPanelSurfaceState, nodesRef,
 			requestSelection, updateSnapshot, reportViewport
 		});
 
@@ -481,7 +484,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 				return;
 			}
 			const current = flow.getViewport();
-			const zoom = Math.min(BASEHALF_CANVAS_MAX_ZOOM, Math.max(BASEHALF_CANVAS_MIN_ZOOM, current.zoom * factor));
+			const zoom = Math.min(zoomRangeRef.current.max, Math.max(zoomRangeRef.current.min, current.zoom * factor));
 			if (zoom === current.zoom) {
 				return;
 			}
@@ -575,8 +578,8 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			connectionRadius: 48,
 			edgesReconnectable: false,
 			deleteKeyCode: null,
-			minZoom: BASEHALF_CANVAS_MIN_ZOOM,
-			maxZoom: BASEHALF_CANVAS_MAX_ZOOM,
+			minZoom: zoomRange.min,
+			maxZoom: zoomRange.max,
 			// What the wheel does is BaseHalf's (canvas wheel gestures): the library
 			// moves the canvas on the events it is left or handed and zooms on a
 			// pinch. It has no zoom key of its own, since what the key does depends

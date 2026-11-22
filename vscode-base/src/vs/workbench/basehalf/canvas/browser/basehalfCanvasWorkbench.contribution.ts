@@ -44,6 +44,7 @@ import { IPathService } from '../../../services/path/common/pathService.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { IWorkingCopyFileService } from '../../../services/workingCopy/common/workingCopyFileService.js';
+import { getZoomFactor } from '../../../../base/browser/browser.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeFile, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../../references/common/basehalfBadgeMirror.js';
@@ -261,7 +262,10 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly viewportPersister: BaseHalfCanvasViewportPersister;
 	/** Bumped by every user viewport change; invalidates stale async restores and fits. */
 	viewportRestoreGeneration = 0;
+	/** The zoom the scene draws its cards at, in the window's pixels. The canvas's zoom is it times `windowZoomFactor`. */
 	canvasZoom = 1;
+	/** The window's zoom factor the scene draws for (each part zooms by itself, rule 5). */
+	windowZoomFactor = getZoomFactor(mainWindow);
 	readonly onDidChangeZoomEmitter = this._register(new Emitter<number>());
 	readonly onDidHideViewControlsEmitter = this._register(new Emitter<void>());
 	readonly onDidChangeSceneEmitter = this._register(new Emitter<IBaseHalfCanvasViewSceneChange>());
@@ -498,8 +502,9 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				this.requestRender();
 			}
 		}));
-		// The scene's first drawing has what the user chose for the canvas.
+		// The scene's first drawing has what the user chose for the canvas, and it draws for the window's zoom.
 		this.followCanvasSettings();
+		this._register(this.geometry.followWindowZoom());
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_ENTER, event => this.creation.onCanvasFileDragEnter(event)));
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_OVER, event => this.creation.onCanvasFileDragOver(event)));
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_LEAVE, event => this.creation.onCanvasFileDragLeave(event)));
@@ -855,7 +860,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 
 	/** The canvas as its features see it (IBaseHalfCanvasView). */
 	private createCanvasView(): IBaseHalfCanvasView {
-		const zoom = () => this.canvasZoom;
+		const zoom = () => this.geometry.shownZoom();
 		const scene = () => this.canvasViewScene();
 		return {
 			get zoom() { return zoom(); },
@@ -1330,10 +1335,13 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 
 	/** Tells the scene what the settings say the wheel does and what the canvas draws behind its cards. */
 	private followCanvasSettings(): void {
-		this.canvasScene.setSettings(baseHalfCanvasSceneSettingsFor(
-			this.configurationService.getValue(BaseHalfSetting.CanvasWheel),
-			this.configurationService.getValue(BaseHalfSetting.CanvasBackground)
-		));
+		this.canvasScene.setSettings({
+			...baseHalfCanvasSceneSettingsFor(
+				this.configurationService.getValue(BaseHalfSetting.CanvasWheel),
+				this.configurationService.getValue(BaseHalfSetting.CanvasBackground)
+			),
+			windowZoomFactor: this.windowZoomFactor
+		});
 	}
 
 	queueCanvasWarning(message: string): void {

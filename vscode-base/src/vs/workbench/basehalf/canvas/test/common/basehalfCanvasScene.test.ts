@@ -104,7 +104,7 @@ suite('BaseHalfCanvasScene', () => {
 			unknown: baseHalfCanvasSceneSettingsFor('spin', 'stars'),
 			unset: baseHalfCanvasSceneSettingsFor(undefined, undefined)
 		}, {
-			defaults: { snap: true, wheelZooms: false, background: 'lines' },
+			defaults: { snap: true, wheelZooms: false, background: 'lines', windowZoomFactor: 1 },
 			asRegistered: { wheelZooms: false, background: 'lines' },
 			zoomAndDots: { wheelZooms: true, background: 'dots' },
 			plain: { wheelZooms: false, background: 'plain' },

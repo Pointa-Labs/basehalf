@@ -70,6 +70,8 @@ function general(): IBaseHalfShownSettingsSection[] {
 			}, {
 				key: 'window.zoomLevel',
 				label: localize('basehalf.settings.zoom', "Zoom"),
+				// Each part zooms by itself (rule 4): this is the window's zoom.
+				description: localize('basehalf.settings.zoomDescription', "The canvas and the Agent Area's text keep their own size."),
 				control: { kind: 'choice', options: windowZoomOptions(), name: level => typeof level === 'number' ? percentage(Math.pow(1.2, level)) : String(level) }
 			}]
 		},

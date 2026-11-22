@@ -8,12 +8,14 @@ import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
+import { TerminalSettingId } from '../../../../platform/terminal/common/terminal.js';
 import {
 	BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_RESTART_ACTIVE_COMMAND_ID,
@@ -38,11 +40,15 @@ import {
 	BASEHALF_AGENT_AREA_TOGGLE_ZOOM_COMMAND_ID,
 	BASEHALF_AGENT_AREA_GOTO_TAB_COMMAND_IDS,
 	BASEHALF_AGENT_AREA_LAST_TAB_COMMAND_ID,
+	BASEHALF_AGENT_AREA_LARGER_TEXT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_SMALLER_TEXT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_RESET_TEXT_SIZE_COMMAND_ID,
 	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
 	BaseHalfAgentSessionKind,
 	IBaseHalfAgentAreaService,
 	IBaseHalfAgentAreaSession
 } from '../common/basehalfAgentArea.js';
+import { baseHalfAgentAreaTextSizeStep } from '../common/basehalfAgentAreaTextSize.js';
 import { BaseHalfAgentAreaService } from './basehalfAgentAreaService.js';
 
 class BaseHalfAgentAreaWorkbenchContribution extends Disposable implements IWorkbenchContribution {
@@ -223,5 +229,62 @@ BASEHALF_AGENT_AREA_GOTO_TAB_COMMAND_IDS.forEach((commandId, i) => {
 		run: service => service.gotoTab(i + 1)
 	});
 });
+
+// ── The size of the Agent Area's text (each part zooms by itself, rule 10) ──
+// The keys that zoom the window change the Agent Area's text while it has the keyboard: their weight is above that of
+// the window's zoom, and their commands go to no program in the terminal (BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS).
+
+interface IBaseHalfAgentTextSizeActionSpec {
+	readonly id: string;
+	readonly title: string;
+	readonly primary: number;
+	readonly secondary: number[];
+	/** One pixel larger or smaller, or back to the default. */
+	readonly direction: 1 | -1 | 'default';
+}
+
+const AGENT_TEXT_SIZE_ACTIONS: readonly IBaseHalfAgentTextSizeActionSpec[] = [
+	{ id: BASEHALF_AGENT_AREA_LARGER_TEXT_COMMAND_ID, title: 'Larger Agent Area Text', primary: KeyMod.CtrlCmd | KeyCode.Equal, secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Equal, KeyMod.CtrlCmd | KeyCode.NumpadAdd], direction: 1 },
+	{ id: BASEHALF_AGENT_AREA_SMALLER_TEXT_COMMAND_ID, title: 'Smaller Agent Area Text', primary: KeyMod.CtrlCmd | KeyCode.Minus, secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Minus, KeyMod.CtrlCmd | KeyCode.NumpadSubtract], direction: -1 },
+	{ id: BASEHALF_AGENT_AREA_RESET_TEXT_SIZE_COMMAND_ID, title: 'Reset Agent Area Text Size', primary: KeyMod.CtrlCmd | KeyCode.Digit0, secondary: [KeyMod.CtrlCmd | KeyCode.Numpad0], direction: 'default' }
+];
+
+/** The writes of the text's size, one after another: a key pressed before the last write landed steps from what it wrote. */
+let textSizeWrites: Promise<void> = Promise.resolve();
+
+for (const spec of AGENT_TEXT_SIZE_ACTIONS) {
+	registerAction2(class BaseHalfAgentTextSizeAction extends Action2 {
+		constructor() {
+			super({
+				id: spec.id,
+				title: actionTitle(spec.title),
+				category: localize2('basehalf.category', 'BaseHalf'),
+				f1: true,
+				keybinding: {
+					primary: spec.primary,
+					secondary: spec.secondary,
+					when: AGENT_AREA_WHEN,
+					weight: AGENT_KEYBINDING_WEIGHT
+				}
+			});
+		}
+
+		run(accessor: ServicesAccessor): Promise<void> {
+			const configurationService = accessor.get(IConfigurationService);
+			// Written as Settings writes it: where the value in effect comes from, and the default as no value.
+			const write = async () => {
+				if (spec.direction === 'default') {
+					await configurationService.updateValue(TerminalSettingId.FontSize, undefined);
+					return;
+				}
+				const defaultSize = configurationService.inspect<number>(TerminalSettingId.FontSize).defaultValue ?? 13;
+				const size = baseHalfAgentAreaTextSizeStep(configurationService.getValue(TerminalSettingId.FontSize), defaultSize, spec.direction);
+				await configurationService.updateValue(TerminalSettingId.FontSize, size);
+			};
+			textSizeWrites = textSizeWrites.then(write, write);
+			return textSizeWrites;
+		}
+	});
+}
 
 registerWorkbenchContribution2(BaseHalfAgentAreaWorkbenchContribution.ID, BaseHalfAgentAreaWorkbenchContribution, WorkbenchPhase.AfterRestored);

@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasDrawnZoomRange } from '../basehalfCanvasWindowZoom.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import {
 	BaseHalfCanvasSceneBackground,
@@ -37,6 +37,9 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 	readonly snapEnabledRef: RefObject<boolean>;
 	readonly wheelZoomsRef: RefObject<boolean>;
 	readonly setBackground: Dispatch<SetStateAction<BaseHalfCanvasSceneBackground>>;
+	/** The library's range of zoom, which commands read at once, and the state the library is drawn with. */
+	readonly zoomRangeRef: RefObject<{ readonly min: number; readonly max: number }>;
+	readonly setZoomRange: Dispatch<SetStateAction<{ readonly min: number; readonly max: number }>>;
 	readonly setGuides: Dispatch<SetStateAction<readonly IBaseHalfCanvasSnapGuide[]>>;
 	readonly setVideoPanelSurfaceState: Dispatch<SetStateAction<IBaseHalfCanvasSceneVideoPanelSurface | undefined>>;
 	readonly nodesRef: RefObject<BaseHalfCanvasFlowNode[]>;
@@ -47,7 +50,7 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 	const { vendor, host } = environment;
 	const {
 		ready, sceneKeyRef, viewportRef, flowRef, viewportCommandKey, viewportCommandQueue,
-		interacting, snapEnabledRef, wheelZoomsRef, setBackground, setGuides, setVideoPanelSurfaceState, nodesRef,
+		interacting, snapEnabledRef, wheelZoomsRef, setBackground, zoomRangeRef, setZoomRange, setGuides, setVideoPanelSurfaceState, nodesRef,
 		requestSelection, updateSnapshot, reportViewport
 	} = scene;
 
@@ -95,6 +98,9 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 			// A gesture of the wheel asks at its first event, so one that runs goes on as it began.
 			wheelZoomsRef.current = settings.wheelZooms;
 			setBackground(settings.background);
+			const range = baseHalfCanvasDrawnZoomRange(settings.windowZoomFactor);
+			zoomRangeRef.current = range;
+			setZoomRange(current => current.min === range.min && current.max === range.max ? current : range);
 		},
 		async setZoom(zoom: number): Promise<void> {
 			await runViewportCommand(async () => {
@@ -113,6 +119,16 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 		async setViewportCenter(x: number, y: number, zoom?: number): Promise<void> {
 			await runViewportCommand(async () => {
 				await flowRef.current?.setCenter(x, y, { zoom: zoom ?? viewportRef.current.zoom, duration: 0 });
+			});
+		},
+		async scaleViewport(ratio: number): Promise<void> {
+			await runViewportCommand(async () => {
+				const flow = flowRef.current;
+				if (!flow || !(ratio > 0) || ratio === 1) {
+					return;
+				}
+				const viewport = flow.getViewport();
+				await flow.setViewport({ x: viewport.x * ratio, y: viewport.y * ratio, zoom: viewport.zoom * ratio }, { duration: 0 });
 			});
 		},
 		async fit(paths?: readonly string[], options?: IBaseHalfCanvasSceneFitOptions): Promise<void> {
@@ -135,8 +151,8 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 				visualBounds,
 				host.clientWidth,
 				host.clientHeight,
-				BASEHALF_CANVAS_MIN_ZOOM,
-				options?.maxZoom ?? BASEHALF_CANVAS_MAX_ZOOM,
+				zoomRangeRef.current.min,
+				options?.maxZoom ?? zoomRangeRef.current.max,
 				options?.padding ?? 0.12
 			);
 			await runViewportCommand(async () => {
@@ -156,7 +172,7 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 					visualBounds,
 					host.clientWidth,
 					host.clientHeight,
-					BASEHALF_CANVAS_MIN_ZOOM,
+					zoomRangeRef.current.min,
 					viewportRef.current.zoom,
 					0.18
 				);

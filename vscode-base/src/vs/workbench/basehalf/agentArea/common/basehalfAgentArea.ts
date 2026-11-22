@@ -50,6 +50,10 @@ export const BASEHALF_AGENT_AREA_EQUALIZE_PANES_COMMAND_ID = 'basehalf.agentArea
 export const BASEHALF_AGENT_AREA_TOGGLE_ZOOM_COMMAND_ID = 'basehalf.agentArea.togglePaneZoom';
 export const BASEHALF_AGENT_AREA_GOTO_TAB_COMMAND_IDS = [1, 2, 3, 4, 5, 6, 7, 8].map(n => `basehalf.agentArea.gotoTab${n}`);
 export const BASEHALF_AGENT_AREA_LAST_TAB_COMMAND_ID = 'basehalf.agentArea.lastTab';
+/** The size of the Agent Area's text, which the keys that zoom change while the Agent Area has the keyboard (each part zooms by itself, rule 10). */
+export const BASEHALF_AGENT_AREA_LARGER_TEXT_COMMAND_ID = 'basehalf.agentArea.largerText';
+export const BASEHALF_AGENT_AREA_SMALLER_TEXT_COMMAND_ID = 'basehalf.agentArea.smallerText';
+export const BASEHALF_AGENT_AREA_RESET_TEXT_SIZE_COMMAND_ID = 'basehalf.agentArea.resetTextSize';
 
 /**
  * Every Agent Area command with a keybinding that must fire while an xterm
@@ -78,7 +82,10 @@ export const BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS: readonly string[] = [
 	BASEHALF_AGENT_AREA_EQUALIZE_PANES_COMMAND_ID,
 	BASEHALF_AGENT_AREA_TOGGLE_ZOOM_COMMAND_ID,
 	...BASEHALF_AGENT_AREA_GOTO_TAB_COMMAND_IDS,
-	BASEHALF_AGENT_AREA_LAST_TAB_COMMAND_ID
+	BASEHALF_AGENT_AREA_LAST_TAB_COMMAND_ID,
+	BASEHALF_AGENT_AREA_LARGER_TEXT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_SMALLER_TEXT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_RESET_TEXT_SIZE_COMMAND_ID
 ];
 
 export type BaseHalfAgentSessionKind = 'terminal' | 'tui-codex' | 'tui-claude' | 'extension-codex' | 'extension-claude';

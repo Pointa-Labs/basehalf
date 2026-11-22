@@ -3,6 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { getZoomFactor } from '../../../../../base/browser/browser.js';
+import { getWindow } from '../../../../../base/browser/dom.js';
+import { DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoElementType } from '../../../../../platform/undoRedo/common/undoRedo.js';
@@ -12,6 +15,7 @@ import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfC
 import { BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport } from '../../common/basehalfCanvasViewportState.js';
 import { baseHalfUserFacingErrorMessage } from '../../../workspace/common/basehalfPlainFailureReason.js';
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasDrawnZoom, baseHalfCanvasShownZoom, normalizeBaseHalfCanvasDrawnZoom } from '../basehalfCanvasWindowZoom.js';
 import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
@@ -61,9 +65,6 @@ function uniqueCanvasUndoNodes(nodes: readonly IBaseHalfCanvasUndoNode[]): reado
 	return [...result.values()];
 }
 
-function normalizeCanvasZoom(value: number): number {
-	return Number(normalizeBaseHalfCanvasZoom(value).toFixed(4));
-}
 
 /**
  * Places, sizes, and the view: saving moved and resized cards as steps of
@@ -463,18 +464,78 @@ export class BaseHalfCanvasGeometry {
 	 * tells the features of the canvas when it changed.
 	 */
 	updateCanvasZoomChrome(): void {
-		const zoom = normalizeCanvasZoom(this.view.canvasZoom);
+		const zoom = this.normalizeDrawnZoom(this.view.canvasZoom);
 		this.view.canvasZoom = zoom;
+		// The zoom the cards are drawn at, in the window's pixels: what the stylesheets size by.
 		this.view.root.style.setProperty('--basehalf-canvas-zoom', String(zoom));
 		this.view.root.dataset.zoom = String(zoom);
 		if (zoom !== this.reportedCanvasZoom) {
 			this.reportedCanvasZoom = zoom;
-			this.view.onDidChangeZoomEmitter.fire(zoom);
+			this.view.onDidChangeZoomEmitter.fire(this.shownZoom());
 		}
 	}
 
+	/**
+	 * The canvas's zoom: the size of its cards on the screen, which the zoom control shows and the keys step (each part
+	 * zooms by itself, rule 5). The scene draws at it divided by the window's zoom factor.
+	 */
+	shownZoom(drawnZoom = this.view.canvasZoom): number {
+		return baseHalfCanvasShownZoom(drawnZoom, this.view.windowZoomFactor);
+	}
+
+	/** The zoom the scene draws at for a zoom of the canvas. */
+	drawnZoomOf(shownZoom: number): number {
+		return baseHalfCanvasDrawnZoom(shownZoom, this.view.windowZoomFactor);
+	}
+
+	private normalizeDrawnZoom(drawnZoom: number): number {
+		return normalizeBaseHalfCanvasDrawnZoom(drawnZoom, this.view.windowZoomFactor);
+	}
+
+	/**
+	 * Keeps the size of the cards on the screen when the window's zoom changes (each part zooms by itself, rule 6):
+	 * the scene draws at a zoom that changes the other way, and what is at the canvas's top left corner stays there,
+	 * as when the canvas's room changes for any other reason. The new zoom is applied in the frame that draws it,
+	 * which the ratio of the screen's pixels and the canvas's size, measured anew, tell.
+	 */
+	followWindowZoom(): IDisposable {
+		const store = new DisposableStore();
+		const targetWindow = getWindow(this.view.root);
+		const follow = () => this.applyWindowZoom(getZoomFactor(targetWindow));
+		const resizes = new targetWindow.ResizeObserver(follow);
+		resizes.observe(this.view.root);
+		store.add(toDisposable(() => resizes.disconnect()));
+		let pixels: MediaQueryList | undefined;
+		const onPixels = () => {
+			follow();
+			watchPixels();
+		};
+		const watchPixels = () => {
+			pixels?.removeEventListener('change', onPixels);
+			pixels = targetWindow.matchMedia(`(resolution: ${targetWindow.devicePixelRatio}dppx)`);
+			pixels.addEventListener('change', onPixels);
+		};
+		watchPixels();
+		store.add(toDisposable(() => pixels?.removeEventListener('change', onPixels)));
+		follow();
+		return store;
+	}
+
+	private applyWindowZoom(factor: number): void {
+		const before = this.view.windowZoomFactor;
+		if (!(factor > 0) || factor === before) {
+			return;
+		}
+		const ratio = before / factor;
+		this.view.windowZoomFactor = factor;
+		this.view.canvasScene.setSettings({ windowZoomFactor: factor });
+		this.view.canvasZoom = this.normalizeDrawnZoom(this.view.canvasZoom * ratio);
+		this.updateCanvasZoomChrome();
+		void this.view.canvasScene.scaleViewport(ratio).catch(error => this.view.logService.error(error));
+	}
+
 	zoomBy(direction: -1 | 1): void {
-		this.setCanvasZoom(this.view.canvasZoom + direction * BASEHALF_CANVAS_ZOOM_STEP);
+		this.setCanvasZoom(this.shownZoom() + direction * BASEHALF_CANVAS_ZOOM_STEP);
 	}
 
 	fitCanvasToScreen(): void {
@@ -486,7 +547,7 @@ export class BaseHalfCanvasGeometry {
 		const sceneKey = this.view.sceneKey(folder);
 		void this.view.canvasScene.fit(undefined, {
 			padding: 0.12,
-			maxZoom: 1
+			maxZoom: this.drawnZoomOf(1)
 		}).then(() => {
 			if (this.view.isCurrentSceneKey(sceneKey)) {
 				this.scheduleViewportPersist(0, 'user', { folder, viewport: this.view.canvasScene.getViewport() });
@@ -494,8 +555,9 @@ export class BaseHalfCanvasGeometry {
 		}).catch(error => this.view.logService.error(error));
 	}
 
+	/** Sets the canvas's zoom, as the zoom control and the keys give it. */
 	setCanvasZoom(value: number): void {
-		const nextZoom = normalizeCanvasZoom(value);
+		const nextZoom = this.drawnZoomOf(value);
 		if (nextZoom === this.view.canvasZoom) {
 			return;
 		}
@@ -510,7 +572,7 @@ export class BaseHalfCanvasGeometry {
 			}
 		}).catch(() => {
 			if (sceneKey && this.view.isCurrentSceneKey(sceneKey) && this.view.canvasZoom === nextZoom) {
-				this.view.canvasZoom = normalizeCanvasZoom(this.view.canvasScene.getViewport().zoom);
+				this.view.canvasZoom = this.normalizeDrawnZoom(this.view.canvasScene.getViewport().zoom);
 				this.updateCanvasZoomChrome();
 			}
 		});
@@ -549,7 +611,8 @@ export class BaseHalfCanvasGeometry {
 		}
 		const sceneKey = this.view.sceneKey(folder);
 		const structuralStamp = this.view.workspaceMutationCoordinator.capture(folder.workspaceFolder);
-		const settled: IBaseHalfCanvasViewport = { x: center.x, y: center.y, zoom: viewport.zoom, source };
+		// A folder keeps the canvas's zoom, so that it opens at the same size at another zoom of the window (each part zooms by itself, rule 8).
+		const settled: IBaseHalfCanvasViewport = { x: center.x, y: center.y, zoom: this.shownZoom(viewport.zoom), source };
 		this.view.viewportPersister.schedule(delay, {
 			folder: folder.resource,
 			viewport: settled,
@@ -608,7 +671,7 @@ export class BaseHalfCanvasGeometry {
 	}
 
 	private async applyStoredViewport(sceneKey: string, stored: IBaseHalfCanvasViewport): Promise<void> {
-		const zoom = normalizeCanvasZoom(stored.zoom);
+		const zoom = this.drawnZoomOf(normalizeBaseHalfCanvasZoom(stored.zoom));
 		this.view.canvasZoom = zoom;
 		this.updateCanvasZoomChrome();
 		this.autoFramedViewport = undefined;
@@ -623,7 +686,7 @@ export class BaseHalfCanvasGeometry {
 	}
 
 	private async frameFreshFolderView(folder: IBaseHalfCanvasFolderState, sceneKey: string): Promise<void> {
-		const maxZoom = Math.min(BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, this.defaultCanvasZoom(folder));
+		const maxZoom = this.drawnZoomOf(Math.min(BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, this.defaultCanvasZoom(folder)));
 		this.programmaticViewportSceneKey = sceneKey;
 		try {
 			await this.view.canvasScene.fit(undefined, { maxZoom, padding: 0.12 });

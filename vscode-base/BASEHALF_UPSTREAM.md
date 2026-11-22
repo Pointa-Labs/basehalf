@@ -307,6 +307,16 @@ wrote a moment ago is found. The base searched that cache and did not search aga
 own was ready, so "No matching results" stood until the next letter. An update of the whole
 tree carries the change over.
 
+## The terminal's text keeps its size at every zoom of the window (2026-11-22)
+
+See `docs/specs/zoom.md` (D153). In `src/vs/workbench/contrib/terminal/browser/terminalConfigurationService.ts`,
+`getFont` divides the font size by the window's zoom factor, so the text of every terminal (each is an
+Agent Area terminal) is as large on the screen at every zoom of the window. In
+`src/vs/workbench/contrib/terminal/browser/terminalInstance.ts`, a change of the window's zoom marks the
+layout settings as changed, so the next layout measures the font anew. A test in
+`src/vs/workbench/contrib/terminal/test/browser/terminalConfigurationService.test.ts` reads the font at a
+zoom factor of 1.2. Each change is marked `BaseHalf:`; an update of the whole tree carries them over.
+
 ## The location in the title bar (2026-07-12, revised 2026-10-24)
 
 BaseHalf's own change. See public decision D73 and

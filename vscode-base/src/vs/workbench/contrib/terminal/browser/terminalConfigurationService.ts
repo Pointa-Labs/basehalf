@@ -15,6 +15,7 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { TerminalLocation, TerminalLocationConfigValue } from '../../../../platform/terminal/common/terminal.js';
 import { isString } from '../../../../base/common/types.js';
 import { clamp } from '../../../../base/common/numbers.js';
+import { getZoomFactor } from '../../../../base/browser/browser.js';
 
 // #region TerminalConfigurationService
 
@@ -147,6 +148,10 @@ export class TerminalFontMetrics extends Disposable {
 				fontSize = clampInt(fontSize + 2, FontConstants.MinimumFontSize, FontConstants.MaximumFontSize, EDITOR_FONT_DEFAULTS.fontSize);
 			}
 		}
+
+		// BaseHalf: every terminal is an Agent Area terminal, whose text keeps its size on the screen at every zoom of
+		// the window (each part zooms by itself, rule 11): it is drawn at its size divided by the window's zoom.
+		fontSize = fontSize / getZoomFactor(w);
 
 		// Always fallback to monospace, otherwise a proportional font may become the default
 		fontFamily += ', monospace';

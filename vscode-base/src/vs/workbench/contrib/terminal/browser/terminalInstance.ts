@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { isFirefox } from '../../../../base/browser/browser.js';
+import { isFirefox, onDidChangeZoomLevel } from '../../../../base/browser/browser.js';
 import { BrowserFeatures } from '../../../../base/browser/canIUse.js';
 import { DataTransfers } from '../../../../base/browser/dnd.js';
 import * as dom from '../../../../base/browser/dom.js';
@@ -582,6 +582,11 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			}
 		});
 
+		// BaseHalf: the font is drawn at its size divided by the window's zoom (each part zooms by itself, rule 11),
+		// so a change of the window's zoom measures it anew at the layout that the new zoom brings.
+		this._register(onDidChangeZoomLevel(() => {
+			this._layoutSettingsChanged = true;
+		}));
 		this._register(this._configurationService.onDidChangeConfiguration(async e => {
 			if (e.affectsConfiguration(AccessibilityVerbositySettingId.Terminal)) {
 				this._setAriaLabel(this.xterm?.raw, this._instanceId, this.title);

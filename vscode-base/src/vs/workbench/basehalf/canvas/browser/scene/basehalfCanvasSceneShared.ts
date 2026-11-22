@@ -159,6 +159,7 @@ export interface IBaseHalfCanvasSceneRuntime {
 	setZoom(zoom: number): Promise<void>;
 	zoomBy(factor: number): Promise<void>;
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;
+	scaleViewport(ratio: number): Promise<void>;
 	fit(paths?: readonly string[], options?: IBaseHalfCanvasSceneFitOptions): Promise<void>;
 	reveal(path: string): Promise<void>;
 	screenToCanvasPosition(x: number, y: number): { readonly x: number; readonly y: number };

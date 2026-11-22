@@ -851,7 +851,7 @@ export class BaseHalfCanvasRenderer {
 					return;
 				}
 				void this.view.canvasScene.fit(pendingFit.paths, {
-					maxZoom: Math.min(BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, this.view.geometry.defaultCanvasZoom(folder)),
+					maxZoom: this.view.geometry.drawnZoomOf(Math.min(BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, this.view.geometry.defaultCanvasZoom(folder))),
 					padding: 0.16
 				}).then(() => {
 					if (this.view.isCurrentSceneKey(pendingFit.sceneKey)

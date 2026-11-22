@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { notStrictEqual, ok, strictEqual } from 'assert';
+import { getZoomFactor, setZoomFactor } from '../../../../../base/browser/browser.js';
 import { getActiveWindow } from '../../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { isLinux } from '../../../../../base/common/platform.js';
@@ -244,6 +245,22 @@ suite('Workbench - TerminalConfigurationService', () => {
 				}
 			});
 			strictEqual(terminalConfigurationService.getFont(getActiveWindow()).lineHeight, isLinux ? 1.1 : 1, 'editor.lineHeight should be the default when terminal.integrated.lineHeight not set');
+		});
+
+		// BaseHalf: the terminal's text keeps its size on the screen at every zoom of the window (each part zooms by itself, rule 11).
+		test('fontSize at a zoom of the window', () => {
+			const terminalConfigurationService = createTerminalConfigationService({
+				editor: { fontFamily: 'foo' },
+				terminal: { integrated: { fontFamily: 'bar', fontSize: 12 } }
+			});
+			const targetWindow = getActiveWindow();
+			const factor = getZoomFactor(targetWindow);
+			try {
+				setZoomFactor(1.2, targetWindow);
+				strictEqual(terminalConfigurationService.getFont(targetWindow).fontSize, 10, 'the font is drawn at its size divided by the zoom factor of the window');
+			} finally {
+				setZoomFactor(factor, targetWindow);
+			}
 		});
 	});
 

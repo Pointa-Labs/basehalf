@@ -102,6 +102,10 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 		return this.run(runtime => runtime.setViewportCenter(x, y, zoom));
 	}
 
+	scaleViewport(ratio: number): Promise<void> {
+		return this.run(runtime => runtime.scaleViewport(ratio));
+	}
+
 	fit(paths?: readonly string[], options?: IBaseHalfCanvasSceneFitOptions): Promise<void> {
 		return this.run(runtime => runtime.fit(paths, options));
 	}

@@ -422,10 +422,16 @@ export interface IBaseHalfCanvasSceneSettings {
 	/** A gesture of the wheel that the canvas owns zooms it; otherwise it moves it (canvas wheel gestures). */
 	readonly wheelZooms: boolean;
 	readonly background: BaseHalfCanvasSceneBackground;
+	/**
+	 * The window's zoom factor. The scene draws at the canvas's zoom divided by it, and its range of zoom is the
+	 * canvas's range divided by it, so that the canvas's zoom is the size of its cards on the screen (each part zooms
+	 * by itself, rule 5).
+	 */
+	readonly windowZoomFactor: number;
 }
 
 /** The settings of a scene that was told nothing: the defaults of the settings. */
-export const BASEHALF_CANVAS_SCENE_DEFAULT_SETTINGS: IBaseHalfCanvasSceneSettings = Object.freeze({ snap: true, wheelZooms: false, background: 'lines' });
+export const BASEHALF_CANVAS_SCENE_DEFAULT_SETTINGS: IBaseHalfCanvasSceneSettings = Object.freeze({ snap: true, wheelZooms: false, background: 'lines', windowZoomFactor: 1 });
 
 /**
  * What the scene follows of the settings `basehalf.canvas.wheel` and
@@ -451,6 +457,12 @@ export interface IBaseHalfCanvasSceneRenderer {
 	setZoom(zoom: number): Promise<void>;
 	zoomBy(factor: number): Promise<void>;
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;
+	/**
+	 * Multiplies the zoom the scene draws at by `ratio`, and the place of the canvas at its top left corner stays
+	 * there: the window's zoom changed by the inverse ratio, and the cards keep their size on the screen (each part
+	 * zooms by itself, rule 6).
+	 */
+	scaleViewport(ratio: number): Promise<void>;
 	fit(paths?: readonly string[], options?: IBaseHalfCanvasSceneFitOptions): Promise<void>;
 	reveal(path: string): Promise<void>;
 	screenToCanvasPosition(x: number, y: number): { readonly x: number; readonly y: number };
