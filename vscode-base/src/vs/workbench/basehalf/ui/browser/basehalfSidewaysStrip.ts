@@ -26,15 +26,17 @@ export function baseHalfMoveStripWithWheel(target: HTMLElement, strip: () => HTM
 
 /**
  * Moves a strip sideways by as little as shows the whole of `element`, one
- * of the elements in it, and to the element's start when the strip is
- * narrower than the element.
+ * of the elements in it, with `margin` pixels on each side of it, and to its
+ * start when the strip is narrower than that.
  */
-export function baseHalfRevealInStrip(strip: HTMLElement, element: HTMLElement): void {
+export function baseHalfRevealInStrip(strip: HTMLElement, element: HTMLElement, margin = 0): void {
 	const view = strip.getBoundingClientRect();
 	const box = element.getBoundingClientRect();
-	if (box.left < view.left || box.width > view.width) {
-		strip.scrollLeft += box.left - view.left;
-	} else if (box.right > view.right) {
-		strip.scrollLeft += box.right - view.right;
+	const left = box.left - margin;
+	const right = box.right + margin;
+	if (left < view.left || right - left > view.width) {
+		strip.scrollLeft += left - view.left;
+	} else if (right > view.right) {
+		strip.scrollLeft += right - view.right;
 	}
 }

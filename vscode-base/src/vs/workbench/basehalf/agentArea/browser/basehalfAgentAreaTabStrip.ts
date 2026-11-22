@@ -29,6 +29,9 @@ interface IBaseHalfDrawnAgentTab {
 	shown: IBaseHalfAgentSessionName;
 }
 
+/** The width of the curve that joins the active tab to the line at the foot of the strip, on each side of it. */
+const AGENT_TAB_SHOULDER_WIDTH = 7;
+
 /**
  * The strip of tabs of the Agent Area: each tab with its name, state, and close button, renaming a tab in place,
  * dragging a tab to another place, and a tab's context menu.
@@ -131,7 +134,8 @@ export class BaseHalfAgentAreaTabStrip implements IDisposable {
 		this.updateTabDensity();
 		strip.scrollLeft = scrolled;
 		if (activeElement && state.activeTabId !== this.drawnActiveTabId) {
-			baseHalfRevealInStrip(strip, activeElement);
+			// With its shoulders, which stand beside it (workbench appearance, rule 14).
+			baseHalfRevealInStrip(strip, activeElement, AGENT_TAB_SHOULDER_WIDTH);
 		}
 		this.drawnActiveTabId = state.activeTabId;
 	}
