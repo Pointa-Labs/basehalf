@@ -99,16 +99,23 @@ registerWorkbenchContribution2(BaseHalfCardDetailProjectionsContribution.ID, Bas
 
 // The keys that zoom the window are the document's while a reader has the keyboard: the page zoomed
 // the PDF or changed the size of the book's text itself, and the window, which would zoom on the
-// same keys, does not. Cmd+0 is a PDF's Zoom to 100% (PDFs and books, rules 22 and 24).
+// same keys, does not. Cmd+0 is a PDF's Zoom to 100% (PDFs and books, rules 22 and 24; each part
+// zooms by itself, rule 1). Keyboard Shortcuts lists them by the names in basehalfKeyedCommands.ts.
+const readerHasTheKeyboard = ContextKeyExpr.or(BaseHalfReaderFocusContext.isEqualTo('pdf'), BaseHalfReaderFocusContext.isEqualTo('book'));
 KeybindingsRegistry.registerCommandAndKeybindingRule({
-	id: 'basehalf.reader.zoomKeys',
+	id: 'basehalf.reader.zoomIn',
 	weight: KeybindingWeight.WorkbenchContrib + 1,
-	when: ContextKeyExpr.or(BaseHalfReaderFocusContext.isEqualTo('pdf'), BaseHalfReaderFocusContext.isEqualTo('book')),
+	when: readerHasTheKeyboard,
 	primary: KeyMod.CtrlCmd | KeyCode.Equal,
-	secondary: [
-		KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Equal, KeyMod.CtrlCmd | KeyCode.NumpadAdd,
-		KeyMod.CtrlCmd | KeyCode.Minus, KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Minus, KeyMod.CtrlCmd | KeyCode.NumpadSubtract
-	],
+	secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Equal, KeyMod.CtrlCmd | KeyCode.NumpadAdd],
+	handler: () => undefined
+});
+KeybindingsRegistry.registerCommandAndKeybindingRule({
+	id: 'basehalf.reader.zoomOut',
+	weight: KeybindingWeight.WorkbenchContrib + 1,
+	when: readerHasTheKeyboard,
+	primary: KeyMod.CtrlCmd | KeyCode.Minus,
+	secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Minus, KeyMod.CtrlCmd | KeyCode.NumpadSubtract],
 	handler: () => undefined
 });
 KeybindingsRegistry.registerCommandAndKeybindingRule({

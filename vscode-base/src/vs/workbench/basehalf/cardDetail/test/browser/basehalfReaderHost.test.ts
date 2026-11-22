@@ -15,19 +15,22 @@ suite('BaseHalfReaderHost', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('while a reader has the keyboard, Cmd+= and Cmd+- are its own, and Cmd+0 a PDF\'s, over the window\'s zoom', () => {
-		const rules = KeybindingsRegistry.getDefaultKeybindings().filter(rule => rule.command === 'basehalf.reader.zoomKeys' || rule.command === 'basehalf.reader.zoomReset');
+		const commands = ['basehalf.reader.zoomIn', 'basehalf.reader.zoomOut', 'basehalf.reader.zoomReset'];
+		const rules = KeybindingsRegistry.getDefaultKeybindings().filter(rule => !!rule.command && commands.includes(rule.command));
 		const keys = (command: string) => rules.filter(rule => rule.command === command).map(rule => { const chord = rule.keybinding?.chords[0]; return chord instanceof KeyCodeChord ? chord.keyCode : undefined; });
 		assert.deepStrictEqual({
-			zoom: keys('basehalf.reader.zoomKeys').length,
+			zoomIn: keys('basehalf.reader.zoomIn').length,
+			zoomOut: keys('basehalf.reader.zoomOut').length,
 			reset: keys('basehalf.reader.zoomReset').length,
 			above: rules.every(rule => rule.weight1 > KeybindingWeight.WorkbenchContrib),
 			when: [...new Set(rules.map(rule => rule.when?.serialize()))].sort()
 		}, {
-			zoom: 6,
+			zoomIn: 3,
+			zoomOut: 3,
 			reset: 2,
 			above: true,
 			when: ['basehalfReaderFocus == \'book\' || basehalfReaderFocus == \'pdf\'', 'basehalfReaderFocus == \'pdf\''].sort()
 		});
-		assert.ok(keys('basehalf.reader.zoomKeys').includes(KeyCode.Equal) && keys('basehalf.reader.zoomKeys').includes(KeyCode.Minus) && keys('basehalf.reader.zoomReset').includes(KeyCode.Digit0));
+		assert.ok(keys('basehalf.reader.zoomIn').includes(KeyCode.Equal) && keys('basehalf.reader.zoomOut').includes(KeyCode.Minus) && keys('basehalf.reader.zoomReset').includes(KeyCode.Digit0));
 	});
 });

@@ -26,7 +26,7 @@ suite('BaseHalfKeyedCommands', () => {
 			notOwn: BASEHALF_KEYED_COMMANDS.filter(command => !isBaseHalfOwnCommand(command.id)),
 			hidden: BASEHALF_KEYED_COMMANDS.filter(command => isBaseHalfHiddenCommand(command.id))
 		}, {
-			names: ['New Note', 'Close Card Detail', 'Go to Next Change in Changes', 'Go to Previous Change in Changes', 'Close Changes', 'Stop Editing Code on Card'],
+			names: ['New Note', 'Close Card Detail', 'Go to Next Change in Changes', 'Go to Previous Change in Changes', 'Close Changes', 'Stop Editing Code on Card', 'Zoom Reader In', 'Zoom Reader Out', 'Zoom Reader to 100%'],
 			once: true,
 			notOwn: [],
 			hidden: []

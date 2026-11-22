@@ -24,7 +24,11 @@ export const BASEHALF_KEYED_COMMANDS: readonly IBaseHalfKeyedCommand[] = [
 	{ id: 'basehalf.changes.nextChange', title: localize2('basehalf.keyed.nextChange', "Go to Next Change in Changes") },
 	{ id: 'basehalf.changes.previousChange', title: localize2('basehalf.keyed.previousChange', "Go to Previous Change in Changes") },
 	{ id: 'basehalf.changes.closeDiff', title: localize2('basehalf.keyed.closeDiff', "Close Changes") },
-	{ id: 'basehalf.codeCards.endEditing', title: localize2('basehalf.keyed.endEditing', "Stop Editing Code on Card") }
+	{ id: 'basehalf.codeCards.endEditing', title: localize2('basehalf.keyed.endEditing', "Stop Editing Code on Card") },
+	// The reader's page zooms a PDF and sizes a book's text on these keys; the commands keep them from the window.
+	{ id: 'basehalf.reader.zoomIn', title: localize2('basehalf.keyed.readerZoomIn', "Zoom Reader In") },
+	{ id: 'basehalf.reader.zoomOut', title: localize2('basehalf.keyed.readerZoomOut', "Zoom Reader Out") },
+	{ id: 'basehalf.reader.zoomReset', title: localize2('basehalf.keyed.readerZoomReset', "Zoom Reader to 100%") }
 ];
 
 /** What the window writes to its log, followed by the commands, when a command of BaseHalf's has a key and no name. */
