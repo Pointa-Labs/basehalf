@@ -39,6 +39,7 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 	readonly setBackground: Dispatch<SetStateAction<BaseHalfCanvasSceneBackground>>;
 	/** The library's range of zoom, which commands read at once, and the state the library is drawn with. */
 	readonly zoomRangeRef: RefObject<{ readonly min: number; readonly max: number }>;
+	readonly windowZoomFactorRef: RefObject<number>;
 	readonly setZoomRange: Dispatch<SetStateAction<{ readonly min: number; readonly max: number }>>;
 	readonly setGuides: Dispatch<SetStateAction<readonly IBaseHalfCanvasSnapGuide[]>>;
 	readonly setVideoPanelSurfaceState: Dispatch<SetStateAction<IBaseHalfCanvasSceneVideoPanelSurface | undefined>>;
@@ -50,7 +51,7 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 	const { vendor, host } = environment;
 	const {
 		ready, sceneKeyRef, viewportRef, flowRef, viewportCommandKey, viewportCommandQueue,
-		interacting, snapEnabledRef, wheelZoomsRef, setBackground, zoomRangeRef, setZoomRange, setGuides, setVideoPanelSurfaceState, nodesRef,
+		interacting, snapEnabledRef, wheelZoomsRef, setBackground, zoomRangeRef, windowZoomFactorRef, setZoomRange, setGuides, setVideoPanelSurfaceState, nodesRef,
 		requestSelection, updateSnapshot, reportViewport
 	} = scene;
 
@@ -100,6 +101,7 @@ export function useBaseHalfCanvasSceneRuntime(environment: IBaseHalfCanvasSceneE
 			setBackground(settings.background);
 			const range = baseHalfCanvasDrawnZoomRange(settings.windowZoomFactor);
 			zoomRangeRef.current = range;
+			windowZoomFactorRef.current = settings.windowZoomFactor;
 			setZoomRange(current => current.min === range.min && current.max === range.max ? current : range);
 		},
 		async setZoom(zoom: number): Promise<void> {

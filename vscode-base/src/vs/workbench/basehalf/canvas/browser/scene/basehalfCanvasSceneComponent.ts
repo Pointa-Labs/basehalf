@@ -125,6 +125,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const [background, setBackground] = vendor.useState<BaseHalfCanvasSceneBackground>(initialSettings.background);
 		// The library's range of zoom: the canvas's range at the window's zoom (each part zooms by itself, rule 5).
 		const zoomRangeRef = vendor.useRef(baseHalfCanvasDrawnZoomRange(initialSettings.windowZoomFactor));
+		const windowZoomFactorRef = vendor.useRef(initialSettings.windowZoomFactor);
 		const [zoomRange, setZoomRange] = vendor.useState(zoomRangeRef.current);
 		const [guides, setGuides] = vendor.useState<readonly IBaseHalfCanvasSnapGuide[]>([]);
 		// The released connection line, kept while the Create from Connection
@@ -456,7 +457,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 
 		useBaseHalfCanvasSceneRuntime(environment, {
 			ready, sceneKeyRef, viewportRef, flowRef, viewportCommandKey, viewportCommandQueue,
-			interacting, snapEnabledRef, wheelZoomsRef, setBackground, zoomRangeRef, setZoomRange, setGuides, setVideoPanelSurfaceState, nodesRef,
+			interacting, snapEnabledRef, wheelZoomsRef, setBackground, zoomRangeRef, windowZoomFactorRef, setZoomRange, setGuides, setVideoPanelSurfaceState, nodesRef,
 			requestSelection, updateSnapshot, reportViewport
 		});
 
@@ -500,7 +501,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		}, [beginViewportGesture]);
 
 		const { onNodeContextMenu, onEdgeContextMenu, onPaneContextMenu, onNodeClick, onNodeDoubleClick } = useBaseHalfCanvasSceneMouse(environment, {
-			sceneKeyRef, structuralEpochRef, viewportRef, wheelZoomsRef, zoomAt, lastPaneConnectionCancellationAt,
+			sceneKeyRef, structuralEpochRef, viewportRef, wheelZoomsRef, windowZoomFactorRef, zoomAt, lastPaneConnectionCancellationAt,
 			paneDoubleClickStartedOnPane, nodesRef, edgesRef, requestSelection
 		});
 

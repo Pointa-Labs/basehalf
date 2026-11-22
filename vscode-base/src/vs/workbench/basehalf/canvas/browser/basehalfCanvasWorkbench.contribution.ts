@@ -895,7 +895,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			setZoom: zoom => this.geometry.setCanvasZoom(zoom),
 			zoomBy: direction => this.geometry.zoomBy(direction),
 			fitToScreen: () => this.geometry.fitCanvasToScreen(),
-			getViewport: () => this.canvasScene.getViewport(),
+			getViewport: () => this.geometry.shownCanvasView(),
 			setViewport: (sceneKey, viewport) => this.geometry.showCanvasViewport(sceneKey, viewport),
 			setSnapEnabled: enabled => this.canvasScene.setSettings({ snap: enabled }),
 			get scene() { return scene(); },

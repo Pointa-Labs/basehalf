@@ -8,12 +8,12 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
+import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasShownView, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasCardPick } from '../../common/basehalfCanvasCardPick.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import { BaseHalfCanvasCommandId } from '../../common/basehalfCanvasKeys.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
-import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
+import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry } from '../../common/basehalfCanvasScene.js';
 
 /** A canvas view for the tests of canvas features: it records what a feature asks of it. */
 export interface IBaseHalfTestCanvasView extends IBaseHalfCanvasView {
@@ -99,7 +99,7 @@ export function baseHalfTestCanvasItem(path: string, isDirectory = false): IBase
 
 export function createBaseHalfTestCanvasView(
 	store: Pick<DisposableStore, 'add'>,
-	options?: { readonly zoom?: number; readonly scene?: IBaseHalfCanvasViewScene; readonly viewport?: IBaseHalfCanvasSceneViewport; readonly folder?: IBaseHalfCanvasFolderState }
+	options?: { readonly zoom?: number; readonly scene?: IBaseHalfCanvasViewScene; readonly viewport?: IBaseHalfCanvasShownView; readonly folder?: IBaseHalfCanvasFolderState }
 ): IBaseHalfTestCanvasView {
 	const onDidChangeZoom = store.add(new Emitter<number>());
 	const onDidHideViewControls = store.add(new Emitter<void>());

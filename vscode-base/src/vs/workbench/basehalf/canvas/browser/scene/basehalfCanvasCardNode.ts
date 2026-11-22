@@ -7,7 +7,7 @@ import './media/basehalfCanvasCardNode.css';
 import { isHTMLElement, isSVGElement } from '../../../../../base/browser/dom.js';
 import { BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH } from '../../common/basehalfCanvasModel.js';
 import { baseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
-import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import { IBaseHalfCanvasSceneCard, BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT, BASEHALF_CANVAS_CARD_CORNER_RADIUS } from '../../common/basehalfCanvasScene.js';
 import { buildBaseHalfCanvasNotePartsTo } from '../basehalfCanvasNoteParts.js';
 import type { NodeProps } from '@xyflow/react';
@@ -86,7 +86,7 @@ export interface IBaseHalfCanvasResizeCornerGeometry {
  * bounding rectangle.
  */
 export function resolveBaseHalfCanvasResizeCornerGeometry(corner: BaseHalfCanvasResizeCorner, zoom: number): IBaseHalfCanvasResizeCornerGeometry {
-	const safeZoom = Number.isFinite(zoom) && zoom > 0 ? Math.max(BASEHALF_CANVAS_MIN_ZOOM, zoom) : 1;
+	const safeZoom = baseHalfCanvasScreenSizeZoom(zoom);
 	const round = (value: number): number => Math.round(value * 1000) / 1000;
 	const radius = BASEHALF_CANVAS_CARD_CORNER_RADIUS;
 	const bandInner = Math.max(0, radius - RESIZE_CORNER_BAND_SCREEN_INSET / safeZoom);

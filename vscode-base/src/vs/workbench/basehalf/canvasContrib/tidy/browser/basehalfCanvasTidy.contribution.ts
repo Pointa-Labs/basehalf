@@ -9,11 +9,11 @@ import { status } from '../../../../../base/browser/ui/aria/aria.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
 import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
-import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
+import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasShownView, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { baseHalfCanvasTidy } from '../../../canvas/common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasCommandId } from '../../../canvas/common/basehalfCanvasKeys.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../../canvas/common/basehalfCanvasModel.js';
-import { IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../../canvas/common/basehalfCanvasScene.js';
+import { IBaseHalfCanvasSceneGeometry } from '../../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { setBaseHalfHover } from '../../../ui/browser/basehalfHover.js';
 
@@ -26,7 +26,7 @@ interface IBaseHalfCanvasTidyQuestion {
 	/** The sides that the layout remembered for connections and that the tidy forgot. */
 	readonly lineSides: readonly IBaseHalfCanvasEdge[];
 	/** What the view showed before the tidy. */
-	readonly viewport: IBaseHalfCanvasSceneViewport;
+	readonly viewport: IBaseHalfCanvasShownView;
 	readonly element: HTMLElement;
 	readonly listeners: DisposableStore;
 }

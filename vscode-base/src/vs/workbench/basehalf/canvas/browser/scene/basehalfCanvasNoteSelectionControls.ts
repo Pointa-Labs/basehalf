@@ -7,7 +7,7 @@ import './media/basehalfCanvasAdjacentChrome.css';
 import './media/basehalfCanvasNoteToolbar.css';
 import './media/basehalfCanvasNoteSelectionControls.css';
 import { localize } from '../../../../../nls.js';
-import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import { BASEHALF_HOVER_ATTRIBUTE } from '../../../ui/common/basehalfHover.js';
 import {
 	BaseHalfCanvasNoteBackground,
@@ -188,8 +188,8 @@ export function createBaseHalfCanvasNoteSelectionControls(environment: IBaseHalf
 			purple: localize('basehalf.canvas.note.background.purple', "Purple background")
 		};
 		const paletteTop = placement.side === 'above'
-			? placement.top + (NOTE_TOOLBAR_SCREEN_HEIGHT + 6) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom)
-			: placement.top - (NOTE_BACKGROUND_PALETTE_SCREEN_HEIGHT + 6) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom);
+			? placement.top + (NOTE_TOOLBAR_SCREEN_HEIGHT + 6) / baseHalfCanvasScreenSizeZoom(viewport.zoom)
+			: placement.top - (NOTE_BACKGROUND_PALETTE_SCREEN_HEIGHT + 6) / baseHalfCanvasScreenSizeZoom(viewport.zoom);
 		const actions: ReactElement[] = [
 			button(0, 'background', localize('basehalf.canvas.note.background', "Background color"), 'background', h('span', { className: `basehalf-canvas-note-background-swatch ${background}` }), () => setBackgroundOpen(open => !open), backgroundOpen),
 			divider('block-divider'),

@@ -39,6 +39,15 @@ export function normalizeBaseHalfCanvasDrawnZoom(drawnZoom: number, windowZoomFa
 	return baseHalfCanvasDrawnZoom(baseHalfCanvasShownZoom(drawnZoom, windowZoomFactor), windowZoomFactor);
 }
 
+/**
+ * The zoom the library draws at, for a size kept on the screen (a toolbar, a line of one pixel), which divides by it:
+ * a value no viewport has counts as 100%. The library keeps its zoom within the canvas's range divided by the
+ * window's zoom, so no floor of the canvas's own range applies here (each part zooms by itself, rule 7).
+ */
+export function baseHalfCanvasScreenSizeZoom(drawnZoom: number): number {
+	return Number.isFinite(drawnZoom) && drawnZoom > 0 ? drawnZoom : 1;
+}
+
 /** The range of the library's zoom that is the canvas's range at this zoom of the window. */
 export function baseHalfCanvasDrawnZoomRange(windowZoomFactor: number): { readonly min: number; readonly max: number } {
 	const factor = factorOf(windowZoomFactor);

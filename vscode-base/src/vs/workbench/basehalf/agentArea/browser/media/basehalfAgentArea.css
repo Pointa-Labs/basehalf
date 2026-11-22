@@ -278,6 +278,12 @@
 	box-shadow: -3.5px 3.5px 0 3.5px var(--basehalf-agent-content-background);
 }
 
+/* Room for the right shoulder of the last tab, kept whether it is active or not: the strip's scroll width does not
+   change when another tab becomes active. */
+.monaco-workbench .basehalf-agent-tab:last-child {
+	margin-right: 7px;
+}
+
 /* The first tab stands at the card's left edge, which is its side. */
 .monaco-workbench .basehalf-agent-tab.active:first-child > .basehalf-agent-tab-curl.left {
 	display: none;

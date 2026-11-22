@@ -5,7 +5,7 @@
 
 import { isHTMLElement, isSVGElement } from '../../../../../base/browser/dom.js';
 import { BaseHalfCanvasAnchor, baseHalfCanvasDrawnLineSides } from '../../common/basehalfCanvasModel.js';
-import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import { IBaseHalfCanvasArrangeCard } from '../../common/basehalfCanvasArrangement.js';
 import {
 	BaseHalfCanvasSceneSelectionSurface,
@@ -179,7 +179,7 @@ interface IBaseHalfCanvasScreenSpaceStyle extends CSSProperties {
  * are CSS variables, so that its size and its slide stay the same on screen.
  */
 export function screenSpaceCanvasStyle(zoom: number, style: CSSProperties): IBaseHalfCanvasScreenSpaceStyle {
-	const safeZoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, zoom);
+	const safeZoom = baseHalfCanvasScreenSizeZoom(zoom);
 	return {
 		...style,
 		'--basehalf-canvas-zoom': String(safeZoom),

@@ -14,7 +14,18 @@ import { IBaseHalfCodePreviewPiece } from '../common/basehalfCanvasCodePreview.j
 import { IBaseHalfCanvasCardPick } from '../common/basehalfCanvasCardPick.js';
 import { BaseHalfCanvasCommandId } from '../common/basehalfCanvasKeys.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
-import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../common/basehalfCanvasScene.js';
+import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry } from '../common/basehalfCanvasScene.js';
+
+/**
+ * What the canvas shows, as a feature keeps it to show it again: the point of the canvas at the middle of what is
+ * shown, and the canvas's zoom. It holds at any zoom of the window and any size of the canvas, which the library's
+ * own viewport does not (each part zooms by itself, rule 5).
+ */
+export interface IBaseHalfCanvasShownView {
+	readonly x: number;
+	readonly y: number;
+	readonly zoom: number;
+}
 
 /** The cards and connections of the canvas as they were drawn last. */
 export interface IBaseHalfCanvasViewScene {
@@ -121,13 +132,13 @@ export interface IBaseHalfCanvasView {
 	/** One zoom step in or out. */
 	zoomBy(direction: -1 | 1): void;
 	fitToScreen(): void;
-	/** The part of the canvas that is shown. */
-	getViewport(): IBaseHalfCanvasSceneViewport;
+	/** The part of the canvas that is shown, in a form that holds at any zoom of the window. */
+	getViewport(): IBaseHalfCanvasShownView;
 	/**
-	 * Shows the canvas of the scene with this key at a viewport the user had,
+	 * Shows the canvas of the scene with this key at a view the user had,
 	 * and saves it as theirs. Nothing happens when another canvas is shown.
 	 */
-	setViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport): Promise<void>;
+	setViewport(sceneKey: string, viewport: IBaseHalfCanvasShownView): Promise<void>;
 
 	/**
 	 * Whether a card that is moved or resized snaps to the edges and centers

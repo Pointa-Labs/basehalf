@@ -17,7 +17,7 @@ import { baseHalfUserFacingErrorMessage } from '../../../workspace/common/baseha
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
 import { baseHalfCanvasDrawnZoom, baseHalfCanvasShownZoom, normalizeBaseHalfCanvasDrawnZoom } from '../basehalfCanvasWindowZoom.js';
 import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
-import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
+import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasMoveLineSides, IBaseHalfCanvasShownView, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { baseHalfCanvasSceneEdgeId, IBaseHalfCanvasUndoNode, reverseCanvasStateTransition, roundCanvasPosition } from './basehalfCanvasViewShared.js';
@@ -445,15 +445,21 @@ export class BaseHalfCanvasGeometry {
 		}
 	}
 
-	/** Shows the canvas of the scene at a viewport the user had, and saves it as theirs (IBaseHalfCanvasView.setViewport). */
-	async showCanvasViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport): Promise<void> {
+	/** What the canvas shows, as a feature keeps it (IBaseHalfCanvasView.getViewport): the point at its middle and the canvas's zoom. */
+	shownCanvasView(): IBaseHalfCanvasShownView {
+		const { x, y, zoom } = this.view.canvasScene.getViewport();
+		const drawn = zoom > 0 ? zoom : 1;
+		return { x: (this.view.cards.clientWidth / 2 - x) / drawn, y: (this.view.cards.clientHeight / 2 - y) / drawn, zoom: this.shownZoom(drawn) };
+	}
+
+	/** Shows the canvas of the scene at a view the user had, and saves it as theirs (IBaseHalfCanvasView.setViewport). */
+	async showCanvasViewport(sceneKey: string, view: IBaseHalfCanvasShownView): Promise<void> {
 		const folder = this.view.getCurrentFolder();
 		if (!folder || this.view.sceneKey(folder) !== sceneKey) {
 			return;
 		}
 		this.view.viewportRestoreGeneration++;
-		const { x, y, zoom } = viewport;
-		await this.view.canvasScene.setViewportCenter((this.view.cards.clientWidth / 2 - x) / zoom, (this.view.cards.clientHeight / 2 - y) / zoom, zoom);
+		await this.view.canvasScene.setViewportCenter(view.x, view.y, this.drawnZoomOf(view.zoom));
 		if (this.view.isCurrentSceneKey(sceneKey)) {
 			this.scheduleViewportPersist(0, 'user', { folder, viewport: this.view.canvasScene.getViewport() });
 		}
@@ -531,7 +537,15 @@ export class BaseHalfCanvasGeometry {
 		this.view.canvasScene.setSettings({ windowZoomFactor: factor });
 		this.view.canvasZoom = this.normalizeDrawnZoom(this.view.canvasZoom * ratio);
 		this.updateCanvasZoomChrome();
-		void this.view.canvasScene.scaleViewport(ratio).catch(error => this.view.logService.error(error));
+		// The canvas's own move, not the user's: the folder keeps the view it had, whose zoom is the canvas's.
+		const folder = this.view.getCurrentFolder();
+		const sceneKey = folder ? this.view.sceneKey(folder) : undefined;
+		this.programmaticViewportSceneKey = sceneKey;
+		void this.view.canvasScene.scaleViewport(ratio).catch(error => this.view.logService.error(error)).finally(() => {
+			if (this.programmaticViewportSceneKey === sceneKey) {
+				this.programmaticViewportSceneKey = undefined;
+			}
+		});
 	}
 
 	zoomBy(direction: -1 | 1): void {

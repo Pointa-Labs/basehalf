@@ -8,7 +8,7 @@ import './media/basehalfCanvasNoteToolbar.css';
 import './media/basehalfCanvasVideoSelectionControls.css';
 import { isMacintosh, isWindows } from '../../../../../base/common/platform.js';
 import { localize } from '../../../../../nls.js';
-import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import { BASEHALF_HOVER_ATTRIBUTE } from '../../../ui/common/basehalfHover.js';
 import {
 	baseHalfCanvasSceneVideoSelectionActions,
@@ -236,7 +236,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			event.stopPropagation();
 			items[next]?.focus({ preventScroll: true });
 		};
-		const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom);
+		const zoom = baseHalfCanvasScreenSizeZoom(viewport.zoom);
 		// The menu of frames opens upward, over the canvas above the toolbar,
 		// when it fits there; otherwise it opens over the card.
 		const menuOpensAbove = placement.top * zoom + viewport.y - VIDEO_CAPTURE_MENU_SCREEN_GAP - VIDEO_CAPTURE_MENU_SCREEN_HEIGHT >= NOTE_CONTROLS_SCREEN_MARGIN;

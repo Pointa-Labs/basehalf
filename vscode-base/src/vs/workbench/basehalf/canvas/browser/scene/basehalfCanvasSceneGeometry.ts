@@ -6,6 +6,7 @@
 import { BaseHalfCanvasAnchor, BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT, BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH, baseHalfCanvasEdgePath, IBaseHalfCanvasPosition } from '../../common/basehalfCanvasModel.js';
 import { BASEHALF_CANVAS_HELD_SNAP_NONE, BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD, sameBaseHalfCanvasSnapGuides, snapBaseHalfCanvasFlowNodeChanges, snapBaseHalfCanvasHeldCards } from '../../common/basehalfCanvasFlowSnap.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
+import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import {
 	baseHalfCanvasOppositeAnchor,
 	IBaseHalfCanvasSceneCard,
@@ -255,7 +256,7 @@ export function useBaseHalfCanvasSceneGeometry(environment: IBaseHalfCanvasScene
 			}
 		}
 		const options = {
-			threshold: BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom),
+			threshold: BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD / baseHalfCanvasScreenSizeZoom(viewportRef.current.zoom),
 			disabled: disableSnap || !snapEnabledRef.current,
 			defaultWidth: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 			defaultHeight: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,

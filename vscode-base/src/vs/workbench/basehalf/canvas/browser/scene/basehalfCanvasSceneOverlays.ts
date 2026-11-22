@@ -6,6 +6,7 @@
 import './media/basehalfCanvasSceneOverlays.css';
 import { BaseHalfCanvasAnchor, baseHalfCanvasAnchorPoint } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
+import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import { baseHalfCanvasConnectHandleReachLimit } from '../../common/basehalfCanvasScene.js';
 import type { ConnectionLineComponentProps } from '@xyflow/react';
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactElement, ReactNode, RefObject } from 'react';
@@ -232,7 +233,7 @@ export function createBaseHalfCanvasSceneOverlays(environment: IBaseHalfCanvasSc
 		if (guides.length === 0) {
 			return h(vendor.Fragment);
 		}
-		const thickness = 1 / Math.max(0.2, zoom);
+		const thickness = 1 / baseHalfCanvasScreenSizeZoom(zoom);
 		return h(vendor.ViewportPortal, null,
 			h('svg', {
 				className: 'basehalf-canvas-snap-guides',

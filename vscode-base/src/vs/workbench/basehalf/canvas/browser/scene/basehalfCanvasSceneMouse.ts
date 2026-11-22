@@ -71,6 +71,8 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 	readonly structuralEpochRef: RefObject<number>;
 	readonly viewportRef: RefObject<IBaseHalfCanvasSceneViewport>;
 	readonly wheelZoomsRef: RefObject<boolean>;
+	/** The window's zoom factor: the canvas's zoom is the library's times it (each part zooms by itself, rule 5). */
+	readonly windowZoomFactorRef: RefObject<number>;
 	readonly zoomAt: (factor: number, clientX: number, clientY: number) => void;
 	readonly lastPaneConnectionCancellationAt: RefObject<number | undefined>;
 	readonly paneDoubleClickStartedOnPane: RefObject<boolean>;
@@ -80,7 +82,7 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 }) {
 	const { vendor, host, delegate } = environment;
 	const {
-		sceneKeyRef, structuralEpochRef, viewportRef, wheelZoomsRef, zoomAt, lastPaneConnectionCancellationAt,
+		sceneKeyRef, structuralEpochRef, viewportRef, wheelZoomsRef, windowZoomFactorRef, zoomAt, lastPaneConnectionCancellationAt,
 		paneDoubleClickStartedOnPane, nodesRef, edgesRef, requestSelection
 	} = scene;
 
@@ -242,9 +244,10 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 			card: path => nodesRef.current.find(node => node.id === path)?.data.card.element,
 			scrollableContent: card => {
 				const content = delegate.cardScrollableContent(card);
-				// Content that says from which zoom it can be read leaves a gesture to the canvas below it (code cards, rule 7).
+				// Content that says from which zoom of the canvas it can be read leaves a gesture to the canvas below it
+				// (code cards, rule 7). The library draws at the canvas's zoom divided by the window's.
 				const lowest = content?.dataset.basehalfLowestScrollingZoom;
-				return lowest && viewportRef.current.zoom < Number(lowest) ? undefined : content;
+				return lowest && viewportRef.current.zoom * windowZoomFactorRef.current < Number(lowest) ? undefined : content;
 			},
 			wheelZooms: () => wheelZoomsRef.current,
 			zoomCanvas: zoomAt

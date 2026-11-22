@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import {
 	baseHalfCanvasSceneVideoSelectionActions,
 	IBaseHalfCanvasSceneViewport,
@@ -45,7 +45,7 @@ export function resolveBaseHalfCanvasSelectionToolbarPlacement(options: {
 	readonly viewportHeight: number;
 	readonly toolbarWidth: number;
 }): IBaseHalfCanvasSelectionToolbarPlacement {
-	const zoom = Math.max(0.2, options.viewport.zoom);
+	const zoom = baseHalfCanvasScreenSizeZoom(options.viewport.zoom);
 	const centerScreen = ((options.left + options.right) / 2) * zoom + options.viewport.x;
 	const halfToolbar = options.toolbarWidth / 2;
 	const minimumCenter = SELECTION_TOOLBAR_SCREEN_MARGIN + halfToolbar;
@@ -94,7 +94,7 @@ function resolveBaseHalfCanvasAnchoredToolbarPlacement(
 	/** Whether the card shows its caption above it, which the toolbar stands clear of. */
 	captionAbove = true
 ): IBaseHalfCanvasNoteSelectionPlacement {
-	const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, options.viewport.zoom);
+	const zoom = baseHalfCanvasScreenSizeZoom(options.viewport.zoom);
 	const viewportWidth = Math.max(0, options.viewportWidth);
 	const viewportHeight = Math.max(0, options.viewportHeight);
 	const leftScreen = options.left * zoom + options.viewport.x;
@@ -144,7 +144,7 @@ export function resolveBaseHalfCanvasVideoSelectionPlacement(
 	options: IBaseHalfCanvasAnchoredToolbarPlacementOptions & { readonly toolbarWidth: number }
 ): IBaseHalfCanvasNoteSelectionPlacement {
 	const placement = resolveBaseHalfCanvasAnchoredToolbarPlacement(options, options.toolbarWidth, BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT);
-	const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, options.viewport.zoom);
+	const zoom = baseHalfCanvasScreenSizeZoom(options.viewport.zoom);
 	const topScreen = (options.top - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * zoom + options.viewport.y;
 	const hasUnobstructedSpaceAbove = topScreen - NOTE_CONTROLS_SCREEN_MARGIN
 		>= BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP + BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT;
@@ -185,7 +185,7 @@ export function resolveBaseHalfCanvasVideoPanelPlacement(
 		readonly keepSide?: BaseHalfVideoPanelSide;
 	}
 ): IBaseHalfCanvasVideoPanelPlacement {
-	const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, options.viewport.zoom);
+	const zoom = baseHalfCanvasScreenSizeZoom(options.viewport.zoom);
 	const card = {
 		left: options.left * zoom + options.viewport.x,
 		top: options.top * zoom + options.viewport.y,
