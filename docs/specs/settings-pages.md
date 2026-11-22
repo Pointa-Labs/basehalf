@@ -130,7 +130,7 @@ specification that owns what the setting does.
 | --- | --- | --- | --- | --- | --- |
 | Window | Appearance | `workbench.colorTheme` | choice: Dark, Light | none | [light and dark](light-and-dark.md) |
 | Window | Match the System | `window.autoDetectColorScheme` | switch | Dark or light, as the system is. | light and dark |
-| Window | Zoom | `window.zoomLevel` | choice, by percentage | none | the base |
+| Window | Zoom | `window.zoomLevel` | choice, by percentage | The canvas and the Agent Area's text keep their own size. | [each part zooms by itself](zoom.md) |
 | Code | Font | `editor.fontFamily` | text | none | [code cards](code-cards.md) |
 | Code | Font Size | `editor.fontSize` | number | In Source. A code card keeps its size. | code cards |
 | Code | Wrap Long Lines | `editor.wordWrap` | choice: Off, On | In Source. | code cards |
@@ -202,10 +202,11 @@ written in a settings file, is listed as it is written.
 - **A value changed elsewhere**, in the advanced list, in a settings file,
   or by a key, shows in its row as it changes; in a field the user is typing
   in, when the field is left.
-- **Zoom is one setting.** The keys that zoom the window change
-  `window.zoomLevel`, as the row does: BaseHalf's default for
-  `window.zoomPerWindow` is off, so a zoom holds in every window and shows
-  in Settings.
+- **Each zoom is one setting.** The keys that zoom the window change
+  `window.zoomLevel`, as the row Zoom does, and the keys that zoom in the
+  Agent Area change its Font Size, as that row does ([each part zooms by
+  itself](zoom.md)). BaseHalf's default for `window.zoomPerWindow` is off,
+  so a zoom holds in every window and shows in Settings.
 
 ## How Settings looks
 

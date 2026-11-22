@@ -7649,3 +7649,33 @@ loses its frame: the card types and the regions are tabs as the base's User and 
 section of General, Canvas, Notes, and Agent Area stood in a bordered box with lines between its rows, the switches were
 those of a phone, the page shown in the list was a filled rounded box, and the Providers page was a box with a tinted
 column and a segmented control in it. The base draws none of these.
+
+## D153 — Each part of the window zooms by itself (NEW, 2026-11-22)
+
+**Decision.** The keys that zoom change the zoom of the part that has the keyboard: the canvas its zoom, the Agent Area
+the size of its text, a PDF its zoom, a book the size of its text, and anywhere else the window's zoom. Each zoom is its
+own. The window's zoom is the size of Files, the bars, the menus, Settings, Card Detail, and the controls around the
+canvas and in the Agent Area; it does not change the size on the screen of the canvas's cards or of the Agent Area's
+text. The canvas's zoom is the size of its cards on the screen: the scene draws at it divided by the window's zoom
+factor, a folder keeps it, and a change of the window's zoom keeps it in the frame that draws the change. The Agent
+Area's text is `terminal.integrated.fontSize`, which Larger Agent Area Text, Smaller Agent Area Text, and Reset Agent
+Area Text Size change on the keys that zoom; the terminal draws it divided by the window's zoom factor. See [each part
+zooms by itself](specs/zoom.md).
+
+**Why.** The owner, 2026-11-22: the Agent Area zooms in step with every other place; the Agent Area, the canvas, and the
+UI around them should each zoom by itself. Pressed in the window before: Cmd+= with the keyboard in the Agent Area's
+terminal zoomed the window to 120%, a card on the canvas grew from 600 to 720 device pixels and the Sidebar from 592 to
+710, and the canvas's zoom control still said 100%.
+
+**Considered.**
+- One zoom for everything, the base's: a size chosen to read an agent's answer made every list and every card larger.
+- The keys of each part, with the window's zoom still drawing the canvas and the terminal larger: a part's size would be
+  two numbers, and the canvas's 100% no one size.
+- Scaling the canvas by a style of its own: the canvas library measures the pointer against the page and against its
+  own size, and a scaled box puts every press beside its place.
+- Keeping the point at the middle of the canvas when the window's zoom changes: the room the canvas loses to a larger
+  Sidebar and Agent Area is known only after the window has drawn the new zoom, a frame late. The top left corner stays,
+  as on any other change of the canvas's room, and needs no size.
+- The reader's keys as commands that tell the page to zoom: a key pressed in a book's text belongs to the frame of the
+  text, which the window does not hear. The page keeps its keys, and Zoom Reader In, Zoom Reader Out, and Zoom Reader to
+  100% hold them from the window, with names (D150).

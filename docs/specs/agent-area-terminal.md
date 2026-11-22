@@ -301,6 +301,9 @@ rows are part of scrolling like the reference terminal.
    at its default font size, which is also 13.
 2. A user who sets another font size or line height gets other rows and a
    proportionally different scroll distance, as in the reference terminal.
+3. The font size is the size of the text on the screen at every zoom of the
+   window, and the keys that zoom change it while the Agent Area has the
+   keyboard ([each part zooms by itself](zoom.md)).
 
 ### The grid and its edges
 

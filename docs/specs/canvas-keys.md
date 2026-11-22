@@ -89,7 +89,9 @@ key: Command, or Control where the system has no Command key.
 
 - **Zoom.** The three keys are the keys that zoom the window. While the
   canvas has the keyboard they zoom the canvas, also from a note or a code
-  card that is edited there; anywhere else they zoom the window. Each
+  card that is edited there; anywhere else they zoom what has the keyboard
+  there, and the window where nothing has a zoom of its own ([each part
+  zooms by itself](zoom.md)). Each
   command has every key the window's command has: Zoom Canvas Out had no
   Cmd+Shift+-, so on the canvas Cmd+Shift+= zoomed the canvas in and
   Cmd+Shift+- zoomed the window out (D150). On a system where the base
