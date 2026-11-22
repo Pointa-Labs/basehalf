@@ -167,8 +167,9 @@ export class BaseHalfAgentAreaTabStrip implements IDisposable {
 		el.setAttribute('aria-selected', String(active));
 		el.setAttribute('aria-label', `Tab ${index + 1}`);
 
-		// Concave feet flaring the active tab into the content below (shown by
-		// CSS only while this tab is active).
+		// The sides and the shoulders of the active tab, which open it into the session below (workbench
+		// appearance, rule 14); the stylesheet shows them only while this tab is active.
+		append(el, $('span.basehalf-agent-tab-edge')).setAttribute('aria-hidden', 'true');
 		const curlLeft = append(el, $('span.basehalf-agent-tab-curl.left'));
 		curlLeft.setAttribute('aria-hidden', 'true');
 		const curlRight = append(el, $('span.basehalf-agent-tab-curl.right'));

@@ -17,18 +17,15 @@
 	--basehalf-agent-terminal-divider: color-mix(in srgb, var(--basehalf-agent-terminal-background) 58%, var(--vscode-basehalf-shade));
 	--basehalf-agent-terminal-sheen: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 2%, transparent);
 	--basehalf-agent-terminal-inactive-opacity: 0.15;
-	/* Browser-style tab chrome: the bar is a darker frame; the active tab takes
-	   the exact content background and the frame's bottom hairline breaks under
-	   it, so tab and pane read as one continuous surface. The content pair below
-	   is re-pointed per active session kind. */
+	/* The tabs are the connected tabs of the base's panel (workbench appearance, rule 14): the strip has the
+	   session's own background and a line at its foot, and the chosen tab opens into the session under it, the
+	   card's top border its top. The content pair below is re-pointed per active session kind, and the tabs'
+	   colors are drawn from it (light and dark, rule 23). */
 	--basehalf-agent-content-background: var(--basehalf-agent-extension-background);
 	--basehalf-agent-content-foreground: var(--basehalf-agent-extension-foreground);
-	--basehalf-agent-frame-background: color-mix(in srgb, var(--vscode-basehalf-shade) 32%, var(--basehalf-agent-content-background));
-	--basehalf-agent-frame-divider: color-mix(in srgb, var(--basehalf-agent-content-foreground) 12%, var(--basehalf-agent-frame-background));
-	--basehalf-agent-tab-separator: color-mix(in srgb, var(--basehalf-agent-content-foreground) 24%, var(--basehalf-agent-frame-background));
-	--basehalf-agent-tab-inactive-foreground: color-mix(in srgb, var(--basehalf-agent-content-foreground) 60%, var(--basehalf-agent-frame-background));
-	--basehalf-agent-tab-hover-foreground: color-mix(in srgb, var(--basehalf-agent-content-foreground) 84%, var(--basehalf-agent-frame-background));
-	--basehalf-agent-tab-hover-background: color-mix(in srgb, var(--basehalf-agent-content-background) 45%, var(--basehalf-agent-frame-background));
+	--basehalf-agent-tab-line: color-mix(in srgb, var(--basehalf-agent-content-foreground) 10%, var(--basehalf-agent-content-background));
+	--basehalf-agent-tab-divider: color-mix(in srgb, var(--basehalf-agent-content-foreground) 18%, var(--basehalf-agent-content-background));
+	--basehalf-agent-tab-inactive-foreground: color-mix(in srgb, var(--basehalf-agent-content-foreground) 58%, var(--basehalf-agent-content-background));
 	position: relative;
 	display: flex;
 	flex-direction: column;
@@ -39,10 +36,8 @@
 	background-color: var(--basehalf-agent-extension-background);
 }
 
-/* Light and high-contrast themes stay flat; BaseHalf should read like a terminal
-   window here, not a tinted marketing surface. In light themes the frame
-   darkens gently (a browser-light look); in high contrast the frame collapses
-   into the content and the active tab is marked by an outline instead. */
+/* Light and high-contrast themes stay flat. In high contrast the lines of the tabs are the theme's contrast border
+   and the active tab is marked by an outline as well. */
 .monaco-workbench.vs .basehalf-agent-area {
 	--basehalf-agent-terminal-sheen: transparent;
 }
@@ -50,8 +45,8 @@
 .monaco-workbench.hc-black .basehalf-agent-area,
 .monaco-workbench.hc-light .basehalf-agent-area {
 	--basehalf-agent-terminal-sheen: transparent;
-	--basehalf-agent-frame-background: var(--basehalf-agent-content-background);
-	--basehalf-agent-tab-hover-background: transparent;
+	--basehalf-agent-tab-line: var(--vscode-contrastBorder);
+	--basehalf-agent-tab-divider: var(--vscode-contrastBorder);
 }
 
 .monaco-workbench.hc-black .basehalf-agent-tab.active,
@@ -128,13 +123,14 @@
 	display: flex;
 	align-items: stretch;
 	flex: 0 0 auto;
-	height: 34px;
+	height: 32px;
 	overflow: hidden;
-	background-color: var(--basehalf-agent-frame-background);
+	font-family: var(--vscode-font-family);
+	background-color: var(--basehalf-agent-content-background);
 }
 
-/* The frame/content hairline is an overlay, not a border, so the active tab
-   (opaque, higher z-index) interrupts it and flows into the pane below. */
+/* The line at the foot of the strip is an overlay, not a border, so the active tab (opaque, higher z-index)
+   interrupts it and flows into the pane below. */
 .monaco-workbench .basehalf-agent-area-tabs::after {
 	content: '';
 	position: absolute;
@@ -142,7 +138,7 @@
 	right: 0;
 	bottom: 0;
 	height: 1px;
-	background: var(--basehalf-agent-frame-divider);
+	background: var(--basehalf-agent-tab-line);
 	pointer-events: none;
 	z-index: 1;
 }
@@ -162,18 +158,20 @@
 	scrollbar-width: thin;
 }
 
+/* The buttons at the end of the strip are the title actions of the base's panel. */
 .monaco-workbench .basehalf-agent-area-tabs > .basehalf-agent-area-icon {
 	flex-shrink: 0;
-	width: 33px;
-	height: auto;
-	border-radius: 0;
-	border-left: 1px solid var(--basehalf-agent-frame-divider);
-	color: var(--basehalf-agent-tab-inactive-foreground);
+	align-self: center;
+	width: 22px;
+	min-width: 22px;
+	height: 22px;
+	margin: 0 6px 0 2px;
+	border-radius: 5px;
+	color: var(--vscode-icon-foreground);
 }
 
 .monaco-workbench .basehalf-agent-area-tabs > .basehalf-agent-area-icon:hover {
-	background-color: var(--basehalf-agent-tab-hover-background);
-	color: var(--basehalf-agent-tab-hover-foreground);
+	background-color: var(--vscode-toolbar-hoverBackground);
 }
 
 .monaco-workbench .basehalf-agent-zoom-reset {
@@ -187,28 +185,26 @@
 
 .monaco-workbench .basehalf-agent-tab {
 	position: relative;
-	/* Fill the bar equally, native-tab style; shrink to a min then the strip
-	   scrolls. */
-	flex: 1 1 0;
-	min-width: 56px;
+	/* As wide as its name, as the base's panel draws its tabs; they shrink to a minimum, then the strip scrolls. */
+	flex: 0 1 auto;
+	min-width: 48px;
+	max-width: 220px;
 	display: flex;
 	align-items: center;
-	justify-content: center;
 	gap: 4px;
-	padding: 0 4px 0 8px;
+	padding: 0 8px 0 14px;
 	cursor: default;
 	user-select: none;
-	font-size: 11px;
+	font-size: 13px;
 	color: var(--basehalf-agent-tab-inactive-foreground);
 	border-radius: 7px 7px 0 0;
-	/* Short centered separator on the left edge (browser-tab style); it yields
-	   next to the active or hovered tab, drawn as a background so the drop
-	   indicator pseudo-elements stay free. */
-	background-image: linear-gradient(var(--basehalf-agent-tab-separator), var(--basehalf-agent-tab-separator));
-	background-size: 1px 14px;
+	/* A divider of 16 px at the left edge, as between the tabs of the panel; it yields next to the active or the
+	   hovered tab, drawn as a background so the drop indicator pseudo-elements stay free. */
+	background-image: linear-gradient(var(--basehalf-agent-tab-divider), var(--basehalf-agent-tab-divider));
+	background-size: 1px 16px;
 	background-position: left center;
 	background-repeat: no-repeat;
-	transition: color 0.1s ease-out, background-color 0.1s ease-out;
+	transition: color 0.1s ease-out;
 }
 
 .monaco-workbench .basehalf-agent-tab:first-child,
@@ -220,28 +216,45 @@
 }
 
 .monaco-workbench .basehalf-agent-tab:hover {
-	color: var(--basehalf-agent-tab-hover-foreground);
-	background-color: var(--basehalf-agent-tab-hover-background);
+	color: var(--basehalf-agent-content-foreground);
 }
 
-/* The "I am here" tab: exact content colors, raised above the frame hairline
-   so it connects seamlessly to the session pane below. */
+/* The active tab has the session's colors and stands over the line at the foot of the strip, so that it opens into
+   the session under it. */
 .monaco-workbench .basehalf-agent-tab.active {
 	color: var(--basehalf-agent-content-foreground);
 	background-color: var(--basehalf-agent-content-background);
 	z-index: 2;
 }
 
-/* Browser-style concave feet flaring the active tab's bottom corners into the
-   hairline break. Real elements (not ::before/::after — those belong to the
-   drag-drop indicators). Hidden at the strip edges: the left one would be
-   clipped, the right one would add scrollable overflow. */
+/* Its sides, which round into the card's top border at its top and stop where the shoulders take over. */
+.monaco-workbench .basehalf-agent-tab-edge {
+	display: none;
+	position: absolute;
+	inset: 0;
+	box-sizing: border-box;
+	border: 1px solid var(--basehalf-agent-tab-line);
+	border-top: 0;
+	border-bottom: 0;
+	border-radius: 7px 7px 0 0;
+	clip-path: inset(0 0 7px);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-agent-tab.active > .basehalf-agent-tab-edge {
+	display: block;
+}
+
+/* Its shoulders curve from its sides into the line at the foot of the strip, and the inside of each curve has the
+   tab's color. Real elements: ::before and ::after belong to the drag and drop indicators. */
 .monaco-workbench .basehalf-agent-tab-curl {
 	position: absolute;
 	bottom: 0;
 	width: 7px;
 	height: 7px;
+	box-sizing: border-box;
 	display: none;
+	clip-path: inset(0);
 	pointer-events: none;
 }
 
@@ -250,18 +263,29 @@
 }
 
 .monaco-workbench .basehalf-agent-tab-curl.left {
-	left: -7px;
-	background: radial-gradient(circle 7px at 0 0, transparent 6.5px, var(--basehalf-agent-content-background) 7px);
+	right: 100%;
+	border-right: 1px solid var(--basehalf-agent-tab-line);
+	border-bottom: 1px solid var(--basehalf-agent-tab-line);
+	border-bottom-right-radius: 7px;
+	box-shadow: 3.5px 3.5px 0 3.5px var(--basehalf-agent-content-background);
 }
 
 .monaco-workbench .basehalf-agent-tab-curl.right {
-	right: -7px;
-	background: radial-gradient(circle 7px at 100% 0, transparent 6.5px, var(--basehalf-agent-content-background) 7px);
+	left: 100%;
+	border-left: 1px solid var(--basehalf-agent-tab-line);
+	border-bottom: 1px solid var(--basehalf-agent-tab-line);
+	border-bottom-left-radius: 7px;
+	box-shadow: -3.5px 3.5px 0 3.5px var(--basehalf-agent-content-background);
 }
 
-.monaco-workbench .basehalf-agent-tab.active:first-child > .basehalf-agent-tab-curl.left,
-.monaco-workbench .basehalf-agent-tab.active:last-child > .basehalf-agent-tab-curl.right {
+/* The first tab stands at the card's left edge, which is its side. */
+.monaco-workbench .basehalf-agent-tab.active:first-child > .basehalf-agent-tab-curl.left {
 	display: none;
+}
+
+.monaco-workbench .basehalf-agent-tab.active:first-child > .basehalf-agent-tab-edge {
+	border-left-width: 0;
+	border-top-left-radius: 0;
 }
 
 .monaco-workbench .basehalf-agent-tab.unavailable {
@@ -293,12 +317,8 @@
 	min-width: 0;
 	display: flex;
 	align-items: baseline;
-	justify-content: center;
 	gap: 4px;
 	overflow: hidden;
-	/* Balance the close-button gutter on the right so the label reads as
-	   centered in the tab, not nudged left. */
-	padding-left: 16px;
 }
 
 /* Leading ⌘N badge = the shortcut that selects this tab (so the shortcut is
@@ -316,8 +336,6 @@
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	font-size: 12px;
-	font-weight: 500;
 }
 
 /* What the session's description says, after its name: it gives way before the name does. */
@@ -350,9 +368,6 @@
 	display: none;
 }
 
-.monaco-workbench .basehalf-agent-area-tabs.compact .basehalf-agent-tab-labelwrap {
-	padding-left: 8px;
-}
 
 .monaco-workbench .basehalf-agent-tab-state {
 	flex-shrink: 20;
@@ -372,7 +387,7 @@
 	border-radius: 2px;
 	background: var(--vscode-input-background);
 	color: var(--vscode-input-foreground);
-	font-size: 11px;
+	font-size: 13px;
 	padding: 1px 4px;
 	outline: none;
 }
