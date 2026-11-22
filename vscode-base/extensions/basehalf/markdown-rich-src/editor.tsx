@@ -2965,6 +2965,29 @@ function MarkdownRichEditor(): JSX.Element {
 	}, [contextMenu]);
 
 	useEffect(() => {
+		// The editor keeps the keyboard when this page loses the window's focus for a moment and gets it back (opening
+		// and closing Card Detail, "The keyboard"). The window does that to a page as it gives it the keyboard: 50 ms
+		// after it focuses the page it focuses its own body, then the page again, which then has nothing focused. When
+		// the editor had the keyboard last, and nothing else in the page took it since, the editor takes it again, with
+		// its caret where it was.
+		let editorHadKeyboard = false;
+		const onFocusIn = (event: FocusEvent) => {
+			editorHadKeyboard = event.target instanceof Node && !!editor.prosemirrorView?.dom.contains(event.target);
+		};
+		const onWindowFocus = () => {
+			if (editorHadKeyboard && (document.activeElement === null || document.activeElement === document.body)) {
+				editor.focus();
+			}
+		};
+		document.addEventListener('focusin', onFocusIn, true);
+		window.addEventListener('focus', onWindowFocus);
+		return () => {
+			document.removeEventListener('focusin', onFocusIn, true);
+			window.removeEventListener('focus', onWindowFocus);
+		};
+	}, [editor]);
+
+	useEffect(() => {
 		// Undo/redo must have exactly one owner. Left alone, the key would be
 		// handled twice: the editor's own keymap runs an undo, then the
 		// webview bootstrap forwards the same keydown to the workbench, whose
