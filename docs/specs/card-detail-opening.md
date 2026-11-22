@@ -104,6 +104,15 @@ rule 26).
   in their page. It does not when it was opened to keep the keyboard where it
   was, as a click in Files does, or when the keyboard went out of the canvas
   meanwhile.
+- The editor of a note keeps the keyboard when the page it is drawn in loses
+  the window's focus for a moment and gets it back: with nothing else in the
+  page having taken the keyboard since, the editor takes it again, with its
+  caret where it was. The window does this to a page as it gives it the
+  keyboard: 50 ms after a page is focused it focuses its own body and then
+  the page again. Measured before (2026-11-22): in 2 of 6 openings of a new
+  note from its card in a fresh window, the editor took the keyboard inside
+  those 50 ms and lost it 5 to 20 ms later, and the page that got the focus
+  back had nothing focused, so what was typed went nowhere.
 - Escape is no command: it belongs to what is open
   ([the keys of the canvas](canvas-keys.md#which-keys-are-commands)).
 - Escape closes Card Detail, wherever in it the keyboard is: in its header,
@@ -202,6 +211,11 @@ navigation, which has already changed when it starts.
 8. Grow Branch in a PDF: on no frame from the press until the new note's
    title line has the keyboard does the element with the keyboard draw a
    ring (smoke step `pdf-grow-three-branches`).
+9. A new note with a title typed on its card, opened with Expand in a fresh
+   window, twelve times over: each time the note's editor has the keyboard
+   within a second and keeps it for three; and a page of a note blurred and
+   focused again from the window has its editor take the keyboard back at
+   the caret it had.
 
 ## Verification
 
