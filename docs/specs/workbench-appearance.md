@@ -129,22 +129,36 @@ Not in scope, and unchanged:
     `workbench.experimental.modernUIEditorTabStyle` set to `pill` they are
     the rounded pills of 1.141 again; the setting is in the advanced list
     ([settings catalog](settings-catalog.md)).
+14. **The tabs of the Agent Area** are drawn as VS Code 1.147 draws the tabs
+    of its panel (Problems, Output, Terminal) and of the side pane of its
+    Agents window (Changes, Files): connected tabs. The strip is 32 px high in
+    the session's own background, with a line at its foot. A tab is as wide
+    as its name, from 48 to 220 px, the name in the font of the window at
+    13 px; the others are separated by dividers of 16 px. The active tab has
+    the session's background and opens into it: the card's top border is its
+    top, its sides round into that border with corners of 7 px, and shoulders
+    of 7 px curve from its sides into the line at the foot, which it breaks.
+    The buttons at the end of the strip are 22 px, as the title actions of
+    the panel. The colors are drawn from the session's colors ([light and
+    dark](light-and-dark.md), rule 23). Before (2026-11-22) the strip was a
+    darker frame around equal tabs of 11 px, centered, the active one a
+    lighter block without a line.
 
 ### Git status colors and letters
 
-14. With the theme loaded, the status letter of a changed file in Source
+15. With the theme loaded, the status letter of a changed file in Source
     Control and in Files has the theme's color for that status, and in Files
     the file name has it too. Nothing in BaseHalf sets these colors.
-15. The status letter is drawn as VS Code 1.141 draws it: the label carries
+16. The status letter is drawn as VS Code 1.141 draws it: the label carries
     the marker classes `monaco-decoration-badge` and
     `monaco-decoration-text-badge`, and Source Control lays the letter out in
     a box of fixed size so that the letters of all rows line up.
-16. The title of the Files view shows the workspace name as the user wrote
+17. The title of the Files view shows the workspace name as the user wrote
     it. The base's early version of the layout capitalized each word of it.
 
 ### Before the window has loaded
 
-17. The picture that a window shows before the workbench has loaded has the
+18. The picture that a window shows before the workbench has loaded has the
     same cards as the loaded window: each card where it was when the window
     last saved its layout, with the same corner radius, border, and
     background. It is VS Code's own code of 1.141.
@@ -271,6 +285,14 @@ theme were not looked at: the ink is the theme's text color.
     line has the color of `modernPanel.border`; Source Control and Search
     have a divider between them. Each value is that of VS Code 1.147 in the
     same layout.
+11. At the top of the Agent Area with three sessions, in the dark and in the
+    light theme: the strip is 32 px high; the tabs are as wide as their names
+    with padding of 14 px before the name; the names are 13 px in the font of
+    the window, the inactive ones in a lighter mix of the session's colors;
+    the active tab's sides and shoulders are 7 px curves in the line's color
+    and the line at the foot breaks under it; the first tab, when active, has
+    no left side. Measured against the panel of VS Code 1.147.0 (strip 32 px,
+    names 13 px, padding 16 px, corners and shoulders of 7 px).
 
 ## Verification
 

@@ -7679,3 +7679,22 @@ terminal zoomed the window to 120%, a card on the canvas grew from 600 to 720 de
 - The reader's keys as commands that tell the page to zoom: a key pressed in a book's text belongs to the frame of the
   text, which the window does not hear. The page keeps its keys, and Zoom Reader In, Zoom Reader Out, and Zoom Reader to
   100% hold them from the window, with names (D150).
+
+## D154 — The Agent Area's tabs are the connected tabs of the base's panel (NEW, 2026-11-22)
+
+**Decision.** The tabs of the Agent Area are drawn as VS Code 1.147 draws the tabs of its panel and of the side pane
+of its Agents window: a strip in the session's own background with a line at its foot, tabs as wide as their names in
+the font of the window at 13 px with thin dividers between them, and the active tab opening into the session, its top
+the card's border, its sides rounding into it, and shoulders curving into the line at the foot. The buttons at the end
+are the panel's title actions. See [workbench appearance](specs/workbench-appearance.md), rule 14.
+
+**Why.** The owner, 2026-11-22: the Agent Area should learn from the feel of VS Code's tabs at the bottom (Problems,
+Output), or from VS Code's own agent UI. Both, seen in the installed VS Code 1.147.0, are one look: the panel's tabs
+and the Agents window's Changes and Files are connected tabs, and the Sidebar's tabs became them in D151. The Agent
+Area was a browser's tab bar: a darker frame around equal tabs of 11 px, centered, the active one a lighter block.
+
+**Considered.**
+- The Agents window's list of sessions in a sidebar of its own: the Agent Area is beside the canvas, and a list would
+  take the room its terminals need; the tabs keep each session one press away, with its key.
+- The cap's own top line, as the panel draws over its frame: the Agent Area's strip lies inside the card, so the line
+  stood 1 px under the card's border and doubled it. The card's border is the tab's top.
