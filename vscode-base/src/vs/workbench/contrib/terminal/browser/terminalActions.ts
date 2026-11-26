@@ -1335,17 +1335,19 @@ export function registerTerminalActions() {
 	});
 
 	async function killInstance(c: ITerminalServicesCollection, accessor: ServicesAccessor, instance: ITerminalInstance | undefined): Promise<void> {
-		const target = instance ?? asBaseHalfTerminalInstance(accessor.get(IBaseHalfAgentAreaService).activeTerminal);
+		// BaseHalf: the service is read at once, since an accessor serves only until the first await.
+		const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+		const target = instance ?? asBaseHalfTerminalInstance(agentAreaService.activeTerminal);
 		if (!target) {
 			return;
 		}
 		// BaseHalf: a session of the Agent Area is killed by the Agent Area, which asks first as its own
 		// ways to close do, also when what runs is an agent and not a child of a shell.
-		if (await accessor.get(IBaseHalfAgentAreaService).killTerminalSession(target)) {
+		if (await agentAreaService.killTerminalSession(target)) {
 			return;
 		}
 		await c.service.safeDisposeTerminal(target);
-		await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.Kill);
+		await focusActiveTerminalIn(agentAreaService, undefined, c, TerminalCommandId.Kill);
 	}
 	registerTerminalAction({
 		id: TerminalCommandId.Kill,
@@ -1860,7 +1862,11 @@ export function shrinkWorkspaceFolderCwdPairs(pairs: WorkspaceFolderCwdPair[]): 
 }
 
 async function focusActiveTerminal(instance: ITerminalInstance | undefined, c: ITerminalServicesCollection, accessor: ServicesAccessor, source: string): Promise<void> {
-	const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+	await focusActiveTerminalIn(accessor.get(IBaseHalfAgentAreaService), instance, c, source);
+}
+
+/** As {@link focusActiveTerminal}, for a caller that has awaited and so has no accessor any more. */
+async function focusActiveTerminalIn(agentAreaService: IBaseHalfAgentAreaService, instance: ITerminalInstance | undefined, c: ITerminalServicesCollection, source: string): Promise<void> {
 	const target = instance
 		?? asBaseHalfTerminalInstance(agentAreaService.activeTerminal)
 		?? c.service.activeInstance
@@ -1869,7 +1875,7 @@ async function focusActiveTerminal(instance: ITerminalInstance | undefined, c: I
 	if (!target) {
 		return;
 	}
-	await revealTerminalInAgentArea(target, accessor, false, source);
+	await agentAreaService.revealTerminalSession(target, { label: target.title, source, preserveFocus: false });
 }
 
 async function revealTerminalInAgentArea(instance: ITerminalInstance, accessor: ServicesAccessor, preserveFocus: boolean, source: string): Promise<void> {
