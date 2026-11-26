@@ -3,13 +3,17 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+// BaseHalf: this model is typed with React Flow's changes of nodes, which lint allows only to the
+// canvas's browser layer. It stays a model because the layers check would otherwise report the
+// DOM types in basehalfCanvasScene.ts, which React Flow's types bring into every layer (D159).
+// eslint-disable-next-line local/code-import-patterns
 import type { Node, NodeChange } from '@xyflow/react';
 import {
 	IBaseHalfCanvasSnapGuide,
 	IBaseHalfCanvasSnapRect,
 	snapBaseHalfCanvasResizeRect,
 	snapBaseHalfCanvasTranslateRect
-} from '../common/basehalfCanvasSnap.js';
+} from './basehalfCanvasSnap.js';
 
 export const BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD = 5;
 

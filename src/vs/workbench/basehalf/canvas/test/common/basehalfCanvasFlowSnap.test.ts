@@ -5,6 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+// eslint-disable-next-line local/code-import-patterns -- as the model it tests (basehalfCanvasFlowSnap.ts)
 import type { Node, NodeChange } from '@xyflow/react';
 import {
 	BASEHALF_CANVAS_HELD_SNAP_NONE,
@@ -13,7 +14,7 @@ import {
 	sameBaseHalfCanvasSnapGuides,
 	snapBaseHalfCanvasFlowNodeChanges,
 	snapBaseHalfCanvasHeldCards
-} from '../../browser/basehalfCanvasFlowSnap.js';
+} from '../../common/basehalfCanvasFlowSnap.js';
 
 type TestNode = Node<Record<string, unknown>>;
 

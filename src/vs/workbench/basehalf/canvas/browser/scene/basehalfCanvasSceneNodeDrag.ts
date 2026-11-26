@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { IBaseHalfCanvasHeldSnap } from '../basehalfCanvasFlowSnap.js';
+import type { IBaseHalfCanvasHeldSnap } from '../../common/basehalfCanvasFlowSnap.js';
 
 export interface IBaseHalfCanvasNodeDragOrigin {
 	readonly id: string;

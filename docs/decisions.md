@@ -7898,9 +7898,12 @@ did not have. What was changed in the code: about 70 lines of comments that cont
 with a character the check refuses, 19 files off the formatter, and 163 lint warnings.
 
 The check found three things that were wrong and not a matter of form. The command that kills a terminal used its
-service accessor after an await, where an accessor no longer serves. A module typed with React Flow stood in the
-canvas's `common/` layer, which may not import it (D60). And 12 CSS variables are read that nothing declares; 11
-have a value to fall back on, and `--last-tab-add-tab-width` in the Modern UI's tabs has none.
+service accessor after an await, where an accessor no longer serves. 12 CSS variables are read that nothing
+declares; 11 have a value to fall back on, and `--last-tab-add-tab-width` in the Modern UI's tabs has none. And a
+model of the canvas, `basehalfCanvasFlowSnap.ts`, is typed with React Flow in the `common/` layer, which may not
+import it (D60). Moving it to `browser/` showed what it had hidden: React Flow's types bring the DOM's types into
+every layer, so the layers check never saw that `basehalfCanvasScene.ts`, also in `common/`, names `HTMLElement` in
+nine places.
 
 **Considered.**
 - Keeping the hook to the rule against new JavaScript files, as it had run, and cleaning up later: the owner chose
@@ -7912,6 +7915,10 @@ have a value to fall back on, and `--last-tab-add-tab-width` in the Modern UI's 
   Seven more were no lookups in the window's document but a parameter named `document`, now `targetDocument`.
 - BaseHalf's CSS variables in VS Code's list: the release test writes that file, and an update of VS Code changes it.
 - A suppression on each line of Chinese text: about 45 lines for one rule that has no reason against Chinese.
+- Moving the model typed with React Flow to `browser/` and the scene's types after it: the generation cards'
+  views read the scene's types, and their folder comes before the canvas's in the order of the views (D124), so
+  the types would have to be split between the layers. That is a change to the canvas's design, not a cleanup. The
+  model stays where it was, with the rule suppressed on its import and the reason beside it.
 
 **Consequences.**
 - A commit fails on a finding in a file it touches. `npm run precommit` is the same check by hand.
@@ -7922,4 +7929,6 @@ have a value to fall back on, and `--last-tab-add-tab-width` in the Modern UI's 
   changes whitespace is in `.git-blame-ignore-revs`.
 - `--last-tab-add-tab-width` is still read without a value. It is in the list as it is, and whether the tabs need it
   is not decided here.
+- The layers check still cannot see a DOM type in a `common/` module, as long as a `common/` module imports React
+  Flow's types. `basehalfCanvasScene.ts` is the one module known to have them.
 

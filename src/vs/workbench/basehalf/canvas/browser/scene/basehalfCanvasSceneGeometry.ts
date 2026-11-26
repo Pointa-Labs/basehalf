@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { BaseHalfCanvasAnchor, BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT, BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH, baseHalfCanvasEdgePath, IBaseHalfCanvasPosition } from '../../common/basehalfCanvasModel.js';
-import { BASEHALF_CANVAS_HELD_SNAP_NONE, BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD, sameBaseHalfCanvasSnapGuides, snapBaseHalfCanvasFlowNodeChanges, snapBaseHalfCanvasHeldCards } from '../basehalfCanvasFlowSnap.js';
+import { BASEHALF_CANVAS_HELD_SNAP_NONE, BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD, sameBaseHalfCanvasSnapGuides, snapBaseHalfCanvasFlowNodeChanges, snapBaseHalfCanvasHeldCards } from '../../common/basehalfCanvasFlowSnap.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import { baseHalfCanvasScreenSizeZoom } from '../basehalfCanvasWindowZoom.js';
 import {

@@ -155,6 +155,10 @@ BaseHalf's folders are in an order, from the bottom:
 - Only `canvas/` imports the types of React, React DOM, and React Flow, in its
   `browser/` layer: its scene loads them when it mounts
   (`canvas/browser/scene/README.md`). Lint allows it there and nowhere else.
+  One model breaks this, `canvas/common/basehalfCanvasFlowSnap.ts`, and says
+  so on its import. While it does, the layers check cannot see a DOM type in
+  a `common/` module, and `canvas/common/basehalfCanvasScene.ts` has nine
+  (D159).
 - There are no import cycles. `npm run check-cyclic-dependencies` checks the
   transpiled output in about two seconds.
 - A `common/` or `browser/` module that a webview bundle under
