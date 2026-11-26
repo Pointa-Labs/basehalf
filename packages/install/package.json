@@ -1,0 +1,32 @@
+{
+  "name": "basehalf",
+  "version": "0.1.0",
+  "description": "Install BaseHalf, open the folder you are in as a canvas, and install its skill for your agents.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "basehalf": "bin/basehalf.js"
+  },
+  "files": ["bin", "src"],
+  "engines": {
+    "node": ">=20"
+  },
+  "homepage": "https://basehalf.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pointa-Labs/basehalf.git",
+    "directory": "packages/install"
+  },
+  "bugs": "https://github.com/Pointa-Labs/basehalf/issues",
+  "keywords": ["basehalf", "canvas", "agents", "notes", "install"],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.js",
+    "lint": "biome check bin src test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "22",
+    "typescript": "5.7.2"
+  }
+}

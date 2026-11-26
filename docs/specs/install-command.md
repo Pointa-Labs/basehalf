@@ -78,8 +78,9 @@ names when it runs, so a release of BaseHalf needs no new package.
 ### 2. The system
 
 BaseHalf is released for one system and one kind of processor. On anything
-else the command says which system BaseHalf runs on, changes nothing, and
-ends with status 1. A Node that the system translates for another processor
+else the command says that BaseHalf is not released for this computer, with
+the address of the page that says which it runs on, changes nothing, and ends
+with status 1. A Node that the system translates for another processor
 on a supported computer counts as supported.
 
 ### 3. Finding BaseHalf
@@ -147,24 +148,29 @@ ends with status 1.
 
 ### 7. Waiting for the skill
 
-When the option was passed, the command looks at the agents' two entries
-until one is a link to BaseHalf's own copy and that copy holds the skill, for
-at most 60 seconds. It then says for which agents the skill is installed.
-When the time passes, it says that BaseHalf has not confirmed the skill and
-that the window says why. The status is 0 either way: BaseHalf is installed
-and open.
+When the option was passed, the command looks at the agents' two entries, for
+at most 60 seconds. An agent has the skill while its entry is a link to
+BaseHalf's own copy and that copy holds the skill. The command waits until
+both have it, or until one has it and two more seconds brought no second:
+BaseHalf makes the links one after the other, and one of them can be refused
+by something of the user's own in its place. It then says for which agents
+the skill is installed. When the time passes with none, it says that BaseHalf
+has not confirmed the skill and that the window says why. The status is 0
+either way: BaseHalf is installed and open.
 
 ## What it prints
 
-One line for each thing it did, on standard output, in this order: BaseHalf
-found or installed, with its version and its place; what was opened; the
-skill. While it downloads, a terminal shows the progress on one line of
-standard error. Without a terminal, such as under an agent, the command
-prints one line when the download starts, with its size, and nothing until
-it ends.
+One line for each thing it did, on standard output, in this order: the
+download, with the version and the size, when there is one; BaseHalf found or
+installed, with its version and its place; what was opened; the skill. While
+it downloads, a terminal shows the progress as a percentage on one line of
+standard error, which is cleared before the next line. Without a terminal,
+such as under an agent, nothing is printed between the line of the download
+and the next.
 
 A failure is one line on standard error that says what could not be done and
-what the user can do, and status 1.
+what the user can do, and status 1. An interrupt prints nothing and ends with
+status 130.
 
 ## What it leaves
 
@@ -249,13 +255,28 @@ no request to the network, so they pass in CI on a fresh checkout and on any
 system. Criterion 10 is run by hand:
 
 ```bash
-node packages/install/test/real-run.mjs
+node packages/install/test/real-run.js
 ```
 
-It downloads the latest release (about 150 MiB) into a folder of its own,
-places it there, and removes the folder at its end.
+It downloads the latest release (about 160 MB) into a folder of its own,
+places it there, asks the placed application for its version where the
+command would open it, and removes the folder at its end. It opens no window
+and changes nothing of the computer.
 
 ## Recorded runs
 
-None yet for a published version. The run of the first version is recorded
-here when it is made.
+**Version 0.1.0, before it was published, 2026-11-26.** On the owner's
+computer, with Node 24.17.0. The package's tests passed on Node 20.20.0,
+22.12.0, and 24.17.0 (26 tests each).
+
+| Since the start | What the run printed or did |
+| --- | --- |
+| 3.8 s | The manifest was read and accepted: `Downloading BaseHalf 0.7.2 (160 MB).` |
+| 17.6 s | The archive was downloaded, its length and signature were right, and it was unpacked and renamed into place: `BaseHalf 0.7.2 installed in <the run's place>.` |
+| 19.7 s | The placed application's launcher printed its help, which has no `--install-agent-skill` in 0.7.2, and then its version (`1.128.0`, the commit of the release, `arm64`). The run printed that BaseHalf asks in its window about the skill. |
+| 19.9 s | The folder of the run was removed. |
+
+The placed application carried no mark of a download. The option of the
+application was tried the same day in a development build
+([agent skill](agent-skill.md#recorded-trials)); the two were not run
+together, because no release holds the option yet.

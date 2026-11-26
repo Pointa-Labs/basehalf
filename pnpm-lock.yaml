@@ -134,6 +134,18 @@ importers:
         specifier: ^5.0.13
         version: 5.0.13(@types/react@19.2.15)(react@19.2.6)(use-sync-external-store@1.6.0(react@19.2.6))
 
+  packages/install:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 1.9.4
+        version: 1.9.4
+      '@types/node':
+        specifier: '22'
+        version: 22.19.19
+      typescript:
+        specifier: 5.7.2
+        version: 5.7.2
+
 packages:
 
   7zip-bin@5.2.0:
