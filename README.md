@@ -153,7 +153,7 @@ BaseHalf records the selection where agents look, so "who asked for this?" is a
 complete question.
 
 <p align="center">
-  <img src="docs/assets/readme/selection.webp" width="820" alt="A sentence in a decision note on the canvas is selected. Claude Code, beside the canvas, answers “who asked for this?”: nobody asked for it directly. It quotes the selected sentence and names the notes it came from.">
+  <img src="docs/assets/readme/selection.webp" width="820" alt="A sentence in a decision note on the canvas is selected. Claude Code, beside the canvas, answers “who asked for this?”: no one person asked for it. It quotes the selected sentence and names the notes it came from.">
 </p>
 
 ## What else it does
