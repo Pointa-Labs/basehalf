@@ -7727,3 +7727,41 @@ a menu of several things, of which Settings is one; three dots say that, and a g
 - Leaving `workbench.layoutControl.type` to the user: as `menu` the title bar loses both buttons of the layout, and
   as `both`, the base's default, the base adds Customize Layout as a button, which the tool bar folds into a second
   button of three dots.
+
+## D156 — One command installs BaseHalf, opens the folder, and installs the skill (NEW, 2026-11-26)
+
+**Decision.** `npx basehalf` is a second way to install BaseHalf, beside the disk image. Run in a folder by a person or
+by their agent, it finds a BaseHalf that is installed or downloads the latest release, accepts it only as an installed
+BaseHalf accepts an update (the manifest and the archive, each by its signature), places it, opens the folder as a
+canvas, and has the application install the agent skill. It asks nothing, prints one line for each thing it did, and
+leaves nothing of its own. The application gains one option of its command line, `--install-agent-skill`, which runs
+Install Agent Skill in a window of the launch; the command never writes the skill itself. The package is `basehalf` on
+the npm registry, from `packages/install/`, with a version of its own. See
+[the install command](specs/install-command.md) and [agent skill](specs/agent-skill.md#commands).
+
+**Why.** The owner, 2026-11-26, after reading the counts of the releases: should the home page carry a command that a
+visitor pastes to their agent and then just uses BaseHalf; and, the same day, that there are commands which install a
+skill at once, and that ours should download BaseHalf and open it. Read that day: in the week of release 0.7.0, which
+was announced in four places, its disk image was downloaded 7 times. Installing by the disk image is four steps by
+hand, one of them a command in a terminal that lets the system open an application which is not notarized, and a fifth
+in the window, the offer of the skill. The people BaseHalf is for first already work with an agent: they have something
+that runs a command, and they are in the folder they want to see. A command is also one line that a post or an answer
+can end with, where "download it from the site" is a page to visit.
+
+**Considered.**
+- A page of steps for an agent to follow, with a sentence on the home page that points the agent at it: each agent
+  reads such a page its own way and asks its user differently, so the result is not the same twice and cannot be
+  tested. A command does the same for a person and for an agent, and an agent can be told to run it.
+- Offering the skill through a general installer of skills, which copies a skill from a repository into the agents'
+  folders: it installs the skill and not BaseHalf, and what it writes is a copy that no release reaches, where D83
+  made the skill a link to BaseHalf's own copy so that there is one text. It stays possible later, with the
+  application taking over such a copy at its start.
+- The command writing the links itself: a second implementation of what a window does, with the states of D83 to keep
+  equal in two places.
+- A script fetched and piped into a shell: an agent that is careful shows its user the command it is about to run,
+  and a script that is not yet on the computer shows nothing of what it does. A package of a registry has a name, a
+  version, and its source in this repository.
+- Trusting the release by its address alone: the application does not, and the archive is the application. The
+  command holds the public key of the releases and checks what the application checks.
+- Updating a BaseHalf that is installed: the application updates itself, and two programs that replace one bundle
+  would have to agree on when.

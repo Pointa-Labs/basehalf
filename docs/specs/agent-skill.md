@@ -19,8 +19,10 @@ comments, and a comment in the record of what the user selected; version 15,
 2026-11-17, D135: highlights and comments are entries apart, and a comment
 has no color, both in development builds only; version 16, 2026-11-21,
 D147: what a missing record of the selection means, in release 0.7.1;
-version 17, 2026-11-22: the two together)
-Decisions: [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16),
+version 17, 2026-11-22: the two together; the option of the command line
+that installs it, 2026-11-26, D156, with no change of the text)
+Decisions: [D156](../decisions.md#d156--one-command-installs-basehalf-opens-the-folder-and-installs-the-skill-new-2026-11-26),
+[D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16),
 [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
@@ -348,6 +350,22 @@ format, and no hidden folder.
   Don't Ask Again.
 - The status bar entry runs `basehalf.agentSkill.showOffer`, which shows the
   offer. It is not in the Command Palette.
+- **`basehalf --install-agent-skill`**, on the command line, is Install Agent
+  Skill asked from outside the window (D156). Whoever runs the command asked
+  for the skill, as someone who chooses the command in the window did.
+  - It goes with whatever else the line opens: `basehalf --install-agent-skill
+    <folder>` opens the folder and installs the skill.
+  - One window runs Install Agent Skill: of the windows that the launch
+    opened or brought forward, the one that was active last, and otherwise
+    the first. It runs once the window can take a command, so a BaseHalf
+    that was not running starts first. A BaseHalf that is running takes the
+    option as it takes a folder from a second launch.
+  - The window shows what Install Agent Skill shows. The command line prints
+    nothing about the skill and does not wait for it: what was installed is
+    read from the agents' entries, as
+    [the install command](install-command.md#7-waiting-for-the-skill) does.
+  - A launch that opens no window, such as one that only prints the version,
+    installs nothing.
 
 ## Installing and removing
 
@@ -469,6 +487,16 @@ the user's home folder.
 10. Checked in the real window, not automated, because the smoke's driver
     shows no notification over the window: the offer is still there 30
     seconds after it appeared, with the window in front.
+11. The option `--install-agent-skill` is read from a command line, and the
+    help of the command line lists it. With it, one window of those a launch
+    used is sent Install Agent Skill: the one that was active last among
+    them, otherwise the first; without the option, and with no window, none
+    is. Unit test. Checked once in a real window, not automated, with the
+    skill pointed at a folder of the run's own: a BaseHalf that was not
+    running, started with the option and a folder, shows the folder and
+    links both entries; a second launch with the option, while that window
+    is open and the links are removed, links them again
+    ([recorded trials](#recorded-trials)).
 
 ## Recorded trials
 
