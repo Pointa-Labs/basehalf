@@ -18,6 +18,7 @@ import { ICodeWindow } from '../../window/electron-main/window.js';
 import { IWindowSettings } from '../../window/common/window.js';
 import { IOpenConfiguration, IWindowsMainService, OpenContext } from '../../windows/electron-main/windows.js';
 import { IProtocolUrl } from '../../url/electron-main/url.js';
+import { baseHalfRunLaunchCommands } from '../common/basehalfLaunchCommands.js';
 
 export const ID = 'launchMainService';
 export const ILaunchMainService = createDecorator<ILaunchMainService>(ID);
@@ -218,6 +219,9 @@ export class LaunchMainService implements ILaunchMainService {
 				gotoLineMode: args.goto
 			});
 		}
+
+		// BaseHalf: what the command line asked of a window, such as Install Agent Skill (D156).
+		baseHalfRunLaunchCommands(args, usedWindows, this.windowsMainService.getLastActiveWindow());
 
 		// If the other instance is waiting to be killed, we hook up a window listener if one window
 		// is being used and only then resolve the startup promise which will kill this second instance.

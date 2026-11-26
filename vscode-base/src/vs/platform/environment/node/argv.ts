@@ -161,6 +161,8 @@ export const OPTIONS: OptionDescriptions<Required<NativeParsedArgs>> = {
 	'generate': { type: 'string', cat: 'o', args: ['relative-path'], description: localize('basehalfGenerate', "Start a generation of one BaseHalf image or video card in the current workspace and print, as JSON, the path of every card it lands on.") },
 	'run-operation': { type: 'string', cat: 'o', args: ['json-request'], description: localize('basehalfRunOperation', "Run one deterministic operation that --list-capabilities offers in the current workspace and print its JSON result.") },
 	'list-capabilities': { type: 'boolean', cat: 'o', description: localize('basehalfListCapabilities', "List as JSON what BaseHalf offers agents in the current workspace: the canvas contract, the model catalog, the templates, and the operations.") },
+	// BaseHalf: Install Agent Skill, asked from the command line (D156).
+	'install-agent-skill': { type: 'boolean', cat: 'o', description: localize('basehalfInstallAgentSkill', "Install the BaseHalf skill for your agents, in the window this opens or brings forward.") },
 	'telemetry': { type: 'boolean', cat: 't', description: localize('telemetry', "Shows all telemetry events which VS code collects.") },
 
 	'remote': { type: 'string', allowEmptyValue: true },

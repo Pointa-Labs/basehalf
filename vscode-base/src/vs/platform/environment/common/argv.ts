@@ -145,6 +145,8 @@ export interface NativeParsedArgs {
 	'generate'?: string;
 	'run-operation'?: string;
 	'list-capabilities'?: boolean;
+	// BaseHalf: Install Agent Skill, asked from the command line (D156).
+	'install-agent-skill'?: boolean;
 	'profile'?: string;
 	'profile-temp'?: boolean;
 	'disable-chromium-sandbox'?: boolean;

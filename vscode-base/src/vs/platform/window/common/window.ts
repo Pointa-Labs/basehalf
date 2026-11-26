@@ -394,7 +394,8 @@ export interface INativeOpenFileRequest extends IOpenFileRequest {
 
 export interface INativeRunActionInWindowRequest {
 	readonly id: string;
-	readonly from: 'menu' | 'touchbar' | 'mouse';
+	// BaseHalf: 'cli' is a command that the command line of a launch asked of a window (D156).
+	readonly from: 'menu' | 'touchbar' | 'mouse' | 'cli';
 	readonly args?: unknown[];
 }
 

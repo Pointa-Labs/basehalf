@@ -20,6 +20,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { BASEHALF_INSTALL_AGENT_SKILL_COMMAND_ID } from '../../../../platform/launch/common/basehalfLaunchCommands.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationHandle, INotificationService, NotificationPriority, Severity } from '../../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -51,7 +52,7 @@ import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalf
 
 /** Set once the user answered the offer with Don't Ask Again or removed the skill (this machine). */
 export const BASEHALF_AGENT_SKILL_DECLINED_STORAGE_KEY = 'basehalf.agentSkill.declined';
-export const BASEHALF_INSTALL_AGENT_SKILL_COMMAND_ID = 'basehalf.agentSkill.install';
+export { BASEHALF_INSTALL_AGENT_SKILL_COMMAND_ID };
 export const BASEHALF_REMOVE_AGENT_SKILL_COMMAND_ID = 'basehalf.agentSkill.remove';
 /** What the status bar entry runs while the offer is unanswered. It is not in the Command Palette. */
 export const BASEHALF_SHOW_AGENT_SKILL_OFFER_COMMAND_ID = 'basehalf.agentSkill.showOffer';

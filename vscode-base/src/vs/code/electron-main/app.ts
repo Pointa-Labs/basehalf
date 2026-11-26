@@ -85,6 +85,7 @@ import { UpdateChannel } from '../../platform/update/common/updateIpc.js';
 import { NotAvailableUpdateDialog } from '../../platform/update/electron-main/notAvailableUpdateDialog.js';
 import { BASEHALF_SHARED_PROCESS_STOPPED_CHANNEL } from '../../platform/basehalfProviders/common/basehalfProviders.js';
 import { BaseHalfDarwinUpdateService } from '../../platform/update/electron-main/updateService.basehalfDarwin.js';
+import { baseHalfRunLaunchCommands } from '../../platform/launch/common/basehalfLaunchCommands.js';
 import { LinuxUpdateService } from '../../platform/update/electron-main/updateService.linux.js';
 import { SnapUpdateService } from '../../platform/update/electron-main/updateService.snap.js';
 import { Win32UpdateService } from '../../platform/update/electron-main/updateService.win32.js';
@@ -704,7 +705,10 @@ export class CodeApplication extends Disposable {
 		this.lifecycleMainService.phase = LifecycleMainPhase.Ready;
 
 		// Open Windows
-		await appInstantiationService.invokeFunction(accessor => this.openFirstWindow(accessor, initialProtocolUrls));
+		const firstWindows = await appInstantiationService.invokeFunction(accessor => this.openFirstWindow(accessor, initialProtocolUrls));
+
+		// BaseHalf: what the command line asked of a window, such as Install Agent Skill (D156).
+		baseHalfRunLaunchCommands(this.environmentMainService.args, firstWindows, this.windowsMainService?.getLastActiveWindow());
 
 		// Signal phase: after window open
 		this.lifecycleMainService.phase = LifecycleMainPhase.AfterWindowOpen;

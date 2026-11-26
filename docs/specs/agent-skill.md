@@ -516,6 +516,17 @@ project entry does; the trial used the project's folder, so that nothing was
 written into the machine's own skill folders. One run of each is a small
 sample.
 
+**The option of the command line, 2026-11-26 (criterion 11).** A development
+build, with a profile of the run's own and the skill pointed at an empty
+stand-in home folder, on a folder that held one note.
+
+| Launch | What happened |
+| --- | --- |
+| BaseHalf not running; started with `--install-agent-skill` and the folder | The window showed the folder. Both entries were links to the stand-in copy, which held the text of version 17, 4.5 seconds after the start. |
+| Both links removed by hand, the window left open; a second launch with the same line | The second launch ended with status 0, and both entries were links again 0.3 seconds later. |
+
+The folder held nothing but its note afterwards.
+
 The trials below are of version 1 of the skill text, which told agents to
 move files through `basehalf.workspace.move`. Version 2 says that ordinary
 tools are fine, because BaseHalf follows a moved item by itself
