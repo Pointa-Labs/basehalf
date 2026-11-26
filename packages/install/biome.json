@@ -1,15 +1,8 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true, "root": "../.." },
   "files": {
-    "ignore": [
-      "**/dist/**",
-      "**/node_modules/**",
-      "**/*.tsbuildinfo",
-      ".turbo/**",
-      "pnpm-lock.yaml",
-      "private-docs/**"
-    ]
+    "ignore": ["**/node_modules/**", "pnpm-lock.yaml"]
   },
   "formatter": {
     "enabled": true,
@@ -26,12 +19,6 @@
       },
       "style": {
         "useNodejsImportProtocol": "error"
-      },
-      "a11y": {
-        "noSvgWithoutTitle": "off",
-        "useSemanticElements": "off",
-        "useFocusableInteractive": "off",
-        "noLabelWithoutControl": "off"
       }
     }
   },
