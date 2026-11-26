@@ -754,6 +754,8 @@ CommandsRegistry.registerCommand({
 		const editorService = accessor.get(IEditorService);
 		const dialogService = accessor.get(IFileDialogService);
 		const fileService = accessor.get(IFileService);
+		// BaseHalf: read before the first await, since an accessor serves only until then.
+		const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 
 		const createFileLocalized = nls.localize('newFileCommand.saveLabel', "Create File");
 		const defaultFileUri = joinPath(await dialogService.defaultFilePath(), args?.fileName ?? 'Untitled.txt');
@@ -766,7 +768,6 @@ CommandsRegistry.registerCommand({
 
 		await fileService.createFile(saveUri, undefined, { overwrite: true });
 
-		const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 		const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, saveUri, {
 			source: 'fileCommand',
 			pinned: true

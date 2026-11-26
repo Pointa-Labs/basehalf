@@ -602,6 +602,8 @@ export function registerTerminalActions() {
 		title: localize2('workbench.action.terminal.runSelectedText', 'Run Selected Text In Active Terminal'),
 		run: async (c, accessor) => {
 			const codeEditorService = accessor.get(ICodeEditorService);
+			// BaseHalf: read before the first await, since an accessor serves only until then.
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
 			const editor = codeEditorService.getActiveCodeEditor();
 			if (!editor || !editor.hasModel()) {
 				return;
@@ -616,7 +618,7 @@ export function registerTerminalActions() {
 				text = editor.getModel().getValueInRange(selection, endOfLinePreference);
 			}
 			instance.sendText(text, true, true);
-			await revealTerminalInAgentArea(instance, accessor, true, TerminalCommandId.RunSelectedText);
+			await revealTerminalInAgentArea(instance, agentAreaService, true, TerminalCommandId.RunSelectedText);
 		}
 	});
 
@@ -628,6 +630,8 @@ export function registerTerminalActions() {
 			const codeEditorService = accessor.get(ICodeEditorService);
 			const notificationService = accessor.get(INotificationService);
 			const workbenchEnvironmentService = accessor.get(IWorkbenchEnvironmentService);
+			// BaseHalf: read before the first await, since an accessor serves only until then.
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
 
 			const editor = codeEditorService.getActiveCodeEditor();
 			if (!editor || !editor.hasModel()) {
@@ -644,7 +648,7 @@ export function registerTerminalActions() {
 
 			// TODO: Convert this to ctrl+c, ctrl+v for pwsh?
 			await instance.sendPath(uri, true);
-			await revealTerminalInAgentArea(instance, accessor, false, TerminalCommandId.RunActiveFile);
+			await revealTerminalInAgentArea(instance, agentAreaService, false, TerminalCommandId.RunActiveFile);
 		}
 	});
 
@@ -863,6 +867,8 @@ export function registerTerminalActions() {
 		id: TerminalCommandId.AttachToSession,
 		title: localize2('workbench.action.terminal.attachToSession', 'Attach to Session'),
 		run: async (c, accessor) => {
+			// BaseHalf: read before the first await, since an accessor serves only until then.
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
 			const quickInputService = accessor.get(IQuickInputService);
 			const labelService = accessor.get(ILabelService);
 			const remoteAgentService = accessor.get(IRemoteAgentService);
@@ -895,7 +901,7 @@ export function registerTerminalActions() {
 			}
 			const selected = await quickInputService.pick<IRemoteTerminalPick>(items, { canPickMany: false });
 			if (selected) {
-				await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+				await agentAreaService.createTerminalSession({
 					label: selected.term.title,
 					source: TerminalCommandId.AttachToSession,
 					rawTerminalOptions: {
@@ -1142,6 +1148,8 @@ export function registerTerminalActions() {
 		run: async (c, accessor) => {
 			const instances = getSelectedViewInstances(accessor);
 			if (instances) {
+				// BaseHalf: read before the first await, since an accessor serves only until then.
+				const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
 				const promises: Promise<void>[] = [];
 				for (const t of instances) {
 					promises.push((async () => {
@@ -1151,7 +1159,7 @@ export function registerTerminalActions() {
 						if (cwd === undefined) {
 							return;
 						}
-						await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+						await agentAreaService.createTerminalSession({
 							source: TerminalCommandId.SplitActiveTab,
 							rawTerminalOptions: { cwd }
 						});
@@ -1237,7 +1245,9 @@ export function registerTerminalActions() {
 		id: TerminalCommandId.SplitInActiveWorkspace,
 		title: localize2('workbench.action.terminal.splitInActiveWorkspace', 'Split Terminal (In Active Workspace)'),
 		run: async (c, accessor) => {
-			const instance = asBaseHalfTerminalInstance(accessor.get(IBaseHalfAgentAreaService).activeTerminal)
+			// BaseHalf: read before the first await, since an accessor serves only until then.
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+			const instance = asBaseHalfTerminalInstance(agentAreaService.activeTerminal)
 				?? c.service.activeInstance;
 			if (!instance) {
 				return;
@@ -1248,7 +1258,7 @@ export function registerTerminalActions() {
 			if (cwd === undefined) {
 				return;
 			}
-			await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+			await agentAreaService.createTerminalSession({
 				source: TerminalCommandId.SplitInActiveWorkspace,
 				rawTerminalOptions: { cwd }
 			});
@@ -1878,8 +1888,8 @@ async function focusActiveTerminalIn(agentAreaService: IBaseHalfAgentAreaService
 	await agentAreaService.revealTerminalSession(target, { label: target.title, source, preserveFocus: false });
 }
 
-async function revealTerminalInAgentArea(instance: ITerminalInstance, accessor: ServicesAccessor, preserveFocus: boolean, source: string): Promise<void> {
-	await accessor.get(IBaseHalfAgentAreaService).revealTerminalSession(instance, {
+async function revealTerminalInAgentArea(instance: ITerminalInstance, agentAreaService: IBaseHalfAgentAreaService, preserveFocus: boolean, source: string): Promise<void> {
+	await agentAreaService.revealTerminalSession(instance, {
 		label: instance.title,
 		source,
 		preserveFocus
