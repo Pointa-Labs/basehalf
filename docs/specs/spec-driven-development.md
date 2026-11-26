@@ -88,14 +88,13 @@ Every substantive specification should contain, as applicable:
 
 ## BaseHalf source-tree boundary
 
-The following directories are BaseHalf implementation source trees, not user
-workspaces:
+The repository root is BaseHalf's implementation source tree, not a user
+workspace, also when it is opened directly as the development host's
+workspace. It is VS Code's tree with BaseHalf's code inside it (D158). Until
+D158 that tree was the folder `vscode-base/`, a second source tree; a worktree
+of a branch made before D158 still has it, with its own marker.
 
-- the repository root;
-- `vscode-base/`, including when it is opened directly as the development-host
-  workspace.
-
-Both directories must track `.basehalf-no-workspace-setup`. Presence of this
+The root must track `.basehalf-no-workspace-setup`. Presence of this
 marker in a workspace folder root is the authoritative opt-out from the product
 workspace writes listed below. Markers in subdirectories have no effect, and a
 folder whose marker existence cannot be determined is treated as marked.
@@ -148,10 +147,9 @@ only when the user authorizes cleanup.
 
 Development launches, smoke tests, and legacy cleanup or migration tests must
 use disposable fixture workspaces. They must never exercise product workspace
-behavior against the repository root or `vscode-base/`. A fixture workspace
-lives outside the repository, as a user's own workspace does. It never lives
-inside the repository, not even in an ignored directory such as
-`vscode-base/.build/`.
+behavior against the repository root. A fixture workspace lives outside the
+repository, as a user's own workspace does. It never lives inside the
+repository, not even in an ignored directory such as `.build/`.
 
 ## Development harness and progressive disclosure
 
@@ -212,10 +210,12 @@ source-tree safety warning, not duplicated rule bodies.
 ## Acceptance criteria
 
 - Opening the repository root in BaseHalf does not change any file.
-- Opening `vscode-base/` directly in BaseHalf does not change any file.
-- Opening either source directory adds no `.bh/`, generated `CLAUDE.md`,
-  injected workspace-hint block, or `.gitignore` edit. The passive layout,
-  appearance, and ADHD writers remain the known gap described above.
+- Opening the source tree adds no `.bh/`, generated `CLAUDE.md`, injected
+  workspace-hint block, or `.gitignore` edit. The passive layout, appearance,
+  and ADHD writers remain the known gap described above.
+- Installing the source tree's dependencies writes nothing into `.claude/`:
+  VS Code's instructions and skills for its own agents are not in the tree, and
+  no link to them is made.
 - Coding agents use this repository's specifications and decisions as context,
   never `.bh/` data or legacy focus files.
 - `AGENTS.md` and `CLAUDE.md` remain semantically identical indexes and route
@@ -228,7 +228,7 @@ source-tree safety warning, not duplicated rule bodies.
   generates `.bh/agent-harness/` in any workspace.
 - The harness documents a development-host launch that opens a disposable
   fixture workspace outside the repository, and that procedure never opens the
-  repository root or `vscode-base/` as a product workspace.
+  repository root as a product workspace.
 - Normal user workspaces without the opt-out marker follow
   [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md)
   and [reference graph](reference-graph.md).
@@ -238,9 +238,11 @@ source-tree safety warning, not duplicated rule bodies.
 
 ## Verification
 
-- Confirm both opt-out marker files are tracked.
+- Confirm the opt-out marker file is tracked at the root.
 - Compare the two root agent guides after every edit.
 - Exercise the marker tests of legacy cleanup, migration and sidecar writes,
   and the agent launch configuration.
-- Run a development-host smoke with the repository root and `vscode-base/`
-  protected, then confirm `git status` remains unchanged.
+- Run a development-host smoke with the repository root protected, then
+  confirm `git status` remains unchanged.
+- After `npm ci`, confirm that `.claude/` holds no `CLAUDE.md` and no `skills`
+  link.

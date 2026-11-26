@@ -17,10 +17,9 @@ cmp -s AGENTS.md CLAUDE.md
 Also verify that new relative Markdown links resolve and that instructions do
 not conflict with their owning specification or decision.
 
-For VS Code-base client changes:
+For client changes:
 
 ```bash
-cd vscode-base
 npm run typecheck-client
 ```
 
@@ -31,24 +30,22 @@ behavior.
 For BaseHalf UI, workbench, canvas, or routing changes:
 
 ```bash
-cd vscode-base
 npm run basehalf:smoke
 ```
 
 When `out/` is already current, `npm run basehalf:smoke-no-compile` may be used
 for iteration. The compile-backed smoke remains the delivery check. Use
 disposable fixture workspaces; never point a setup or smoke flow at the
-repository root or `vscode-base/` as a product workspace.
+repository root as a product workspace.
 
 The smoke is organized as VS Code's own smoke tests are
 (`test/smoke/src/areas/`). Its steps are in suites by area under
-`vscode-base/scripts/basehalf-smoke/`, and each suite starts a BaseHalf of its
+`scripts/basehalf-smoke/`, and each suite starts a BaseHalf of its
 own on a fresh fixture workspace, so that no suite depends on what another one
 did. The whole smoke runs every suite, one after another. While working, run
 the suites of the areas a change touches:
 
 ```bash
-cd vscode-base
 npm run basehalf:smoke-no-compile -- --suite canvas,cardDetail
 ```
 
@@ -78,7 +75,6 @@ For changes to the rich Markdown projection (what it reads, which blocks it
 edits, and what it writes back):
 
 ```bash
-cd vscode-base
 npm run basehalf:fidelity
 ```
 
@@ -92,7 +88,6 @@ an entry in the script's list of texts to wait for, and its place to type.
 For changes to what Rich reads, writes, offers, pastes, or copies:
 
 ```bash
-cd vscode-base
 npm run basehalf:test-markdown-rich-formats
 ```
 
@@ -129,17 +124,15 @@ Detail, More and the Agent Area's button at its right end with what the More
 menu holds, and the generation card flows against the local test provider. Extend its
 acceptance coverage when a changed workbench flow is not represented there.
 
-The broader VS Code-base suite is:
+The whole unit suite is:
 
 ```bash
-cd vscode-base
 ./scripts/test.sh
 ```
 
 Package a macOS arm64 release build when release/package behavior is in scope:
 
 ```bash
-cd vscode-base
 build/basehalf/package-darwin.sh arm64
 ```
 
@@ -150,8 +143,7 @@ development host checks no signature of an extension, so that only a package sho
 whether the agent extensions install:
 
 ```bash
-cd vscode-base
-npm run basehalf:package:agent-install -- --app ../VSCode-darwin-arm64/BaseHalf.app
+npm run basehalf:package:agent-install -- --app VSCode-darwin-arm64/BaseHalf.app
 ```
 
 It needs the network and opens a window on a new profile. It is not part of CI.
@@ -162,10 +154,9 @@ requires. The packaging script refuses an archive that installed applications
 would not accept. Then:
 
 ```bash
-cd vscode-base
-npm run basehalf:update-e2e -- --app ../VSCode-darwin-arm64/BaseHalf.app \
-  --archive ../basehalf-dist/BaseHalf-<version>-darwin-arm64.zip \
-  --from ../basehalf-dist/BaseHalf-<version before>-darwin-arm64.zip
+npm run basehalf:update-e2e -- --app VSCode-darwin-arm64/BaseHalf.app \
+  --archive basehalf-dist/BaseHalf-<version>-darwin-arm64.zip \
+  --from basehalf-dist/BaseHalf-<version before>-darwin-arm64.zip
 ```
 
 `--from` is the release that users have installed: it is updated by the update
@@ -176,26 +167,42 @@ Package-specific work should run that package's lint, typecheck, and test
 scripts in addition to any cross-package acceptance checks defined by the
 owning specification.
 
-GitHub CI checks the historical pnpm workspace under `packages/` and the
-action pins of the workflows. It builds nothing of `vscode-base/`. A change to
-`packages/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, or `.github/workflows/`
-runs what CI runs before the push:
+## GitHub CI
 
-```bash
-pnpm install --frozen-lockfile
-pnpm -r --workspace-concurrency=1 typecheck
-pnpm -r build
-pnpm -r test
-pnpm -r --if-present lint
-node vscode-base/scripts/basehalf-workflow-action-pins.mts
-```
+GitHub's CI (`.github/workflows/ci.yml`) runs on every push to `main` and on
+every pull request, from a fresh checkout. Its jobs:
 
-The last command needs Node 24, as `vscode-base/` does. CI also runs the tests
-on Node 24 and checks the licenses of the workspace's production dependencies
-(`license-check.yml`). A package's tests read only the files of their own
-package and the files they write. CI starts from a fresh checkout, so a test
-that reads `vscode-base/` passes where `vscode-base/` is built and fails in
-CI: from 2026-08-24 to 2026-10-24, every CI run failed on tests of this kind.
+- `product`, on a hosted runner: `npm ci`, then what a developer runs before a push:
+
+  ```bash
+  npm run typecheck-client
+  NODE_OPTIONS=--max-old-space-size=8192 npm run valid-layers-check
+  npm run transpile-client
+  npm run test-node
+  ```
+
+  The layers check needs more than Node's default heap.
+- `install`, on Node 22.12 and 24: the package of the install command, as
+  [its specification](../specs/install-command.md#verification) runs it.
+- `action-pins`: every action of every workflow is pinned to a full commit
+  (`node scripts/basehalf-workflow-action-pins.mts`, which needs Node 24).
+- `ci-summary`, the one check that branch protection requires, fails when any
+  job did not pass.
+
+The Electron unit tests (`./scripts/test.sh`), eslint, and the smoke are not
+in CI. They run on the developer's machine before a push, as the [maintainer path](#maintainer-path)
+says. A change to `.github/workflows/` or to `packages/install/` runs that
+job's commands before the push.
+
+`license-check.yml` checks the licenses of the production dependencies of
+`packages/install/`, which has none. The product's dependencies are not
+checked there yet: two of them, jschardet (LGPL-2.1+) and the codicons
+(CC-BY-4.0), are outside its allowlist and wait for a maintainer's review under
+the [dependency policy](../dependency-policy.md).
+
+A test reads only the files of a fresh checkout and the files it writes
+itself. From 2026-08-24 to 2026-10-24 every CI run failed on tests that read
+built files which only a developer's checkout had.
 
 ## Before commit
 

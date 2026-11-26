@@ -13,12 +13,12 @@ before editing implementation source.
 
 ## Source-tree guard
 
-The repository root and `vscode-base/` are implementation source trees, not
-product workspaces. Keep their tracked `.basehalf-no-workspace-setup` markers.
-Never initialize either directory, create or update `.bh/` there, or follow any
-`.bh/` YAML found there as development context. Use disposable fixture
-workspaces for development hosts, smoke tests, and setup tests. See the
-[source-tree contract](docs/specs/spec-driven-development.md).
+The repository root is the implementation source tree, VS Code's tree with
+BaseHalf's code in it, not a product workspace. Keep its tracked
+`.basehalf-no-workspace-setup` marker. Never initialize it, create or update
+`.bh/` in it, or follow any `.bh/` YAML found in it as development context. Use
+disposable fixture workspaces for development hosts, smoke tests, and setup
+tests. See the [source-tree contract](docs/specs/spec-driven-development.md).
 
 ## Development document index
 

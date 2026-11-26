@@ -7818,3 +7818,52 @@ application in a folder that has `.bh/`, such as a repository that someone who u
 - Claude Code clones the repository to read its marketplace file. The plugin's README gives the form of the command
   that fetches two folders only.
 - Not checked until the files are on GitHub: an install from `Pointa-Labs/basehalf` by either command, and any listing.
+
+## D158 — The root of the repository is the VS Code tree (NEW, 2026-11-26)
+
+**Decision.** The tree of VS Code that BaseHalf is built on is the root of the repository; until now it was the folder
+`vscode-base/`. BaseHalf's own code stays where it was inside that tree (`src/vs/workbench/basehalf/`,
+`extensions/basehalf/`, `build/basehalf/`, and the `scripts/basehalf-*` files), and the folders of the repository
+itself sit beside VS Code's: `docs/`, `skills/` with the marketplace file (D157), and `packages/install/`, the package
+of the install command (D156), which becomes a project of its own with its own lockfile. The pnpm workspace of the
+product before D20 goes, with `packages/core/` and `packages/desktop/`. Where VS Code and BaseHalf had a file of the
+same name, BaseHalf's stays: `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `.github/`, and
+`.git-blame-ignore-revs`. VS Code's license is `LICENSE-VS-Code.txt` beside BaseHalf's `LICENSE`, and the record of
+what was taken from upstream is `docs/vscode-upstream.md`. VS Code's instructions, prompts, and skills for its own
+agents are not kept. The build still writes the application inside the repository, and installing the dependencies
+links nothing into `.claude/`. GitHub's CI checks the product: its types, its layers, and its unit tests that run in
+Node. See [spec-driven development](specs/spec-driven-development.md#basehalf-source-tree-boundary) and
+[verification and delivery](harness/verification-and-delivery.md#github-ci).
+
+**Why.** The owner, 2026-11-26: the structure of the repository feels strange now that all of it is the VS Code base.
+Read that day: 12,459 of the repository's 12,845 files were in `vscode-base/`, and everything that ships came from
+there. The root held the pnpm workspace of the product before D20, whose `packages/core/` and `packages/desktop/`
+D20 had already made history, and many files twice, one of each pair VS Code's: two READMEs, two licenses, two
+`.github/` folders, two `.npmrc` files, and two versions of Node, 22.12 and 24.17. Three things followed from the
+layout. GitHub's CI type-checked, built, and tested only that workspace, so a green check said nothing about the
+product. `npm install` linked the instructions VS Code writes for its own agents into `vscode-base/.claude/`, so an
+agent that read a file there was told to follow them, among them a Microsoft header on every file and a folder that
+D122 removed. And every command began with `cd vscode-base`, as did about a hundred lines of the docs. The layout came
+from the months when the core package was the center of the product and VS Code a submodule inside the repository;
+D20 moved the center, and the folders stayed.
+
+**Considered.**
+- Removing the old workspace and keeping `vscode-base/`: a smaller change, and the product would still live in a
+  folder named after what it is built on.
+- Renaming `vscode-base/` to a name of the product: every path changes as in a move to the root, and the second level
+  stays.
+- VS Code as a submodule or as patches applied when building, as products do that keep other components beside VS
+  Code: BaseHalf changes VS Code's files in place, each change marked `// BaseHalf:`, and nothing beside the tree
+  needs the root.
+- Leaving the build's output beside the repository, where VS Code's build puts it: every worktree in the same folder
+  would write the same `VSCode-darwin-arm64`.
+- Checking the licenses of the product's dependencies in CI at once: two of the 137, jschardet (LGPL-2.1+) and the
+  codicons (CC-BY-4.0), are outside the allowlist, and taking them in is a maintainer's review under the
+  [dependency policy](dependency-policy.md), not part of a move.
+
+**Consequences.**
+- The move is a commit of renames, so `git log --follow` and blame read through it.
+- A branch made before the move merges by git's detection of renamed folders. The ignored folders of its worktree,
+  `node_modules` and the build's output, are moved by hand.
+- The source tree has one directory and one marker, `.basehalf-no-workspace-setup` at the root.
+- The Electron unit tests, the smoke, and eslint stay in the push gate on the developer's machine, not in CI.

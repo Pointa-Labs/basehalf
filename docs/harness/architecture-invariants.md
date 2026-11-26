@@ -13,16 +13,16 @@ first-class — Monaco code editor + canvas cards`). That commit and earlier
 history preserve BaseHalf's original product semantics. Later hand-built
 VS Code-like infrastructure is not a reason to retain duplicate machinery.
 
-The active desktop product is developed in `vscode-base/` on a real VS Code
-substrate. Prefer its workbench, platform, provider, extension-host, file,
-working-copy, SCM, GitHub auth, QuickInput, terminal, menu, keybinding,
-notification, progress, and dialog infrastructure. Port BaseHalf's product
-layer onto those services.
+The active desktop product is developed on a real VS Code substrate, whose tree
+is the root of the repository (D158). Prefer its workbench, platform, provider,
+extension-host, file, working-copy, SCM, GitHub auth, QuickInput, terminal,
+menu, keybinding, notification, progress, and dialog infrastructure. Port
+BaseHalf's product layer onto those services.
 
-`@basehalf/core` and the old `packages/` desktop implementation are historical
-migration material, not the center for new desktop orchestration. Do not restore
-the deleted event-log architecture, decisions module, or old CLI-first product
-path. Their history remains available for archaeology.
+`@basehalf/core` and the old desktop implementation in `packages/` were
+historical migration material and left the tree with D158. Do not restore the
+deleted event-log architecture, decisions module, or old CLI-first product
+path. Their history remains in git for archaeology.
 
 ## Code organization
 
