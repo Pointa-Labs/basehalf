@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
 
 import assert from 'node:assert/strict';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { choosePlace, findApplication, placeApplication } from '../src/application.js';
@@ -72,7 +72,7 @@ test('something else of that name stops the command only when no place has a usa
   );
 });
 
-test('a new BaseHalf goes where the user may write, and the last place is made', async (t) => {
+test('a new BaseHalf goes where the user may write, and choosing a place makes nothing', async (t) => {
   const root = await scratch(t);
   const [open, locked, home] = [
     join(root, 'open'),
@@ -81,6 +81,7 @@ test('a new BaseHalf goes where the user may write, and the last place is made',
   ];
   await mkdir(open);
   await mkdir(locked);
+  await mkdir(join(root, 'home'));
   await chmod(locked, 0o555);
   // Someone who may write anywhere, such as root in a container, is refused nowhere.
   const mayWriteAnywhere = process.getuid?.() === 0;
@@ -94,7 +95,7 @@ test('a new BaseHalf goes where the user may write, and the last place is made',
   assert.deepEqual(chosen, {
     first: open,
     fallsBack: mayWriteAnywhere ? locked : home,
-    made: mayWriteAnywhere ? undefined : [],
+    made: undefined,
     nowhere: mayWriteAnywhere
       ? 'not refused'
       : `BaseHalf could not be installed: you may not write to ${locked} or ${locked}.`,
@@ -217,4 +218,51 @@ test('a BaseHalf that appeared meanwhile is used, and what was unpacked is remov
       left: ['BaseHalf.app'],
     },
   );
+});
+
+test('a place that is missing is made for the application, and goes again when nothing was placed', async (t) => {
+  const root = await scratch(t);
+  const kept = join(root, 'kept', 'Applications');
+  const gone = join(root, 'gone', 'Applications');
+  await mkdir(join(root, 'kept'));
+  await mkdir(join(root, 'gone'));
+  await placeApplication({
+    archive: 'archive.zip',
+    place: kept,
+    version: '1.2.3',
+    unpack: async (_archive, folder) => {
+      await makeApplication(folder, '1.2.3');
+    },
+  });
+  const said = await refusal(() =>
+    placeApplication({
+      archive: 'archive.zip',
+      place: gone,
+      version: '1.2.3',
+      unpack: async () => {},
+    }),
+  );
+  assert.deepEqual(
+    { kept: await names(kept), gone: await names(join(root, 'gone')), said: said.slice(0, 26) },
+    { kept: ['BaseHalf.app'], gone: [], said: 'The release of BaseHalf 1.' },
+  );
+});
+
+test('what a killed run left is removed, and what a run of now unpacks into is not', async (t) => {
+  const place = await scratch(t);
+  const stale = join(place, '.basehalf-install-stale');
+  const young = join(place, '.basehalf-install-young');
+  await mkdir(stale);
+  await mkdir(young);
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000);
+  await utimes(stale, twoHoursAgo, twoHoursAgo);
+  await placeApplication({
+    archive: 'archive.zip',
+    place,
+    version: '1.2.3',
+    unpack: async (_archive, folder) => {
+      await makeApplication(folder, '1.2.3');
+    },
+  });
+  assert.deepEqual(await names(place), ['.basehalf-install-young', 'BaseHalf.app']);
 });

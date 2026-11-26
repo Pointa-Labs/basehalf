@@ -54,18 +54,21 @@ export async function linkedAgents(home) {
 }
 
 /**
- * Looks at the agents' entries until both are links, or until one is and
- * `graceMs` brought no second, for at most `timeoutMs`. Resolves the agents
- * whose entries are links then, which may be none.
+ * Looks at the agents' entries until both are links, or until BaseHalf
+ * made one and `graceMs` brought no second, for at most `timeoutMs`.
+ * `linkedBefore` is how many were links before BaseHalf was asked, so that
+ * a link of an earlier day is not taken for its answer. Resolves the agents
+ * whose entries are links then, or none when BaseHalf made no link in time.
  * @param {object} options
  * @param {string} options.home
+ * @param {number} options.linkedBefore
  * @param {number} options.timeoutMs
  * @param {number} options.graceMs
  * @param {number} options.intervalMs
  * @param {AbortSignal} [options.signal]
  * @returns {Promise<string[]>}
  */
-export async function waitForSkill({ home, timeoutMs, graceMs, intervalMs, signal }) {
+export async function waitForSkill({ home, linkedBefore, timeoutMs, graceMs, intervalMs, signal }) {
   const started = Date.now();
   /** @type {number | undefined} */
   let firstSeen;
@@ -76,14 +79,14 @@ export async function waitForSkill({ home, timeoutMs, graceMs, intervalMs, signa
     if (linked.length === SKILL_ENTRIES.length) {
       return linked;
     }
-    if (linked.length > 0) {
+    if (linked.length > linkedBefore) {
       firstSeen ??= now;
       if (now - firstSeen >= graceMs) {
         return linked;
       }
     }
     if (now - started >= timeoutMs) {
-      return linked;
+      return linked.length > linkedBefore ? linked : [];
     }
     await new Promise((done) => setTimeout(done, intervalMs));
   }

@@ -26,24 +26,62 @@ const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
  * @returns {Promise<RunResult>}
  */
 export function run(file, args, timeoutMs, signal) {
-  // What starts BaseHalf is not this Node: what this Node was told to load
-  // is not for it.
-  const { NODE_OPTIONS: _options, ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env;
   return new Promise((done) => {
     execFile(
       file,
       [...args],
-      { timeout: timeoutMs, maxBuffer: MAX_OUTPUT_BYTES, env, ...(signal ? { signal } : {}) },
+      {
+        timeout: timeoutMs,
+        maxBuffer: MAX_OUTPUT_BYTES,
+        env: launchEnvironment(process.env),
+        ...(signal ? { signal } : {}),
+      },
       (error, stdout, stderr) => {
         if (!error) {
           done({ status: 0, stdout, stderr });
           return;
         }
         const status = typeof error.code === 'number' && error.code !== 0 ? error.code : 1;
-        done({ status, stdout, stderr: stderr.trim() ? stderr : error.message });
+        const said = error.killed
+          ? `it did not end in ${Math.round(timeoutMs / 1000)} seconds`
+          : stderr.trim()
+            ? stderr
+            : error.message;
+        done({ status, stdout, stderr: said });
       },
     );
   });
+}
+
+/**
+ * The environment of what the command starts. BaseHalf takes the
+ * environment it is started with for its own, and its terminals inherit
+ * it, so nothing of this run goes along: not what this Node was told to
+ * load, and not what `npx` adds for the program it runs, which would stay
+ * in every terminal of that BaseHalf.
+ * @param {NodeJS.ProcessEnv} environment
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function launchEnvironment(environment) {
+  /** @type {NodeJS.ProcessEnv} */
+  const kept = {};
+  for (const [name, value] of Object.entries(environment)) {
+    if (
+      value === undefined ||
+      name.startsWith('npm_') ||
+      ['NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE', 'INIT_CWD', 'NODE', 'COLOR'].includes(name)
+    ) {
+      continue;
+    }
+    kept[name] =
+      name === 'PATH'
+        ? value
+            .split(':')
+            .filter((entry) => !/[/]node_modules[/]\.bin[/]?$|[/]node-gyp-bin[/]?$/.test(entry))
+            .join(':')
+        : value;
+  }
+  return kept;
 }
 
 /**
@@ -72,6 +110,15 @@ async function translated() {
   return result.status === 0 && result.stdout.trim() === '1';
 }
 
+/** The folder the command runs in, or none when it was removed meanwhile. */
+function currentFolder() {
+  try {
+    return process.cwd();
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The computer the command runs on.
  * @param {object} options
@@ -87,7 +134,7 @@ export function systemEnvironment({ print, progress, signal }) {
     arch: process.arch,
     translated,
     home,
-    cwd: process.cwd(),
+    cwd: currentFolder(),
     places: ['/Applications', join(home, 'Applications')],
     tmpdir: tmpdir(),
     fetch: globalThis.fetch,

@@ -63,8 +63,10 @@ export async function main(argv) {
 
   const interrupted = new AbortController();
   const interrupt = () => interrupted.abort();
-  process.once('SIGINT', interrupt);
-  process.once('SIGTERM', interrupt);
+  // Kept until the run has removed what it made: a second interrupt does not
+  // end the command in the middle of that.
+  process.on('SIGINT', interrupt);
+  process.on('SIGTERM', interrupt);
   const line = process.stderr.isTTY ? progressLine(process.stderr) : undefined;
   try {
     await install(
@@ -88,7 +90,11 @@ export async function main(argv) {
       console.error(error.message);
       return 1;
     }
-    throw error;
+    // Whatever else went wrong is said in one line too, never as a trace.
+    console.error(
+      `BaseHalf could not be installed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return 1;
   } finally {
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', interrupt);

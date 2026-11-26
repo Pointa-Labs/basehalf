@@ -47,7 +47,7 @@ test('an agent has the skill while its entry is a link to the copy and the copy 
 });
 
 test('waiting ends when both entries are links, or a while after the only one', async (t) => {
-  const timing = { timeoutMs: 2_000, graceMs: 150, intervalMs: 10 };
+  const timing = { linkedBefore: 0, timeoutMs: 2_000, graceMs: 150, intervalMs: 10 };
   const both = await scratch(t);
   setTimeout(() => linkSkill(both, claude).then(() => linkSkill(both, shared)), 40);
   const one = await scratch(t);
@@ -62,5 +62,22 @@ test('waiting ends when both entries are links, or a while after the only one', 
   assert.deepEqual(
     { ...results, withinTheTime: Date.now() - started < 1_500 },
     { both: ['Claude Code', 'Codex'], one: ['Codex'], never: [], withinTheTime: true },
+  );
+});
+
+test('a link of an earlier day is not taken for the answer of BaseHalf', async (t) => {
+  const timing = { linkedBefore: 1, timeoutMs: 2_000, graceMs: 50, intervalMs: 10 };
+  // One entry was a link before; BaseHalf makes the other well after the grace.
+  const second = await scratch(t);
+  await linkSkill(second, claude);
+  setTimeout(() => linkSkill(second, shared), 200);
+  const unchanged = await scratch(t);
+  await linkSkill(unchanged, claude);
+  assert.deepEqual(
+    {
+      second: await waitForSkill({ home: second, ...timing }),
+      unchanged: await waitForSkill({ home: unchanged, ...timing, timeoutMs: 150 }),
+    },
+    { second: ['Claude Code', 'Codex'], unchanged: [] },
   );
 });

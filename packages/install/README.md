@@ -9,7 +9,7 @@ npx basehalf
 
 Run it in the folder you want to see, or tell your agent to run it there.
 
-The command needs Node 20 or later, on a computer that BaseHalf
+The command needs Node 20.3 or later, on a computer that BaseHalf
 [is released for](https://basehalf.com/download).
 
 ## What it does

@@ -2,14 +2,26 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
 
 import { constants } from 'node:fs';
-import { access, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+  access,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+} from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { InstallError, errorCode } from './errors.js';
 
 export const APPLICATION_NAME = 'BaseHalf.app';
 
 /** The name of what the run unpacks into, inside the place. It starts with a dot, so the system does not show it. */
 const STAGE_PREFIX = '.basehalf-install-';
+/** A folder of that name which is older than this belongs to a run that was killed. */
+const STALE_STAGE_MS = 60 * 60_000;
 
 /**
  * A BaseHalf that can be used as it is.
@@ -86,27 +98,65 @@ export async function findApplication(places) {
 }
 
 /**
+ * Whether the user may make something in a folder.
+ * @param {string} folder
+ */
+async function mayWrite(folder) {
+  try {
+    await access(folder, constants.W_OK | constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The place a new BaseHalf goes: the first of the places that the user may
- * write to. The last place is the one of their home folder, which is made
- * when it is missing.
+ * write to. The last place is the one of their home folder, which may be
+ * missing: it counts when it can be made, and it is made only when the
+ * application is placed.
  * @param {readonly string[]} places
  * @returns {Promise<string>}
  */
 export async function choosePlace(places) {
   for (const [index, place] of places.entries()) {
-    try {
-      if (index === places.length - 1) {
-        await mkdir(place, { recursive: true });
-      }
-      await access(place, constants.W_OK | constants.X_OK);
+    if (await mayWrite(place)) {
       return place;
-    } catch {
-      // The next place.
+    }
+    if (index === places.length - 1) {
+      const missing = await lstat(place).then(
+        () => false,
+        (error) => errorCode(error) === 'ENOENT',
+      );
+      if (missing && (await mayWrite(dirname(place)))) {
+        return place;
+      }
     }
   }
   throw new InstallError(
     `BaseHalf could not be installed: you may not write to ${places.join(' or ')}.`,
   );
+}
+
+/**
+ * Removes what a run that was killed left in the place. A folder of a run
+ * that is still unpacking is younger than this looks for.
+ * @param {string} place
+ */
+async function removeStaleStages(place) {
+  for (const name of await readdir(place)) {
+    if (!name.startsWith(STAGE_PREFIX)) {
+      continue;
+    }
+    try {
+      const path = join(place, name);
+      if (Date.now() - (await lstat(path)).mtimeMs > STALE_STAGE_MS) {
+        await rm(path, { recursive: true, force: true });
+      }
+    } catch {
+      // Another run removed it, or it may not be removed: it is not in the way.
+    }
+  }
 }
 
 /**
@@ -125,8 +175,20 @@ export async function choosePlace(places) {
  * @returns {Promise<{ application: Application, appeared: boolean }>}
  */
 export async function placeApplication({ archive, place, version, unpack, signal }) {
-  const stage = await mkdtemp(join(place, STAGE_PREFIX));
+  /** @type {string | undefined} */
+  let made;
+  /** @type {string | undefined} */
+  let stage;
   try {
+    try {
+      made = await mkdir(place, { recursive: true });
+      await removeStaleStages(place);
+      stage = await mkdtemp(join(place, STAGE_PREFIX));
+    } catch (error) {
+      throw new InstallError(
+        `BaseHalf ${version} could not be put into ${place}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     await unpack(archive, stage, signal);
     const held = await readdir(stage);
     const unpacked = await inspectApplication(stage);
@@ -163,6 +225,12 @@ export async function placeApplication({ archive, place, version, unpack, signal
       `${join(place, APPLICATION_NAME)} is in the way: it is not a whole BaseHalf. Move it away and run this again.`,
     );
   } finally {
-    await rm(stage, { recursive: true, force: true });
+    if (stage !== undefined) {
+      await rm(stage, { recursive: true, force: true });
+    }
+    if (made !== undefined) {
+      // A place that this run made and that holds nothing goes again.
+      await rmdir(place).catch(() => {});
+    }
   }
 }

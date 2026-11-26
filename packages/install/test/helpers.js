@@ -108,20 +108,29 @@ export function makeFetch(table) {
 
 /**
  * A body that gives its chunks and then stays open until the request is
- * given up, as a connection that stalls does.
+ * given up, as a connection that stalls does. `onOpen` is called once the
+ * body is open, so that a test interrupts a download that has begun.
  * @param {readonly Uint8Array[]} chunks
+ * @param {() => void} [onOpen]
  * @returns {(signal: AbortSignal | undefined) => ReadableStream<Uint8Array>}
  */
-export function stallingBody(chunks) {
+export function stallingBody(chunks, onOpen) {
   return (signal) =>
     new ReadableStream({
       start(controller) {
+        const giveUp = () =>
+          controller.error(new DOMException('This operation was aborted', 'AbortError'));
         for (const chunk of chunks) {
           controller.enqueue(chunk);
         }
-        signal?.addEventListener('abort', () =>
-          controller.error(new DOMException('This operation was aborted', 'AbortError')),
-        );
+        if (signal?.aborted) {
+          giveUp();
+          return;
+        }
+        signal?.addEventListener('abort', giveUp);
+        if (onOpen) {
+          setTimeout(onOpen, 0);
+        }
       },
     });
 }

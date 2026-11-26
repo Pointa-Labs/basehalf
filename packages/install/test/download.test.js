@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
 
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { downloadArchive } from '../src/download.js';
@@ -80,15 +80,46 @@ test('an archive that is not what the release signed is refused', async (t) => {
 
 test('a download that stalls is given up, and an interrupt ends it without a word', async (t) => {
   const interrupted = new AbortController();
-  const part = stallingBody([archive.subarray(0, 10)]);
-  const stalled = await download(t, () => ({ body: part }), { stallMs: 1_000 });
-  const pending = download(t, () => ({ body: part }), { signal: interrupted.signal });
-  setTimeout(() => interrupted.abort(), 50);
+  const before = new AbortController();
+  before.abort();
+  const part = archive.subarray(0, 10);
   assert.deepEqual(
-    { stalled, interrupted: await pending },
+    {
+      stalled: await download(t, () => ({ body: stallingBody([part]) }), { stallMs: 1_000 }),
+      interrupted: await download(
+        t,
+        () => ({ body: stallingBody([part], () => interrupted.abort()) }),
+        { signal: interrupted.signal },
+      ),
+      interruptedBefore: await download(t, () => ({ body: stallingBody([part]) }), {
+        signal: before.signal,
+      }),
+    },
     {
       stalled: `The download of BaseHalf 1.2.3 stopped: no data came for 1 seconds. ${AGAIN}`,
       interrupted: 'interrupted',
+      interruptedBefore: 'interrupted',
     },
+  );
+});
+
+test('a download that cannot be written says where, not that the connection failed', async (t) => {
+  const key = makeKey();
+  const manifest = makeManifest(key, archive);
+  const folder = await scratch(t);
+  // A folder is where the file would be.
+  await mkdir(join(folder, 'archive.zip'));
+  const { fetch } = makeFetch({ [manifest.url]: { body: archive } });
+  await assert.rejects(
+    downloadArchive({
+      fetch,
+      manifest,
+      publicKey: key.publicKey,
+      file: join(folder, 'archive.zip'),
+      stallMs: 5_000,
+    }),
+    new InstallError(
+      `The download of BaseHalf 1.2.3 could not be written to ${folder} (EISDIR). Nothing was installed.`,
+    ),
   );
 });

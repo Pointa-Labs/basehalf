@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
 
 import { open, readFile } from 'node:fs/promises';
-import { InstallError, Interrupted } from './errors.js';
+import { dirname } from 'node:path';
+import { InstallError, Interrupted, errorCode } from './errors.js';
 import { verifyArchive } from './release.js';
 
 /**
@@ -43,7 +44,14 @@ export async function downloadArchive({
     clearTimeout(timer);
     timer = setTimeout(() => stalled.abort(), stallMs);
   };
-  const handle = await open(file, 'w');
+  /** @param {unknown} error */
+  const notWritten = (error) =>
+    new InstallError(
+      `The download of BaseHalf ${manifest.version} could not be written to ${dirname(file)} (${errorCode(error) ?? error}). Nothing was installed.`,
+    );
+  const handle = await open(file, 'w').catch((error) => {
+    throw notWritten(error);
+  });
   try {
     rest();
     const response = await fetch(manifest.url, { redirect: 'follow', signal: stop });
@@ -67,7 +75,9 @@ export async function downloadArchive({
           `The download of BaseHalf ${manifest.version} was refused: it is longer than the release says. ${AGAIN}`,
         );
       }
-      await handle.write(chunk);
+      await handle.write(chunk).catch((error) => {
+        throw notWritten(error);
+      });
       onProgress?.(received, manifest.length);
     }
   } catch (error) {

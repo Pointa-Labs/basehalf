@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
 
 import { createPublicKey, verify } from 'node:crypto';
-import { InstallError } from './errors.js';
+import { InstallError, Interrupted } from './errors.js';
 
 /**
  * What the command accepts as a release is what an installed BaseHalf
@@ -18,6 +18,13 @@ export const FEED_URL =
 
 /** The public key of the releases (Ed25519, SPKI, base64). */
 export const RELEASE_PUBLIC_KEY = 'MCowBQYDK2VwAyEALH0EpJUvH3sQl4Lvw3wYTXYd3r6molfDeBnDvvgSH6U=';
+
+/**
+ * The release that was the latest when this package was made. An installed
+ * BaseHalf takes no update that is older than itself; a computer without
+ * BaseHalf has no version to compare with, so the package holds one.
+ */
+export const OLDEST_RELEASE = '0.7.2';
 
 /** An installed BaseHalf refuses a larger archive, so no release has one. */
 export const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
@@ -146,20 +153,52 @@ export function verifyArchive(bytes, manifest, publicKey) {
 }
 
 /**
+ * Whether a version is older than another, part by part.
+ * @param {string} version
+ * @param {string} other
+ */
+function isOlder(version, other) {
+  const [a, b] = [version, other].map((v) => v.split('.').map(Number));
+  for (let index = 0; index < 3; index++) {
+    const difference = (a?.[index] ?? 0) - (b?.[index] ?? 0);
+    if (difference !== 0) {
+      return difference < 0;
+    }
+  }
+  return false;
+}
+
+/**
  * Reads the manifest of the latest release and accepts it only as the
- * application does.
+ * application does, and no release older than `oldest`.
  * @param {object} options
  * @param {typeof fetch} options.fetch
  * @param {string} options.feedUrl
  * @param {string} options.publicKey
+ * @param {number} options.timeoutMs How long the feed may take to answer.
+ * @param {string} [options.oldest]
  * @param {AbortSignal} [options.signal]
  * @returns {Promise<Manifest>}
  */
-export async function readManifest({ fetch, feedUrl, publicKey, signal }) {
+export async function readManifest({
+  fetch,
+  feedUrl,
+  publicKey,
+  timeoutMs,
+  oldest = OLDEST_RELEASE,
+  signal,
+}) {
   /** @type {unknown} */
   let raw;
+  // A timer of the run's own: it keeps the command alive until the answer
+  // or the time, whichever is first.
+  const late = new AbortController();
+  const timer = setTimeout(() => late.abort(), timeoutMs);
   try {
-    const response = await fetch(feedUrl, { redirect: 'follow', ...(signal ? { signal } : {}) });
+    const response = await fetch(feedUrl, {
+      redirect: 'follow',
+      signal: signal ? AbortSignal.any([signal, late.signal]) : late.signal,
+    });
     if (!response.ok) {
       throw new InstallError(
         `The list of BaseHalf's releases could not be read: the server answered ${response.status}. Run this again in a while.`,
@@ -167,17 +206,27 @@ export async function readManifest({ fetch, feedUrl, publicKey, signal }) {
     }
     raw = await response.json();
   } catch (error) {
-    if (error instanceof InstallError || signal?.aborted) {
+    if (error instanceof InstallError) {
       throw error;
+    }
+    if (signal?.aborted) {
+      throw new Interrupted();
     }
     throw new InstallError(
       "The list of BaseHalf's releases could not be read. Check the connection and run this again.",
     );
+  } finally {
+    clearTimeout(timer);
   }
   const manifest = sanitizeManifest(raw);
   if (!manifest || !verifyManifest(manifest, publicKey)) {
     throw new InstallError(
       "The list of BaseHalf's releases was refused: it is not the one the releases are signed with. Nothing was installed.",
+    );
+  }
+  if (isOlder(manifest.version, oldest)) {
+    throw new InstallError(
+      `The list of BaseHalf's releases was refused: it names BaseHalf ${manifest.version}, which is older than ${oldest}. Nothing was installed.`,
     );
   }
   return manifest;

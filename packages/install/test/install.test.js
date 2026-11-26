@@ -173,7 +173,10 @@ test('with BaseHalf: nothing is asked of the network, and its version stays', as
 test('the folder: a named one is opened, and the home folder and a root are not', async (t) => {
   const named = await computer(t, { installed: '0.7.2' });
   await mkdir(join(named.project, 'notes'));
-  await writeFile(join(named.project, 'plan.md'), '# Plan');
+  // Without BaseHalf, a refusal that came late would have asked the network.
+  const refused = await computer(t);
+  await writeFile(join(refused.project, 'plan.md'), '# Plan');
+  const gone = await computer(t, { installed: '0.7.2' });
   const home = await computer(t, { installed: '0.7.2' });
   const root = await computer(t, { installed: '0.7.2' });
   const withoutFolder =
@@ -181,9 +184,20 @@ test('the folder: a named one is opened, and the home folder and a root are not'
   assert.deepEqual(
     {
       named: [await run({ folder: 'notes' }, named.environment), named.launched.at(-1)],
-      missing: await run({ folder: 'gone' }, named.environment),
-      file: await run({ folder: 'plan.md' }, named.environment),
-      requestsBeforeARefusal: named.asked,
+      missing: await run({ folder: 'gone' }, refused.environment),
+      file: await run({ folder: 'plan.md' }, refused.environment),
+      beforeARefusal: {
+        asked: refused.asked,
+        launched: refused.launched,
+        printed: refused.printed,
+      },
+      folderOfTheRunIsGone: [
+        await run({}, { ...gone.environment, cwd: undefined }),
+        gone.launched.at(-1),
+        await run({ folder: 'notes' }, { ...gone.environment, cwd: undefined }),
+        await run({ folder: gone.project }, { ...gone.environment, cwd: undefined }),
+        gone.launched.at(-1),
+      ],
       home: [
         await run({}, { ...home.environment, cwd: home.home }),
         home.launched.at(-1),
@@ -193,9 +207,17 @@ test('the folder: a named one is opened, and the home folder and a root are not'
     },
     {
       named: [undefined, ['--install-agent-skill', join(named.project, 'notes')]],
-      missing: `${join(named.project, 'gone')} does not exist. Name a folder that does.`,
-      file: `${join(named.project, 'plan.md')} is a file. Name a folder.`,
-      requestsBeforeARefusal: [],
+      missing: `${join(refused.project, 'gone')} does not exist. Name a folder that does.`,
+      file: `${join(refused.project, 'plan.md')} is a file. Name a folder.`,
+      beforeARefusal: { asked: [], launched: [], printed: [] },
+      folderOfTheRunIsGone: [
+        undefined,
+        ['--install-agent-skill'],
+        'The folder this runs in is gone, so notes names nothing. Name the folder by its whole path.',
+        undefined,
+        // The first of these runs installed the skill.
+        [gone.project],
+      ],
       home: [undefined, ['--install-agent-skill'], withoutFolder],
       root: [undefined, ['--install-agent-skill'], withoutFolder],
     },
@@ -317,16 +339,15 @@ test('after a failure or an interrupt, nothing of the run is left', async (t) =>
           },
         },
       }),
-      interruptedWhileDownloading: await left(
-        {
-          table: (manifest) => ({
-            [FEED]: { body: manifest },
-            [manifest.url]: { body: stallingBody([archive.subarray(0, 4)]) },
-          }),
-          environment: { signal: interrupted.signal },
-        },
-        () => setTimeout(() => interrupted.abort(), 60),
-      ),
+      interruptedWhileDownloading: await left({
+        table: (manifest) => ({
+          [FEED]: { body: manifest },
+          [manifest.url]: {
+            body: stallingBody([archive.subarray(0, 4)], () => interrupted.abort()),
+          },
+        }),
+        environment: { signal: interrupted.signal },
+      }),
     },
     {
       feedOfAnotherKey: { refused: "The list of BaseHalf's releases was refused", ...nothing },
@@ -338,5 +359,45 @@ test('after a failure or an interrupt, nothing of the run is left', async (t) =>
       },
       interruptedWhileDownloading: { refused: 'interrupted', ...nothing },
     },
+  );
+});
+
+test('one entry was a link before: the command waits for the answer of BaseHalf, not for that link', async (t) => {
+  const c = await computer(t, { installed: '0.7.2', linksSkill: false });
+  await linkSkill(c.home, SKILL_ENTRIES[0]?.segments ?? []);
+  const refused = await run(
+    {},
+    {
+      ...c.environment,
+      skillTimeoutMs: 2_000,
+      run: async (file, args, timeoutMs) => {
+        if (args.includes('--install-agent-skill')) {
+          // BaseHalf starts, and links the other entry well after the grace.
+          setTimeout(() => linkSkill(c.home, SKILL_ENTRIES[1]?.segments ?? []), 200);
+        }
+        return c.environment.run(file, args, timeoutMs);
+      },
+    },
+  );
+  assert.deepEqual(
+    { refused, said: c.printed.at(-1) },
+    {
+      refused: undefined,
+      said: 'The BaseHalf skill is installed for Claude Code and Codex. Agent sessions you start from now on can use it.',
+    },
+  );
+});
+
+test('a temporary folder that cannot be made is said in a line', async (t) => {
+  const c = await computer(t);
+  assert.deepEqual(
+    [
+      await run({}, { ...c.environment, tmpdir: join(c.tmpdir, 'missing') }),
+      await names(c.places[0] ?? ''),
+    ],
+    [
+      `BaseHalf could not be downloaded: no temporary folder could be made in ${join(c.tmpdir, 'missing')} (ENOENT). Nothing was installed.`,
+      [],
+    ],
   );
 });

@@ -13,7 +13,7 @@ import {
   verifyArchive,
   verifyManifest,
 } from '../src/release.js';
-import { makeFetch, makeKey, makeManifest } from './helpers.js';
+import { makeFetch, makeKey, makeManifest, stallingBody } from './helpers.js';
 
 /** The manifest of release 0.7.2, as its feed served it on 2026-11-26. */
 async function releasedManifest() {
@@ -115,7 +115,8 @@ test('reading the feed accepts a signed manifest and says why it accepts no othe
   const read = async (table) => {
     try {
       const { fetch } = makeFetch(table);
-      return (await readManifest({ fetch, feedUrl, publicKey: key.publicKey })).version;
+      return (await readManifest({ fetch, feedUrl, publicKey: key.publicKey, timeoutMs: 5_000 }))
+        .version;
     } catch (error) {
       assert.ok(error instanceof InstallError, String(error));
       return error.message;
@@ -141,6 +142,42 @@ test('reading the feed accepts a signed manifest and says why it accepts no othe
       missing:
         "The list of BaseHalf's releases could not be read: the server answered 404. Run this again in a while.",
       noNetwork:
+        "The list of BaseHalf's releases could not be read. Check the connection and run this again.",
+    },
+  );
+});
+
+test('a feed that names an older release, or that does not answer, is not waited for or taken', async () => {
+  const key = makeKey();
+  const feedUrl = 'https://example.test/feed.json';
+  const older = makeManifest(key, Buffer.from('archive'), { version: '0.7.1' });
+  const same = makeManifest(key, Buffer.from('archive'), { version: '0.7.2' });
+  /**
+   * @param {Parameters<typeof makeFetch>[0][string]} answer
+   * @param {number} timeoutMs
+   */
+  const read = async (answer, timeoutMs = 5_000) => {
+    try {
+      const { fetch } = makeFetch({ [feedUrl]: answer });
+      return (
+        await readManifest({ fetch, feedUrl, publicKey: key.publicKey, timeoutMs, oldest: '0.7.2' })
+      ).version;
+    } catch (error) {
+      assert.ok(error instanceof InstallError, String(error));
+      return error.message;
+    }
+  };
+  assert.deepEqual(
+    {
+      older: await read({ body: older }),
+      same: await read({ body: same }),
+      silent: await read({ body: stallingBody([]) }, 100),
+    },
+    {
+      older:
+        "The list of BaseHalf's releases was refused: it names BaseHalf 0.7.1, which is older than 0.7.2. Nothing was installed.",
+      same: '0.7.2',
+      silent:
         "The list of BaseHalf's releases could not be read. Check the connection and run this again.",
     },
   );

@@ -57,7 +57,8 @@ npx basehalf [folder] [--no-skill]
   anything is read or written.
 
 The command is the package `basehalf` of the npm registry. Its source is
-`packages/install/`. It has no dependencies, and it runs on Node 20 and later.
+`packages/install/`. It has no dependencies, and it runs on Node 20.3 and
+later; an older Node is told so in one line.
 It asks nothing while it runs: an agent that runs it is never left waiting for
 an answer.
 
@@ -73,7 +74,12 @@ names when it runs, so a release of BaseHalf needs no new package.
 - The user's home folder and the root of a disk are not opened: a canvas of
   everything a person has is not what they asked for, and it would be the
   first thing they see of BaseHalf. BaseHalf is then opened without a folder,
-  and the command says so.
+  and the command says so. The root of a disk is the root of all folders, and
+  any folder that is on another disk than the folder it is in, as a disk that
+  was attached is.
+- When the folder the command runs in was removed meanwhile, BaseHalf is
+  opened without a folder. A folder that is named beside it has to be named
+  by its whole path.
 
 ### 2. The system
 
@@ -102,12 +108,19 @@ computer and then in the one of the user's home folder.
 Only when no BaseHalf was found.
 
 - **Where.** The applications folder of the computer when the user may write
-  there, and otherwise the one of their home folder, which is made when it is
-  missing. This is settled before the download.
+  there, and otherwise the one of their home folder. This is settled before
+  the download, and nothing is made then: a missing folder of the home
+  folder counts when it can be made, is made when the application is placed,
+  and goes again when the run placed nothing in it.
 - **The feed.** The command reads the manifest of the latest release from the
   address the application's own update reads. It accepts the manifest only as
   the application does: every field of the shape the application requires,
-  and the signature of the manifest right under the key of the releases.
+  and the signature of the manifest right under the key of the releases. A
+  feed that does not answer in 60 seconds is given up.
+- **No older release.** An installed BaseHalf takes no update older than
+  itself. A computer without BaseHalf has no version to compare with, so the
+  package holds one, the release that was the latest when the package was
+  made, and refuses a manifest that names an older one.
 - **The archive** is downloaded into a temporary folder of the run. A
   download that says it has another length than the manifest, that grows
   past that length, or that brings no byte for 60 seconds is given up. The
@@ -116,7 +129,9 @@ Only when no BaseHalf was found.
 - **Unpacking.** The archive is unpacked into a folder of the run inside the
   applications folder, so that the last step is one rename within a folder.
   The folder has to hold exactly one application, BaseHalf of the version
-  the manifest names. It is then renamed to `BaseHalf.app`.
+  the manifest names. It is then renamed to `BaseHalf.app`. A folder of that
+  kind which a run that was killed left there, and which is older than an
+  hour, is removed first.
 - **Something appeared meanwhile.** When `BaseHalf.app` is there at the
   rename, such as from a second run, the command removes what it unpacked
   and goes on as in step 3.
@@ -142,7 +157,13 @@ The command never writes a link or a file of the skill itself.
 
 The command runs the launcher of the application with the folder, or without
 one (step 1). A BaseHalf that is running takes the request as it takes any
-other from its command line. When the launcher fails, the command says that
+other from its command line.
+
+BaseHalf takes the environment it is started with for its own, and its
+terminals inherit it. So the launcher is started without what this run added
+to the environment: what `npx` sets for the program it runs (the variables
+that begin with `npm_`, and the folders of packages' programs at the front
+of `PATH`), and what this Node was told to load. When the launcher fails, the command says that
 BaseHalf is installed and could not be opened, with the launcher's words, and
 ends with status 1.
 
@@ -151,9 +172,10 @@ ends with status 1.
 When the option was passed, the command looks at the agents' two entries, for
 at most 60 seconds. An agent has the skill while its entry is a link to
 BaseHalf's own copy and that copy holds the skill. The command waits until
-both have it, or until one has it and two more seconds brought no second:
-BaseHalf makes the links one after the other, and one of them can be refused
-by something of the user's own in its place. It then says for which agents
+both have it, or until BaseHalf gave it to one and two more seconds brought
+no second: BaseHalf makes the links one after the other, and one of them can
+be refused by something of the user's own in its place. An entry that was a
+link before BaseHalf was asked is not its answer, and starts no such wait. It then says for which agents
 the skill is installed. When the time passes with none, it says that BaseHalf
 has not confirmed the skill and that the window says why. The status is 0
 either way: BaseHalf is installed and open.
@@ -169,8 +191,11 @@ such as under an agent, nothing is printed between the line of the download
 and the next.
 
 A failure is one line on standard error that says what could not be done and
-what the user can do, and status 1. An interrupt prints nothing and ends with
-status 130.
+what the user can do, and status 1. This holds for every failure, also one
+the command did not foresee: it never prints a trace. A download that cannot
+be written says where it could not be written, not that the connection
+failed. An interrupt prints nothing and ends with status 130; a second
+interrupt while the run removes what it made does not end it early.
 
 ## What it leaves
 
@@ -229,17 +254,30 @@ and the command is run once for real, as [Verification](#verification) says.
    the option in the launcher's help, nothing is passed on and the output
    says that BaseHalf asks in its window. Otherwise the option is passed,
    and the output names the agents whose entries became links, or says that
-   BaseHalf has not confirmed the skill when none did in time.
-   `--no-skill` passes nothing and looks at nothing. Unit test.
+   BaseHalf has not confirmed the skill when none did in time. With one
+   entry linked before, the command waits for the second and not for the
+   grace of the first. `--no-skill` passes nothing and looks at nothing.
+   Unit test.
 9. **Leaving nothing.** After each failure of criteria 5 to 7, and after an
    interrupt during the download, the temporary folder and the folder that
-   was unpacked into are gone. Unit test.
-10. **For real**, recorded once for each published version of the package,
+   was unpacked into are gone, and so is a folder of the home folder that
+   the run made for an application it did not place. Choosing the place
+   makes nothing. What a killed run left for more than an hour is removed,
+   and what a run of now unpacks into is not. Unit test.
+10. **Words for every failure.** A temporary folder that cannot be made, a
+    download that cannot be written, a launcher that cannot be started, that
+    fails, or that takes too long, a feed that does not answer or that names
+    an older release, and a folder of the run that is gone each end in one
+    line. Unit test; the last also by hand, from a folder that was removed.
+11. **The environment of the launch** holds no variable that begins with
+    `npm_`, no folder of packages' programs in `PATH`, and nothing this Node
+    was told to load, and keeps everything else. Unit test.
+12. **For real**, recorded once for each published version of the package,
     not automated: on a computer BaseHalf is released for, with the two
     places and the home folder of the run's own, the command downloads the
     latest release, accepts it, places it, and the placed application
     prints its version. See [recorded runs](#recorded-runs).
-11. **The option of the application**: see
+13. **The option of the application**: see
     [agent skill](agent-skill.md#acceptance-criteria), criterion 11.
 
 ## Verification
@@ -252,7 +290,7 @@ pnpm --filter basehalf lint
 
 The tests read only the files of the package and what they write, and make
 no request to the network, so they pass in CI on a fresh checkout and on any
-system. Criterion 10 is run by hand:
+system. Criterion 12 is run by hand:
 
 ```bash
 node packages/install/test/real-run.js
@@ -267,7 +305,7 @@ and changes nothing of the computer.
 
 **Version 0.1.0, before it was published, 2026-11-26.** On the owner's
 computer, with Node 24.17.0. The package's tests passed on Node 20.20.0,
-22.12.0, and 24.17.0 (26 tests each).
+22.12.0, and 24.17.0 (35 tests each).
 
 | Since the start | What the run printed or did |
 | --- | --- |
@@ -276,7 +314,12 @@ computer, with Node 24.17.0. The package's tests passed on Node 20.20.0,
 | 19.7 s | The placed application's launcher printed its help, which has no `--install-agent-skill` in 0.7.2, and then its version (`1.128.0`, the commit of the release, `arm64`). The run printed that BaseHalf asks in its window about the skill. |
 | 19.9 s | The folder of the run was removed. |
 
-The placed application carried no mark of a download. The option of the
+The placed application carried no mark of a download. By hand the same day:
+run from a folder that was removed, the command refused a folder named by a
+part of its path in one line, with status 1; and of the folders of that
+computer, the root, and each disk under the folder where disks are attached,
+counted as the root of a disk, and the home folder, a project in it, and the
+temporary folder did not. The option of the
 application was tried the same day in a development build
 ([agent skill](agent-skill.md#recorded-trials)); the two were not run
 together, because no release holds the option yet.

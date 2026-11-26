@@ -9,7 +9,7 @@
   },
   "files": ["bin", "src"],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.3"
   },
   "homepage": "https://basehalf.com",
   "repository": {

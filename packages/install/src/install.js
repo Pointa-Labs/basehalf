@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
 
 import { mkdtemp, realpath, rm, stat } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { choosePlace, findApplication, placeApplication } from './application.js';
 import { downloadArchive } from './download.js';
 import { InstallError, errorCode, throwIfInterrupted } from './errors.js';
@@ -29,7 +29,7 @@ import { INSTALL_SKILL_OPTION, SKILL_ENTRIES, linkedAgents, waitForSkill } from 
  * @property {string} arch Node's name of the processor.
  * @property {() => Promise<boolean>} translated Whether the system translates this Node for another processor.
  * @property {string} home The user's home folder.
- * @property {string} cwd The folder the command runs in.
+ * @property {string | undefined} cwd The folder the command runs in, or none when it is gone.
  * @property {readonly string[]} places Where BaseHalf is looked for and installed, the home folder's last.
  * @property {string} tmpdir Where the folder of a download is made.
  * @property {typeof fetch} fetch
@@ -39,7 +39,7 @@ import { INSTALL_SKILL_OPTION, SKILL_ENTRIES, linkedAgents, waitForSkill } from 
  * @property {(file: string, args: readonly string[], timeoutMs: number) => Promise<RunResult>} run
  * @property {(line: string) => void} print One line on standard output.
  * @property {(received: number, length: number) => void} [progress] The progress of the download, where a terminal shows it.
- * @property {number} stallMs
+ * @property {number} stallMs How long a download may bring nothing, and how long the feed may take to answer.
  * @property {number} skillTimeoutMs
  * @property {number} skillGraceMs
  * @property {number} skillIntervalMs
@@ -59,7 +59,16 @@ const OPEN_TIMEOUT_MS = 60_000;
  * @returns {Promise<string | undefined>}
  */
 async function folderToOpen(named, environment) {
-  const path = named === undefined ? environment.cwd : resolve(environment.cwd, named);
+  const { cwd } = environment;
+  if (cwd === undefined && (named === undefined || !isAbsolute(named))) {
+    if (named === undefined) {
+      return undefined;
+    }
+    throw new InstallError(
+      `The folder this runs in is gone, so ${named} names nothing. Name the folder by its whole path.`,
+    );
+  }
+  const path = named === undefined ? (cwd ?? '') : resolve(cwd ?? '', named);
   try {
     if (!(await stat(path)).isDirectory()) {
       throw new InstallError(`${path} is a file. Name a folder.`);
@@ -80,7 +89,24 @@ async function folderToOpen(named, environment) {
   }
   const real = await realpath(path);
   const home = await realpath(environment.home).catch(() => environment.home);
-  return real === home || dirname(real) === real ? undefined : real;
+  return real === home || (await isRootOfADisk(real)) ? undefined : real;
+}
+
+/**
+ * Whether a folder is the root of a disk: the root of all, or a folder on
+ * another disk than the folder it is in, as a disk that was attached is.
+ * @param {string} folder
+ */
+async function isRootOfADisk(folder) {
+  const parent = dirname(folder);
+  if (parent === folder) {
+    return true;
+  }
+  try {
+    return (await stat(folder)).dev !== (await stat(parent)).dev;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -111,12 +137,17 @@ async function installApplication(environment) {
     fetch: environment.fetch,
     feedUrl: environment.feedUrl,
     publicKey: environment.publicKey,
+    timeoutMs: environment.stallMs,
     ...(signal ? { signal } : {}),
   });
   environment.print(
     `Downloading BaseHalf ${manifest.version} (${Math.round(manifest.length / 1_000_000)} MB).`,
   );
-  const folder = await mkdtemp(join(environment.tmpdir, 'basehalf-install-'));
+  const folder = await mkdtemp(join(environment.tmpdir, 'basehalf-install-')).catch((error) => {
+    throw new InstallError(
+      `BaseHalf could not be downloaded: no temporary folder could be made in ${environment.tmpdir} (${errorCode(error) ?? error}). Nothing was installed.`,
+    );
+  });
   try {
     const archive = join(folder, `BaseHalf-${manifest.version}.zip`);
     await downloadArchive({
@@ -154,17 +185,19 @@ async function installApplication(environment) {
  * @param {boolean} wanted
  * @param {Application} application
  * @param {Environment} environment
- * @returns {Promise<'left' | 'installed' | 'asked' | 'window'>}
+ * @returns {Promise<{ plan: 'left' | 'installed' | 'asked' | 'window', linkedBefore: number }>}
  */
 async function skillPlan(wanted, application, environment) {
   if (!wanted) {
-    return 'left';
+    return { plan: 'left', linkedBefore: 0 };
   }
-  if ((await linkedAgents(environment.home)).length === SKILL_ENTRIES.length) {
-    return 'installed';
+  const linkedBefore = (await linkedAgents(environment.home)).length;
+  if (linkedBefore === SKILL_ENTRIES.length) {
+    return { plan: 'installed', linkedBefore };
   }
   const help = await environment.run(application.launcher, ['--help'], HELP_TIMEOUT_MS);
-  return help.status === 0 && help.stdout.includes(INSTALL_SKILL_OPTION) ? 'asked' : 'window';
+  const has = help.status === 0 && help.stdout.includes(INSTALL_SKILL_OPTION);
+  return { plan: has ? 'asked' : 'window', linkedBefore };
 }
 
 /**
@@ -201,7 +234,7 @@ export async function install(request, environment) {
   }
   throwIfInterrupted(signal);
 
-  const plan = await skillPlan(request.skill, application, environment);
+  const { plan, linkedBefore } = await skillPlan(request.skill, application, environment);
   const opened = await environment.run(
     application.launcher,
     [
@@ -229,6 +262,7 @@ export async function install(request, environment) {
   } else if (plan === 'asked') {
     const agents = await waitForSkill({
       home: environment.home,
+      linkedBefore,
       timeoutMs: environment.skillTimeoutMs,
       graceMs: environment.skillGraceMs,
       intervalMs: environment.skillIntervalMs,
