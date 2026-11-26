@@ -20,6 +20,10 @@
   <a href="https://basehalf.com/zh">简体中文</a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/readme/hero.webp" width="820" alt="A BaseHalf window on a folder named trailhead. Its files are cards on a canvas: notes, a table, a picture of a map, code, a PDF, and a book, with lines between them. The release plan card is selected. Beside the canvas, Claude Code answers “what did people ask for that this leaves out?” and names the notes its answer comes from.">
+</p>
+
 https://github.com/user-attachments/assets/7dffd9c3-ce69-46c7-8620-e0d23fa46eed
 
 BaseHalf is a desktop app for thinking with AI on a canvas. Open a folder you
