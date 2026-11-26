@@ -57,6 +57,7 @@
     "basehalf:smoke": "npm run basehalf:test-canvas-markdown-inline && npm run basehalf:test-markdown-rich-formats && node build/lib/preLaunch.ts && npm run compile && npm run gulp compile-extension-media && node --experimental-strip-types scripts/basehalf-smoke.mts",
     "basehalf:smoke-no-compile": "npm run basehalf:test-canvas-markdown-inline && npm run basehalf:test-markdown-rich-formats && node --experimental-strip-types scripts/basehalf-smoke.mts",
     "basehalf:fidelity": "node --experimental-strip-types scripts/basehalf-markdown-fidelity.mts",
+    "basehalf:publish-agent-skill": "npm run transpile-client && node --experimental-strip-types scripts/basehalf-publish-agent-skill.mts",
     "basehalf:package:layout-check": "node --experimental-strip-types scripts/basehalf-package-layout-check.mts",
     "basehalf:package:agent-install": "node --experimental-strip-types scripts/basehalf-package-agent-install.mts",
     "basehalf:update-e2e": "node --experimental-strip-types scripts/basehalf-update-e2e.mts",

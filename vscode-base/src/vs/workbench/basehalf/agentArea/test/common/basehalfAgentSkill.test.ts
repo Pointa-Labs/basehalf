@@ -16,9 +16,12 @@ import {
 	BASEHALF_AGENT_OWN_IMAGE_SECTION,
 	BASEHALF_AGENT_SKILL_COPY_SEGMENTS,
 	BASEHALF_AGENT_SKILL_DESCRIPTION,
+	BASEHALF_AGENT_SKILL_HOME_PAGE,
 	BASEHALF_AGENT_SKILL_MARKDOWN,
+	BASEHALF_AGENT_SKILL_REPOSITORY,
 	BASEHALF_AGENT_SKILL_TARGETS,
 	BASEHALF_AGENT_SKILL_VERSION,
+	BASEHALF_AGENT_SKILL_WITHOUT_BASEHALF,
 	baseHalfAgentSkillCopyTakesBundledText,
 	baseHalfAgentSkillOffer,
 	baseHalfAgentSkillState,
@@ -94,6 +97,36 @@ suite('BaseHalfAgentSkill', () => {
 		}, { missing: [], sharedSections: true, dictatesOrder: false, claimsAgentArea: false, retired: [] });
 	});
 
+	test('says what it is where BaseHalf is not installed: only BaseHalf makes `.bh/`, the skill makes no workspace, and where BaseHalf is, as statements (agent skill, "The published copy")', () => {
+		const body = BASEHALF_AGENT_SKILL_MARKDOWN.slice(BASEHALF_AGENT_SKILL_MARKDOWN.indexOf('\n---\n') + 5);
+		const first = body.slice(body.indexOf('## Is this a BaseHalf workspace?'), body.indexOf('## A card\'s badge'));
+		assert.deepStrictEqual({
+			version: BASEHALF_AGENT_SKILL_VERSION,
+			// In the first section, which an agent reads to decide whether the rest applies.
+			inFirstSection: first.includes(`\n\n${BASEHALF_AGENT_SKILL_WITHOUT_BASEHALF}\n\n`),
+			missing: [
+				'Only BaseHalf makes `.bh/`, when it shows a folder as a canvas.',
+				'Having this skill makes no folder a workspace.',
+				`at ${BASEHALF_AGENT_SKILL_HOME_PAGE};`,
+				`its source is at ${BASEHALF_AGENT_SKILL_REPOSITORY}.`
+			].filter(phrase => !BASEHALF_AGENT_SKILL_WITHOUT_BASEHALF.includes(phrase)),
+			where: [BASEHALF_AGENT_SKILL_HOME_PAGE, BASEHALF_AGENT_SKILL_REPOSITORY],
+			// It publishes what is so. It does not send an agent to recommend BaseHalf or to make a workspace.
+			tellsTheAgentWhatToDo: /\b(?:recommend|suggest|tell the user|install|download|create|you should|must)\b/i.test(BASEHALF_AGENT_SKILL_WITHOUT_BASEHALF),
+			// Every session on the machine reads the description: it stays as it was, with no word of where BaseHalf is.
+			inDescription: /basehalf\.com|github\.com/.test(BASEHALF_AGENT_SKILL_DESCRIPTION),
+			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes(BASEHALF_AGENT_SKILL_HOME_PAGE)
+		}, {
+			version: '18',
+			inFirstSection: true,
+			missing: [],
+			where: ['https://basehalf.com', 'https://github.com/Pointa-Labs/basehalf'],
+			tellsTheAgentWhatToDo: false,
+			inDescription: false,
+			inLaunchInstruction: false
+		});
+	});
+
 	test('says where an image or a sound the agent made itself goes: the folder of the canvas the selection names, after the shared sections and outside the launch instruction', () => {
 		const body = BASEHALF_AGENT_SKILL_MARKDOWN.slice(BASEHALF_AGENT_SKILL_MARKDOWN.indexOf('\n---\n') + 5);
 		const section = BASEHALF_AGENT_OWN_IMAGE_SECTION.join('\n');
@@ -104,7 +137,7 @@ suite('BaseHalfAgentSkill', () => {
 			beforeTheFormats: body.indexOf(section) < body.indexOf(BASEHALF_AGENT_NOTE_FORMATS_SECTION.join('\n')),
 			missing: ['a tool of your own', 'the folder of the canvas the user works on', '`.bh/cache/selection.yaml`', '`folder`', 'ask the user'].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('image you make')
-		}, { version: '17', inBody: true, afterShared: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
+		}, { version: '18', inBody: true, afterShared: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('describes the record of what the user selected, and names the request it answers', () => {
@@ -130,7 +163,7 @@ suite('BaseHalfAgentSkill', () => {
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '17', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '18', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('tells agents where comments are, that highlights are entries apart, how to quote a passage, and that they write with their name and never change the user\'s unasked, after the formats (comments, "Agents")', () => {
@@ -155,7 +188,7 @@ suite('BaseHalfAgentSkill', () => {
 			].filter(phrase => !section.includes(phrase)),
 			selectionNamesComments: body.includes('- `comment`: the comment whose note, or the highlight whose tools, the user has open'),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('comments.yaml')
-		}, { version: '17', inBody: true, last: true, missing: [], selectionNamesComments: true, inLaunchInstruction: false });
+		}, { version: '18', inBody: true, last: true, missing: [], selectionNamesComments: true, inLaunchInstruction: false });
 	});
 
 	test('tells agents where a note\'s files are, how to put one in and take one out, before the formats and outside the launch instruction (files in notes, rule 47)', () => {
@@ -176,7 +209,7 @@ suite('BaseHalfAgentSkill', () => {
 				'A selected file under `.bh/attachments/` belongs to the note whose links name its folder.',
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('attachments')
-		}, { version: '17', inBody: true, afterOwnImage: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
+		}, { version: '18', inBody: true, afterOwnImage: true, beforeTheFormats: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('tells agents the formats a note keeps, each spelled as BaseHalf\'s writer writes it, before the comments and outside the launch instruction (note formats, rule 86)', () => {
@@ -204,7 +237,7 @@ suite('BaseHalfAgentSkill', () => {
 			palette: ['gray `#9b9a97` and `#3f3e3b`', 'pink `#e36aaf` and `#62294b`'].filter(color => !section.includes(color)),
 			keepsOthers: section.includes('keeps any other spelling as written'),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('<u>')
-		}, { version: '17', last: true, notWritten: [], toggle: true, palette: [], keepsOthers: true, inLaunchInstruction: false });
+		}, { version: '18', last: true, notWritten: [], toggle: true, palette: [], keepsOthers: true, inLaunchInstruction: false });
 	});
 
 	test('links Claude Code\'s folder and the shared one to BaseHalf\'s own copy, and is offered until one of them is linked', () => {

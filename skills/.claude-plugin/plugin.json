@@ -1,0 +1,23 @@
+{
+  "name": "basehalf",
+  "displayName": "BaseHalf",
+  "version": "18.0.0",
+  "description": "Work in a BaseHalf workspace, a folder shown as a canvas of cards: find what a file is for and what it builds on, keep connections when files move, and know what the user selected. Does nothing in a folder without .bh/.",
+  "author": {
+    "name": "Pointa Labs",
+    "url": "https://basehalf.com"
+  },
+  "homepage": "https://basehalf.com",
+  "repository": "https://github.com/Pointa-Labs/basehalf",
+  "license": "Apache-2.0",
+  "keywords": [
+    "basehalf",
+    "canvas",
+    "notes",
+    "workspace",
+    "context"
+  ],
+  "skills": [
+    "./basehalf"
+  ]
+}

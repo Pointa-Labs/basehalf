@@ -7754,8 +7754,9 @@ can end with, where "download it from the site" is a page to visit.
   tested. A command does the same for a person and for an agent, and an agent can be told to run it.
 - Offering the skill through a general installer of skills, which copies a skill from a repository into the agents'
   folders: it installs the skill and not BaseHalf, and what it writes is a copy that no release reaches, where D83
-  made the skill a link to BaseHalf's own copy so that there is one text. It stays possible later, with the
-  application taking over such a copy at its start.
+  made the skill a link to BaseHalf's own copy so that there is one text. The repository publishes the skill for
+  such installers all the same (D157), for someone who meets the skill before the application; Install Agent Skill,
+  which this command asks for, puts a link in such a copy's place.
 - The command writing the links itself: a second implementation of what a window does, with the states of D83 to keep
   equal in two places.
 - A script fetched and piped into a shell: an agent that is careful shows its user the command it is about to run,
@@ -7765,3 +7766,55 @@ can end with, where "download it from the site" is a page to visit.
   command holds the public key of the releases and checks what the application checks.
 - Updating a BaseHalf that is installed: the application updates itself, and two programs that replace one bundle
   would have to agree on when.
+
+## D157 — The repository publishes the agent skill as the application ships it (NEW, 2026-11-26)
+
+**Decision.** The repository holds one published copy of the agent skill, `skills/basehalf/SKILL.md`, with exactly the
+bytes the application bundles, and beside it what makes the folder `skills/` a Claude Code plugin: a manifest, a README,
+and the license. A marketplace file at the repository's root lists that plugin. The text is written once, in the
+application's source; a command writes the published copy from it, and a unit test fails when the two differ. The
+plugin's version is the version of the text. The text of the skill gains three statements, as version 18: only BaseHalf
+makes `.bh/`, having the skill makes no folder a workspace, and where BaseHalf is. How the application installs the
+skill does not change. Listing the skill in a directory, or submitting it to one, is the owner's act and no part of
+this. See [agent skill](specs/agent-skill.md#the-published-copy).
+
+**Why.** The goal is that a person who meets the skill before the application is led to the application. Read on
+2026-11-26: the open installer of skills looks for `skills/<name>/SKILL.md` in a repository and requires nothing else,
+and Claude Code installs a plugin from any repository that holds `.claude-plugin/marketplace.json`. Directories of
+skills and of plugins build their lists from these files, from what the installer installs or by reading public
+repositories, without a review. The repository had neither file, so none of them could find the skill: it existed only
+as a constant in the application's source, written to disk by the application. The skill is also complete without the
+application in a folder that has `.bh/`, such as a repository that someone who uses BaseHalf shares: it says so itself
+("whether or not BaseHalf is running").
+
+**Considered.**
+- The repository's root as the plugin folder, which the marketplace documentation shows for a repository that is one
+  plugin: Claude Code copies the whole plugin folder at an install, and the root is 12,800 files and 187 MiB. `skills/`
+  is four files.
+- A plugin folder of its own with a second copy of `SKILL.md`: two published copies to keep equal. The manifest of a
+  plugin may name the folders of its skills, so the folder that holds `basehalf/` can be the plugin.
+- The plugin's files inside `skills/basehalf/`: an installer of skills copies that folder whole into the agents'
+  folders, where a folder with a plugin manifest loads as a plugin and no longer as the skill `basehalf`, and the
+  application takes over a copy only when it holds nothing but `SKILL.md`.
+- A second text for the published copy, with an advertisement the bundled text does not have: two texts under one name
+  and one version, and D36 holds for both. The three statements are true in the application's copy too.
+- Generating the file at each release only: the copy would differ from the source between releases with nothing to
+  show it. A test on every run shows it at once.
+- No `version` in the plugin's manifest, so that every commit is a new version: a commit that changes nothing of the
+  skill would make every install fetch it again.
+- The application installing through the marketplace or the installer: set aside by D83, for the reasons given there.
+
+**Consequences.**
+- D43 and D83 stand. The application's install is the link to its own copy, made when the user asks; the published
+  copy is for a person who has no BaseHalf yet. BaseHalf still writes nothing into a workspace for agents and nothing
+  into `AGENTS.md` or `CLAUDE.md`, and `.bh/` stays the one sign of a workspace.
+- A copy that a person installed from the repository is, to the application, a copy it did not link: the skill counts
+  as not installed, the offer says Update or Install, and choosing it replaces the copy by the link (D83). Nothing was
+  added for this.
+- A change of the skill's text now changes four things in one commit: the source, its version, the published copy, and
+  the plugin's version. The command writes the last two, and the test refuses a commit that forgot it.
+- The published copy follows the default branch, so it can describe what the last release does not have yet, as a
+  development build's copy does.
+- Claude Code clones the repository to read its marketplace file. The plugin's README gives the form of the command
+  that fetches two folders only.
+- Not checked until the files are on GitHub: an install from `Pointa-Labs/basehalf` by either command, and any listing.

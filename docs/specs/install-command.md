@@ -37,9 +37,13 @@ times, and the disk images of four releases 11 times together.
 - Updating a BaseHalf that is installed. [App update](app-update.md) owns it.
 - Removing BaseHalf or the skill.
 - Systems BaseHalf is not released for.
-- Offering the skill through the directories of skills that agents' tools
-  read. It would be a second copy that does not follow a release
-  ([agent skill](agent-skill.md#keeping-it-current)).
+- Installing the skill through an installer of skills, or listing it in a
+  directory. The repository publishes the skill for those
+  ([agent skill](agent-skill.md#the-published-copy), D157). What such an
+  installer writes is a copy that no release reaches; the command has
+  BaseHalf install the skill, which makes the entries links to its own copy
+  and takes such a copy's place
+  ([agent skill](agent-skill.md#installing-and-removing)).
 - Replacing the disk image. It stays the way for someone without a terminal.
 - Counting runs. The command sends nothing but its two requests for files.
 
@@ -278,7 +282,7 @@ and the command is run once for real, as [Verification](#verification) says.
     latest release, accepts it, places it, and the placed application
     prints its version. See [recorded runs](#recorded-runs).
 13. **The option of the application**: see
-    [agent skill](agent-skill.md#acceptance-criteria), criterion 11.
+    [agent skill](agent-skill.md#acceptance-criteria), criterion 14.
 
 ## Verification
 
