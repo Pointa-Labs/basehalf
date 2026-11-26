@@ -46,6 +46,7 @@ export const unicodeFilter = Object.freeze<string[]>([
 	'!**/*.mp3',
 	'!**/*.tiff',
 	'!**/*.provisionprofile',
+	'!**/*.mp4', // BaseHalf: the smoke's films
 
 	'!build/win32/**',
 	'!extensions/markdown-language-features/notebook-out/*.js',
@@ -74,6 +75,9 @@ export const unicodeFilter = Object.freeze<string[]>([
 
 	// Files with licences
 	'!src/vs/platform/endpoint/common/licenseAgreement.ts',
+
+	// BaseHalf: bundles of other projects' code, each recorded in the README beside it
+	'!src/vs/workbench/basehalf/markdown/common/vendor/**',
 ]);
 
 export const indentationFilter = Object.freeze<string[]>([
@@ -167,6 +171,10 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!extensions/ipynb/notebook-out/**',
 	'!extensions/notebook-renderers/renderer-out/*.js',
 	'!extensions/simple-browser/media/*.js',
+
+	// BaseHalf: bundles of other projects' code, and the licenses of what the reader of books is built from
+	'!src/vs/workbench/basehalf/markdown/common/vendor/**',
+	'!extensions/basehalf/content-viewer-src/bookReaderNotices.txt',
 ]);
 
 export const copyrightFilter = Object.freeze<string[]>([
@@ -229,6 +237,9 @@ export const copyrightFilter = Object.freeze<string[]>([
 	// BaseHalf: BaseHalf's license and notice at the repository's root, beside the tree (D158)
 	'!LICENSE',
 	'!NOTICE',
+
+	// BaseHalf: bundles of other projects' code, whose headers say what they are built from
+	'!src/vs/workbench/basehalf/markdown/common/vendor/**',
 ]);
 
 export const tsFormattingFilter = Object.freeze<string[]>([

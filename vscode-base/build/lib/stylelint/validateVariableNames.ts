@@ -13,7 +13,10 @@ function getKnownVariableNames() {
 	if (!knownVariables) {
 		const knownVariablesFileContent = readFileSync(path.join(import.meta.dirname, './vscode-known-variables.json'), 'utf8').toString();
 		const knownVariablesInfo = JSON.parse(knownVariablesFileContent);
-		knownVariables = new Set([...knownVariablesInfo.colors, ...knownVariablesInfo.others, ...(knownVariablesInfo.sizes || [])] as string[]);
+		// BaseHalf: the variables that BaseHalf's stylesheets and its Modern UI declare themselves are in a
+		// list of their own, so that an update of VS Code's list, which a test writes, leaves them alone (D159).
+		const basehalfVariablesInfo = JSON.parse(readFileSync(path.join(import.meta.dirname, './basehalf-known-variables.json'), 'utf8').toString());
+		knownVariables = new Set([...knownVariablesInfo.colors, ...knownVariablesInfo.others, ...(knownVariablesInfo.sizes || []), ...basehalfVariablesInfo.others] as string[]);
 	}
 	return knownVariables;
 }

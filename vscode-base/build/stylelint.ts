@@ -89,7 +89,7 @@ export default function gulpstylelint(reporter: Reporter, designTokensEverywhere
 		this.emit('data', file);
 	}, function () {
 		if (errorCount > 0) {
-			reporter('All valid variable names are in `build/lib/stylelint/vscode-known-variables.json`\nTo update that file, run `./scripts/test-documentation.sh|bat.`', false);
+			reporter('All valid variable names are in `build/lib/stylelint/vscode-known-variables.json`\nTo update that file, run `./scripts/test-documentation.sh|bat.`\nBaseHalf: a variable that a stylesheet of BaseHalf\'s declares itself goes into `build/lib/stylelint/basehalf-known-variables.json`.', false);
 		}
 		const designTokenTotal = designTokenCounts.codicon + designTokenCounts['font-size'] + designTokenCounts.weight + designTokenCounts.radius + designTokenCounts.spacing + designTokenCounts.stroke;
 		if (designTokenTotal > 0) {

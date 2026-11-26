@@ -166,6 +166,22 @@ export default defineConfig(
 			]
 		}
 	},
+	// BaseHalf: the pages of BaseHalf's webviews are React components, whose attributes are written
+	// in double quotes; they show their own text and have no strings of VS Code's localization.
+	{
+		files: [
+			'extensions/basehalf/**/*.tsx',
+		],
+		languageOptions: {
+			parser: tseslint.parser,
+		},
+		plugins: {
+			'local': pluginLocal,
+		},
+		rules: {
+			'local/code-no-unexternalized-strings': 'off'
+		}
+	},
 	// TS
 	{
 		files: [
@@ -1831,7 +1847,11 @@ export default defineConfig(
 						'vs/workbench/contrib/*/~',
 						'vs/workbench/basehalf/*/~',
 						'assert',
-						'crypto'
+						'crypto',
+						{
+							'when': 'test',
+							'pattern': 'vs/workbench/api/~'
+						} // a test of a command that the extension host's side of the window carries
 					]
 				},
 				{
@@ -1890,6 +1910,8 @@ export default defineConfig(
 						'vs/editor/contrib/*/~',
 						'vs/workbench/~',
 						'vs/workbench/services/*/~',
+						// BaseHalf: a file of VS Code's reaches BaseHalf through a model, never a view (docs/harness/code-organization.md)
+						'vs/workbench/basehalf/*/common/**',
 						'assert',
 						{
 							'when': 'test',
@@ -1924,6 +1946,8 @@ export default defineConfig(
 						'vs/editor/contrib/*/~',
 						'vs/workbench/~',
 						'vs/workbench/services/*/~',
+						// BaseHalf: a file of VS Code's reaches BaseHalf through a model, never a view (docs/harness/code-organization.md)
+						'vs/workbench/basehalf/*/common/**',
 						{
 							'when': 'test',
 							'pattern': 'vs/workbench/contrib/*/~'
@@ -1949,6 +1973,8 @@ export default defineConfig(
 						'vs/workbench/~',
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
+						// BaseHalf: a file of VS Code's reaches BaseHalf through a model, never a view (docs/harness/code-organization.md)
+						'vs/workbench/basehalf/*/common/**',
 						'vs/sessions/~',
 						'vs/workbench/contrib/terminal/terminalContribChatExports*',
 						'vs/workbench/contrib/terminal/terminalContribExports*',
@@ -1982,6 +2008,8 @@ export default defineConfig(
 						// Only allow terminalContrib to import from itself, this works because
 						// terminalContrib is one extra folder deep
 						'vs/workbench/contrib/terminalContrib/*/~',
+						// BaseHalf: a file of VS Code's reaches BaseHalf through a model, never a view (docs/harness/code-organization.md)
+						'vs/workbench/basehalf/*/common/**',
 						'vscode-notebook-renderer', // Type only import
 						'@vscode/tree-sitter-wasm', // type import
 						{

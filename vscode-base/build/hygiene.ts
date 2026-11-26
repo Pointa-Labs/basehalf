@@ -23,6 +23,16 @@ const copyrightHeaderLines = [
 	' *--------------------------------------------------------------------------------------------*/',
 ];
 
+// BaseHalf: BaseHalf's own folders carry Pointa Labs' header, the others VS Code's. The folders are
+// those of the `header/header` rule in eslint.config.js, which checks the scripts among them (D159).
+const basehalfCopyrightHeaderLines = [
+	'/*---------------------------------------------------------------------------------------------',
+	' *  Copyright (c) Pointa Labs. All rights reserved.',
+	' *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.',
+	' *--------------------------------------------------------------------------------------------*/',
+];
+const basehalfSources = /^(build\/basehalf\/|extensions\/basehalf\/|scripts\/basehalf-|src\/vs\/platform\/basehalf[^/]*\/|src\/vs\/workbench\/basehalf\/)/;
+
 interface VinylFileWithLines extends VinylFile {
 	__lines: string[];
 }
@@ -84,8 +94,10 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 	const productJson = es.through(function (file: VinylFile) {
 		const product = JSON.parse(file.contents!.toString('utf8'));
 
-		if (product.extensionsGallery) {
-			console.error(`product.json: Contains 'extensionsGallery'`);
+		// BaseHalf: its gallery is Open VSX, so the file has one. What must not be in it is Microsoft's
+		// Marketplace, which only Microsoft's products may use.
+		if (/marketplace\.visualstudio\.com|vsassets\.io/.test(JSON.stringify(product.extensionsGallery ?? {}))) {
+			console.error(`product.json: 'extensionsGallery' names Microsoft's Marketplace`);
 			errorCount++;
 		}
 
@@ -116,8 +128,10 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 				}
 			}
 			// Please do not add symbols that resemble ASCII letters!
+			// BaseHalf: Chinese text, which the product shows and sends to providers that read it, and
+			// the mark that starts a line of the packaging scripts' output (D159).
 			// eslint-disable-next-line no-misleading-character-class
-			const m = /([^\t\n\r\x20-\x7E⊃⊇✔︎✓🎯🧪✍️⚠️🛑🔴🚗🚙🚕🎉✨❗⇧⌥⌘×÷¦⋯…↑↓￫→←↔⟷—·•●◆▼⟪⟫┌└├⏎↩√φ]+)/g.exec(line);
+			const m = /([^\t\n\r\x20-\x7E⊃⊇✔︎✓🎯🧪✍️⚠️🛑🔴🚗🚙🚕🎉✨❗⇧⌥⌘×÷¦⋯…↑↓￫→←↔⟷—·•●◆▼▸⟪⟫┌└├⏎↩√φ\u4E00-\u9FFF]+)/g.exec(line);
 			if (m) {
 				console.error(
 					file.relative + `(${i + 1},${m.index + 1}): Unexpected unicode character: "${m[0]}" (charCode: ${m[0].charCodeAt(0)}). To suppress, use // allow-any-unicode-next-line`
@@ -153,9 +167,12 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 
 	const copyrights = es.through(function (file: VinylFileWithLines) {
 		const lines = file.__lines;
+		// BaseHalf: the header by the file's folder, after the line that names a script's interpreter.
+		const expected = basehalfSources.test(file.relative.replace(/\\/g, '/')) ? basehalfCopyrightHeaderLines : copyrightHeaderLines;
+		const first = lines[0]?.startsWith('#!') ? 1 : 0;
 
-		for (let i = 0; i < copyrightHeaderLines.length; i++) {
-			if (lines[i] !== copyrightHeaderLines[i]) {
+		for (let i = 0; i < expected.length; i++) {
+			if (lines[first + i] !== expected[i]) {
 				console.error(file.relative + ': Missing or bad copyright statement');
 				errorCount++;
 				break;
