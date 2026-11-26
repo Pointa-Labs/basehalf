@@ -360,6 +360,14 @@ format, and no hidden folder.
     the first. It runs once the window can take a command, so a BaseHalf
     that was not running starts first. A BaseHalf that is running takes the
     option as it takes a folder from a second launch.
+  - A window that was open can load the folder of the launch in place of
+    what it shows. The page it shows is asked at once, and when the window
+    begins to load within 30 seconds, the page that comes is asked once
+    more: the first can go before it ran the command, and installing twice
+    changes nothing.
+  - The option is asked once. A BaseHalf that starts itself again, such as
+    for an update, starts without it: a restart installs nothing, also after
+    the user removed the skill.
   - The window shows what Install Agent Skill shows. The command line prints
     nothing about the skill and does not wait for it: what was installed is
     read from the agents' entries, as
@@ -491,11 +499,14 @@ the user's home folder.
     help of the command line lists it. With it, one window of those a launch
     used is sent Install Agent Skill: the one that was active last among
     them, otherwise the first; without the option, and with no window, none
-    is. Unit test. Checked once in a real window, not automated, with the
+    is. A window that was open is sent it at once, and once more when it
+    begins to load, and not for a second load or after the wait ended. The
+    arguments of a restart hold everything but the option. Unit test. Checked once in a real window, not automated, with the
     skill pointed at a folder of the run's own: a BaseHalf that was not
     running, started with the option and a folder, shows the folder and
     links both entries; a second launch with the option, while that window
-    is open and the links are removed, links them again
+    is open and the links are removed, links them again; and so does a
+    launch that loads another folder in that window
     ([recorded trials](#recorded-trials)).
 
 ## Recorded trials
@@ -524,8 +535,11 @@ stand-in home folder, on a folder that held one note.
 | --- | --- |
 | BaseHalf not running; started with `--install-agent-skill` and the folder | The window showed the folder. Both entries were links to the stand-in copy, which held the text of version 17, 4.5 seconds after the start. |
 | Both links removed by hand, the window left open; a second launch with the same line | The second launch ended with status 0, and both entries were links again 0.3 seconds later. |
+| The links removed again; a third launch with the option, another folder, and `--reuse-window`, so that the open window loads that folder | The launch ended with status 0, and both entries were links 0.3 seconds later and five seconds after that. |
 
-The folder held nothing but its note afterwards.
+The first folder held nothing but its note afterwards. The second and third
+rows were run again after the wait for a window that loads was added, with
+the same results (the first then took 2.7 seconds).
 
 The trials below are of version 1 of the skill text, which told agents to
 move files through `basehalf.workspace.move`. Version 2 says that ordinary

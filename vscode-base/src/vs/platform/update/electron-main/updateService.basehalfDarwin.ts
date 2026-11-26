@@ -20,6 +20,7 @@ import { IProductService } from '../../product/common/productService.js';
 import { IRequestService } from '../../request/common/request.js';
 import { IApplicationStorageMainService } from '../../storage/electron-main/storageMainService.js';
 import { ITelemetryService } from '../../telemetry/common/telemetry.js';
+import { baseHalfRelaunchArguments } from '../../launch/common/basehalfLaunchCommands.js';
 import { AvailableForDownload, IUpdate, State, StateType, UpdateType } from '../common/update.js';
 import { compareBaseHalfVersions, IBaseHalfUpdateManifest, parseBaseHalfVersion, sanitizeBaseHalfUpdateManifest, verifyBaseHalfArchiveSignature, verifyBaseHalfManifestSignature, bundlePathFromExec } from '../node/basehalfUpdateProtocol.js';
 import { baseHalfPrepareUpdate, baseHalfRemove, baseHalfSwapIn, baseHalfUpdateLeftovers } from '../node/basehalfUpdateStore.js';
@@ -334,8 +335,9 @@ export class BaseHalfDarwinUpdateService extends AbstractUpdateService implement
 		// now makes macOS start the bundle again after exit. Also when
 		// nothing was swapped, because another run did it already or the
 		// swap failed: the user asked for a restart, and the next start tries
-		// again.
-		electron.app.relaunch();
+		// again. What the command line asked once, such as installing the
+		// skill, is not asked again by the restart (D156).
+		electron.app.relaunch({ args: baseHalfRelaunchArguments(process.argv.slice(1)) });
 	}
 
 	protected override async postInitialize(): Promise<void> {

@@ -97,6 +97,8 @@ export function baseHalfSwapStagedCopyAtStart(environmentMainService: IEnvironme
 	logService.flush();
 	// What Finder asked this start to open is opened by the next one.
 	const askedToOpen = (globalThis as { macOpenFiles?: string[] }).macOpenFiles ?? [];
+	// The next start is this start over again, with all the command line asked:
+	// this one ends before it opens a window.
 	electron.app.relaunch({ args: [...process.argv.slice(1), ...askedToOpen] });
 	return true;
 }

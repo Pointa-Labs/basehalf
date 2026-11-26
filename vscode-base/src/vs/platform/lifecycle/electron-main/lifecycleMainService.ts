@@ -20,6 +20,7 @@ import { ISingleFolderWorkspaceIdentifier, IWorkspaceIdentifier } from '../../wo
 import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
 import { IAuxiliaryWindow } from '../../auxiliaryWindow/electron-main/auxiliaryWindow.js';
 import { getAllWindowsExcludingOffscreen } from '../../windows/electron-main/windows.js';
+import { baseHalfRelaunchArguments } from '../../launch/common/basehalfLaunchCommands.js';
 
 export const ILifecycleMainService = createDecorator<ILifecycleMainService>('lifecycleMainService');
 
@@ -681,7 +682,8 @@ export class LifecycleMainService extends Disposable implements ILifecycleMainSe
 	async relaunch(options?: IRelaunchOptions): Promise<void> {
 		this.trace('Lifecycle#relaunch()');
 
-		const args = process.argv.slice(1);
+		// BaseHalf: what the command line asked once, a restart does not ask again (D156).
+		const args = baseHalfRelaunchArguments(process.argv.slice(1));
 		if (options?.addArgs) {
 			args.push(...options.addArgs);
 		}
