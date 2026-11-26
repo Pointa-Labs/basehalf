@@ -288,7 +288,8 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   place of VS Code's service (D22).
 - VS Code's other files import only BaseHalf's `common/` modules: a file of
   VS Code's reaches BaseHalf through a model, never a view. Lint allows these
-  imports and reports any other (`code-import-patterns`). To list the places
+  imports and reports any other (`code-import-patterns`); the window's side
+  of the extension host, `vs/workbench/api/`, may import every layer. To list the places
   where BaseHalf hooks into VS Code, search VS Code's folders for
   `basehalf/`.
 - Mark each change in a VS Code file with a `// BaseHalf:` comment that says

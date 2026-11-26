@@ -7876,14 +7876,16 @@ TypeScript, eslint with a warning counted as an error, and the names of CSS vari
 BaseHalf's:
 
 - The header is Pointa Labs' in BaseHalf's own folders and VS Code's elsewhere, by the folders of the eslint rule.
-- Chinese text is allowed, since the product shows it and sends it to providers that read it.
+- Chinese characters are allowed, since the product shows them and sends them to providers that read them.
+  Full-width punctuation is not: it resembles ASCII's, and a line that needs it says so.
 - Bundles of other projects' code, the smoke's films, and a file of license texts are left out.
 - `product.json` may name a gallery, which is Open VSX; it may not name Microsoft's Marketplace.
 - VS Code's list of CSS variables is written again by its release test, with BaseHalf's colors in it, and the
   variables that BaseHalf's stylesheets declare themselves are in a list of their own beside it.
 - A file of VS Code's may import a `common/` module of BaseHalf's without a report, and any other import of BaseHalf's
-  from it is reported. D125 had lint report every such import as a list of the places where BaseHalf hooks into VS
-  Code; a search of VS Code's folders for `basehalf/` gives that list.
+  from it is reported; the window's side of the extension host, `vs/workbench/api/`, may import every layer, as
+  before. D125 had lint report every such import as a list of the places where BaseHalf hooks into VS Code; a search
+  of VS Code's folders for `basehalf/` gives that list.
 
 See [the commit hook](harness/verification-and-delivery.md#the-commit-hook).
 
@@ -7898,7 +7900,10 @@ did not have. What was changed in the code: about 70 lines of comments that cont
 with a character the check refuses, 19 files off the formatter, and 163 lint warnings.
 
 The check found three things that were wrong and not a matter of form. The command that kills a terminal used its
-service accessor after an await, where an accessor no longer serves. 12 CSS variables are read that nothing
+service accessor after an await, where an accessor no longer serves. The rule that found it sees only a parameter
+written with the accessor's type; the review before the push read the two files and found six more commands with
+the same fault, in parameters the rule does not see: running the selected text or the active file in a terminal,
+attaching to a session, two ways to split a terminal, and New File. All read their services first now. 12 CSS variables are read that nothing
 declares; 11 have a value to fall back on, and `--last-tab-add-tab-width` in the Modern UI's tabs has none. And a
 model of the canvas, `basehalfCanvasFlowSnap.ts`, is typed with React Flow in the `common/` layer, which may not
 import it (D60). Moving it to `browser/` showed what it had hidden: React Flow's types bring the DOM's types into
@@ -7961,4 +7966,3 @@ jschardet, whose license asks for a notice that the library is used.
 - Terms of use that BaseHalf may write later cannot forbid replacing jschardet or studying the program to that end.
 - The entry for the codicons still names the version VS Code recorded, 0.0.46-0; the attribution is the same.
 - The first run of the check on GitHub comes with the next push.
-

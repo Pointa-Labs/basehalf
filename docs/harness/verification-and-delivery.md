@@ -219,7 +219,8 @@ files of the commit as they are staged. A finding stops the commit. It checks:
 - the copyright header: Pointa Labs' in BaseHalf's own folders, VS Code's everywhere else, as
   [code organization](code-organization.md#one-root-a-folder-per-feature) has it;
 - indentation by tabs, and the format of VS Code's formatter for TypeScript;
-- characters outside ASCII. Chinese text and a few marks are allowed. Another character in a string is written as
+- characters outside ASCII. Chinese characters and a few marks are allowed;
+  full-width punctuation is not. Another character in a string is written as
   an escape when it cannot be told from an ASCII one or cannot be seen (a no-break space, a minus sign), and
   otherwise has `// allow-any-unicode-next-line` on the line before. A file whose comments need such characters
   says `allow-any-unicode-comment-file` once;
