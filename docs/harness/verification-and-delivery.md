@@ -195,10 +195,17 @@ says. A change to `.github/workflows/` or to `packages/install/` runs that
 job's commands before the push.
 
 `license-check.yml` checks the licenses of the production dependencies of
-`packages/install/`, which has none. The product's dependencies are not
-checked there yet: two of them, jschardet (LGPL-2.1+) and the codicons
-(CC-BY-4.0), are outside its allowlist and wait for a maintainer's review under
-the [dependency policy](../dependency-policy.md).
+the product, from `package.json` at the root, and of `packages/install/`,
+which has none. Two of the product's are outside its allowlist and are
+excepted by name and version, jschardet (LGPL-2.1+) and the codicons
+(CC-BY-4.0), as the [dependency policy](../dependency-policy.md#reviewed-exceptions)
+records (D160). To run the product's check by hand, at the root:
+
+```bash
+npx --yes license-checker@25.0.1 --production --excludePrivatePackages \
+  --excludePackages "jschardet@3.1.4;@vscode/codicons@0.0.46-21" \
+  --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;BlueOak-1.0.0;Python-2.0" --summary
+```
 
 A test reads only the files of a fresh checkout and the files it writes
 itself. From 2026-08-24 to 2026-10-24 every CI run failed on tests that read

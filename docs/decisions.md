@@ -7932,3 +7932,33 @@ nine places.
 - The layers check still cannot see a DOM type in a `common/` module, as long as a `common/` module imports React
   Flow's types. `basehalfCanvasScene.ts` is the one module known to have them.
 
+## D160 — jschardet and the codicons are accepted, and CI checks the product's licenses (NEW, 2026-11-27)
+
+**Decision.** Two of the product's production dependencies are outside the allowlist of the
+[dependency policy](dependency-policy.md) and are accepted as they are used: jschardet 3.1.4 (LGPL-2.1+), by which
+VS Code guesses a file's encoding, and `@vscode/codicons` 0.0.46-21 (CC-BY-4.0), the workbench's icon font. Each is
+an exception by name and version in the license check, which now checks the production dependencies of the product
+as well as those of `packages/install/`. `ThirdPartyNotices.txt` has an entry for jschardet.
+
+**Why.** D158 left the product's dependencies out of CI's license check because of these two, for a maintainer's
+review. The owner, 2026-11-27, asked whether the product has them at all and whether they stand in the way of
+selling it, and then accepted them. Both came with VS Code and ship in every build of it. Read that day, in a
+fresh install of the production dependencies alone: 132 packages; the other 130 are MIT, ISC, BlueOak-1.0.0,
+Apache-2.0, BSD-3-Clause, or a choice of licenses that includes one of these. jschardet ships unchanged as a file of its own, with its license beside it, so
+the LGPL binds that file and not the program that loads it. CC-BY-4.0 asks for attribution and allows commercial
+use. `ThirdPartyNotices.txt`, which is VS Code's list of what its source incorporates, named the codicons and not
+jschardet, whose license asks for a notice that the library is used.
+
+**Considered.**
+- LGPL-2.1+ and CC-BY-4.0 in the allowlist: every later package under them would pass without a review.
+- An exception by name alone: a later version, which may change how the library is built or licensed, would pass.
+- Replacing jschardet: it is the library VS Code's own encoding service is written against.
+- The dependencies of the built-in extensions in the check: an extension's bundle takes them in when it is built,
+  and the policy keeps their notices beside the bundle.
+
+**Consequences.**
+- A new version of either package fails the license check until the exception names it.
+- Terms of use that BaseHalf may write later cannot forbid replacing jschardet or studying the program to that end.
+- The entry for the codicons still names the version VS Code recorded, 0.0.46-0; the attribution is the same.
+- The first run of the check on GitHub comes with the next push.
+

@@ -3,14 +3,13 @@ name: license-check
 # Enforces docs/dependency-policy.md: fails the PR if any production dependency
 # carries a license outside the permissive allowlist.
 #
-# It checks the package of the install command, packages/install/, from its
-# own manifest. The product's own dependencies (package.json at the root, the
-# VS Code tree, D158) are not checked here yet: two of them, jschardet
-# (LGPL-2.1+) and @vscode/codicons (CC-BY-4.0), are outside the allowlist and
-# wait for a maintainer's review under the policy.
+# It checks the product's production dependencies, from package.json at the
+# root, which are what runs from node_modules in the application, and those of
+# the package of the install command, packages/install/, from its own manifest.
 #
-# To add a "review needed" license (e.g. MPL-2.0), append it to --onlyAllow
-# below in the same PR, with a justification in the PR description.
+# A "review needed" package that a maintainer accepted is an exception by name
+# and version in --excludePackages, never a license added to --onlyAllow, and is
+# recorded in the policy's "Reviewed exceptions" in the same PR (D160).
 
 on:
   pull_request:
@@ -42,5 +41,26 @@ jobs:
         run: |
           npx --yes license-checker@25.0.1 \
             --production \
+            --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;BlueOak-1.0.0;Python-2.0" \
+            --summary
+
+  product-licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install the product's production dependencies
+        # Without their scripts: nothing is built, the check reads the packages' manifests.
+        run: npm ci --ignore-scripts --omit=dev
+      - name: Check dependency licenses
+        # The root package is private and is not a dependency. The two packages left out are
+        # the reviewed exceptions of docs/dependency-policy.md, each at the version reviewed.
+        run: |
+          npx --yes license-checker@25.0.1 \
+            --production \
+            --excludePrivatePackages \
+            --excludePackages "jschardet@3.1.4;@vscode/codicons@0.0.46-21" \
             --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;BlueOak-1.0.0;Python-2.0" \
             --summary
