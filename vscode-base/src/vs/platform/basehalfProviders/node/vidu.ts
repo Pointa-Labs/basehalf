@@ -17,7 +17,7 @@ import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, Chec
  * request as data URLs, nine video models over four create requests, and two
  * image models on its reference-to-image request. Frames mode picks the
  * request from its inputs: none is text to video, a start frame image to
- * video, and a start and an end frame start–end to video. Every task is asked
+ * video, and a start and an end frame start-end to video. Every task is asked
  * about and cancelled the same way.
  */
 

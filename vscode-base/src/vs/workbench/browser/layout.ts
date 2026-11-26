@@ -3028,7 +3028,7 @@ class LayoutStateModel extends Disposable {
 		LayoutStateKeys.SIDEBAR_HIDDEN.defaultValue = workbenchState === WorkbenchState.EMPTY || auxiliaryBarForceMaximized === true;
 		// BaseHalf: the auxiliary bar hosts the Agent Area (terminal-bearing
 		// sessions), so its default width matches the original agent dock
-		// (320–420px, scaling with the window) instead of the stock 300px cap.
+		// (320-420px, scaling with the window) instead of the stock 300px cap.
 		LayoutStateKeys.AUXILIARYBAR_SIZE.defaultValue = auxiliaryBarForceMaximized ? Math.max(300, mainContainerDimension.width / 2) : Math.min(420, Math.max(320, Math.round(mainContainerDimension.width * 0.32)));
 		LayoutStateKeys.AUXILIARYBAR_HIDDEN.defaultValue = (() => {
 			if (isWeb && !this.environmentService.remoteAuthority) {

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	BaseHalfMarkdownRichSession,
 	BaseHalfMarkdownRichSessionRegistry,
@@ -14,6 +15,8 @@ import {
 } from '../../common/basehalfMarkdownRichSession.js';
 
 suite('BaseHalfMarkdownRichSession', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('seeds frontmatter, editor blocks, reuse state, and ready waiters', async () => {
 		const { session, document } = createSession();
 		let readyCalls = 0;

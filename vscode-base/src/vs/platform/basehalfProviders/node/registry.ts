@@ -187,6 +187,7 @@ function validateVoiceRegions(parameter: VoiceParameter, model: CatalogModel, at
 }
 
 function validateSlot(slot: CountSlot, where: string): void {
+	// allow-any-unicode-next-line
 	check(Number.isInteger(slot.min) && Number.isInteger(slot.max) && slot.min >= 0 && slot.min <= slot.max && slot.max <= 100, `${where}: min and max must be whole numbers with 0 ≤ min ≤ max ≤ 100`);
 }
 
@@ -255,6 +256,7 @@ function validateParameter(parameter: CatalogParameter, modes: ReadonlySet<strin
 		case 'number': {
 			const whole = parameter.kind === 'integer';
 			const isValue = (value: number) => Number.isFinite(value) && (!whole || Number.isInteger(value));
+			// allow-any-unicode-next-line
 			check(isValue(parameter.min) && isValue(parameter.max) && parameter.min <= parameter.max, `${at}: min and max must be ${whole ? 'whole ' : ''}numbers with min ≤ max`);
 			check(isValue(parameter.step) && parameter.step > 0, `${at}: the step must be a positive ${whole ? 'whole ' : ''}number`);
 			if (parameter.default !== undefined) {

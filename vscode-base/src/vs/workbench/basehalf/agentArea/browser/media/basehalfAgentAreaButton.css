@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 /* The dot of a bell on the title bar's button of the Agent Area: a session rang while the Agent Area was hidden
-   (docs/specs/agent-area-terminal.md, The bell). It takes no room, so the button keeps its place and its size,
-   and it has the color of the bell on a tab. */
+ * (docs/specs/agent-area-terminal.md, The bell). It takes no room, so the button keeps its place and its size,
+ * and it has the color of the bell on a tab. */
 .monaco-workbench .part.titlebar .action-item.basehalf-agent-area-button {
 	position: relative;
 }

@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+// allow-any-unicode-comment-file
+
 import { IBaseHalfAgentAreaSession, BaseHalfExtensionAgentSessionKind, baseHalfAgentSessionChoiceForKind } from '../common/basehalfAgentArea.js';
 import { DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { agentTabForPane } from '../common/basehalfAgentTabsModel.js';

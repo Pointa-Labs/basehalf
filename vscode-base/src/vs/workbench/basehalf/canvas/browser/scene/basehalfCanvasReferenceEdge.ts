@@ -32,22 +32,22 @@ const EDGE_RECONNECT_PATH_SAMPLES = 80;
 const EDGE_RECONNECT_CURSOR_CLASS = 'basehalf-canvas-edge-reconnecting';
 const edgeReconnectCursorLocks = new WeakMap<Document, number>();
 
-function lockEdgeReconnectCursor(document: Document): () => void {
-	const next = (edgeReconnectCursorLocks.get(document) ?? 0) + 1;
-	edgeReconnectCursorLocks.set(document, next);
-	document.body.classList.add(EDGE_RECONNECT_CURSOR_CLASS);
+function lockEdgeReconnectCursor(targetDocument: Document): () => void {
+	const next = (edgeReconnectCursorLocks.get(targetDocument) ?? 0) + 1;
+	edgeReconnectCursorLocks.set(targetDocument, next);
+	targetDocument.body.classList.add(EDGE_RECONNECT_CURSOR_CLASS);
 	let released = false;
 	return () => {
 		if (released) {
 			return;
 		}
 		released = true;
-		const remaining = Math.max(0, (edgeReconnectCursorLocks.get(document) ?? 1) - 1);
+		const remaining = Math.max(0, (edgeReconnectCursorLocks.get(targetDocument) ?? 1) - 1);
 		if (remaining === 0) {
-			edgeReconnectCursorLocks.delete(document);
-			document.body.classList.remove(EDGE_RECONNECT_CURSOR_CLASS);
+			edgeReconnectCursorLocks.delete(targetDocument);
+			targetDocument.body.classList.remove(EDGE_RECONNECT_CURSOR_CLASS);
 		} else {
-			edgeReconnectCursorLocks.set(document, remaining);
+			edgeReconnectCursorLocks.set(targetDocument, remaining);
 		}
 	};
 }
@@ -85,6 +85,7 @@ function snapReconnectPointer(
 	excludedNodeId: string
 ): BaseHalfCanvasReconnectHit {
 	const rects = [];
+	// eslint-disable-next-line no-restricted-syntax
 	for (const card of host.querySelectorAll<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]')) {
 		const nodeId = card.dataset.basehalfCardPath;
 		const node = card.closest<HTMLElement>('.react-flow__node');
@@ -120,6 +121,7 @@ function isEmptyCanvasAt(host: HTMLElement, edgeId: string, clientX: number, cli
 }
 
 function clearEdgeReconnectTarget(host: HTMLElement, edgeId: string): void {
+	// eslint-disable-next-line no-restricted-syntax
 	for (const card of host.querySelectorAll<HTMLElement>('.basehalf-canvas-card.connection-target')) {
 		if (card.dataset.basehalfReconnectEdgeId !== edgeId) {
 			continue;
@@ -127,6 +129,7 @@ function clearEdgeReconnectTarget(host: HTMLElement, edgeId: string): void {
 		card.classList.remove('connection-target', ...EDGE_RECONNECT_ANCHORS);
 		delete card.dataset.basehalfReconnectEdgeId;
 	}
+	// eslint-disable-next-line no-restricted-syntax
 	for (const node of host.querySelectorAll<HTMLElement>('.react-flow__node.connection-target')) {
 		if (node.dataset.basehalfReconnectEdgeId !== edgeId) {
 			continue;
@@ -134,6 +137,7 @@ function clearEdgeReconnectTarget(host: HTMLElement, edgeId: string): void {
 		node.classList.remove('connection-target');
 		delete node.dataset.basehalfReconnectEdgeId;
 	}
+	// eslint-disable-next-line no-restricted-syntax
 	for (const handle of host.querySelectorAll<HTMLElement>('.basehalf-canvas-card-connect-handle.connection-target')) {
 		if (handle.dataset.basehalfReconnectEdgeId !== edgeId) {
 			continue;
@@ -145,6 +149,7 @@ function clearEdgeReconnectTarget(host: HTMLElement, edgeId: string): void {
 
 function showEdgeReconnectTarget(host: HTMLElement, edgeId: string, snap: IBaseHalfCanvasReconnectSnap): void {
 	clearEdgeReconnectTarget(host, edgeId);
+	// eslint-disable-next-line no-restricted-syntax
 	const card = Array.from(host.querySelectorAll<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]'))
 		.find(candidate => candidate.dataset.basehalfCardPath === snap.nodeId);
 	const node = card?.closest<HTMLElement>('.react-flow__node');
@@ -155,6 +160,7 @@ function showEdgeReconnectTarget(host: HTMLElement, edgeId: string, snap: IBaseH
 	node.classList.add('connection-target');
 	card.dataset.basehalfReconnectEdgeId = edgeId;
 	node.dataset.basehalfReconnectEdgeId = edgeId;
+	// eslint-disable-next-line no-restricted-syntax
 	const handle = node.querySelector<HTMLElement>(`:scope > .basehalf-canvas-card-connect-handle.${snap.anchor}`);
 	handle?.classList.add('connection-target');
 	if (handle) {

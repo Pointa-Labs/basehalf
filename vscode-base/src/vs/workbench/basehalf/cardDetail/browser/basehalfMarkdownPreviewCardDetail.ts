@@ -363,6 +363,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 	private closestRenderedBlockToViewportTop(): HTMLElement | undefined {
 		const viewportTop = this.previewScroll.getBoundingClientRect().top;
+		// eslint-disable-next-line no-restricted-syntax
 		const candidates = Array.from(this.previewContent.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,table'));
 		let best: { readonly element: HTMLElement; readonly distance: number } | undefined;
 		for (const candidate of candidates) {
@@ -379,6 +380,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	}
 
 	private clearSelectionReveal(): void {
+		// eslint-disable-next-line no-restricted-syntax
 		for (const element of Array.from(this.previewContent.querySelectorAll<HTMLElement>('.basehalf-card-detail-markdown-preview-selection-reveal'))) {
 			element.classList.remove('basehalf-card-detail-markdown-preview-selection-reveal');
 		}

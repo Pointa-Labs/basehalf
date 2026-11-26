@@ -4,9 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { baseHalfCaptureStableMarkdownRichSnapshot } from '../../common/basehalfMarkdownRichStructuralSave.js';
 
 suite('BaseHalfMarkdownRichStructuralSave', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('waits for composition and retries a revision that changes during serialization', async () => {
 		let composing = true;
 		let revision = 1;

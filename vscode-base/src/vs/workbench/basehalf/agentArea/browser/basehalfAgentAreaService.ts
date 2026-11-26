@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+// allow-any-unicode-comment-file
+
 import './media/basehalfAgentArea.css';
 import { RawContextKey, IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { BaseHalfAgentSessionKind, BaseHalfAgentSessionState, BaseHalfAgentLaunchInstructionsMonitor, IBaseHalfAgentAreaService, IBaseHalfAgentAreaSession, BaseHalfExtensionAgentSessionKind, IBaseHalfExtensionAgentProvider, BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS, baseHalfAgentSessionCanRequestNodeRuns, BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, baseHalfAgentSessionChoiceForKind, IBaseHalfCreateAgentTerminalOptions, IBaseHalfAdoptAgentTerminalOptions, baseHalfHasAgentLaunchInstructions } from '../common/basehalfAgentArea.js';
@@ -257,6 +259,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 
 		this.zoomResetButton = append(tabsBar, $('button.basehalf-agent-area-icon.basehalf-agent-zoom-reset.codicon.codicon-screen-normal')) as HTMLButtonElement;
 		this.zoomResetButton.type = 'button';
+		// allow-any-unicode-next-line
 		setBaseHalfHover(this.zoomResetButton, 'Reset Zoom (⌘⇧↵)');
 		this.zoomResetButton.setAttribute('aria-label', 'Reset Zoom');
 		this.zoomResetButton.addEventListener('click', () => this.togglePaneZoom());
@@ -275,6 +278,7 @@ export class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAge
 		this.hud.setAttribute('aria-hidden', 'true');
 		this.zoomBadge = append(this.body, $('.basehalf-agent-zoom-badge'));
 		this.zoomBadge.setAttribute('aria-hidden', 'true');
+		// allow-any-unicode-next-line
 		this.zoomBadge.textContent = 'zoomed · ⌘⇧↵';
 		this.toasts = append(this.root, $('.basehalf-agent-toasts'));
 

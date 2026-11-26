@@ -36,11 +36,11 @@ const SPACE = /\s/u;
  */
 export function baseHalfPlainCharacter(character: string): string {
 	switch (character) {
-		case '‘': case '’': case '‚': case '‛': case '′':
+		case '\u2018': case '\u2019': case '\u201A': case '\u201B': case '\u2032':
 			return '\'';
-		case '“': case '”': case '„': case '‟': case '″':
+		case '\u201C': case '\u201D': case '\u201E': case '\u201F': case '\u2033':
 			return '"';
-		case '‐': case '‑': case '‒': case '–': case '—': case '−':
+		case '\u2010': case '\u2011': case '\u2012': case '\u2013': case '\u2014': case '\u2212':
 			return '-';
 	}
 	return character.normalize('NFKC');
@@ -78,7 +78,7 @@ function searchText(original: string, compact: boolean): ISearchText {
 		}
 		const width = codePoint > 0xffff ? 2 : 1;
 		const character = String.fromCodePoint(codePoint);
-		if (character === '­') {
+		if (character === '\u00AD') {
 			index += width;
 			continue;
 		}

@@ -1221,6 +1221,7 @@ export class BaseHalfCanvasRenderer {
 	}
 
 	renderCanvasWarning(message: string): void {
+		// eslint-disable-next-line no-restricted-syntax
 		const warnings = [...this.view.canvasOverlay.querySelectorAll<HTMLElement>('.basehalf-canvas-warning')];
 		const duplicate = warnings.some(warning => warning.textContent === message);
 		if (duplicate) {

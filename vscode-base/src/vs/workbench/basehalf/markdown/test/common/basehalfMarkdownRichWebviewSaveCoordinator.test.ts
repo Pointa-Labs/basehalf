@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	BaseHalfMarkdownRichSaveRequestedMessage,
 	BaseHalfMarkdownRichWebviewSaveCoordinator,
@@ -21,6 +22,8 @@ const FRONTMATTER = '---\ntitle: Notes\n---\n';
 const UPSTREAM_FRONTMATTER = '---\ntitle: Notes\nupstream:\n  - sources/book.pdf\n---\n';
 
 suite('BaseHalfMarkdownRichWebviewSaveCoordinator', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('writes changed rich content and allows navigation to continue', async () => {
 		const disk = new TestDisk('Alpha\n');
 		const sender = new TestSender();
@@ -257,6 +260,8 @@ suite('BaseHalfMarkdownRichWebviewSaveCoordinator', () => {
 });
 
 suite('planBaseHalfMarkdownRichProjectionHandoff', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('hands off the rich body under the model frontmatter when only the frontmatter changed', () => {
 		assert.deepStrictEqual(
 			planBaseHalfMarkdownRichProjectionHandoff(`${UPSTREAM_FRONTMATTER}Alpha\n`, {

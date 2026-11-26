@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { URI } from '../../../../../base/common/uri.js';
 import {
 	BaseHalfMarkdownRichLiveDocumentRegistry,
@@ -11,6 +12,8 @@ import {
 } from '../../common/basehalfMarkdownRichLiveDocument.js';
 
 suite('BaseHalfMarkdownRichLiveDocumentRegistry', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('keys documents by workspace URI and relative path', () => {
 		const first = baseHalfMarkdownRichDocumentKey(URI.file('/workspace-a'), 'notes/today.md');
 		const sameRelativeDifferentWorkspace = baseHalfMarkdownRichDocumentKey(URI.file('/workspace-b'), 'notes/today.md');

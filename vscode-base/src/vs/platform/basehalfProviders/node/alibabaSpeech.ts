@@ -28,6 +28,7 @@ const TEXT = Object.freeze({
 	speed: 'Speed',
 	speedTooltip: 'How fast the voice speaks: 1 is its own pace.',
 	instruction: 'Instruction',
+	// allow-any-unicode-next-line
 	instructionTooltip: 'How the voice speaks, in a sentence: a dialect, a feeling, or a role, such as “请讲上海话。”. Write it in the language of the text.',
 	pitch: 'Pitch',
 	pitchTooltip: 'Raises or lowers the voice: 1 is its own pitch.',

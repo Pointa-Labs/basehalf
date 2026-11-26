@@ -111,6 +111,7 @@ export function createBaseHalfCanvasSceneOverlays(environment: IBaseHalfCanvasSc
 	}
 
 	function connectHandleElement(nodeId: string, anchor: BaseHalfCanvasAnchor): HTMLElement | null {
+		// eslint-disable-next-line no-restricted-syntax
 		return host.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(nodeId)}"] > .basehalf-canvas-card-connect-handle.${anchor}`);
 	}
 

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { URI } from '../../../../../base/common/uri.js';
 import {
@@ -21,6 +22,8 @@ import { baseHalfMirrorRecoveryResource, IBaseHalfMirrorPreservedEvent } from '.
 import { BaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 
 suite('BaseHalfAdhdMirrorService', () => {
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
 	const workspaceFolder = URI.file('/work');
 
 	test('maps files to adhd.yaml mirror resources', () => {
@@ -525,7 +528,7 @@ suite('BaseHalfAdhdMirrorService', () => {
 	}
 
 	function mirrorService(fileService: IFileService): BaseHalfAdhdMirrorService {
-		return new BaseHalfAdhdMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator(), new NullLogService());
+		return store.add(new BaseHalfAdhdMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator(), new NullLogService()));
 	}
 });
 

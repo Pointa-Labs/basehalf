@@ -38,6 +38,7 @@ const NOTE_TEXT = [
 	'',
 	'###### Level six',
 	'',
+	// allow-any-unicode-next-line
 	'The temperature falls as `T ∝ r^(-3/4)`.',
 	''
 ].join('\n');

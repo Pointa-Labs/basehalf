@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { URI } from '../../../../../base/common/uri.js';
 import {
@@ -28,6 +29,8 @@ const IGNORE_FILE_PATH = '/work/.bh/.gitignore';
 const TRICKY_NAMES = ['09', '2024', '-3', '1.5', '1e21', 'true', 'false', 'null', '~', '', ' lead', 'trail ', '"q"', 'it\'s', 'back\\slash', 'a: b', 'a #b', 'line\nbreak', 'bell\u0007', 'ls\u2028x', '中文 笔记.md'];
 
 suite('BaseHalfCanvasMirrorService', () => {
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
 	const workspaceFolder = URI.file('/work');
 
 	test('maps root and nested folders to their canvas.yaml resources', () => {
@@ -1870,7 +1873,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 	}
 
 	function mirrorService(fileService: IFileService): BaseHalfCanvasMirrorService {
-		return new BaseHalfCanvasMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator());
+		return store.add(new BaseHalfCanvasMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator()));
 	}
 });
 

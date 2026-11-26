@@ -95,13 +95,15 @@ Runs one suite of the smoke. scripts/basehalf-smoke.mts runs the suites, each in
 process of its own; use it through npm run basehalf:smoke or basehalf:smoke-no-compile.
 
 Options:
-  --suite <name>      The suite to run: workbench, canvas, cardDetail, navigation, or video.
-  --output <path>     Store smoke logs/user-data/crashes in this directory.
-  --packaged-app <path>
-                      Run against a packaged application bundle or folder instead of
-                      the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.
-  --keep              Keep the generated temporary directory after the run.
-  --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
+${[
+		'  --suite <name>      The suite to run: workbench, canvas, cardDetail, navigation, or video.',
+		'  --output <path>     Store smoke logs/user-data/crashes in this directory.',
+		'  --packaged-app <path>',
+		'                      Run against a packaged application bundle or folder instead of',
+		'                      the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.',
+		'  --keep              Keep the generated temporary directory after the run.',
+		'  --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.'
+	].join('\n')}
 `);
 	process.exit(0);
 }

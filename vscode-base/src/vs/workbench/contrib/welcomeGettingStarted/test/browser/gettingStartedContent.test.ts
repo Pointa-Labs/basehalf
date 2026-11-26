@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { startEntries, walkthroughs } from '../../common/gettingStartedContent.js';
 
 suite('Getting Started Content', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('uses BaseHalf start entries instead of stock VS Code onboarding entries', () => {
 		assert.deepStrictEqual(

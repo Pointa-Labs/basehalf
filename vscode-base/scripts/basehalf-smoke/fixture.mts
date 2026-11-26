@@ -25,6 +25,7 @@ export const BH_IGNORE_FILE = [
 	'/mirror/**/*.basehalf-tmp',
 	''
 ].join('\n');
+// allow-any-unicode-next-line
 export const CANVAS_MALFORMED_EMPHASIS_PARAGRAPH = '曾经繁华的长安，如今已是断壁残垣。宫殿倾颓，街市萧条，只有那巍峨的山河依旧矗立，仿佛在无声地诉说着往日的辉煌。春风吹过，城中的草木却长得异常茂盛**，';
 // What the fixture holds under .bh/ before BaseHalf first opens it.
 export let bhTreeBeforeLaunch;

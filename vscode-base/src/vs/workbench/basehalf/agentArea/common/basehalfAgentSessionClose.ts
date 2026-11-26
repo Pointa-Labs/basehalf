@@ -71,6 +71,7 @@ export interface IBaseHalfAgentSessionCloseQuestion {
 export function baseHalfAgentSessionCloseQuestion(ending: BaseHalfAgentSessionEnding, running: readonly string[], open: number = running.length): IBaseHalfAgentSessionCloseQuestion {
 	let message: string;
 	if (running.length === 1) {
+		// allow-any-unicode-next-line
 		message = localize('basehalf.agentArea.close.oneRunning', "“{0}” is still running.", running[0]);
 	} else if (running.length > 1) {
 		message = localize('basehalf.agentArea.close.severalRunning', "{0} sessions are still running.", running.length);

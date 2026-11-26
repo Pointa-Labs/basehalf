@@ -291,18 +291,19 @@ async function loadCanvasMarkdownInlineVendor(): Promise<IBaseHalfCanvasMarkdown
 	return vendorPromise;
 }
 
-function loadCanvasMarkdownInlineStyles(document: Document): Promise<void> {
-	const current = stylePromises.get(document);
+function loadCanvasMarkdownInlineStyles(targetDocument: Document): Promise<void> {
+	const current = stylePromises.get(targetDocument);
 	if (current) {
 		return current;
 	}
 	const loading = new Promise<void>((resolve, reject) => {
-		const existing = document.querySelector<HTMLLinkElement>('link[data-basehalf-canvas-markdown-inline-vendor]');
+		// eslint-disable-next-line no-restricted-syntax
+		const existing = targetDocument.querySelector<HTMLLinkElement>('link[data-basehalf-canvas-markdown-inline-vendor]');
 		if (existing?.dataset.loaded === 'true' || existing?.sheet) {
 			resolve();
 			return;
 		}
-		const link = existing ?? document.createElement('link');
+		const link = existing ?? targetDocument.createElement('link');
 		link.rel = 'stylesheet';
 		link.dataset.basehalfCanvasMarkdownInlineVendor = 'true';
 		const onLoad = () => {
@@ -318,11 +319,11 @@ function loadCanvasMarkdownInlineStyles(document: Document): Promise<void> {
 		if (!existing) {
 			const root = FileAccess.asBrowserUri(CANVAS_MARKDOWN_INLINE_VENDOR_ROOT);
 			link.href = URI.joinPath(root, CANVAS_MARKDOWN_INLINE_VENDOR_STYLES).toString(true);
-			document.head.appendChild(link);
+			targetDocument.head.appendChild(link);
 		}
 	});
-	stylePromises.set(document, loading);
-	void loading.catch(() => stylePromises.delete(document));
+	stylePromises.set(targetDocument, loading);
+	void loading.catch(() => stylePromises.delete(targetDocument));
 	return loading;
 }
 
@@ -812,6 +813,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		seedRendering.clear();
 		this.runtime = runtime;
 		renderStore.add(toDisposable(() => runtime.destroy()));
+		// eslint-disable-next-line no-restricted-syntax
 		const editable = this.root.querySelector<HTMLElement>(':scope > .ProseMirror');
 		editable?.setAttribute('aria-label', `Edit ${state.relativePath}`);
 		if (editable) {

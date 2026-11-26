@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { Event } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
 import {
@@ -21,6 +22,8 @@ import {
 } from '../../common/basehalfOpenRouting.js';
 
 suite('BaseHalfOpenRouting', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('routes normal workspace opens into BaseHalf navigation options', async () => {
 		const service = new TestCanvasNavigationService({
 			handled: true,
@@ -77,7 +80,7 @@ suite('BaseHalfOpenRouting', () => {
 		assert.strictEqual(result.handled, true);
 		assert.strictEqual(service.opened.length, 1);
 		assert.strictEqual(service.opened[0].options.source, 'explorer');
-		assert.strictEqual('sideBySide' in service.opened[0].options, false);
+		assert.strictEqual(Object.hasOwn(service.opened[0].options, 'sideBySide'), false);
 	});
 
 	test('leaves explicit VS Code editor opens to the VS Code editor path', () => {

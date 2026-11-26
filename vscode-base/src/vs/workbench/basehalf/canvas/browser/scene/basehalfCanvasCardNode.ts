@@ -105,7 +105,7 @@ export function resolveBaseHalfCanvasResizeCornerGeometry(corner: BaseHalfCanvas
 	const xSign = horizontal === 'right' ? 1 : -1;
 	const ySign = vertical === 'bottom' ? 1 : -1;
 	// Angles run from the side tangent point (0) to the top or bottom tangent
-	// point (π/2). Mirroring one axis reverses the sweep direction.
+	// point (pi / 2). Mirroring one axis reverses the sweep direction.
 	const sweep = xSign * ySign > 0 ? 1 : 0;
 	const point = (arcRadius: number, angle: number): string => `${round(xSign * arcRadius * Math.cos(angle))} ${round(ySign * arcRadius * Math.sin(angle))}`;
 	const arc = (arcRadius: number, from: number, to: number): string => `M ${point(arcRadius, from)} A ${round(arcRadius)} ${round(arcRadius)} 0 0 ${sweep} ${point(arcRadius, to)}`;

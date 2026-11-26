@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 /* The edges (D86): what lies around a terminal's grid takes the background of
-   the nearest cell. The layer lies under the pane's surface and covers the
-   pane; each side is a canvas of one pixel per row or per column, stretched
-   over the side without smoothing. */
+ * the nearest cell. The layer lies under the pane's surface and covers the
+ * pane; each side is a canvas of one pixel per row or per column, stretched
+ * over the side without smoothing. */
 .basehalf-agent-session-edges {
 	position: absolute;
 	inset: 0;

@@ -49,7 +49,7 @@ export function baseHalfDocumentBranchTitle(text: string): string {
 	if (!normalized) {
 		return 'Note';
 	}
-	const sentence = normalized.match(/^(.{1,80}?(?:[。！？]|[.!?](?=\s|$)))/u)?.[1] ?? normalized;
+	const sentence = normalized.match(/^(.{1,80}?(?:[\u3002\uFF01\uFF1F]|[.!?](?=\s|$)))/u)?.[1] ?? normalized;
 	const characters = [...sentence];
 	return characters.length <= 72
 		? sentence

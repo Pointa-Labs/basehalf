@@ -125,6 +125,7 @@ export function createBaseHalfCanvasNoteSelectionControls(environment: IBaseHalf
 				event.preventDefault();
 				event.stopPropagation();
 				setFocusIndex(next);
+				// eslint-disable-next-line no-restricted-syntax
 				event.currentTarget.closest<HTMLElement>('.basehalf-canvas-note-toolbar')
 					?.querySelectorAll<HTMLButtonElement>(':scope > button')[next]?.focus();
 			}

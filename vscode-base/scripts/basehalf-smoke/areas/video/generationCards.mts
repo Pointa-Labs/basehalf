@@ -700,7 +700,7 @@ async function assertPanelModelAndSettings(page) {
 	}
 	const seedance = group.items.find(item => item.model === SEEDANCE);
 	// D70, criterion 67: with its range of durations.
-	if (!/ · \d+–\d+s · /.test(seedance?.detail ?? '')) {
+	if (!/ · \d+\u2013\d+s · /.test(seedance?.detail ?? '')) {
 		throw new Error(`A video model must show its range of durations among its abilities: ${JSON.stringify(seedance)}`);
 	}
 	await clickModel(page, panel, SMOKE_PROVIDER, SEEDANCE);

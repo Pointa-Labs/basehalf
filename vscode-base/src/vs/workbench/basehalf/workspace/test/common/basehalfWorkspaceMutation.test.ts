@@ -4,11 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { FileOperation } from '../../../../../platform/files/common/files.js';
 import { baseHalfStructuralResourceOutcome, BaseHalfWorkspaceMutationCoordinator, IBaseHalfStructuralMutationOutcome } from '../../common/basehalfWorkspaceMutation.js';
 
 suite('BaseHalfWorkspaceMutationCoordinator', () => {
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
 	const workspaceA = URI.file('/workspace-a');
 	const workspaceB = URI.file('/workspace-b');
 
@@ -169,7 +172,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 	test('internal finalization releases the commit barrier before publishing retained-surface outcome', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const outcomes: IBaseHalfStructuralMutationOutcome[] = [];
-		coordinator.onDidFinishStructuralMutation(outcome => outcomes.push(outcome));
+		store.add(coordinator.onDidFinishStructuralMutation(outcome => outcomes.push(outcome)));
 		const first = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'a.md' }]);
 		const second = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'a.md' }]);
 		await first.ready;
@@ -222,9 +225,9 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 		let releaseReconcile!: () => void;
 		const reconcileGate = new Promise<void>(resolve => releaseReconcile = resolve);
 		let reconciled = false;
-		coordinator.onDidFinishStructuralMutation(outcome => {
+		store.add(coordinator.onDidFinishStructuralMutation(outcome => {
 			outcome.waitUntil(reconcileGate.then(() => { reconciled = true; }));
-		});
+		}));
 		const reservation = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'a.md' }]);
 		await reservation.finishInternal(async () => undefined, [{
 			operation: FileOperation.DELETE,
@@ -243,14 +246,14 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 	test('publish retries a transient retained-surface reconciliation failure', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		let attempts = 0;
-		coordinator.onDidFinishStructuralMutation(outcome => {
+		store.add(coordinator.onDidFinishStructuralMutation(outcome => {
 			outcome.waitUntil(Promise.resolve().then(() => {
 				attempts++;
 				if (attempts === 1) {
 					throw new Error('transient reconciliation failure');
 				}
 			}));
-		});
+		}));
 		const reservation = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'a.md' }]);
 		await reservation.finishInternal(async () => undefined, [{
 			operation: FileOperation.DELETE,
@@ -281,7 +284,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 		failingListener.dispose();
 
 		let published = false;
-		coordinator.onDidFinishStructuralMutation(() => { published = true; });
+		store.add(coordinator.onDidFinishStructuralMutation(() => { published = true; }));
 		const later = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'b.md' }]);
 		await later.finishInternal(async () => undefined, [{
 			operation: FileOperation.DELETE,
@@ -297,7 +300,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 		const b = URI.joinPath(workspaceA, 'b.md');
 		const c = URI.joinPath(workspaceA, 'c.md');
 		let detail = a;
-		coordinator.onDidFinishStructuralMutation(outcome => {
+		store.add(coordinator.onDidFinishStructuralMutation(outcome => {
 			outcome.waitUntil(Promise.resolve().then(() => {
 				const relative = detail.path.slice(workspaceA.path.length + 1);
 				const effect = baseHalfStructuralResourceOutcome(outcome, workspaceA, relative, detail);
@@ -305,7 +308,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 					detail = effect.resource;
 				}
 			}));
-		});
+		}));
 
 		const outer = coordinator.reserveStructural(workspaceA, [
 			{ workspace: workspaceA, relativePath: 'a.md' },
@@ -329,7 +332,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 	test('a vetoed prepared reservation publishes one non-destructive cancellation and unblocks the next commit barrier', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const outcomes: IBaseHalfStructuralMutationOutcome[] = [];
-		coordinator.onDidFinishStructuralMutation(outcome => outcomes.push(outcome));
+		store.add(coordinator.onDidFinishStructuralMutation(outcome => outcomes.push(outcome)));
 		const vetoed = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'docs' }]);
 		const later = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'docs/readme.md' }]);
 		await vetoed.ready;
@@ -381,7 +384,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 	test('publishes committed, aborted, and reconciled outcomes with attempted paths and completed facts', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const outcomes: IBaseHalfStructuralMutationOutcome[] = [];
-		coordinator.onDidFinishStructuralMutation(outcome => outcomes.push(outcome));
+		store.add(coordinator.onDidFinishStructuralMutation(outcome => outcomes.push(outcome)));
 		const source = URI.joinPath(workspaceA, 'a.md');
 		const target = URI.joinPath(workspaceA, 'b.md');
 		const paths = [
@@ -411,7 +414,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 	test('classifies retained identities from a reconciled partial move prefix', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		let outcome: IBaseHalfStructuralMutationOutcome | undefined;
-		coordinator.onDidFinishStructuralMutation(value => outcome = value);
+		store.add(coordinator.onDidFinishStructuralMutation(value => outcome = value));
 		const firstSource = URI.joinPath(workspaceA, 'first.md');
 		const firstTarget = URI.joinPath(workspaceA, 'first-moved.md');
 		const reservation = coordinator.reserveStructural(workspaceA, [
@@ -435,7 +438,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 	test('successful delete closes descendants while an aborted attempt validates and recreates them', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const outcomes: IBaseHalfStructuralMutationOutcome[] = [];
-		coordinator.onDidFinishStructuralMutation(value => outcomes.push(value));
+		store.add(coordinator.onDidFinishStructuralMutation(value => outcomes.push(value)));
 		const docs = URI.joinPath(workspaceA, 'docs');
 		const readme = URI.joinPath(docs, 'readme.md');
 		const paths = [{ workspace: workspaceA, relativePath: 'docs' }];
@@ -481,7 +484,7 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const stamp = coordinator.captureResource(workspaceA, 'docs/readme.md');
 		const changes: string[] = [];
-		coordinator.onDidChangeResourceMutationFence(path => changes.push(path.relativePath));
+		store.add(coordinator.onDidChangeResourceMutationFence(path => changes.push(path.relativePath)));
 		const fence = coordinator.acquireResourceMutationFence(workspaceA, 'docs');
 
 		assert.strictEqual(coordinator.isResourceMutationFenced(workspaceA, 'docs/readme.md'), true);

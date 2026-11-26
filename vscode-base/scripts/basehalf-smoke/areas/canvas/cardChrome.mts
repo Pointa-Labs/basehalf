@@ -301,7 +301,7 @@ export function assertCanvasCardHasRoundedCornerResizeTargets(chrome, phase) {
 }
 
 /**
- * A point on a card's corner resize band: on the corner arc's 45° radius, a few
+ * A point on a card's corner resize band: on the corner arc's 45-degree radius, a few
  * screen pixels outside the painted edge.
  */
 export async function canvasCardCornerBandPoint(card, corner = 'bottom-right', outside = 4) {

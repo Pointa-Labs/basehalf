@@ -9,7 +9,7 @@ import {
 	IBaseHalfCanvasSnapRect,
 	snapBaseHalfCanvasResizeRect,
 	snapBaseHalfCanvasTranslateRect
-} from './basehalfCanvasSnap.js';
+} from '../common/basehalfCanvasSnap.js';
 
 export const BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD = 5;
 
@@ -264,12 +264,13 @@ export function snapBaseHalfCanvasFlowNodeChanges<TNode extends Node>(
 				nextChanges[index] = nudgePositionChange(positionChange, dx, dy);
 			}
 		} else if (snapped.rect.x !== draft.x || snapped.rect.y !== draft.y) {
-			nextChanges.push({
+			const moved: BaseHalfCanvasPositionChange<TNode> = {
 				id: dimensionChange.id,
 				type: 'position',
 				position: { x: snapped.rect.x, y: snapped.rect.y },
 				dragging: false
-			} as NodeChange<TNode>);
+			};
+			nextChanges.push(moved);
 		}
 		if (dimensionChange.resizing === true) {
 			guides = snapped.guides;

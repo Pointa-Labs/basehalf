@@ -358,7 +358,7 @@ const MODELS: ReadonlyMap<string, MiniMaxModel> = new Map(MODELS_IN_ORDER.map(mo
 // --- the catalog entry -------------------------------------------------------------------------
 
 const MIB = 1024 * 1024;
-/** "Total request body ≤ 64 MB": counted as 64,000,000 bytes to stay on the safe side. */
+/** The largest request body, which the documentation gives as 64 MB: counted as 64,000,000 bytes to stay on the safe side. */
 const REQUEST_MAX_BYTES = 64_000_000;
 const H3_MAX_BYTES: Readonly<Record<MediaKind, number>> = Object.freeze({ image: 30 * MIB, video: 50 * MIB, audio: 15 * MIB });
 /** "Less than 20MB"; Hailuo takes frames only. */

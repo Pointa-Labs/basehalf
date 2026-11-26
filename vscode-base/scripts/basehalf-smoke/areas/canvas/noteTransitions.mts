@@ -55,7 +55,6 @@ export async function startCanvasNoteEditTransitionProbe(note, tokens, expectedP
 		let settleProbe: (() => void) | undefined;
 		const frames: ProbeFrame[] = [];
 		const finished = new Promise<void>(resolve => settleProbe = resolve);
-		let probe: TransitionProbe;
 		const settle = (outcome: NonNullable<TransitionProbe['outcome']>) => {
 			if (settled) {
 				return;
@@ -331,7 +330,7 @@ export async function startCanvasNoteEditTransitionProbe(note, tokens, expectedP
 			}
 			animationFrame = requestAnimationFrame(sample);
 		};
-		probe = { direction, frames, finished, cancel: () => settle('cancelled') };
+		const probe: TransitionProbe = { direction, frames, finished, cancel: () => settle('cancelled') };
 		scope.__basehalfSmokeNoteEditTransition = probe;
 		deadlineTimer = window.setTimeout(() => settle('deadline'), timeout);
 		sample();

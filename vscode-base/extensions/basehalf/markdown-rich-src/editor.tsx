@@ -3225,6 +3225,7 @@ function MarkdownRichEditor(): JSX.Element {
 			)}
 			{state.unwrittenBlocks.size > 0 && (
 				<div className="basehalf-markdown-rich-banner warning">
+					{/* allow-any-unicode-next-line */}
 					<span>{baseHalfEditorLabel('Some formatting in this note could not be saved. Its text is saved.', '这篇笔记有些格式没能保存，文字都已保存。', '這篇筆記有些格式沒能儲存，文字都已儲存。')}</span>
 				</div>
 			)}

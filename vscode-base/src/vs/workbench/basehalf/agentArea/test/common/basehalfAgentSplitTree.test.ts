@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	BaseHalfPaneNode,
 	closeLeaf,
@@ -26,6 +27,8 @@ import {
 } from '../../common/basehalfAgentSplitTree.js';
 
 suite('BaseHalfAgentSplitTree', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	/** p1 | (p2 / p3): p1 left, right side stacked p2 over p3. */
 	function sampleTree(): BaseHalfPaneNode {
 		let tree: BaseHalfPaneNode = paneLeaf('p1');

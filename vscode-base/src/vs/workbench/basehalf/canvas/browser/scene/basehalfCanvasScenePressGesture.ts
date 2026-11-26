@@ -211,6 +211,7 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 			if (next.size === 0 && previous.size === 0) {
 				return;
 			}
+			// eslint-disable-next-line no-restricted-syntax
 			for (const element of host.querySelectorAll<SVGElement>('.react-flow__edge')) {
 				const id = element.dataset.id;
 				element.toggleAttribute(MARQUEE_SELECTED_LINE_ATTRIBUTE, id !== undefined && next.has(id));

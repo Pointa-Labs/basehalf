@@ -158,7 +158,7 @@ function cubicPoint(curve: readonly IBaseHalfCanvasPosition[], t: number): IBase
 	};
 }
 
-/** Whether a straight piece has a point in a rectangle or on its border (Liang–Barsky). */
+/** Whether a straight piece has a point in a rectangle or on its border (Liang-Barsky). */
 function segmentCrossesRect(start: IBaseHalfCanvasPosition, end: IBaseHalfCanvasPosition, rect: IBaseHalfCanvasArrangeRect): boolean {
 	const dx = end.x - start.x;
 	const dy = end.y - start.y;

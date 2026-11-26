@@ -90,7 +90,7 @@ export function readBaseHalfWavFile(bytes: Uint8Array): IBaseHalfWavFile | undef
 	return { ...format, frames: Math.floor(dataSize / format.blockAlign), dataOffset, dataSize, chunks };
 }
 
-/** Reads one sample as a number from −1 to 1. */
+/** Reads one sample as a number from -1 to 1. */
 function readSample(view: DataView, offset: number, file: IBaseHalfWavFile): number {
 	if (file.encoding === 'float') {
 		return file.bitsPerSample === 32 ? view.getFloat32(offset, true) : view.getFloat64(offset, true);

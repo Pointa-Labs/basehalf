@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	baseHalfAdhdKeywordHits,
 	buildBaseHalfAdhdFile,
@@ -15,6 +16,8 @@ import {
 } from '../../common/basehalfAdhd.js';
 
 suite('BaseHalfAdhd', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('normalizes read ranges into sorted gap-coalesced spans', () => {
 		assert.deepStrictEqual(normalizeBaseHalfAdhdRanges([[5, 6], [1, 2], [3, 4], [10, 12], [12, 15]]), [
 			[1, 6],

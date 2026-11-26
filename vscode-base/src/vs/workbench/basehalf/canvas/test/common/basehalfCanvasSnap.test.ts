@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	IBaseHalfCanvasSnapRect,
 	snapBaseHalfCanvasResizeRect,
@@ -14,6 +15,8 @@ const limits = { minWidth: 40, minHeight: 40, maxWidth: 400, maxHeight: 400 };
 const openEndedLimits = { minWidth: 40, minHeight: 40 };
 
 suite('BaseHalfCanvasSnap', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('snaps dragged bounds to nearby card edges and emits guide lines', () => {
 		const moving: IBaseHalfCanvasSnapRect = { id: 'a.md', x: 117, y: 22, width: 80, height: 60 };
 		const target: IBaseHalfCanvasSnapRect = { id: 'b.md', x: 200, y: 20, width: 90, height: 60 };

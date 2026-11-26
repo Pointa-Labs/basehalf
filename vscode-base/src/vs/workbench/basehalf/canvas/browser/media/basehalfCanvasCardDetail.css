@@ -118,7 +118,7 @@
 }
 
 /* Hidden while auto-save works; appears only as the "saving stopped
-   working" escape hatch (conflict/error), where clicking retries. */
+ * working" escape hatch (conflict/error), where clicking retries. */
 .monaco-workbench .basehalf-card-detail-save-status {
 	display: none;
 }
@@ -247,9 +247,9 @@
 }
 
 /* One retained layer per projection of the open document. A booting layer
-   stays hidden (visibility keeps layout and lets the webview/editor measure
-   and render) until its first meaningful frame, then the swap is atomic —
-   the previous projection remains visible until that moment. */
+ * stays hidden (visibility keeps layout and lets the webview/editor measure
+ * and render) until its first meaningful frame, then the swap is atomic —
+ * the previous projection remains visible until that moment. */
 .monaco-workbench .basehalf-card-detail-surface {
 	position: absolute;
 	inset: 0;

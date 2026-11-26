@@ -10,8 +10,7 @@ export class BaseHalfMarkdownRichAsyncMutationBarrier {
 	private readonly idleWaiters = new Set<() => void>();
 
 	run<T>(task: () => Promise<T>): Promise<T> {
-		let operation!: Promise<T>;
-		operation = task().finally(() => {
+		const operation: Promise<T> = task().finally(() => {
 			this.inFlight.delete(operation);
 			if (this.inFlight.size === 0) {
 				for (const resolve of this.idleWaiters) {

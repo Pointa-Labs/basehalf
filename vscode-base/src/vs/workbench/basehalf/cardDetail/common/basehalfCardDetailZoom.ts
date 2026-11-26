@@ -42,7 +42,7 @@ export function isBaseHalfZoomWheel(event: { readonly ctrlKey: boolean; readonly
 }
 
 /**
- * How much one wheel event zooms: e^(−Δy / 100), the measure the browser
+ * How much one wheel event zooms: e^(-deltaY / 100), the measure the browser
  * gives a pinch, so that what is zoomed follows the fingers; a notch of a
  * mouse wheel zooms by at most 10% (rule 3).
  */

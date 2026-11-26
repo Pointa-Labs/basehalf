@@ -386,7 +386,7 @@ export function parseBaseHalfLegacyRecords(text: string): IBaseHalfLegacyRecord[
 		}
 		current = undefined;
 	};
-	for (const rawLine of text.replace(/^﻿/, '').split(/\r\n|\n|\r/)) {
+	for (const rawLine of text.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)) {
 		if (/^\s*(?:#.*)?$/.test(rawLine)) {
 			continue;
 		}

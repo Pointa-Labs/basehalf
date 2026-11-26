@@ -64,9 +64,9 @@ function isPlainScript(code: number): boolean {
 		|| (code >= 0x4e00 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7a3) || (code >= 0x20000 && code <= 0x2a6df);
 }
 
-/** Latin and Greek letters with accents, which Find matches without them. Cyrillic keeps them: й is not и. */
-const ACCENTED = /[À-ɏḀ-ỿͰ-Ͽἀ-῿]/u;
-const ACCENTS = /[̀-ͯ]/gu;
+/** Latin and Greek letters with accents, which Find matches without them. Cyrillic keeps them: a short i is another letter than an i. */
+const ACCENTED = /[\u00C0-\u024F\u1E00-\u1EFF\u0370-\u03FF\u1F00-\u1FFF]/u;
+const ACCENTS = /[\u0300-\u036F]/gu;
 const LETTER = /\p{L}/u;
 
 /** A character as Find matches it: plain, in its compatibility form, in lower case, and without accents. */

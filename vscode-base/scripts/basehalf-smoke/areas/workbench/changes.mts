@@ -243,7 +243,7 @@ export async function assertRowOpensTheChangesView(page) {
 	await page.keyboard.press('Meta+S');
 	await waitUntil(() => fs.readFileSync(inWorkspace(CODE), 'utf8').startsWith('// typed in the view\n'), 'typed text with its spaces to reach the file', 10_000);
 	await page.locator('.basehalf-card-detail-projection[aria-label="Source"]').click();
-	await waitForReading(() => page.evaluate(() => document.querySelector('.basehalf-card-detail-surface.active .view-line')?.textContent?.replace(/ /g, ' ')), line => line === '// typed in the view', 'Source to show what was typed in the view', 10_000);
+	await waitForReading(() => page.evaluate(() => document.querySelector('.basehalf-card-detail-surface.active .view-line')?.textContent?.replace(/\u00A0/g, ' ')), line => line === '// typed in the view', 'Source to show what was typed in the view', 10_000);
 	await page.locator('.basehalf-card-detail-projection[aria-label="Changes"]').click();
 	await waitForReading(() => readDetail(page), reading => reading.diff, 'the Changes view again', 10_000);
 
@@ -528,7 +528,7 @@ export async function assertCommitBoxTakesSpaces(page) {
 	await page.waitForTimeout(300);
 	await page.locator('.scm-editor').first().click({ timeout: 10_000 });
 	await page.keyboard.type('a message with spaces');
-	const text = await waitForReading(() => page.evaluate(() => document.querySelector('.scm-editor .view-line')?.textContent?.replace(/ /g, ' ')), value => value === 'a message with spaces', 'spaces in the commit message box', 5_000);
+	const text = await waitForReading(() => page.evaluate(() => document.querySelector('.scm-editor .view-line')?.textContent?.replace(/\u00A0/g, ' ')), value => value === 'a message with spaces', 'spaces in the commit message box', 5_000);
 	await page.keyboard.press('Meta+A');
 	await page.keyboard.press('Backspace');
 	return text;

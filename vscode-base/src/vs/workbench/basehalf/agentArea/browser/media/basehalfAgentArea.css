@@ -3,8 +3,10 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+/* allow-any-unicode-comment-file */
+
 /* The Agent Area chrome fills the auxiliary-bar view pane that adopts it.
-   Layout, sash, and size persistence belong to the workbench part. */
+ * Layout, sash, and size persistence belong to the workbench part. */
 .monaco-workbench .basehalf-agent-area-view-body {
 	height: 100%;
 }
@@ -18,9 +20,9 @@
 	--basehalf-agent-terminal-sheen: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 2%, transparent);
 	--basehalf-agent-terminal-inactive-opacity: 0.15;
 	/* The tabs are the connected tabs of the base's panel (workbench appearance, rule 14): the strip has the
-	   session's own background and a line at its foot, and the chosen tab opens into the session under it, the
-	   card's top border its top. The content pair below is re-pointed per active session kind, and the tabs'
-	   colors are drawn from it (light and dark, rule 23). */
+	 * session's own background and a line at its foot, and the chosen tab opens into the session under it, the
+	 * card's top border its top. The content pair below is re-pointed per active session kind, and the tabs'
+	 * colors are drawn from it (light and dark, rule 23). */
 	--basehalf-agent-content-background: var(--basehalf-agent-extension-background);
 	--basehalf-agent-content-foreground: var(--basehalf-agent-extension-foreground);
 	--basehalf-agent-tab-line: color-mix(in srgb, var(--basehalf-agent-content-foreground) 10%, var(--basehalf-agent-content-background));
@@ -37,7 +39,7 @@
 }
 
 /* Light and high-contrast themes stay flat. In high contrast the lines of the tabs are the theme's contrast border
-   and the active tab is marked by an outline as well. */
+ * and the active tab is marked by an outline as well. */
 .monaco-workbench.vs .basehalf-agent-area {
 	--basehalf-agent-terminal-sheen: transparent;
 }
@@ -69,13 +71,13 @@
 }
 
 /* An accent bar on the left edge while the area owns keyboard focus — so the
-   precondition for its shortcuts (⌘D, ⌘W, arrows…) is visible. */
+ * precondition for its shortcuts (⌘D, ⌘W, arrows…) is visible. */
 .monaco-workbench .basehalf-agent-area.focused {
 	box-shadow: inset 2px 0 0 0 var(--vscode-focusBorder);
 }
 
 /* Text buttons inherit the UI font; buttons that ARE a codicon glyph must
-   keep the icon font, so they only get the chrome reset. */
+ * keep the icon font, so they only get the chrome reset. */
 .monaco-workbench .basehalf-agent-toast-undo,
 .monaco-workbench .basehalf-agent-empty-choice {
 	border: 0;
@@ -130,7 +132,7 @@
 }
 
 /* The line at the foot of the strip is an overlay, not a border, so the active tab (opaque, higher z-index)
-   interrupts it and flows into the pane below. */
+ * interrupts it and flows into the pane below. */
 .monaco-workbench .basehalf-agent-area-tabs::after {
 	content: '';
 	position: absolute;
@@ -199,7 +201,7 @@
 	color: var(--basehalf-agent-tab-inactive-foreground);
 	border-radius: 7px 7px 0 0;
 	/* A divider of 16 px at the left edge, as between the tabs of the panel; it yields next to the active or the
-	   hovered tab, drawn as a background so the drop indicator pseudo-elements stay free. */
+	 * hovered tab, drawn as a background so the drop indicator pseudo-elements stay free. */
 	background-image: linear-gradient(var(--basehalf-agent-tab-divider), var(--basehalf-agent-tab-divider));
 	background-size: 1px 16px;
 	background-position: left center;
@@ -220,7 +222,7 @@
 }
 
 /* The active tab has the session's colors and stands over the line at the foot of the strip, so that it opens into
-   the session under it. */
+ * the session under it. */
 .monaco-workbench .basehalf-agent-tab.active {
 	color: var(--basehalf-agent-content-foreground);
 	background-color: var(--basehalf-agent-content-background);
@@ -246,7 +248,7 @@
 }
 
 /* Its shoulders curve from its sides into the line at the foot of the strip, and the inside of each curve has the
-   tab's color. Real elements: ::before and ::after belong to the drag and drop indicators. */
+ * tab's color. Real elements: ::before and ::after belong to the drag and drop indicators. */
 .monaco-workbench .basehalf-agent-tab-curl {
 	position: absolute;
 	bottom: 0;
@@ -279,7 +281,7 @@
 }
 
 /* Room for the right shoulder of the last tab, kept whether it is active or not: the strip's scroll width does not
-   change when another tab becomes active. */
+ * change when another tab becomes active. */
 .monaco-workbench .basehalf-agent-tab:last-child {
 	margin-right: 7px;
 }
@@ -328,7 +330,7 @@
 }
 
 /* Leading ⌘N badge = the shortcut that selects this tab (so the shortcut is
-   discoverable and tabs stay distinct before a title lands). */
+ * discoverable and tabs stay distinct before a title lands). */
 .monaco-workbench .basehalf-agent-tab-shortcut {
 	flex-shrink: 0;
 	font-variant-numeric: tabular-nums;
@@ -399,7 +401,7 @@
 }
 
 /* The × / activity-dot share one 16px slot; the dot yields to the × on
-   hover/active. */
+ * hover/active. */
 .monaco-workbench .basehalf-agent-tab-indicator {
 	position: relative;
 	flex-shrink: 0;
@@ -456,7 +458,7 @@
 }
 
 /* The bell of a session stands in the same slot, in place of the dot and of the close button, which returns
-   under the pointer. The selector outranks the workbench's color for every icon. */
+ * under the pointer. The selector outranks the workbench's color for every icon. */
 .monaco-workbench .basehalf-agent-tab-indicator .basehalf-agent-tab-bell {
 	position: absolute;
 	inset: 0;
@@ -565,7 +567,7 @@
 }
 
 /* A Ghostty-like terminal pane is primarily the configured terminal background.
-   Keep only a neutral top sheen; no colored glows behind command output. */
+ * Keep only a neutral top sheen; no colored glows behind command output. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal::after {
 	content: '';
 	position: absolute;
@@ -595,9 +597,9 @@
 }
 
 /* The reference terminal keeps its scroll view flush with the surface and
-   applies a tiny renderer padding to the grid. Mirror that shape: the xterm
-   host reaches the pane edge, while the glyph grid keeps 2px at each side and
-   no width for the scrollbar, which lies over the rows. */
+ * applies a tiny renderer padding to the grid. Mirror that shape: the xterm
+ * host reaches the pane edge, while the glyph grid keeps 2px at each side and
+ * no width for the scrollbar, which lies over the rows. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface {
 	inset: 2px 0;
 }
@@ -609,9 +611,9 @@
 }
 
 /* xterm.js paints its background inline on the terminal and its scrollable
-   element. The edges under the surface paint it instead (D86), so the cells
-   and the edges are what the pane shows; without the edges the pane's own
-   background shows. */
+ * element. The edges under the surface paint it instead (D86), so the cells
+ * and the edges are what the pane shows; without the edges the pane's own
+ * background shows. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper,
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm,
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-viewport,
@@ -626,7 +628,7 @@
 }
 
 /* The scrollable element reaches both edges of the pane, so the scrollbar
-   lies at the pane's right edge, while the grid in it keeps its 2px. */
+ * lies at the pane's right edge, while the grid in it keeps its 2px. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element {
 	margin-left: -2px;
 	margin-right: -2px;
@@ -655,9 +657,9 @@
 }
 
 /* xterm.js decides whether the scrollbar is shown and hides it where nothing
-   can scroll, as under a full-screen TUI. Set the opacity and its transition
-   for the shown state only, so that a hidden scrollbar stays hidden and
-   leaves the way xterm.js hides it. */
+ * can scroll, as under a full-screen TUI. Set the opacity and its transition
+ * for the shown state only, so that a hidden scrollbar stays hidden and
+ * leaves the way xterm.js hides it. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar.xterm-visible {
 	opacity: 0.64;
 	transition: opacity 0.12s ease-out;
@@ -684,9 +686,9 @@
 }
 
 /* Terminal sticky scroll expects the stock terminal view chrome for its
-   overlay positioning; inside the Agent Area host it flows below the screen
-   and surfaces as a clipped sliver of stale rows. Hide it until it is ported
-   as a real Agent Area affordance. */
+ * overlay positioning; inside the Agent Area host it flows below the screen
+ * and surfaces as a clipped sliver of stale rows. Hide it until it is ported
+ * as a real Agent Area affordance. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-sticky-scroll {
 	display: none;
 }

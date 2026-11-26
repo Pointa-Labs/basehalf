@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 /* The status bar entry of the selection agents can see: under the Agent
-   Area, one line as wide as its text that ends with an ellipsis when it does
-   not fit. Its largest width is set from the room under the Agent Area. */
+ * Area, one line as wide as its text that ends with an ellipsis when it does
+ * not fit. Its largest width is set from the room under the Agent Area. */
 .monaco-workbench .part.statusbar > .items-container > .statusbar-item.basehalf-agent-selection-item {
 	min-width: 0;
 	overflow: hidden;

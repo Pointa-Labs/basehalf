@@ -63,7 +63,7 @@ type EditKind = 'type' | 'delete' | 'other';
 /** Ahead of the canvas's own undo (115) and of VS Code's handlers, which know only `input` and `textarea` as text fields. */
 const COMMAND_PRIORITY = 10_100;
 /** Stands in after a chip at the end of a line, so that the caret can be put there. It is never part of the text. */
-const CARET_HOLDER = '​';
+const CARET_HOLDER = '\u200B';
 const UNDO_LIMIT = 200;
 const DEFAULT_UNDO_RUN_TIME = 1000;
 
@@ -815,7 +815,7 @@ function dataOffset(data: string, offset: number): number {
 }
 
 function normalizeText(text: string): string {
-	return text.replace(/\r\n?/g, '\n').replaceAll(CARET_HOLDER, '').replaceAll(' ', ' ');
+	return text.replace(/\r\n?/g, '\n').replaceAll(CARET_HOLDER, '').replaceAll('\u00A0', ' ');
 }
 
 function clampLength(text: string, maxLength: number): string {

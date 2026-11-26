@@ -67,13 +67,15 @@ Runs the suites of the smoke one after another, each on a BaseHalf of its own
 with a fresh fixture workspace (scripts/basehalf-smoke/README.md).
 
 Options:
-  --suite <names>     Run these suites only, separated by commas.
-  --output <path>     Store each suite's logs, user data, and crashes in <path>/<suite>.
-  --packaged-app <path>
-                      Run against a packaged application bundle or folder instead of
-                      the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.
-  --keep              Keep each suite's temporary folder after the run.
-  --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
+${[
+		'  --suite <names>     Run these suites only, separated by commas.',
+		'  --output <path>     Store each suite\'s logs, user data, and crashes in <path>/<suite>.',
+		'  --packaged-app <path>',
+		'                      Run against a packaged application bundle or folder instead of',
+		'                      the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.',
+		'  --keep              Keep each suite\'s temporary folder after the run.',
+		'  --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.'
+	].join('\n')}
 
 Suites:
 ${SUITE_LIST.map(suite => `  ${suite.name.padEnd(12)}${suite.description}`).join('\n')}

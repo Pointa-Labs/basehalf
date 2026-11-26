@@ -4,9 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { baseHalfMarkdownRichColdFlushResult, baseHalfMarkdownRichNeedsSaveRequest } from '../../common/basehalfMarkdownRichFlush.js';
 
 suite('BaseHalfMarkdownRichFlush', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('completes a forced cold clean flush without entering the webview save path', () => {
 		const coldResult = baseHalfMarkdownRichColdFlushResult(false, false);
 		assert.strictEqual(coldResult, true);

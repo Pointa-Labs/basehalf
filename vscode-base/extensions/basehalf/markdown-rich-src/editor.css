@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
 html,
 body,
 #root {
@@ -80,7 +85,7 @@ body,
 }
 
 /* The selection agents can see stays visible, in a neutral grey, while focus
-   is elsewhere in the window, such as in the Agent Area. */
+ * is elsewhere in the window, such as in the Agent Area. */
 .basehalf-markdown-rich .ProseMirror:not(.ProseMirror-focused) ::selection,
 .basehalf-markdown-rich .ProseMirror:not(.ProseMirror-focused)::selection {
 	background-color: color-mix(in srgb, var(--vscode-editor-foreground) 24%, transparent);

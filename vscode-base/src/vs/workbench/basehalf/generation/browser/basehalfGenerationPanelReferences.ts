@@ -55,7 +55,7 @@ export class BaseHalfGenerationPanelReferences {
 	 * Opens the reference menu when the user typed `@` at the caret (generation
 	 * cards, "The panel", D68): after the start of the prompt, a space, or
 	 * anything that is not a Latin letter or digit, so that an e-mail address
-	 * does not; a full-width `＠` too.
+	 * does not; a full-width at sign (U+FF20) too.
 	 */
 	openReferenceMenuAtCaret(): void {
 		if (this.panel.isLocked() || this.panel.referenceMenu.value || !this.panel.editor.hasFocus()) {

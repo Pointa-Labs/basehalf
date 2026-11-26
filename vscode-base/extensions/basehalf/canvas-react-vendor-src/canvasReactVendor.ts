@@ -40,7 +40,7 @@ export const BaseHalfCanvasToolbarIcons = Object.freeze({
 	more: RiMoreLine,
 });
 
-// Keep this façade explicit. The workbench loads this browser bundle by URL and
+// Keep this facade explicit. The workbench loads this browser bundle by URL and
 // consumes only these names; no bare React or React Flow imports may escape into
 // VS Code's native ESM graph.
 export {

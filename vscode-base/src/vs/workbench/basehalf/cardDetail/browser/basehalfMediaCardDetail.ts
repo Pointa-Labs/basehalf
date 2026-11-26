@@ -1013,7 +1013,7 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 	const resourceName = escapeAttribute(basename(resource));
 	const media = `<div class="image-stage" id="stage"><img id="media" src="${source}" alt="${resourceName}"></div>
 			<div class="toolbar" role="toolbar" aria-label="Image zoom">
-				<button type="button" data-action="out" aria-label="Zoom out">−</button>
+				<button type="button" data-action="out" aria-label="Zoom out">\u2212</button>
 				<button type="button" data-action="fit">Fit</button>
 				<button type="button" data-action="actual">100%</button>
 				<button type="button" data-action="in" aria-label="Zoom in">+</button>
@@ -1040,8 +1040,8 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 		});
 		image.addEventListener('load', apply);
 		apply();
-		// A pinch, which the window hands on to the page, and the wheel with the zoom key zoom the picture as − and + do,
-		// around the pointer: e^(−Δy / 100) for each event, a notch at most 10%, as a PDF's page zooms (editing media, "Zooming the picture and the time").
+		// A pinch, which the window hands on to the page, and the wheel with the zoom key zoom the picture as the two zoom buttons do,
+		// around the pointer: e^(-deltaY / 100) for each event, a notch at most 10%, as a PDF's page zooms (editing media, "Zooming the picture and the time").
 		const factorOf = (deltaY, deltaMode) => {
 			const pixels = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 100 : deltaY;
 			return Number.isFinite(pixels) ? Math.exp(-Math.max(-10, Math.min(10, pixels)) / 100) : 1;

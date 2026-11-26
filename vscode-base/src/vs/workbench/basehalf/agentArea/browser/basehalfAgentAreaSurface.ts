@@ -141,6 +141,7 @@ export class BaseHalfAgentAreaSurface {
 			const name = (entry.kind === 'tab' ? entry.tab.titleOverride : undefined) ?? (session ? this.area.sessionName(session) : 'Agent');
 			const toast = append(this.area.toasts, $('.basehalf-agent-toast'));
 			const text = append(toast, $('span.basehalf-agent-toast-text'));
+			// allow-any-unicode-next-line
 			text.textContent = `Closed ${entry.kind === 'tab' ? 'tab' : 'pane'} “${name}”`;
 			const undo = append(toast, $('button.basehalf-agent-toast-undo')) as HTMLButtonElement;
 			undo.type = 'button';
@@ -205,6 +206,7 @@ export class BaseHalfAgentAreaSurface {
 			return;
 		}
 
+		// eslint-disable-next-line no-restricted-syntax
 		const focusable = session.statePanel.querySelector<HTMLElement>('button');
 		focusable?.focus();
 	}

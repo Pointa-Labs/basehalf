@@ -4,9 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { BaseHalfMarkdownRichAsyncMutationBarrier } from '../../common/basehalfMarkdownRichAsyncMutation.js';
 
 suite('BaseHalfMarkdownRichAsyncMutationBarrier', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('freeze can await a delayed clipboard command before acknowledging idle', async () => {
 		const barrier = new BaseHalfMarkdownRichAsyncMutationBarrier();
 		let releaseClipboard!: () => void;

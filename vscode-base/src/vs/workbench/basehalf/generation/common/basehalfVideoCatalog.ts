@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+// allow-any-unicode-comment-file
+
 import { safeIntl } from '../../../../base/common/date.js';
 import { language } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
@@ -322,6 +324,7 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 	if (durations) {
 		parts.push(durations.min === durations.max
 			? secondsAbility(durations.max)
+			// allow-any-unicode-next-line
 			: localize('basehalf.video.catalog.abilitySecondsRange', "{0}–{1}s", durations.min, durations.max));
 	}
 	const resolution = model.parameters.find(parameter => parameter.name === 'resolution' && parameter.kind === 'choice');

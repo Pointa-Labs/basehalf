@@ -125,21 +125,25 @@ export class BaseHalfCanvasBadgeEditor {
 			switch (pending.target) {
 				case 'prompt':
 					target = card.dataset.previewLevel !== 'shell'
+						// eslint-disable-next-line no-restricted-syntax
 						? card.querySelector<HTMLTextAreaElement>('.basehalf-canvas-card-badge-prompt')
 						: undefined;
 					break;
 				case 'add-upstream':
 					// Read-only upstream-only cards have no Add Upstream: fall back to Add Downstream.
 					target = card.dataset.previewLevel !== 'shell'
+						// eslint-disable-next-line no-restricted-syntax
 						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-reference') ?? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-downstream')
 						: undefined;
 					break;
 				case 'add-downstream':
 					target = card.dataset.previewLevel !== 'shell'
+						// eslint-disable-next-line no-restricted-syntax
 						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-downstream')
 						: undefined;
 					break;
 				case 'toggle':
+					// eslint-disable-next-line no-restricted-syntax
 					target = card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-caption .basehalf-canvas-card-badge-toggle');
 					break;
 			}
@@ -547,6 +551,7 @@ export class BaseHalfCanvasBadgeEditor {
 	private setBadgeDescriptionSaveState(node: IBaseHalfBadgeNode, state: BaseHalfBadgeDescriptionSaveState): void {
 		const key = this.badgeDescriptionKey(node.workspaceFolder, node.relativePath);
 		this.badgeDescriptionSaveStates.set(key, state);
+		// eslint-disable-next-line no-restricted-syntax
 		const face = this.view.renderedCardElementsByPath.get(node.relativePath)
 			?.querySelector<HTMLElement>('.basehalf-canvas-card-badge-face');
 		if (face) {
@@ -1205,6 +1210,7 @@ export class BaseHalfCanvasBadgeEditor {
 
 		const key = this.badgeDescriptionKey(cardDetail.workspaceFolder, cardDetail.relativePath);
 		const draft = this.badgeDescriptionDrafts.get(key);
+		// eslint-disable-next-line no-restricted-syntax
 		const prompt = this.view.detailBadgeZone.querySelector<HTMLTextAreaElement>('.basehalf-canvas-card-badge-prompt');
 		if (draft && prompt) {
 			this.scheduleBadgeDescriptionWrite(draft.node, prompt.value, draft.guard);
@@ -1217,7 +1223,9 @@ export class BaseHalfCanvasBadgeEditor {
 
 	private hideDetailBadgePopoverNow(): void {
 		this.view.detailBadgeZone.classList.remove('open');
+		// eslint-disable-next-line no-restricted-syntax
 		this.view.detailBadgeZone.querySelector('.basehalf-card-detail-badge-body')?.remove();
+		// eslint-disable-next-line no-restricted-syntax
 		const toggle = this.view.detailBadgeZone.querySelector<HTMLButtonElement>('[data-testid="card-detail-badge-toggle"]');
 		if (!toggle) {
 			return;

@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+// allow-any-unicode-comment-file
+
 import { BASEHALF_EDIT_MAX_STRAIGHTEN, IBaseHalfImageCrop, IBaseHalfMediaChoices } from './basehalfEditRecord.js';
 
 /**

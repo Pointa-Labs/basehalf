@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IPosition } from '../../../../../editor/common/core/position.js';
 import { ICursorStateComputer, IIdentifiedSingleEditOperation } from '../../../../../editor/common/model.js';
@@ -35,6 +36,8 @@ const FRONTMATTER = '---\ntitle: Notes\n---\n';
 const UPSTREAM_FRONTMATTER = '---\ntitle: Notes\nupstream:\n  - sources/book.pdf\n---\n';
 
 suite('BaseHalfMarkdownRichTextModelDisk', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('reads from the current VS Code text model working copy', async () => {
 		const model = new TestTextModel('Alpha\n');
 		const textFileService = new TestTextFileService();
@@ -207,6 +210,8 @@ suite('BaseHalfMarkdownRichTextModelDisk', () => {
 });
 
 suite('computeBaseHalfMarkdownRichTextEdit', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('reduces a document update to its smallest replacement', () => {
 		assert.deepStrictEqual(
 			computeBaseHalfMarkdownRichTextEdit('first\n\nsecond\n', 'first changed\n\nsecond\n'),
@@ -242,6 +247,8 @@ suite('computeBaseHalfMarkdownRichTextEdit', () => {
 });
 
 suite('BaseHalfMarkdownRichTextModelWriteGate', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('handles a change at once when no rich write is in flight', () => {
 		let replays = 0;
 		const gate = new BaseHalfMarkdownRichTextModelWriteGate(() => replays++);

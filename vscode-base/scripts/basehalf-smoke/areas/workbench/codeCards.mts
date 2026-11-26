@@ -603,7 +603,7 @@ export async function assertEditingOnTheCard(page) {
 			const preview = card.querySelector('.basehalf-canvas-card-preview');
 			const editing = preview.classList.contains('editing');
 			const line = [...card.querySelectorAll(editing ? '.basehalf-canvas-code-editor .view-line' : '.basehalf-canvas-code-line')]
-				.map(element => ({ text: element.textContent.replace(/ /g, ' ').replace(/\t/g, '    ').trim(), rect: element.getBoundingClientRect() }))
+				.map(element => ({ text: element.textContent.replace(/\u00A0/g, ' ').replace(/\t/g, '    ').trim(), rect: element.getBoundingClientRect() }))
 				.filter(element => element.text.length > 4 && element.rect.top > card.getBoundingClientRect().top + 60)
 				.sort((a, b) => a.rect.top - b.rect.top)[0];
 			state.frames.push({ editing, text: line?.text ?? '', top: line?.rect.top ?? null, left: line?.rect.left ?? null });
@@ -709,7 +709,7 @@ export async function assertEditingOnTheCard(page) {
 	await page.waitForTimeout(800);
 	await page.locator('[data-toolbar-item="expand"]').waitFor({ state: 'visible', timeout: 5_000 });
 	const typedInEditor = await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${LONG}"] .basehalf-canvas-code-editor .view-lines`).textContent();
-	if (!typedInEditor.replace(/ /g, ' ').includes('TYPED ON CARD')) {
+	if (!typedInEditor.replace(/\u00A0/g, ' ').includes('TYPED ON CARD')) {
 		throw new Error('Letters and spaces typed on the card must show there');
 	}
 	// Undo is the editor's, and leaves the canvas alone.
@@ -929,7 +929,7 @@ export async function assertCardEditorFollowsSettings(page) {
 		const line = editor?.querySelector('.view-lines .view-line');
 		return {
 			cursor: editor?.querySelector('.cursors-layer')?.className ?? '',
-			text: (line?.textContent ?? '').replace(/ /g, ' '),
+			text: (line?.textContent ?? '').replace(/\u00A0/g, ' '),
 			fontSize: line?.querySelector('span') ? getComputedStyle(line.querySelector('span')).fontSize : '',
 			numbers: [...editor?.querySelectorAll('.line-numbers') ?? []].map(number => number.textContent).filter(Boolean),
 			minimap: editor?.querySelector('.minimap')?.getBoundingClientRect().width ?? 0,

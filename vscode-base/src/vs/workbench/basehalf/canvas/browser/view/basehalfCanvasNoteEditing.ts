@@ -1339,6 +1339,7 @@ export class BaseHalfCanvasNoteEditing {
 			"Couldn't save {0}. The editor is still open so your text is not lost.",
 			path
 		);
+		// eslint-disable-next-line no-restricted-syntax
 		const duplicate = [...this.view.canvasOverlay.querySelectorAll<HTMLElement>('.basehalf-canvas-warning')]
 			.some(warning => warning.textContent === message);
 		if (!duplicate) {

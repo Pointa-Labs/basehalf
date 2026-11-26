@@ -78,6 +78,7 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 				return;
 			}
 			const menu = arrangeMenuRef.current;
+			// eslint-disable-next-line no-restricted-syntax
 			(arrangeByPointer.current ? menu : menu?.querySelector<HTMLButtonElement>('[role="menuitem"]'))?.focus({ preventScroll: true });
 			const closeOutside = (event: PointerEvent): void => {
 				if (!isCanvasElement(event.target) || !arrangeRef.current?.contains(event.target)) {
@@ -132,12 +133,15 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 			event.stopPropagation();
 			setFocusIndex(next);
 			const toolbar = event.currentTarget.closest<HTMLElement>('.basehalf-canvas-selection-toolbar');
+			// eslint-disable-next-line no-restricted-syntax
 			toolbar?.querySelectorAll<HTMLButtonElement>('button[data-toolbar-item]')[next]?.focus();
 		};
 		const focusArrangeButton = (): void => {
+			// eslint-disable-next-line no-restricted-syntax
 			arrangeRef.current?.querySelector<HTMLButtonElement>('button[data-toolbar-item]')?.focus({ preventScroll: true });
 		};
 		const moveInArrangeMenu = (event: ReactKeyboardEvent<HTMLElement>): void => {
+			// eslint-disable-next-line no-restricted-syntax
 			const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
 			const index = items.findIndex(item => item === event.currentTarget.ownerDocument.activeElement);
 			let next: number | undefined;

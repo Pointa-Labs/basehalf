@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	diffBaseHalfMarkdownSegments,
 	groupBaseHalfMarkdownContributions
@@ -18,6 +19,8 @@ import {
 import { BaseHalfNoteTestEditor } from './basehalfNoteTestEditor.js';
 
 suite('BaseHalfMarkdownMerge', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('diffBaseHalfMarkdownSegments', () => {
 		test('returns null for identical sequences', () => {
 			assert.strictEqual(diffBaseHalfMarkdownSegments(['a', 'b'], ['a', 'b']), null);

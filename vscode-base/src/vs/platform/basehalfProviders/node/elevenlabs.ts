@@ -112,6 +112,7 @@ const V4_LANGUAGES: readonly Language[] = byName([
 	['hi', 'Hindi'], ['hu', 'Hungarian'], ['is', 'Icelandic'], ['id', 'Indonesian'], ['ga', 'Irish'], ['it', 'Italian'],
 	['ja', 'Japanese'], ['jv', 'Javanese'], ['kn', 'Kannada'], ['kk', 'Kazakh'], ['ko', 'Korean'], ['ky', 'Kyrgyz'],
 	['lv', 'Latvian'], ['ln', 'Lingala'], ['lt', 'Lithuanian'], ['lb', 'Luxembourgish'], ['mk', 'Macedonian'], ['ms', 'Malay'],
+	// allow-any-unicode-next-line
 	['ml', 'Malayalam'], ['mt', 'Maltese'], ['zh', 'Mandarin Chinese'], ['mi', 'Māori'], ['mr', 'Marathi'], ['mn', 'Mongolian'],
 	['ne', 'Nepali'], ['no', 'Norwegian'], ['oc', 'Occitan'], ['or', 'Odia'], ['ps', 'Pashto'], ['fa', 'Persian'],
 	['pl', 'Polish'], ['pt', 'Portuguese'], ['pa', 'Punjabi'], ['ro', 'Romanian'], ['ru', 'Russian'], ['sr', 'Serbian'],

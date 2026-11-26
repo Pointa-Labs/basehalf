@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+// allow-any-unicode-comment-file
+
 // Pure split tree for ONE Agent Area tab's panes: a recursive tree whose every
 // LEAF is a PANE (one Agent Area session — TUI agent, extension agent, or
 // shell). Each tab owns its own tree; splitting divides a pane in two. Kept

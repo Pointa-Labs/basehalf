@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import type { Node, NodeChange } from '@xyflow/react';
 import {
 	BASEHALF_CANVAS_HELD_SNAP_NONE,
@@ -12,7 +13,7 @@ import {
 	sameBaseHalfCanvasSnapGuides,
 	snapBaseHalfCanvasFlowNodeChanges,
 	snapBaseHalfCanvasHeldCards
-} from '../../common/basehalfCanvasFlowSnap.js';
+} from '../../browser/basehalfCanvasFlowSnap.js';
 
 type TestNode = Node<Record<string, unknown>>;
 
@@ -25,6 +26,8 @@ const options: IBaseHalfCanvasFlowSnapOptions = {
 };
 
 suite('BaseHalfCanvasFlowSnap', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('a held card is not snapped while a folder takes it, never jumps, and is snapped again from where it is', () => {
 		// A neighbour whose top is at y 20; the held card moves along that line,
 		// into a folder (taken) and out again. Each move starts where the last
@@ -119,7 +122,7 @@ suite('BaseHalfCanvasFlowSnap', () => {
 		]);
 		assert.strictEqual(
 			(result.changes[1] as Extract<NodeChange<TestNode>, { type: 'position' }>).position!.x
-				- (result.changes[0] as Extract<NodeChange<TestNode>, { type: 'position' }>).position!.x,
+			- (result.changes[0] as Extract<NodeChange<TestNode>, { type: 'position' }>).position!.x,
 			100
 		);
 	});

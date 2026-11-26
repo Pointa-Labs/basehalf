@@ -97,7 +97,9 @@ const LABELS = Object.freeze({
 	tipAudioSetting: 'Auto lets the model decide from the prompt; Keep Original keeps the sound of the video.',
 	tipShots: 'Multiple shots need Prompt Rewriting.',
 	tipPromptExtend: 'A language model rewrites the prompt first. It helps short prompts and takes longer.',
+	// allow-any-unicode-next-line
 	tipWanWatermark: 'Adds “AI Generated” in the lower-right corner.',
+	// allow-any-unicode-next-line
 	tipHappyHorseWatermark: 'Adds “Happy Horse” in the lower-right corner.',
 	tipSeed: 'The same seed and settings give similar results.',
 	wan3: 'Wan 3.0',

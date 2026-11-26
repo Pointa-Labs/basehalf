@@ -5,8 +5,7 @@
 
 import 'mocha';
 import * as assert from 'assert';
-import { workspace, extensions, Uri, commands, EventEmitter } from 'vscode';
-import type { LogOutputChannel } from 'vscode';
+import { workspace, extensions, Uri, commands, EventEmitter, type LogOutputChannel } from 'vscode';
 import { findPullRequestTemplates, pickPullRequestTemplate } from '../pushErrorHandler.js';
 import { registerGitHubRemoteSourcePublisher, registerGitHubSourceControlHistoryItemDetailsProvider } from '../extension.js';
 import type { OctokitService } from '../auth.js';

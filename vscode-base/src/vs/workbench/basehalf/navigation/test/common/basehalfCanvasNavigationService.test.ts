@@ -728,8 +728,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		]));
 		let acceptedCloseCalls = 0;
 		let replacementCloseCalls = 0;
-		let accepted: IBaseHalfActiveCanvasEditor;
-		accepted = {
+		const accepted: IBaseHalfActiveCanvasEditor = {
 			resource: URI.file('/workspace/accepted.md'),
 			workspaceFolder,
 			relativePath: 'accepted.md',

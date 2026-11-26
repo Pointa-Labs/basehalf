@@ -40,6 +40,7 @@ import { assertCardDetail, assertNoEditorTabFor, closeCardDetailIfOpen } from '.
 import { activeMarkdownRichFrame, markdownRichFrameBelongsTo } from '../../lib/markdownRich.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
+// allow-any-unicode-next-line
 const CANVAS_MALFORMED_EMPHASIS_NEEDLE = '异常茂盛**，';
 
 export async function placeCanvasInlineCaretAfter(editable, token) {

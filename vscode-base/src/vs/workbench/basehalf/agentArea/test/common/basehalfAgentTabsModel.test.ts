@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { orderedLeafIds } from '../../common/basehalfAgentSplitTree.js';
 import {
 	BASEHALF_EMPTY_AGENT_TABS_STATE,
@@ -39,6 +40,8 @@ import {
 } from '../../common/basehalfAgentTabsModel.js';
 
 suite('BaseHalfAgentTabsModel', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	let seq: number;
 	setup(() => { seq = 0; });
 	const mint = () => `m${++seq}`;

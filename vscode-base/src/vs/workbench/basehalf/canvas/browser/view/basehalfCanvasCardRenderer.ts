@@ -949,6 +949,7 @@ export class BaseHalfCanvasCardRenderer {
 	}
 
 	private renderMediaFallback(container: HTMLElement, label: string, kind: 'image' | 'video' | 'audio' | 'pdf' | 'book', reload?: () => void): void {
+		// eslint-disable-next-line no-restricted-syntax
 		if (container.querySelector('.basehalf-canvas-card-media-fallback')) {
 			return;
 		}

@@ -75,23 +75,11 @@ Describe the music, ambience, and sound effects, and when they start.
 			},
 			{
 				path: 'shots/shot-01/shot.json',
-				contents: `{
-  "version": 1,
-  "kind": "pointa.basehalf-ai-video.shot",
-  "id": "shot-01",
-  "title": "Shot 01",
-  "clipNodePath": "clip.mp4"
-}
-`
+				contents: `${JSON.stringify({ version: 1, kind: 'pointa.basehalf-ai-video.shot', id: 'shot-01', title: 'Shot 01', clipNodePath: 'clip.mp4' }, undefined, 2)}\n`
 			},
 			{
 				path: 'video-sequence.json',
-				contents: `{
-  "version": 1,
-  "kind": "pointa.basehalf-ai-video.sequence",
-  "items": []
-}
-`
+				contents: `${JSON.stringify({ version: 1, kind: 'pointa.basehalf-ai-video.sequence', items: [] }, undefined, 2)}\n`
 			}
 		],
 		drafts: [

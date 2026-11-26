@@ -90,7 +90,7 @@ const MODELS_BY_ID: ReadonlyMap<string, GptImage> = new Map(MODELS.map(model => 
 /** The ratios of an image, in the order the panel shows them; Adaptive comes after them. */
 const RATIOS = Object.freeze(['16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16', '21:9'] as const);
 const RESOLUTIONS: readonly Resolution[] = Object.freeze(['1k', '2k', '4k']);
-/** The area each resolution aims at: 1024², 2048², and 3840 × 2160. */
+/** The area each resolution aims at: 1024 × 1024, 2048 × 2048, and 3840 × 2160. */
 const TARGET_PIXELS: Readonly<Record<Resolution, number>> = Object.freeze({ '1k': 1024 * 1024, '2k': 2048 * 2048, '4k': 3840 * 2160 });
 
 /** OpenAI's size rules: both sides multiples of 16, edges at most 3840, 655,360 to 8,294,400 pixels, at most 3:1. */

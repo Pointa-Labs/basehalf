@@ -830,6 +830,7 @@ export class BaseHalfCanvasCreation {
 			return;
 		}
 		if (!card.contains(editor.host)) {
+			// eslint-disable-next-line no-restricted-syntax
 			card.querySelector('.basehalf-canvas-card-caption-identity')?.append(editor.host);
 		}
 		editor.focus();

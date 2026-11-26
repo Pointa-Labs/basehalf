@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+// allow-any-unicode-comment-file
+
 import './media/basehalfImageCropView.css';
 import { $, addDisposableListener, append, getWindow } from '../../../../base/browser/dom.js';
 import { toAction, Separator } from '../../../../base/common/actions.js';
@@ -285,6 +287,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const window = append(this.dial, $('.basehalf-image-crop-dial-window'));
 		this.dialRuler = append(window, $('.basehalf-image-crop-dial-ruler'));
 		append(window, $('.basehalf-image-crop-dial-mark'));
+		// allow-any-unicode-next-line
 		this._register(this.hoverService.setupDelayedHover(this.dial, () => ({ content: localize('basehalf.mediaEdit.image.straightenHover', "Straighten (double-click for 0°)") })));
 
 		this._register(toDisposable(() => {
@@ -1272,6 +1275,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		// The dial: the ruler moves so that the angle stands under the mark.
 		this.dialRuler.style.transform = `translateX(${-straighten * DIAL_PIXELS_PER_DEGREE}px)`;
 		const shown = Math.round(straighten * 10) / 10;
+		// allow-any-unicode-next-line
 		this.dialValue.textContent = shown === 0 ? '0°' : `${shown < 0 ? '−' : ''}${Math.abs(shown).toFixed(1)}°`;
 		this.dial.setAttribute('aria-valuenow', String(shown));
 		this.dial.setAttribute('aria-valuetext', this.dialValue.textContent);

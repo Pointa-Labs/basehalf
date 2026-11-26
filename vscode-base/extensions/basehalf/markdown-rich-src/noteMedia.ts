@@ -405,7 +405,9 @@ export function showBaseHalfNoteFailures(editor: NoteEditor, failures: readonly 
 function showFailures(editor: NoteEditor, element: HTMLElement, failures: readonly IBaseHalfMarkdownRichNoteItemFailure[]): void {
 	element.hidden = false;
 	element.textContent = failures.map(failure => failure.name
+		// allow-any-unicode-next-line
 		? baseHalfEditorLabel(failure.message, `无法添加 ${failure.name}。`, `無法新增 ${failure.name}。`)
+		// allow-any-unicode-next-line
 		: baseHalfEditorLabel(failure.message, '无法添加文件。', '無法新增檔案。')).join(' ');
 	element.classList.add('failed');
 	setTimeout(() => removePlaceholder(editor, element), FAILURE_SHOWN_MS);

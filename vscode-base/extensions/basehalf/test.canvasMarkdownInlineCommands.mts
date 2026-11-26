@@ -416,14 +416,17 @@ assertRejectedCommand('code block rejects list conversion', '```ts\nconst value 
 assertCommand('mixed code selection changes only rich-compatible blocks', ['```ts\nconst value = 1;\n```', 'plain'], 'setHeading1', 'const value = 1;', 'plain', true, '```ts\nconst value = 1;\n```\n\n# plain', 1);
 assertCommand('reverse mixed code selection lists only rich-compatible blocks', ['```ts\nconst value = 1;\n```', 'plain'], 'toggleBulletList', 'plain', 'const value = 1;', false, '```ts\nconst value = 1;\n```\n\n* plain', 1);
 
+// allow-any-unicode-next-line
 const malformedEmphasis = '春风吹过，城中的草木却长得异常茂盛**，';
 const malformedPersistence = testModule.exerciseCanvasProjectionPersistence(
 	malformedEmphasis,
+	// allow-any-unicode-next-line
 	'春风吹过，城中的草木却长得异常茂盛新**，',
 	`${malformedEmphasis}******`,
 );
 assert.equal(malformedPersistence.renderedCandidatePreservesSourceProjection, false, 'synthetic renderer text must be rejected');
 assert.equal(malformedPersistence.unchanged, malformedEmphasis, 'untouched malformed Markdown must remain byte-identical');
+// allow-any-unicode-next-line
 assert.equal(malformedPersistence.edited, '春风吹过，城中的草木却长得异常茂盛新\\*\\*，', 'an intentional edit must not persist synthetic stars');
 
 const formattingMismatch = testModule.exerciseCanvasProjectionPersistence('**same text**', '**same text**', 'same text');
