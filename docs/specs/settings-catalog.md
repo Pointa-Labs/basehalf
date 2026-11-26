@@ -153,11 +153,11 @@ owns their names and words.
 | `terminal.integrated.fontFamily`, `terminal.integrated.fontSize` | the Agent Area's terminals |
 | `update.mode` | whether BaseHalf looks for updates by itself |
 
-### Locked (49)
+### Locked (50)
 
 | Why | Settings and BaseHalf's value |
 | --- | --- |
-| The title bar is BaseHalf's: the location, its search, and the buttons of the window (5) | `window.commandCenter` true, `window.customTitleBarVisibility` `auto`, `window.titleBarStyle` `custom`, `window.nativeTabs` false, `window.nativeFullScreen` true |
+| The title bar is BaseHalf's: the location, its search, the buttons of the window, and the layout controls as buttons (6) | `window.commandCenter` true, `window.customTitleBarVisibility` `auto`, `window.titleBarStyle` `custom`, `window.nativeTabs` false, `window.nativeFullScreen` true, `workbench.layoutControl.type` `toggles`: as `menu` the title bar loses the buttons of the sidebar and of the Agent Area, and as `both` it gains a second button of three dots beside More ([layout controls](layout-controls.md#the-right-group), D155) |
 | BaseHalf has no editor tabs (3) | `workbench.editor.showTabs` `none`, `zenMode.showTabs` `none`, `breadcrumbs.enabled` false |
 | The shape of the shell: Files, Git, and Search at the left with their icons above, the Agent Area at the right, each a card (3) | `workbench.activityBar.location` `top`, `workbench.sideBar.location` `left`, `workbench.experimental.modernUI` true |
 | Nothing covers the canvas by a setting (12) | `workbench.secondarySideBar.forceMaximized` false, `workbench.secondarySideBar.defaultVisibility` `visibleInWorkspace`, `workbench.panel.opensMaximized` `never`, `workbench.panel.defaultLocation` `bottom`, `workbench.editor.useModal` `some`, `workbench.startupEditor` `welcomePageInEmptyWorkbench`, `workbench.welcomePage.walkthroughs.openOnInstall` false, `workbench.welcomePage.experimentalOnboarding` false, `search.mode` `view`, `git.mergeEditor` false, `scm.workingSets.enabled` false, `scm.workingSets.default` `current` |
@@ -215,13 +215,13 @@ The rows that name D118 rest on one decision, no language service but
 JSON's: about 115 settings
 ([what the decision settled](#what-the-decision-settled)).
 
-### Advanced (748)
+### Advanced (747)
 
 | Family | Count |
 | --- | --- |
 | The text editor: `editor.*`, `diffEditor.*` | 220 |
 | Source control and Git: `scm.*`, `git.*`, `github.*`, `merge-conflict.*`, `mediaPreview.*` | 138 |
-| The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 99 |
+| The workbench: `workbench.*`, `zenMode.*`, `screencastMode.*` | 98 |
 | The terminal: `terminal.*`, with the 13 the Agent Area came to follow | 91 |
 | Files: `files.*`, `explorer.*` | 47 |
 | Accessibility: `accessibility.*` | 31 |
@@ -413,7 +413,9 @@ of a terminal that a session of the Agent Area follows:
   658 unlisted, 749 advanced of 1,483; and from the build that holds D143
   to D150, 23 shown, 49 locked, none pending, 673 unlisted, 747 advanced of
   1,492, none without a rule; with D151 the tab style of Modern UI went from
-  unlisted to advanced: 672 unlisted, 748 advanced. Both are tool
+  unlisted to advanced: 672 unlisted, 748 advanced; with D155 the type of
+  the layout controls went from advanced to locked, by the rules and not
+  read again from a window: 50 locked, 747 advanced. Both are tool
   state of the checkout, not part of the tree; the check of criterion 1
   replaces them.
 - Run in the real window on 2026-11-21: the three settings of the problem

@@ -127,7 +127,7 @@ the next start.
 
 - **Another interface.** The update interface is made of the parts of the VS
   Code base: the entry in the title bar, the status element of its tooltip,
-  the Manage menu, the application menu, and the commands. No dialog is
+  the More menu, the application menu, and the commands. No dialog is
   added. A download that BaseHalf started by itself stays as quiet as the
   base makes it. Only where the status element is shown is BaseHalf's own
   ([where an update shows](#where-an-update-shows)).
@@ -354,7 +354,7 @@ Decision: [D48](../decisions.md#d48--release-notes-are-written-once-on-the-relea
   then not be updated by themselves. A later version can accept more, and
   only the versions after it benefit.
 - **A background download is quiet.** As in the base, a download that
-  BaseHalf started by itself shows a progress badge on the Manage entry and
+  BaseHalf started by itself shows a progress badge on More and
   no text. The title bar shows it when the user asked for the check.
 - **The whole archive is read into memory** to check its signature. The
   signature is over the bytes of the archive, and installed copies check it

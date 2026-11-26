@@ -32,7 +32,7 @@ canvas has the keyboard, and the whole window elsewhere.
 | What closed | Where the keyboard was afterwards | Command+= zoomed |
 | --- | --- | --- |
 | Nothing: a window that just opened | the empty editor group under the canvas | the window |
-| Settings, by Escape, by its close button, by a press beside it, opened by its key or from the gear's menu; the keyboard had been on a card or on the blank canvas | the empty editor group under the canvas | the window |
+| Settings, by Escape, by its close button, by a press beside it, opened by its key or from the More menu; the keyboard had been on a card or on the blank canvas | the empty editor group under the canvas | the window |
 | The advanced list; Keyboard Shortcuts | the same | the window |
 | Settings over Card Detail of an image or of a note | the same: Escape no longer closed Card Detail, and a letter went nowhere | the window |
 | Settings opened with the keyboard on a row of Files, or in a terminal of the Agent Area | the row, the terminal | (as there) |
@@ -293,7 +293,7 @@ as before: by its toggle, by Escape, and by a press outside it.
 1. **A window that opens.** With a folder open, the keyboard is on the
    canvas, and Command+= zooms the canvas.
 2. **Settings.** With the keyboard on a selected card: Command+, and
-   Escape; its close button; a press beside it; opened from the gear's
+   Escape; its close button; a press beside it; opened from the More
    menu. Each time the keyboard is on that card, the card is selected, and
    Command+= zooms the canvas. With the keyboard on the blank canvas, it is
    on the blank canvas afterwards.

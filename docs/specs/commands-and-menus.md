@@ -5,8 +5,12 @@ Decision: [D141](../decisions.md#d141--a-command-of-what-basehalf-does-not-have-
 [D146](../decisions.md#d146--the-keys-of-the-canvas-are-commands-and-keyboard-shortcuts-opens-over-the-canvas-new-2026-11-21)
 for Keyboard Shortcuts,
 [D150](../decisions.md#d150--the-shell-says-sidebar-and-agent-area-and-one-thing-has-one-command-new-2026-11-21)
-for the words of the shell
+for the words of the shell,
+[D155](../decisions.md#d155--the-right-end-of-the-title-bar-is-more-and-the-agent-areas-button-new-2026-11-26)
+for the More menu
 Related: [the settings BaseHalf offers](settings-catalog.md),
+[layout controls](layout-controls.md#the-right-group) for the buttons of the
+title bar,
 [the keys of the canvas](canvas-keys.md),
 [architecture invariants](../harness/architecture-invariants.md#product-shell),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
@@ -141,7 +145,7 @@ specifications write it.
 
 1. **Every place where a user reads a name of the base's shows BaseHalf's
    words**: the buttons of the title bar and their tooltips, the application
-   menu, the gear's menu, every context menu, the Command Palette, Keyboard
+   menu, the More menu, every context menu, the Command Palette, Keyboard
    Shortcuts, Customize Layout, Open View, what a screen reader hears when a
    part is shown or hidden, and the description of a setting in the advanced
    list.
@@ -276,7 +280,7 @@ Keyboard Shortcuts is the base's list of commands and their keys. In
 BaseHalf it is where a user sees and changes the keys of the product.
 
 - **It opens in the overlay**, over the canvas, as Settings and the advanced
-  list do: from the gear's menu, from its key, from the Command Palette, and
+  list do: from the More menu, from its key, from the Command Palette, and
   from Keyboard Shortcuts… of BaseHalf's Settings, where it takes the place
   of Settings ([BaseHalf's Settings](settings-pages.md#keyboard-shortcuts)).
   The canvas, Card Detail, and the Agent Area stay as they were behind it.
@@ -303,11 +307,27 @@ BaseHalf it is where a user sees and changes the keys of the product.
 
 ## The menus
 
-- **The gear's menu** holds Command Palette…, Settings, Keyboard Shortcuts,
-  Themes with Color Theme and File Icon Theme, and Layout Density with
-  Default and Compact, and the entries of an update.
+- **The More menu** is the menu of the three dots at the right end of the
+  title bar ([layout controls](layout-controls.md#the-right-group), D155).
+  It is the one menu of the title bar for what is about the application,
+  and holds, in this order:
+  1. Settings, Keyboard Shortcuts, Themes with Color Theme and File Icon
+     Theme, and Layout Density with Default and Compact;
+  2. Command Palette… and Customize Layout…;
+  3. Accounts;
+  4. the entries of an update.
+
+  Settings is its first entry. A line stands between two of these groups. A
+  group that an update of the base adds stands after the first, in the
+  base's order.
+- **Accounts is a submenu of the More menu**, and the title bar has no
+  Accounts menu of its own. It holds each request of an extension to sign
+  in or to use an account, Manage Accounts…, and Manage Extension Account
+  Preferences…. Manage Accounts… lists the accounts that are signed in;
+  choosing one offers its trusted extensions and Sign Out. It is the base's
+  command, which the Command Palette lists too.
 - **Snippets is a command of the Command Palette.** Configure Snippets
-  makes snippets for code, a tool of Source that few use: the gear's menu
+  makes snippets for code, a tool of Source that few use: the More menu
   and the Preferences menu of the application menu do not hold it, and the
   Command Palette and Keyboard Shortcuts do. A command of this kind is
   named in a list of its own, beside the hidden families.
@@ -357,7 +377,7 @@ things of the base still reached past that switch:
 - **Its setup commands.** The base offers "Use AI Features with Copilot for
   free..." exactly while its AI features are off, and the command turns
   them on. Every command of the family is hidden, the setup's among them,
-  so no list offers one, no entry of the Accounts menu or of the title bar
+  so no list offers one, no entry of Accounts or of the title bar
   runs one, and executing one by its id fails. Nothing else in BaseHalf
   writes the switch: the one other writer of the base follows the base's
   own chat extension being enabled, and BaseHalf does not run it.
@@ -388,7 +408,7 @@ base's voice service is not there.
 2. **The Command Palette** lists no hidden command, whatever is typed, the
    editor's own commands among them.
 3. **No menu holds a hidden command**: the application menu, the title bar
-   and its context menu, the gear's and the Accounts menu, the context menus
+   and its context menu, the More menu with Accounts, the context menus
    of Files, of Source Control, and of an editor, and the title of a view. A
    submenu that is left without an entry goes with its entries, and so does
    a top-level menu of the application menu: there is no Run menu.
@@ -455,7 +475,7 @@ base's voice service is not there.
   word of the base's as a copy with BaseHalf's words: its title, its short
   title, its tooltip, the title it has while it is on, and its description.
   Everything that draws from the menu service follows: the title bar, the
-  application menu, the gear's menu, the Command Palette, and the menus of
+  application menu, the More menu, the Command Palette, and the menus of
   the views.
 - **Context menus**: BaseHalf's context menu service
   (`shell/electron-browser/basehalfContextMenuService.ts`) takes the place
@@ -509,10 +529,12 @@ base's voice service is not there.
    Auto Save, no Share, and no New Window with Profile; Preferences holds no
    Profiles and no Tasks; Help holds no Welcome, no walkthrough, and no
    Editor Playground.
-3. The gear's menu holds Command Palette, Settings, Keyboard Shortcuts,
-   Themes, and Layout Density, and the entries of an update; Themes holds
-   Color Theme and File Icon Theme. It holds no Snippets and no Product
-   Icon Theme. The Accounts menu holds no entry of a language model.
+3. The More menu holds Settings, Keyboard Shortcuts, Themes, Layout
+   Density, Command Palette, Customize Layout, and Accounts, in this order,
+   and the entries of an update; Themes holds Color Theme and File Icon
+   Theme. It holds no Snippets and no Product Icon Theme. Accounts holds
+   Manage Accounts and Manage Extension Account Preferences, and no entry of
+   a language model.
 4. The context menu of a file in Files holds no Open Timeline, no entry of
    chat, of testing, or of the integrated browser, and no Share.
 5. The context menu of the title bar holds Navigation Controls and Layout
@@ -542,7 +564,7 @@ base's voice service is not there.
     Logs.
 13. View: Open View lists no Run and Debug, Extensions, Problems, Output
     view, Terminal, Outline, or Timeline.
-14. Keyboard Shortcuts of the gear's menu, its key, Preferences: Open
+14. Keyboard Shortcuts of the More menu, its key, Preferences: Open
     Keyboard Shortcuts of the Command Palette, and Keyboard Shortcuts… of
     Settings each show Keyboard Shortcuts in the overlay, with the canvas in
     view behind it, and Escape closes it. Preferences: Open Default Keyboard
@@ -707,7 +729,7 @@ base's voice service is not there.
 - A unit test of where a channel opens (`basehalfOutput.test.ts`), and the
   list of hidden view containers in `basehalfWorkbenchProfile.test.ts`.
 - The workbench suite of the smoke: the palette lists no command of the
-  hidden categories, the gear's and the Accounts menu hold their entries,
+  hidden categories, the More menu and its Accounts hold their entries,
   the keys of criterion 7 open nothing, and Show Git Output opens over the
   canvas.
 - Measured in the real window on 2026-11-21, before and after, in the same
@@ -767,3 +789,18 @@ base's voice service is not there.
   Extensions view, bound or listed as without a key: none was there, and
   Toggle Zen Mode and the terminal's New were. The Keyboard Shortcuts editor
   reads the same two lists and was not opened.
+
+### The More menu (D155)
+
+- `basehalfMoreButton.test.ts`: the group of Settings first and the other
+  groups in their order; Customize Layout and Accounts in the More menu, and
+  Manage Accounts in Accounts.
+- The smoke, step `title-bar-menus-hold-what-basehalf-has`: the More menu
+  starts with Settings, Keyboard Shortcuts, Themes, Layout Density, Command
+  Palette…, Customize Layout…, and Accounts, holds no Snippets, and Accounts
+  holds Manage Accounts… and Manage Extension Account Preferences… and no
+  entry of a language model (criterion 3).
+- Read in an isolated development window on 2026-11-26, with what each
+  entry opened: [layout controls](layout-controls.md#verification). No
+  account was signed in, so Manage Accounts… said that there are no active
+  accounts; with an account signed in it was not run.

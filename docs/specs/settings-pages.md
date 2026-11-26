@@ -160,7 +160,7 @@ One group, without a section's name.
 | Reading Aids | `basehalf.editor.readingMode` | switch | Keywords stand out, and a paragraph can be marked as read. | note rendering |
 
 Appearance is the color theme: Dark and Light are BaseHalf's two, `Dark 2026` and `Light 2026`; another theme,
-chosen from the gear's menu, is listed by its name. While Match the System is on, the base takes the system's
+chosen from the More menu, is listed by its name. While Match the System is on, the base takes the system's
 appearance and the theme chosen here waits.
 
 The font is a list of fonts, as the code's: Default is no value, the font of
@@ -255,7 +255,7 @@ around a section or a page, and no line between settings.
 
 ## Opening Settings
 
-**Settings** of the gear's menu and of the application menu, and its key,
+**Settings** of the More menu and of the application menu, and its key,
 open Settings: at General when it was closed.
 
 These open Settings at a page: **Set Up** and **Providers…** of the panel of
@@ -308,7 +308,7 @@ For every opening:
 ## Keyboard Shortcuts
 
 **Keyboard Shortcuts…** opens Keyboard Shortcuts of the base in the overlay,
-in place of Settings, as Keyboard Shortcuts of the gear's menu does. It
+in place of Settings, as Keyboard Shortcuts of the More menu does. It
 lists the commands of BaseHalf, those of the canvas among them, each with
 its key, and a key is changed there
 ([commands and menus](commands-and-menus.md)).
@@ -318,7 +318,7 @@ its key, and a key is changed there
 - **Advanced Settings…** opens the Settings editor of the base in the
   overlay, in place of Settings. So does the command Advanced Settings, and
   every command of the base that asks for settings by a search, as
-  Configure Terminal Settings. Settings of the gear's menu or its key shows
+  Configure Terminal Settings. Settings of the More menu or its key shows
   BaseHalf's Settings again.
 - It lists the shown and the advanced settings of the catalog, and no
   other. It has no entry for BaseHalf's pages.
@@ -361,7 +361,7 @@ its key, and a key is changed there
 
 ## Acceptance criteria
 
-1. Settings of the gear's menu, Settings… clicked in the application menu,
+1. Settings of the More menu, Settings… clicked in the application menu,
    and the key open BaseHalf's Settings at General, in the overlay: the list
    holds General, Canvas, Notes, Agent Area, Providers, About, and under
    them Keyboard Shortcuts… and Advanced Settings…; each of the four pages
@@ -391,7 +391,7 @@ its key, and a key is changed there
    keyboard reached has one.
 9. Advanced Settings… shows the Settings editor of the base: its table of
    contents has no group BaseHalf with pages, and no setting of the catalog's
-   locked, pending, or unlisted classes; Settings of the gear's menu then
+   locked, pending, or unlisted classes; Settings of the More menu then
    shows BaseHalf's Settings again.
 10. Set Up and Providers… of an image, a video, and an audio card, and Set
     Up of the voice menu, open Providers at the card's type with the card's

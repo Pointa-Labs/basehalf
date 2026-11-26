@@ -1,8 +1,9 @@
 # Layout controls
 
-Status: Active (2026-10-13, revised 2026-10-24 and 2026-11-21)
+Status: Active (2026-10-13, revised 2026-10-24, 2026-11-21, and 2026-11-26)
 Decision: [D56](../decisions.md), [D72](../decisions.md), [D96](../decisions.md) (Edit and Done of media),
-[D150](../decisions.md) (the names of the controls, and the panel's command)
+[D150](../decisions.md) (the names of the controls, and the panel's command),
+[D155](../decisions.md) (the right group: More and the control of the Agent Area)
 Related: [workbench appearance](workbench-appearance.md) (the cards that the
 controls show and hide), [architecture invariants](../harness/architecture-invariants.md)
 (product shell), roadmap tracks 1, 2, and 9
@@ -29,6 +30,14 @@ to the Agent Area's own, did what that one does, and its icon never showed
 the Agent Area open. The View menu's Appearance submenu had the same pair:
 Panel and Secondary Side Bar.
 
+After that the right group still held four buttons, read in the window on
+2026-11-26: the control of the Agent Area, Accounts, the gear, and three
+dots at the edge. Three of them opened a menu about the application. The
+Accounts menu held one entry while nobody was signed in. The three dots were
+the tool bar's own overflow, and their menu held one entry, Customize
+Layout. The control of the Agent Area was the first of the four, the
+farthest from the part it shows.
+
 ## Goals
 
 - A layout control is in one place, and the place does not depend on what is
@@ -37,6 +46,9 @@ Panel and Secondary Side Bar.
 - A control is on the side of the window where its part is.
 - On macOS the control of the left side follows the window buttons, where
   macOS applications have it.
+- The right end of the title bar holds two buttons: one menu for what is
+  about the application, and the control of the Agent Area at the edge of
+  the window.
 
 ## Scope
 
@@ -44,6 +56,7 @@ In scope:
 
 - where the title bar shows the controls of the sidebar and of the Agent
   Area;
+- which buttons the right group holds, and their order;
 - that neither the title bar nor the View menu shows a control of the panel;
 - what the header of Card Detail holds.
 
@@ -55,7 +68,8 @@ Not in scope, and unchanged:
   BaseHalf's, Toggle Sidebar and Toggle Agent Area, wherever a user reads
   them ([the commands and menus BaseHalf has](commands-and-menus.md#the-words-of-the-shell),
   D150).
-- The other entries of the title bar's right group.
+- What the More menu holds
+  ([the commands and menus BaseHalf has](commands-and-menus.md#the-menus)).
 - The rest of the View menu, the command palette, and Customize Layout,
   which also hold the commands
   ([the commands and menus BaseHalf has](commands-and-menus.md)).
@@ -67,6 +81,8 @@ Not in scope, and unchanged:
   it starts with the window buttons (close, minimize, zoom), which macOS
   draws.
 - **Right group**: the toolbar at the right end of the title bar.
+- **More**: the button of the right group that is drawn as three dots and
+  opens the More menu.
 - **Left side part**: the part at the left edge of the window. It is the
   sidebar, and the **right side part** is the Agent Area, in every window:
   BaseHalf keeps `workbench.sideBar.location` at `left`
@@ -96,10 +112,9 @@ Not in scope, and unchanged:
    dragged. Only the control itself takes a click.
 6. The control stays where it is when its part is hidden. Its icon shows
    whether the part is open, as in the right group.
-7. The control follows the settings of the other layout controls. It is not
-   shown when `workbench.layoutControl.enabled` is `false` or when
-   `workbench.layoutControl.type` is `menu`. "Layout Controls" in the title
-   bar's context menu switches all of them.
+7. The control follows the setting of the other layout control. It is not
+   shown when `workbench.layoutControl.enabled` is `false`. "Layout
+   Controls" in the title bar's context menu switches both.
 8. The title bar gives the control room before the breadcrumb. In a window
    too narrow for both, the breadcrumb is shortened, not the control.
 
@@ -131,16 +146,60 @@ Not in scope, and unchanged:
 
 11. The title bar holds no control of the panel, whatever the settings of
     the layout controls. In the right group the control of the Agent Area
-    is the first layout control.
-12. The View menu's Appearance submenu holds no entry for the panel, and
-    neither does the menu that the title bar shows when
-    `workbench.layoutControl.type` is `menu`. Agent Area is the entry of
-    the Agent Area.
+    is the only layout control.
+12. The View menu's Appearance submenu holds no entry for the panel. Agent
+    Area is the entry of the Agent Area.
 13. The panel's command is hidden, as every command of the panel is (D150):
     it is in no list and does not run. Cmd+J, the key it had, is a key of
     Toggle Agent Area Terminal, which does what the key did: it shows the
     Agent Area with a session, and hides it
     ([the commands and menus BaseHalf has](commands-and-menus.md#one-command-for-one-thing)).
+
+### The right group
+
+14. In a main window the right group holds two buttons, from left to
+    right: More, and the control of the right side part. It holds no
+    Accounts button, no gear, and no second button of three dots.
+15. More is drawn as three dots, and its name is "More" in every window,
+    also in one opened with a profile, where the base named its button
+    after the profile. A click on it, or
+    Enter or Space while it has the keyboard, opens the More menu under it
+    ([the commands and menus BaseHalf has](commands-and-menus.md#the-menus)).
+    The menu holds what the gear's menu and the Accounts menu held, and
+    Customize Layout.
+16. The control of the right side part is the last button of the group, at
+    the edge of the window where its part is, as the control of the left
+    side part is the first at the left end. Where the window buttons are on
+    the right, they follow it.
+17. More shows a badge while something in its menu waits for the user: an
+    update that is ready, and a request of an extension to sign in or to
+    use an account. The badge is the one the gear and the Accounts button
+    had.
+18. The layout controls are buttons. BaseHalf keeps
+    `workbench.layoutControl.type` at `toggles`
+    ([the settings BaseHalf offers](settings-catalog.md), D137): the title
+    bar draws no menu of layout controls in their place and no button for
+    Customize Layout.
+19. More is no layout control. It stays when
+    `workbench.layoutControl.enabled` is `false`, and it is the same button
+    whatever part is shown.
+20. A secondary click on More shows the context menu of the title bar, as a
+    secondary click anywhere else on the title bar does.
+21. An auxiliary window has no More, as it has no layout controls.
+22. More is the base's button of the gear under BaseHalf's name and icon.
+    BaseHalf gives the title bar its own item for the button through the
+    base's registry of title bar items, and adds Customize Layout, Accounts,
+    and Manage Accounts to the base's menus through the menu registry
+    (`shell/browser/basehalfMoreButton.contribution.ts`); the order of the
+    menu's groups is `shell/common/basehalfMoreMenu.ts`. One marked change
+    in the base's title bar puts the button before the layout controls and
+    leaves out the Accounts button, and one keeps the buttons of the right
+    group from being hidden.
+23. No button of the title bar is hidden by itself. The context menu of a
+    button of the right group holds no entry that hides the button, as that
+    of the button at the left end holds none: a hidden button would go into
+    an overflow of three dots beside More. Layout Controls of the title
+    bar's context menu shows and hides the layout controls.
 
 ## States and failure
 
@@ -154,8 +213,15 @@ Not in scope, and unchanged:
   level 0.
 - **macOS before 26.** The window buttons are smaller and end 9 px earlier.
   The control is at the same place, so the distance is 18 px.
-- **Layout controls are switched off.** No control is shown at either end.
-  Cmd+B, the View menu, and the command palette still work.
+- **Layout controls are switched off.** No control is shown at either end,
+  and More is the only button of the right group. Cmd+B, the View menu, and
+  the command palette still work.
+- **An update is ready, or an extension asks to sign in.** More shows a
+  badge with the number of things that wait, until the update is installed
+  or the request is answered.
+- **A settings file names another `workbench.layoutControl.type`.** The
+  value has no effect, as for every locked setting, and the editor of the
+  file says so.
 - **A session rang its bell while the Agent Area is hidden.** The control of
   the Agent Area shows a dot at its upper right, at either end of the title
   bar, until the Agent Area is shown
@@ -178,12 +244,25 @@ Not in scope, and unchanged:
    `workbench.sideBar.location` is `left`, the value BaseHalf keeps. The
    base's registration for `right` is read by a unit test only.
 6. With `workbench.layoutControl.enabled` set to `false`, the left end holds
-   no button.
+   no button, and the right group holds More alone.
 7. In a new window the right group holds no "Toggle Panel" button, and
-   "Toggle Agent Area" is its first layout control.
+   "Toggle Agent Area" is its only layout control.
 8. The View menu's Appearance submenu and the layout control menu hold no
    entry for the panel. Cmd+J hides the Agent Area, and a second Cmd+J
    shows it. The Command Palette lists no command of the panel.
+
+9. In a new window the right group holds exactly two buttons, "More" and
+   then "Toggle Agent Area". No button of the title bar is named Accounts,
+   Manage, or More Actions. At the middle of each button, the button is the
+   topmost element.
+10. A click on More opens a menu whose first entry is Settings and that
+    holds Customize Layout… and Accounts. Escape closes it.
+11. `workbench.layoutControl.type` is a locked setting with the value
+    `toggles`.
+12. While an activity of the application and one of accounts are shown,
+    More holds both, and it holds the one that is left when the other ends.
+13. A secondary click on Toggle Agent Area in the right group shows no
+    entry that starts with "Hide".
 
 ## Verification
 
@@ -193,9 +272,46 @@ Not in scope, and unchanged:
   menus that hold the panel's command (requirement 12), and the keys of
   Toggle Agent Area Terminal (requirement 13; criterion 8 without the
   window).
+- `basehalfMoreButton.test.ts`: the order of the More menu's groups, the
+  entries BaseHalf adds to the More menu and to Accounts, the activities
+  More shows, and its name in a window of a profile (requirements 15 and
+  17; criterion 12).
+  `basehalfSettingsCatalog.test.ts`: criterion 11.
 - `npm run basehalf:smoke`, step `layout-control-at-the-left-end`: criteria
   1 to 3 and 7 in the running window. Step
-  `card-detail-holds-no-layout-control`: criterion 4.
+  `card-detail-holds-no-layout-control`: criterion 4. Step
+  `title-bar-right-group-is-more-and-agent-area`: criteria 9 and 13. Step
+  `title-bar-menus-hold-what-basehalf-has`: criterion 10, with the order of
+  the menu and what Accounts holds.
+- Run in an isolated development window on 2026-11-26, 1440 px
+  wide, by a script that reads the buttons and every row
+  (`vscode-base/.build/rw-more/`, tool state of the checkout). Before: the
+  right group held Toggle Agent Area at 1328 px, Accounts, Manage, and More
+  Actions at 1406 px; Manage held 6 entries, Accounts 1, More Actions 1.
+  After: More at 1380 px and Toggle Agent Area at 1406 to 1428 px, each
+  topmost at its middle; the More menu held Settings, Keyboard Shortcuts,
+  Themes, Layout Density, a line, Command Palette…, Customize Layout…, a
+  line, and Accounts with Manage Accounts… and Manage Extension Account
+  Preferences…; the window ran without updates, so no entry of an update
+  was there to read. Also seen there:
+  - Settings, Customize Layout…, and Manage Accounts… each opened what they
+    name; the tooltip of the button read "More"; Enter and Space on it
+    opened the menu (requirement 15).
+  - A secondary click on More showed Navigation Controls and Layout
+    Controls (requirement 20), and one on Toggle Agent Area Configure
+    Keybinding and the same two, where it had also offered to hide the
+    button (requirement 23). With Layout Controls switched off there, the
+    left end held no button and the right group More alone, at 1406 px
+    (requirement 19; criterion 6).
+  - Showing the Agent Area left both buttons where they were.
+  - In a window 620 px wide both buttons kept their size, and the More menu
+    opened inside the window.
+  - A user's settings file with `workbench.layoutControl.type` as `both`
+    changed nothing (requirement 18).
+- Not run in a window: the badge of requirement 17 with a real update or a
+  real request to sign in; the unit test shows it with activities of both
+  kinds. Requirement 16 where the window buttons are on the right, and
+  requirement 21: no such system and no auxiliary window was at hand.
 - Measured once, on 2026-10-13, in a development window on macOS 26, and not
   automated:
   - Requirement 2: in a capture of the window the icon and the window

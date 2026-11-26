@@ -7698,3 +7698,32 @@ Area was a browser's tab bar: a darker frame around equal tabs of 11 px, centere
   take the room its terminals need; the tabs keep each session one press away, with its key.
 - The cap's own top line, as the panel draws over its frame: the Agent Area's strip lies inside the card, so the line
   stood 1 px under the card's border and doubled it. The card's border is the tab's top.
+
+## D155 — The right end of the title bar is More and the Agent Area's button (NEW, 2026-11-26)
+
+**Decision.** The right group of the title bar holds two buttons: More, drawn as three dots, and then the button that
+shows and hides the Agent Area, which is the last, at the edge of the window where its part is. More opens the one menu
+of the title bar for what is about the application: Settings first, with Keyboard Shortcuts, Themes, and Layout Density;
+then Command Palette and Customize Layout; then Accounts, a submenu; then the entries of an update. The title bar has
+no gear, no Accounts button, and no second button of three dots. More shows the badge the gear and the Accounts button
+had, for an update that is ready and for a request to sign in. `workbench.layoutControl.type` is locked at `toggles`.
+See [layout controls](specs/layout-controls.md#the-right-group) and
+[the commands and menus BaseHalf has](specs/commands-and-menus.md#the-menus).
+
+**Why.** The owner, 2026-11-26: should the upper right keep only the Agent Area's switch and the three dots, with
+Settings chosen inside the three dots? Read in the window the same day: the right group held four buttons, the Agent
+Area's, Accounts, the gear, and the tool bar's own overflow of three dots. The Accounts menu held one entry, Manage
+Extension Account Preferences, and the overflow one, Customize Layout. The gear's menu held six entries and was already
+a menu of several things, of which Settings is one; three dots say that, and a gear says Settings alone.
+
+**Considered.**
+- Keeping the gear as the one button: Settings is also in the application menu and on Command+Comma, so the
+  gear is not needed to find it, and the menu under it holds more than settings.
+- The three dots last, where the tool bar's overflow stood: the button of the sidebar is the first thing at the left
+  end (D56), and the Agent Area's is its mirror at the right edge, beside the part it shows.
+- The accounts listed in the submenu, each with its own submenu, as the Accounts menu drew them: the list is built
+  inside the base's Accounts button, with the sessions of every provider read at start. Manage Accounts, the base's
+  command, lists the same accounts and offers the same for each, and reads them when it is chosen.
+- Leaving `workbench.layoutControl.type` to the user: as `menu` the title bar loses both buttons of the layout, and
+  as `both`, the base's default, the base adds Customize Layout as a button, which the tool bar folds into a second
+  button of three dots.
