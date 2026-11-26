@@ -1,41 +1,68 @@
-# dependencies
+.DS_Store
+.cache
+npm-debug.log
+Thumbs.db
 node_modules/
-
-# BaseHalf local mirror/runtime state.
+.tmp/
+.build/
+/extensionsCG/
+.vscode/extensions/**/out/
+extensions/**/dist/
+src/vs/base/browser/ui/codicons/codicon/codicon.ttf
+/out*/
+/extensions/**/out/
+build/node_modules
+build/darwin/.dmgbuild
+coverage/
+test_data/
+test-results/
+test-results.xml
+vscode.lsif
+vscode.db
+/.profile-oss
+/cli/target
+/cli/openssl
+product.overrides.json
+*.snap.actual
+*.tsbuildinfo
+.eslintcache
+.vscode-test
+.chat-simulation-data
+vscode-telemetry-docs/
+test-output.json
+test/componentFixtures/.screenshots/*
+!test/componentFixtures/.screenshots/baseline/
+dist
+.playwright-cli
+.playwright-mcp
+.claude/
+.agents/agents/*.local.md
+.github/agents/*.local.md
+.agents/agents/*.local.agent.md
+.github/agents/*.local.agent.md
+.agents/hooks/*.local.json
+.github/hooks/*.local.json
+.agents/instructions/*.local.instructions.md
+.github/instructions/*.local.instructions.md
+.agents/prompts/*.local.prompt.md
+.github/prompts/*.local.prompt.md
+.agents/skills/.local/
+.github/skills/.local/
 **/.bh/
 
-# build output
-dist/
-build/
+# BaseHalf (D158): what the repository keeps beside the VS Code tree, and local state
 basehalf-dist/
 VSCode-darwin-*/
-out/
-*.tsbuildinfo
 tmp/
-# The VS Code base: vscode-base/build/ is the BUILD SYSTEM
-# (gulp tasks, packaging scripts), not output. Its own .gitignore keeps
-# build/node_modules etc. out.
-!vscode-base/build/
-
-# logs / env / OS cruft
 *.log
 .env
 .env.*
-.DS_Store
-.playwright-cli/
-
-# internal/strategy docs — never commit (kept locally only)
+# internal docs, a repository of their own, kept locally only
 private-docs/
-
-# local reference checkouts for UI study (third-party source, kept local only,
-# never committed — IP hygiene + keeps the repo small)
+# local reference checkouts for study (third-party source, never committed)
 reference/
-
-# Claude Code runtime state (scheduled task locks, etc.)
-.claude/
-
-# WorkBuddy local project state (memories, automations, skills — local only)
+# WorkBuddy local project state
 .workbuddy/
-
-# BaseHalf derived cache (rebuildable; the rest of .bh/ stays in git)
-.bh/cache/
+# VS Code's scripts that update its extensions' grammars and icons. A rule of the old
+# root ignored every build/ folder, so the import of 2026-06-30 never tracked them.
+/extensions/*/build/
