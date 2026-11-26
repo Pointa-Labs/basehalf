@@ -51,7 +51,7 @@ class BaseHalfSettingsService implements IBaseHalfSettingsService {
 
 registerSingleton(IBaseHalfSettingsService, BaseHalfSettingsService, InstantiationType.Delayed);
 
-// Settings of the gear's menu, of the application menu, and of its key run this command: the
+// Settings of the More menu, of the application menu, and of its key run this command: the
 // base's Settings command hands over to it when it is run without a search.
 registerAction2(class OpenBaseHalfSettingsAction extends Action2 {
 	constructor() {

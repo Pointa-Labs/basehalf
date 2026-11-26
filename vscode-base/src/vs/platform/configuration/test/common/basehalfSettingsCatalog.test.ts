@@ -52,7 +52,9 @@ suite('BaseHalf settings catalog', () => {
 
 	test('every locked setting has a value and is in no other rule\'s place', () => {
 		const locked = Object.keys(BASEHALF_LOCKED_SETTINGS);
-		assert.strictEqual(locked.length, 49);
+		assert.strictEqual(locked.length, 50);
+		// The layout controls of the title bar are buttons (docs/specs/layout-controls.md, The right group).
+		assert.strictEqual(BASEHALF_LOCKED_SETTINGS['workbench.layoutControl.type'], 'toggles');
 		assert.deepStrictEqual(locked.filter(key => BASEHALF_LOCKED_SETTINGS[key] === undefined || !isBaseHalfSettingLocked(key) || baseHalfSettingClass(key) !== 'locked'), []);
 		// A rule never claims the class: the locked settings are the ones with a value.
 		assert.deepStrictEqual(BASEHALF_SETTING_RULES.filter(rule => rule.class === 'locked'), []);

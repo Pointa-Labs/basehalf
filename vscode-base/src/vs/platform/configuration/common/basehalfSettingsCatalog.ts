@@ -34,12 +34,13 @@ export interface IBaseHalfSettingRule {
  * settings file has no effect on them.
  */
 export const BASEHALF_LOCKED_SETTINGS: Readonly<Record<string, unknown>> = Object.freeze({
-	// The title bar is BaseHalf's: the location, its search, and the buttons of the window.
+	// The title bar is BaseHalf's: the location, its search, the buttons of the window, and the layout controls as buttons.
 	'window.commandCenter': true,
 	'window.customTitleBarVisibility': 'auto',
 	'window.titleBarStyle': 'custom',
 	'window.nativeTabs': false,
 	'window.nativeFullScreen': true,
+	'workbench.layoutControl.type': 'toggles',
 	// BaseHalf has no editor tabs.
 	'workbench.editor.showTabs': 'none',
 	'zenMode.showTabs': 'none',

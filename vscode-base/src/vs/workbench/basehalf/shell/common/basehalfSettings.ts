@@ -15,7 +15,7 @@ export function isBaseHalfSettingsPageId(value: unknown): value is BaseHalfSetti
 	return typeof value === 'string' && (BASEHALF_SETTINGS_PAGES as readonly string[]).includes(value);
 }
 
-/** Settings of the gear's menu, of the application menu, and of its key: BaseHalf's Settings. */
+/** Settings of the More menu, of the application menu, and of its key: BaseHalf's Settings. */
 export const BASEHALF_OPEN_SETTINGS_COMMAND_ID = 'basehalf.settings.open';
 /** The Settings editor of the base, which lists every setting that does something in BaseHalf. */
 export const BASEHALF_OPEN_ADVANCED_SETTINGS_COMMAND_ID = 'basehalf.settings.openAdvanced';

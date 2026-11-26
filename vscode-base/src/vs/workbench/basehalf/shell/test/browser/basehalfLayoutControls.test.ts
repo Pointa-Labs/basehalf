@@ -27,7 +27,8 @@ function layoutControls(menu: MenuId, settings: Record<string, unknown>): string
 	const context = {
 		getValue: <T>(key: string) => ({
 			'config.workbench.sideBar.location': 'left',
-			'config.workbench.layoutControl.type': 'both',
+			// The value BaseHalf keeps: the controls are buttons (the catalog's test).
+			'config.workbench.layoutControl.type': 'toggles',
 			'config.workbench.layoutControl.enabled': true,
 			...settings
 		} as Record<string, unknown>)[key] as T | undefined
@@ -88,16 +89,14 @@ suite('BaseHalf layout controls', () => {
 		assert.deepStrictEqual([PANEL, AGENT_AREA, SIDEBAR].map(isBaseHalfHiddenCommand), [true, false, false]);
 	});
 
-	test('the control at the left end follows the settings of the layout controls', () => {
+	test('the control at the left end follows the setting of the layout controls', () => {
 		assert.deepStrictEqual({
+			shown: layoutControls(MenuId.TitleBarLeft, {}),
 			switchedOff: layoutControls(MenuId.TitleBarLeft, { 'config.workbench.layoutControl.enabled': false }),
-			asMenu: layoutControls(MenuId.TitleBarLeft, { 'config.workbench.layoutControl.type': 'menu' }),
-			asToggles: layoutControls(MenuId.TitleBarLeft, { 'config.workbench.layoutControl.type': 'toggles' }),
 			auxiliaryWindow: layoutControls(MenuId.TitleBarLeft, { 'isAuxiliaryWindow': true })
 		}, {
+			shown: [SIDEBAR],
 			switchedOff: [],
-			asMenu: [],
-			asToggles: [SIDEBAR],
 			auxiliaryWindow: []
 		});
 	});

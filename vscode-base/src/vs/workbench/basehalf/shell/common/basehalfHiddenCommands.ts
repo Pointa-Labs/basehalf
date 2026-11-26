@@ -544,7 +544,7 @@ export const BASEHALF_KEPT_COMMANDS: readonly IBaseHalfKeptCommand[] = [
  * found by its name, not beside what everyone uses. Keyboard Shortcuts lists it like any other command.
  */
 export const BASEHALF_PALETTE_ONLY_COMMANDS: readonly IBaseHalfKeptCommand[] = [
-	{ id: 'workbench.action.openSnippets', reason: 'Configure Snippets makes snippets for code, a tool of Source: it is not beside Settings in the gear\'s menu and the Preferences menu.' }
+	{ id: 'workbench.action.openSnippets', reason: 'Configure Snippets makes snippets for code, a tool of Source: it is not beside Settings in the More menu and the Preferences menu.' }
 ];
 
 const PALETTE_ONLY_COMMAND_IDS = new Set<string>(BASEHALF_PALETTE_ONLY_COMMANDS.map(command => command.id));

@@ -34,7 +34,8 @@ import { Categories } from '../../../../platform/action/common/actionCommonCateg
 import { HiddenItemStrategy, MenuWorkbenchToolBar, WorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
 import { IActionViewItemService } from '../../../../platform/actions/browser/actionViewItemService.js';
 import { ACCOUNTS_ACTIVITY_ID, GLOBAL_ACTIVITY_ID } from '../../../common/activity.js';
-import { AccountsActivityActionViewItem, isAccountsActionVisible, SimpleAccountActivityActionViewItem, SimpleGlobalActivityActionViewItem } from '../globalCompositeBar.js';
+// BaseHalf: without isAccountsActionVisible; the title bar has no Accounts button (see the activity actions below).
+import { AccountsActivityActionViewItem, SimpleAccountActivityActionViewItem, SimpleGlobalActivityActionViewItem } from '../globalCompositeBar.js';
 import { HoverPosition } from '../../../../base/browser/ui/hover/hoverWidget.js';
 import { IEditorGroupsContainer, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { ActionRunner, IAction, Separator } from '../../../../base/common/actions.js';
@@ -48,7 +49,7 @@ import { ResolvedKeybinding } from '../../../../base/common/keybindings.js';
 import { EditorCommandsContextActionRunner } from '../editor/editorTabsControl.js';
 import { IEditorCommandsContext, IEditorPartOptionsChangeEvent, IToolbarActions } from '../../../common/editor.js';
 import { CodeWindow, mainWindow } from '../../../../base/browser/window.js';
-import { ACCOUNTS_ACTIVITY_TILE_ACTION, GLOBAL_ACTIVITY_TITLE_ACTION, TitleBarLeadingActionsGroup } from './titlebarActions.js';
+import { GLOBAL_ACTIVITY_TITLE_ACTION, TitleBarLeadingActionsGroup } from './titlebarActions.js';
 import { IView } from '../../../../base/browser/ui/grid/grid.js';
 import { createInstantHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegateFactory.js';
 import { IBaseActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
@@ -692,6 +693,9 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 
 		this.actionToolBar = this.actionToolBarDisposable.add(this.instantiationService.createInstance(WorkbenchToolBar, this.actionToolBarElement, {
 			contextMenu: MenuId.TitleBarContext,
+			// BaseHalf: no button of the right group is hidden by itself, as none of the left tool bar is: a hidden one
+			// would go into an overflow of three dots beside More (docs/specs/layout-controls.md, The right group).
+			hiddenItemStrategy: HiddenItemStrategy.NoHide,
 			orientation: ActionsOrientation.HORIZONTAL,
 			ariaLabel: localize('ariaLabelTitleActions', "Title actions"),
 			getKeyBinding: action => this.getKeybinding(action),
@@ -746,16 +750,9 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 				}
 			}
 
-			// --- Layout Actions
-			if (this.layoutToolbarMenu) {
-				fillInActionBarActions(
-					this.layoutToolbarMenu.getActions(),
-					actions,
-					(group) => group === 'navigation'
-				);
-			}
-
-			// --- Global Actions (after layout so e.g. notification bell appears to the right of layout controls).
+			// --- Global Actions
+			// BaseHalf: the global actions stand before the layout controls, not after them, so that the control of the
+			// Agent Area is the last button, at the edge of the window where its part is (docs/specs/layout-controls.md).
 			// Filter out the leading group up front so it isn't duplicated into the overflow `secondary` bucket.
 			if (this.globalToolbarMenu) {
 				const trailingGroups = this.globalToolbarMenu.getActions().filter(([group]) => group !== TitleBarLeadingActionsGroup);
@@ -765,13 +762,20 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 				);
 			}
 
-			// --- Activity Actions (always at the end)
+			// --- Activity Actions
+			// BaseHalf: one button, More, which BaseHalf draws in place of the gear and whose menu holds Accounts; the
+			// title bar has no Accounts button. It stands before the layout controls too.
 			if (this.activityActionsEnabled) {
-				if (isAccountsActionVisible(this.storageService)) {
-					actions.primary.push(ACCOUNTS_ACTIVITY_TILE_ACTION);
-				}
-
 				actions.primary.push(GLOBAL_ACTIVITY_TITLE_ACTION);
+			}
+
+			// --- Layout Actions (BaseHalf: always at the end)
+			if (this.layoutToolbarMenu) {
+				fillInActionBarActions(
+					this.layoutToolbarMenu.getActions(),
+					actions,
+					(group) => group === 'navigation'
+				);
 			}
 
 			this.actionToolBar.setActions(prepareActions(actions.primary), prepareActions(actions.secondary));

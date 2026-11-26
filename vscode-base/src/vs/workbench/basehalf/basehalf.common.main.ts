@@ -44,6 +44,7 @@ import './shell/browser/basehalfWorkbenchProfile.contribution.js';
 import './shell/browser/basehalfSettingsCatalog.contribution.js';
 import './shell/browser/basehalfHiddenCommandsCheck.contribution.js';
 import './shell/browser/basehalfKeyedCommands.contribution.js';
+import './shell/browser/basehalfMoreButton.contribution.js';
 import './navigation/browser/basehalfNavigation.contribution.js';
 import './canvas/basehalfCanvas.all.js';
 import './upkeep/browser/basehalfMirrorCascade.contribution.js';
