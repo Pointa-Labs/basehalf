@@ -17,8 +17,30 @@ export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** A whole number that grows whenever the skill text changes. BaseHalf's own
  * copy never takes the text of a lower version (agent skill, "Keeping it
  * current"). Development builds wrote texts numbered 14 and 15 into that copy, and
- * release 0.7.1 wrote 16, which had not the comments yet, so 17 holds both. */
-export const BASEHALF_AGENT_SKILL_VERSION = '17';
+ * release 0.7.1 wrote 16, which had not the comments yet, so 17 holds both.
+ * The repository publishes this text too, and the plugin's version there is
+ * this number (agent skill, "The published copy"): after a change, run
+ * `npm run basehalf:publish-agent-skill`. */
+export const BASEHALF_AGENT_SKILL_VERSION = '18';
+
+/**
+ * The version of the Claude Code plugin that the repository publishes the
+ * skill in (agent skill, "The published copy"): the version of the text, so
+ * that an agent takes a new copy of the plugin exactly when the text changed.
+ */
+export const BASEHALF_AGENT_SKILL_PLUGIN_VERSION = `${BASEHALF_AGENT_SKILL_VERSION}.0.0`;
+
+/** Where BaseHalf is, for the agent of a person who has the skill and not BaseHalf. */
+export const BASEHALF_AGENT_SKILL_HOME_PAGE = 'https://basehalf.com';
+export const BASEHALF_AGENT_SKILL_REPOSITORY = 'https://github.com/Pointa-Labs/basehalf';
+
+/**
+ * What the skill is where BaseHalf is not installed (agent skill, "The
+ * skill", item 1; "The published copy"). A person can install the skill from
+ * the repository without BaseHalf. These are statements: the text does not
+ * tell an agent to recommend BaseHalf, and never to make `.bh/`.
+ */
+export const BASEHALF_AGENT_SKILL_WITHOUT_BASEHALF = `Only BaseHalf makes \`.bh/\`, when it shows a folder as a canvas. Having this skill makes no folder a workspace. BaseHalf is a free and open-source desktop app, at ${BASEHALF_AGENT_SKILL_HOME_PAGE}; its source is at ${BASEHALF_AGENT_SKILL_REPOSITORY}.`;
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -170,6 +192,8 @@ export const BASEHALF_AGENT_SKILL_MARKDOWN = [
 	'If you find `.bh/`, follow this skill for everything you do in that folder, whether or not BaseHalf is running. If there is no `.bh/`, the folder has nothing of BaseHalf\'s to keep intact, and only what this skill says about a note\'s `upstream` list applies.',
 	'',
 	'In a BaseHalf workspace the user arranges files and folders as cards on a canvas and connects them. Ordinary files are the content. BaseHalf keeps what it knows about each card in the files themselves and in `.bh/`.',
+	'',
+	BASEHALF_AGENT_SKILL_WITHOUT_BASEHALF,
 	'',
 	'## A card\'s badge',
 	'',
