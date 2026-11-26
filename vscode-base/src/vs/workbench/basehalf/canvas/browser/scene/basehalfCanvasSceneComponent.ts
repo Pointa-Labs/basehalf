@@ -613,8 +613,8 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const videoPanelNode = videoPanelSurface
 			&& videoPanelSurface.sceneKey === sceneKeyRef.current
 			&& videoPanelSurface.structuralEpoch === structuralEpochRef.current
-				? nodes.find(node => node.id === videoPanelSurface.path)
-				: undefined;
+			? nodes.find(node => node.id === videoPanelSurface.path)
+			: undefined;
 		return h(EdgeInteractionContext.Provider, { value: edgeInteraction },
 			h(SelectionSizeContext.Provider, { value: selectedNodes.length },
 				h(ReactFlowComponent, flowProps,
@@ -636,7 +636,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 						? h(NoteSelectionControls, { node: selectedNodes[0], suppressed: adjacentChromeSuppressed })
 						: selectionSurface === 'video'
 							? h(VideoSelectionControls, { node: selectedNodes[0], suppressed: adjacentChromeSuppressed })
-						: selectionSurface === 'structural'
+							: selectionSurface === 'structural'
 								? h(SelectionToolbar, { nodes: selectedNodes, invoke: invokeSelectionAction, arrange: arrangeSet, suppressed: adjacentChromeSuppressed })
 								: null,
 					selectedNodes.length >= 2

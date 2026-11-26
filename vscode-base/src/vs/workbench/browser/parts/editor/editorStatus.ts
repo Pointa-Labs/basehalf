@@ -927,7 +927,7 @@ class EditorStatus extends Disposable {
 
 				return this.onEncodingChange(activeEditorPane, activeCodeEditor); // only update if the encoding changed for the active resource
 			}
-		// BaseHalf: Card Detail's text editor, which has no pane.
+			// BaseHalf: Card Detail's text editor, which has no pane.
 		} else if (baseHalfShownTextEditors.current?.input && isEqual(EditorResourceAccessor.getCanonicalUri(baseHalfShownTextEditors.current.input), resource)) {
 			return this.onEncodingChange(undefined, getCodeEditor(baseHalfShownTextEditors.current.control) ?? undefined, baseHalfShownTextEditors.current.input);
 		}

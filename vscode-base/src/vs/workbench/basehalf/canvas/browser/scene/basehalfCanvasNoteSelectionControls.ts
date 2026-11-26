@@ -269,7 +269,7 @@ export function createBaseHalfCanvasNoteSelectionControls(environment: IBaseHalf
 						setBackgroundOpen(false);
 					}, error => delegate.reportError(error));
 				}
-				}))) : null
+			}))) : null
 		);
 	}
 

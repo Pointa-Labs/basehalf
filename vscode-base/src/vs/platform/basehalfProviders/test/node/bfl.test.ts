@@ -431,10 +431,12 @@ suite('BaseHalf providers: bfl', () => {
 		const replies: readonly [number, unknown, Record<string, string>?][] = [
 			[402, { detail: 'Insufficient credits' }],
 			[403, { detail: 'Forbidden' }],
-			[422, { detail: [
-				{ type: 'less_than_equal', loc: ['body', 't2v', 'duration'], msg: 'Input should be less than or equal to 20', input: 30 },
-				{ type: 'literal_error', loc: ['body', 't2v', 'safety_tolerance'], msg: 'Input should be 0, 1 or 2', input: 4 }
-			] }],
+			[422, {
+				detail: [
+					{ type: 'less_than_equal', loc: ['body', 't2v', 'duration'], msg: 'Input should be less than or equal to 20', input: 30 },
+					{ type: 'literal_error', loc: ['body', 't2v', 'safety_tolerance'], msg: 'Input should be 0, 1 or 2', input: 4 }
+				]
+			}],
 			[400, { detail: 'Invalid image data' }],
 			[429, { detail: 'You have reached the maximum number of active tasks.' }, { 'Retry-After': '20' }],
 			[404, { detail: 'Not Found' }]

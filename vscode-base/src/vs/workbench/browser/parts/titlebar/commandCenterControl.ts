@@ -204,59 +204,59 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 							super(undefined, action, options);
 						}
 
-							override render(container: HTMLElement): void {
-								super.render(container);
-								container.classList.toggle('command-center-quick-pick');
-								const renderContents = () => this.renderContents(container);
+						override render(container: HTMLElement): void {
+							super.render(container);
+							container.classList.toggle('command-center-quick-pick');
+							const renderContents = () => this.renderContents(container);
+							renderContents();
+
+							const hover = this._store.add(that._hoverService.setupManagedHover(that._hoverDelegate, container, this.getTooltip()));
+
+							this._store.add(that._windowTitle.onDidChange(() => {
+								hover.update(this.getTooltip());
 								renderContents();
-
-								const hover = this._store.add(that._hoverService.setupManagedHover(that._hoverDelegate, container, this.getTooltip()));
-
-								this._store.add(that._windowTitle.onDidChange(() => {
+							}));
+							this._store.add(that._editorGroupService.onDidChangeEditorPartOptions(({ newPartOptions, oldPartOptions }) => {
+								if (newPartOptions.showTabs !== oldPartOptions.showTabs) {
 									hover.update(this.getTooltip());
 									renderContents();
-								}));
-								this._store.add(that._editorGroupService.onDidChangeEditorPartOptions(({ newPartOptions, oldPartOptions }) => {
-									if (newPartOptions.showTabs !== oldPartOptions.showTabs) {
-										hover.update(this.getTooltip());
-										renderContents();
-									}
-								}));
-								this._store.add(that._canvasNavigationService.onDidChangeState(renderContents));
-								this._store.add(that._canvasNavigationService.onDidChangeSurfaceActive(renderContents));
-							}
+								}
+							}));
+							this._store.add(that._canvasNavigationService.onDidChangeState(renderContents));
+							this._store.add(that._canvasNavigationService.onDidChangeSurfaceActive(renderContents));
+						}
 
 						private renderContents(container: HTMLElement): void {
 							const disposables = new DisposableStore();
 							this.renderDisposables.value = disposables;
 							const breadcrumbs = that._canvasNavigationService.isSurfaceActive
-									? baseHalfTitleBreadcrumbs(that._canvasNavigationService.state)
-									: [];
-								if (breadcrumbs.length > 0) {
-									this.renderBreadcrumbs(container, breadcrumbs, disposables);
-									return;
-								}
-
-								container.role = 'button';
-								container.setAttribute('aria-description', this.getTooltip());
-								container.classList.remove('basehalf-location-mode');
-								const isCompactMode = this.isCompactMode();
-								container.classList.toggle('compact-mode', isCompactMode);
-								const searchIcon = document.createElement('span');
-								searchIcon.ariaHidden = 'true';
-								searchIcon.className = this.action.class ?? '';
-								searchIcon.classList.add('search-icon');
-								const labelElement = document.createElement('span');
-								labelElement.classList.add('search-label');
-								labelElement.textContent = this._getLabel();
-								reset(container, ...(isCompactMode ? [labelElement] : [searchIcon, labelElement]));
+								? baseHalfTitleBreadcrumbs(that._canvasNavigationService.state)
+								: [];
+							if (breadcrumbs.length > 0) {
+								this.renderBreadcrumbs(container, breadcrumbs, disposables);
+								return;
 							}
+
+							container.role = 'button';
+							container.setAttribute('aria-description', this.getTooltip());
+							container.classList.remove('basehalf-location-mode');
+							const isCompactMode = this.isCompactMode();
+							container.classList.toggle('compact-mode', isCompactMode);
+							const searchIcon = document.createElement('span');
+							searchIcon.ariaHidden = 'true';
+							searchIcon.className = this.action.class ?? '';
+							searchIcon.classList.add('search-icon');
+							const labelElement = document.createElement('span');
+							labelElement.classList.add('search-label');
+							labelElement.textContent = this._getLabel();
+							reset(container, ...(isCompactMode ? [labelElement] : [searchIcon, labelElement]));
+						}
 
 						private renderBreadcrumbs(container: HTMLElement, entries: readonly IBaseHalfTitleBreadcrumb[], disposables: DisposableStore): void {
 							container.role = 'group';
-								container.setAttribute('aria-label', localize('basehalf.locationAndSearch', "Location and workspace search"));
-								container.removeAttribute('aria-description');
-								container.classList.add('basehalf-location-mode', 'compact-mode');
+							container.setAttribute('aria-label', localize('basehalf.locationAndSearch', "Location and workspace search"));
+							container.removeAttribute('aria-description');
+							container.classList.add('basehalf-location-mode', 'compact-mode');
 
 							// BaseHalf: a press and a click on the path that no button inside it takes
 							// (the current place, a chevron, the room around them) are the box's own:
@@ -275,110 +275,110 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 									}
 								}));
 							}
-								const displayEntries: Array<IBaseHalfTitleBreadcrumb | readonly IBaseHalfTitleBreadcrumb[]> = entries.length <= 4
-									? [...entries]
-									: [entries[0], entries.slice(1, -2), ...entries.slice(-2)];
+							const displayEntries: Array<IBaseHalfTitleBreadcrumb | readonly IBaseHalfTitleBreadcrumb[]> = entries.length <= 4
+								? [...entries]
+								: [entries[0], entries.slice(1, -2), ...entries.slice(-2)];
 
-								for (let index = 0; index < displayEntries.length; index++) {
-									if (index > 0) {
-										const separator = document.createElement('span');
-										separator.className = 'basehalf-command-center-breadcrumb-separator codicon codicon-chevron-right';
-										separator.ariaHidden = 'true';
-										path.appendChild(separator);
-									}
-									const entry = displayEntries[index];
-									if (Array.isArray(entry)) {
-										path.appendChild(this.createOverflowButton(entry, disposables));
-									} else {
-										path.appendChild(this.createBreadcrumbSegment(entry as IBaseHalfTitleBreadcrumb, index === 0, disposables));
-									}
+							for (let index = 0; index < displayEntries.length; index++) {
+								if (index > 0) {
+									const separator = document.createElement('span');
+									separator.className = 'basehalf-command-center-breadcrumb-separator codicon codicon-chevron-right';
+									separator.ariaHidden = 'true';
+									path.appendChild(separator);
 								}
-
-								const search = document.createElement('button');
-								search.type = 'button';
-								search.className = 'basehalf-command-center-search codicon codicon-search';
-								// BaseHalf: the workbench's hover names a button that shows only an icon, never the system's tooltip (D65).
-								const searchLabel = this.getTooltip() ?? localize('basehalf.searchWorkspace', "Search workspace");
-								search.setAttribute('aria-label', searchLabel);
-								disposables.add(that._hoverService.setupDelayedHover(search, { content: searchLabel }));
-								// BaseHalf: a press on a button in the box leaves the keyboard where it was (D73).
-								disposables.add(addDisposableListener(search, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
-								// BaseHalf: the path shows nothing more under the pointer, and the search button only its name:
-								// the hover of the whole location, which names its search, does not show over them (D65).
-								for (const element of [path, search]) {
-									disposables.add(addDisposableListener(element, EventType.MOUSE_OVER, event => event.stopPropagation()));
-								}
-								disposables.add(addDisposableListener(search, EventType.CLICK, event => {
-									event.preventDefault();
-									event.stopPropagation();
-									void this.actionRunner.run(this.action, { preserveFocus: false });
-								}));
-								reset(container, path, search);
-							}
-
-							private createBreadcrumbSegment(entry: IBaseHalfTitleBreadcrumb, root: boolean, disposables: DisposableStore): HTMLElement {
-								const element = document.createElement(entry.current ? 'span' : 'button');
-								element.className = 'basehalf-command-center-breadcrumb-segment';
-								element.classList.toggle('root', root);
-								element.classList.toggle('current', entry.current);
-								element.textContent = entry.label;
-								if (entry.current) {
-									element.setAttribute('aria-current', 'page');
-									return element;
-								}
-
-								const button = element as HTMLButtonElement;
-								button.type = 'button';
-								button.setAttribute('aria-label', localize('basehalf.openFolderCanvas', "Open {0} canvas", entry.path));
-								// BaseHalf: a folder of the path takes cards dropped from the canvas (D88).
-								button.setAttribute(BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE, entry.resource.toString());
-								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
-								disposables.add(addDisposableListener(button, EventType.CLICK, event => {
-									event.preventDefault();
-									event.stopPropagation();
-									void that._canvasNavigationService.openFolderCanvas(entry.resource, { source: 'api' });
-								}));
-								return button;
-							}
-
-							private createOverflowButton(entries: readonly IBaseHalfTitleBreadcrumb[], disposables: DisposableStore): HTMLButtonElement {
-								const button = document.createElement('button');
-								button.type = 'button';
-								button.className = 'basehalf-command-center-breadcrumb-overflow';
-								button.textContent = '\u2026';
-								// BaseHalf: the ellipsis says nothing by itself; the workbench's hover names it (D65).
-								const overflowLabel = localize('basehalf.showParentFolders', "Show parent folders");
-								button.setAttribute('aria-label', overflowLabel);
-								disposables.add(that._hoverService.setupDelayedHover(button, { content: overflowLabel }));
-								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
-								disposables.add(addDisposableListener(button, EventType.CLICK, event => {
-									event.preventDefault();
-									event.stopPropagation();
-									void this.pickOverflowEntry(entries);
-								}));
-								return button;
-							}
-
-							private async pickOverflowEntry(entries: readonly IBaseHalfTitleBreadcrumb[]): Promise<void> {
-								type Pick = IQuickPickItem & { readonly entry: IBaseHalfTitleBreadcrumb };
-								const picked = await that._quickInputService.pick<Pick>(entries.map(entry => ({
-									label: entry.label,
-									description: entry.path,
-									entry
-								})), { placeHolder: localize('basehalf.goToParentFolder', "Go to a parent folder canvas") });
-								if (picked) {
-									await that._canvasNavigationService.openFolderCanvas(picked.entry.resource, { source: 'api' });
+								const entry = displayEntries[index];
+								if (Array.isArray(entry)) {
+									path.appendChild(this.createOverflowButton(entry, disposables));
+								} else {
+									path.appendChild(this.createBreadcrumbSegment(entry as IBaseHalfTitleBreadcrumb, index === 0, disposables));
 								}
 							}
 
-							private isCompactMode(): boolean {
-								const aiFeaturesDisabled = that._configurationService.getValue<boolean>(AI_DISABLED_SETTING) === true;
-								const aiCustomizationsDisabled = that._configurationService.getValue<boolean>('disableAICustomizations') === true
-									|| that._configurationService.getValue<boolean>('workbench.disableAICustomizations') === true;
-								const forcedHidden = aiFeaturesDisabled && aiCustomizationsDisabled;
-								const agentControlValue = that._configurationService.getValue(AGENT_STATUS_ENABLED_SETTING);
-								return !forcedHidden && (agentControlValue === true || agentControlValue === undefined || agentControlValue === 'compact');
+							const search = document.createElement('button');
+							search.type = 'button';
+							search.className = 'basehalf-command-center-search codicon codicon-search';
+							// BaseHalf: the workbench's hover names a button that shows only an icon, never the system's tooltip (D65).
+							const searchLabel = this.getTooltip() ?? localize('basehalf.searchWorkspace', "Search workspace");
+							search.setAttribute('aria-label', searchLabel);
+							disposables.add(that._hoverService.setupDelayedHover(search, { content: searchLabel }));
+							// BaseHalf: a press on a button in the box leaves the keyboard where it was (D73).
+							disposables.add(addDisposableListener(search, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
+							// BaseHalf: the path shows nothing more under the pointer, and the search button only its name:
+							// the hover of the whole location, which names its search, does not show over them (D65).
+							for (const element of [path, search]) {
+								disposables.add(addDisposableListener(element, EventType.MOUSE_OVER, event => event.stopPropagation()));
 							}
+							disposables.add(addDisposableListener(search, EventType.CLICK, event => {
+								event.preventDefault();
+								event.stopPropagation();
+								void this.actionRunner.run(this.action, { preserveFocus: false });
+							}));
+							reset(container, path, search);
+						}
+
+						private createBreadcrumbSegment(entry: IBaseHalfTitleBreadcrumb, root: boolean, disposables: DisposableStore): HTMLElement {
+							const element = document.createElement(entry.current ? 'span' : 'button');
+							element.className = 'basehalf-command-center-breadcrumb-segment';
+							element.classList.toggle('root', root);
+							element.classList.toggle('current', entry.current);
+							element.textContent = entry.label;
+							if (entry.current) {
+								element.setAttribute('aria-current', 'page');
+								return element;
+							}
+
+							const button = element as HTMLButtonElement;
+							button.type = 'button';
+							button.setAttribute('aria-label', localize('basehalf.openFolderCanvas', "Open {0} canvas", entry.path));
+							// BaseHalf: a folder of the path takes cards dropped from the canvas (D88).
+							button.setAttribute(BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE, entry.resource.toString());
+							disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
+							disposables.add(addDisposableListener(button, EventType.CLICK, event => {
+								event.preventDefault();
+								event.stopPropagation();
+								void that._canvasNavigationService.openFolderCanvas(entry.resource, { source: 'api' });
+							}));
+							return button;
+						}
+
+						private createOverflowButton(entries: readonly IBaseHalfTitleBreadcrumb[], disposables: DisposableStore): HTMLButtonElement {
+							const button = document.createElement('button');
+							button.type = 'button';
+							button.className = 'basehalf-command-center-breadcrumb-overflow';
+							button.textContent = '\u2026';
+							// BaseHalf: the ellipsis says nothing by itself; the workbench's hover names it (D65).
+							const overflowLabel = localize('basehalf.showParentFolders', "Show parent folders");
+							button.setAttribute('aria-label', overflowLabel);
+							disposables.add(that._hoverService.setupDelayedHover(button, { content: overflowLabel }));
+							disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
+							disposables.add(addDisposableListener(button, EventType.CLICK, event => {
+								event.preventDefault();
+								event.stopPropagation();
+								void this.pickOverflowEntry(entries);
+							}));
+							return button;
+						}
+
+						private async pickOverflowEntry(entries: readonly IBaseHalfTitleBreadcrumb[]): Promise<void> {
+							type Pick = IQuickPickItem & { readonly entry: IBaseHalfTitleBreadcrumb };
+							const picked = await that._quickInputService.pick<Pick>(entries.map(entry => ({
+								label: entry.label,
+								description: entry.path,
+								entry
+							})), { placeHolder: localize('basehalf.goToParentFolder', "Go to a parent folder canvas") });
+							if (picked) {
+								await that._canvasNavigationService.openFolderCanvas(picked.entry.resource, { source: 'api' });
+							}
+						}
+
+						private isCompactMode(): boolean {
+							const aiFeaturesDisabled = that._configurationService.getValue<boolean>(AI_DISABLED_SETTING) === true;
+							const aiCustomizationsDisabled = that._configurationService.getValue<boolean>('disableAICustomizations') === true
+								|| that._configurationService.getValue<boolean>('workbench.disableAICustomizations') === true;
+							const forcedHidden = aiFeaturesDisabled && aiCustomizationsDisabled;
+							const agentControlValue = that._configurationService.getValue(AGENT_STATUS_ENABLED_SETTING);
+							return !forcedHidden && (agentControlValue === true || agentControlValue === undefined || agentControlValue === 'compact');
+						}
 
 						protected override getTooltip() {
 							return that.getTooltip();

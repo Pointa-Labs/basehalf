@@ -268,11 +268,11 @@ export class BaseHalfCanvasBadgeEditor {
 			downstream: this.view.renderedIndexState === 'building' ? [] : this.view.referenceIndexService.getDownstream(node),
 			indexState: this.view.renderedIndexState
 		}, mutationGuard,
-		disposable => listeners.add(disposable),
-		focusTarget => {
-			this.pendingCanvasBadgeFocus = { path: item.path, target: focusTarget };
-			this.view.requestRender();
-		});
+			disposable => listeners.add(disposable),
+			focusTarget => {
+				this.pendingCanvasBadgeFocus = { path: item.path, target: focusTarget };
+				this.view.requestRender();
+			});
 	}
 
 	/**

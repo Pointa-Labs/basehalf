@@ -25,7 +25,7 @@ export class BaseHalfModelCredentialStore implements IBaseHalfModelCredentialSto
 
 	async set(key: string, value: string): Promise<void> {
 		const encrypted = await this.encryptionService.encrypt(value);
-		for (;;) {
+		for (; ;) {
 			const current = await this.readEncrypted(key);
 			const result = await this.compareAndSwap(key, current, encrypted);
 			if (result.swapped) {
@@ -35,7 +35,7 @@ export class BaseHalfModelCredentialStore implements IBaseHalfModelCredentialSto
 	}
 
 	async delete(key: string): Promise<void> {
-		for (;;) {
+		for (; ;) {
 			const current = await this.readEncrypted(key);
 			if (current === undefined) {
 				return;

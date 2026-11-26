@@ -149,12 +149,12 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 			}
 			const projected = mutation?.kind === 'upsert' ? mutation.edge : edge;
 			const current = currentEdgeById.get(projected.id);
-				nextEdges.push(makeEdge(
-					projected,
-					snapshot.key,
-					snapshot.structuralEpoch,
-					selectionControlledByHost ? snapshot.selectedEdgeIds?.includes(projected.id) ?? false : current?.selected ?? false
-				));
+			nextEdges.push(makeEdge(
+				projected,
+				snapshot.key,
+				snapshot.structuralEpoch,
+				selectionControlledByHost ? snapshot.selectedEdgeIds?.includes(projected.id) ?? false : current?.selected ?? false
+			));
 		}
 		if (!identityChanged) {
 			for (const [id, mutation] of pendingEdges.current) {

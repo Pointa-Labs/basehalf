@@ -399,7 +399,7 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			createImages(request, response, parseJson(body));
 			return;
 		}
-		const taskPath =/^\/api\/v3\/contents\/generations\/tasks(?:\/(?<id>[^/]+))?$/.exec(path);
+		const taskPath = /^\/api\/v3\/contents\/generations\/tasks(?:\/(?<id>[^/]+))?$/.exec(path);
 		if (!taskPath) {
 			json(response, 404, { error: { code: 'InvalidAction', message: `The specified action is invalid: ${request.method} ${path}` } });
 			return;

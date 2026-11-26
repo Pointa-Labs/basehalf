@@ -1742,7 +1742,7 @@ async function fixedBlocks(t: INoteFormatsTest): Promise<void> {
 		open: fixed.some(block => block.querySelector('details')?.hasAttribute('open') === true),
 		titles: fixed.reduce((count, block) => count + block.querySelectorAll('[title]').length, 0),
 		saved: await t.save(),
-	// The toggle has an attribute Rich cannot write: its first lines and its last line are fixed blocks (rule 42).
+		// The toggle has an attribute Rich cannot write: its first lines and its last line are fixed blocks (rule 42).
 	}, { fixed: 4, color: 'rgb(232, 112, 107)', sound: true, open: true, titles: 0, saved: note });
 }
 

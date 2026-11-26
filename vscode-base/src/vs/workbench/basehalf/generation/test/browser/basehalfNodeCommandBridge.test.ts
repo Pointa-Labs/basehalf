@@ -647,8 +647,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 				.map(id => ({ id, label: id.split('.').at(-1) ?? id }))
 		} as unknown as IBaseHalfCanvasTemplateRegistryService;
 		const commands = {
-				executeCommand: async (id: string, argument: unknown, cancellationToken?: CancellationToken) => {
-					commandCalls.push({ id, argument, cancellationToken });
+			executeCommand: async (id: string, argument: unknown, cancellationToken?: CancellationToken) => {
+				commandCalls.push({ id, argument, cancellationToken });
 				notifyCommandStarted?.();
 				return options.commandPromise ?? options.commandResult;
 			}

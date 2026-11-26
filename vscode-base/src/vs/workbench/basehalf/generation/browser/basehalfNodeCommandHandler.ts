@@ -552,12 +552,12 @@ function capabilityDiscoveryExtension(
 		id: capability.id,
 		label: capability.label,
 		...(capability.description === undefined ? {} : { description: capability.description }),
-			documents: Object.freeze(capability.documents.map(document => Object.freeze({
-				kind: document.kind,
-				version: document.version,
-				fileExtensions: Object.freeze([...document.fileExtensions]),
-				schemaSummary: document.schemaSummary
-			}))),
+		documents: Object.freeze(capability.documents.map(document => Object.freeze({
+			kind: document.kind,
+			version: document.version,
+			fileExtensions: Object.freeze([...document.fileExtensions]),
+			schemaSummary: document.schemaSummary
+		}))),
 		operations: Object.freeze(capability.operations.map(operation => capabilityDiscoveryOperation(operation)))
 	});
 }

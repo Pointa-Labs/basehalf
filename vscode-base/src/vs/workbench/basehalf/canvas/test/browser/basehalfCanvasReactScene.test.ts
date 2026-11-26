@@ -338,7 +338,7 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(centered.height, 36);
 		assert.strictEqual(
 			(180 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT)
-				- (centered.top + centered.height),
+			- (centered.top + centered.height),
 			10
 		);
 
@@ -358,7 +358,7 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(zoomed.height, centered.height);
 		assert.strictEqual(
 			((180 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * 2 - 180)
-				- (zoomed.top * 2 - 180 + zoomed.height),
+			- (zoomed.top * 2 - 180 + zoomed.height),
 			10
 		);
 
@@ -375,8 +375,8 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(zoomedOut.visible, true);
 		assert.ok(Math.abs(
 			(600 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * 0.2
-				- (zoomedOut.top * 0.2 + zoomedOut.height)
-				- 10
+			- (zoomedOut.top * 0.2 + zoomedOut.height)
+			- 10
 		) < 1e-9);
 
 		const narrow = resolveBaseHalfCanvasVideoSelectionPlacement({

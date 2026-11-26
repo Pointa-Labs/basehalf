@@ -141,7 +141,7 @@ export async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetup
 	let failure = initialError;
 	let allowPartialRecovery = false;
 	let postCreateIntent = runtime.postCreateIntent;
-	for (;;) {
+	for (; ;) {
 		if (failure === undefined) {
 			try {
 				await runtime.workspaceMutationCoordinator.runExclusive(runtime.workspaceFolder, lease => applyPendingTemplateMetadata(runtime, lease, CancellationToken.None, allowPartialRecovery));
@@ -292,13 +292,13 @@ function createTemplateMetadataPlan(runtime: IBaseHalfTemplateSetupRuntime): IBa
 	for (const card of runtime.template.cards) {
 		const parent = templateParentPath(card.path);
 		const next = {
-				path: joinCanvasPath(runtime.pending.projectRelativePath, card.path),
-				kind: 'file' as const,
-				x: card.x,
-				y: card.y,
-				width: card.width,
-				height: card.height
-			};
+			path: joinCanvasPath(runtime.pending.projectRelativePath, card.path),
+			kind: 'file' as const,
+			x: card.x,
+			y: card.y,
+			width: card.width,
+			height: card.height
+		};
 		transitionFor(parent).cards.push({ path: next.path, expected: null, next });
 	}
 

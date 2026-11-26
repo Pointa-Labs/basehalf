@@ -598,9 +598,9 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
 				&& (candidate.result === 'saved'
-				|| candidate.result === 'noop'
-				|| candidate.result === 'blockedByConflict'
-				|| candidate.result === 'writeFailed')
+					|| candidate.result === 'noop'
+					|| candidate.result === 'blockedByConflict'
+					|| candidate.result === 'writeFailed')
 				&& (candidate.content === undefined || typeof candidate.content === 'string')
 				&& (candidate.disk === undefined || typeof candidate.disk === 'string')
 				&& (candidate.message === undefined || typeof candidate.message === 'string');

@@ -605,13 +605,13 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.openSource':
 				// The escape hatch for passthrough blocks: reopen this card in
 				// the source projection with the block's lines selected.
-					await this.canvasNavigationService.openCardDetail(state.resource, {
-						source: 'api',
-						projection: 'source',
-						selection: message.selection,
-						pinned: state.pinned,
-						history: 'replace'
-					});
+				await this.canvasNavigationService.openCardDetail(state.resource, {
+					source: 'api',
+					projection: 'source',
+					selection: message.selection,
+					pinned: state.pinned,
+					history: 'replace'
+				});
 				break;
 			case 'basehalf.markdownRich.adhdCommand':
 				await this.handleAdhdCommand(state, message.command);
