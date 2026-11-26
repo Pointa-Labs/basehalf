@@ -7867,3 +7867,59 @@ D20 moved the center, and the folders stayed.
   `node_modules` and the build's output, are moved by hand.
 - The source tree has one directory and one marker, `.basehalf-no-workspace-setup` at the root.
 - The Electron unit tests, the smoke, and eslint stay in the push gate on the developer's machine, not in CI.
+
+## D159 — The commit hook checks the files of a commit (NEW, 2026-11-27)
+
+**Decision.** The hook that git runs before a commit, VS Code's hygiene check, checks the files of the commit, and
+BaseHalf's code passes it. It checks the copyright header, the indentation, characters outside ASCII, the format of
+TypeScript, eslint with a warning counted as an error, and the names of CSS variables. The check knows what is
+BaseHalf's:
+
+- The header is Pointa Labs' in BaseHalf's own folders and VS Code's elsewhere, by the folders of the eslint rule.
+- Chinese text is allowed, since the product shows it and sends it to providers that read it.
+- Bundles of other projects' code, the smoke's films, and a file of license texts are left out.
+- `product.json` may name a gallery, which is Open VSX; it may not name Microsoft's Marketplace.
+- VS Code's list of CSS variables is written again by its release test, with BaseHalf's colors in it, and the
+  variables that BaseHalf's stylesheets declare themselves are in a list of their own beside it.
+- A file of VS Code's may import a `common/` module of BaseHalf's without a report, and any other import of BaseHalf's
+  from it is reported. D125 had lint report every such import as a list of the places where BaseHalf hooks into VS
+  Code; a search of VS Code's folders for `basehalf/` gives that list.
+
+See [the commit hook](harness/verification-and-delivery.md#the-commit-hook).
+
+**Why.** While the tree was the folder `vscode-base/`, the hook ran in that folder and git named the staged files
+from the repository's root, so the check found none of them. From 2026-06-30 on it ran one rule, the one against new
+JavaScript files, and every commit passed. With the tree at the root (D158) the paths meet, and the first real run,
+over all files, gave 11,419 findings, all in BaseHalf's code or in lines BaseHalf changed. The owner, asked on
+2026-11-26 whether to keep the hook to the one rule it had run or to clean up now: clean up now until it passes.
+Most of the findings were the check not knowing BaseHalf: 8,691 lines of one bundle of another project's code, 991
+files with Pointa Labs' header, 134 "characters" in three films, and 1,188 uses of CSS variables that VS Code's list
+did not have. What was changed in the code: about 70 lines of comments that continued with spaces, about 85 lines
+with a character the check refuses, 19 files off the formatter, and 163 lint warnings.
+
+The check found three things that were wrong and not a matter of form. The command that kills a terminal used its
+service accessor after an await, where an accessor no longer serves. A module typed with React Flow stood in the
+canvas's `common/` layer, which may not import it (D60). And 12 CSS variables are read that nothing declares; 11
+have a value to fall back on, and `--last-tab-add-tab-width` in the Modern UI's tabs has none.
+
+**Considered.**
+- Keeping the hook to the rule against new JavaScript files, as it had run, and cleaning up later: the owner chose
+  the cleanup now, before the move, so that the move itself is checked.
+- Not counting eslint's warnings in the hook, so that the imports of BaseHalf's models could stay a list of warnings:
+  the rules against selectors, leaked disposables, and an accessor after an await are warnings too.
+- Rewriting the 31 lookups by selector so that the views keep the elements they make: a change to working views
+  that does not belong to a cleanup. Each has `eslint-disable-next-line` on the line before, as 11 others already had.
+  Seven more were no lookups in the window's document but a parameter named `document`, now `targetDocument`.
+- BaseHalf's CSS variables in VS Code's list: the release test writes that file, and an update of VS Code changes it.
+- A suppression on each line of Chinese text: about 45 lines for one rule that has no reason against Chinese.
+
+**Consequences.**
+- A commit fails on a finding in a file it touches. `npm run precommit` is the same check by hand.
+- A new CSS variable of a stylesheet's own is added to BaseHalf's list, and a new registered color needs a run of
+  the release test, or the commit that uses it fails.
+- The hook takes a few seconds for a commit of a few files and about two minutes for all 12,458.
+- The cleanup is commits of its own before the move, so the move stays a commit of renames. The commit that only
+  changes whitespace is in `.git-blame-ignore-revs`.
+- `--last-tab-add-tab-width` is still read without a value. It is in the list as it is, and whether the tabs need it
+  is not decided here.
+

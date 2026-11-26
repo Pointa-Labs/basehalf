@@ -204,6 +204,31 @@ A test reads only the files of a fresh checkout and the files it writes
 itself. From 2026-08-24 to 2026-10-24 every CI run failed on tests that read
 built files which only a developer's checkout had.
 
+## The commit hook
+
+Git runs VS Code's hygiene check before each commit (`npm run precommit`, which is `build/hygiene.ts`), on the
+files of the commit as they are staged. A finding stops the commit. It checks:
+
+- the copyright header: Pointa Labs' in BaseHalf's own folders, VS Code's everywhere else, as
+  [code organization](code-organization.md#one-root-a-folder-per-feature) has it;
+- indentation by tabs, and the format of VS Code's formatter for TypeScript;
+- characters outside ASCII. Chinese text and a few marks are allowed. Another character in a string is written as
+  an escape when it cannot be told from an ASCII one or cannot be seen (a no-break space, a minus sign), and
+  otherwise has `// allow-any-unicode-next-line` on the line before. A file whose comments need such characters
+  says `allow-any-unicode-comment-file` once;
+- eslint, where a warning counts as an error;
+- the names of CSS variables: a `var(--name)` must name a variable in
+  `build/lib/stylelint/vscode-known-variables.json`, whose colors and sizes VS Code's release test writes
+  (`./scripts/test.sh --runGlob "**/colorRegistry.releaseTest.js"`), or one in
+  `build/lib/stylelint/basehalf-known-variables.json`, where a variable that a stylesheet of BaseHalf's declares
+  itself is added by hand;
+- that no JavaScript file is new, and that `product.json` does not name Microsoft's Marketplace.
+
+Bundles of other projects' code, films, and license texts are left out in `build/filters.ts`. To run the check by
+hand on some files, name them: `node --experimental-strip-types build/hygiene.ts <files>`. Never pass
+`--no-verify`: a finding is fixed, or the rule that does not fit BaseHalf is changed in the open, with its reason
+(D159).
+
 ## Before commit
 
 - Review the diff for accidental generated files, workspace initialization,

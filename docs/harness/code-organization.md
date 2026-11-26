@@ -72,6 +72,14 @@ history still finds its file.
   several forms at once, which a window cannot make, is
   `platform/basehalfClipboard/` (D104).
 
+A file in BaseHalf's own folders starts with Pointa Labs' header: `build/basehalf/`,
+`extensions/basehalf/`, `scripts/basehalf-*`, `src/vs/platform/basehalf*/`, and
+`src/vs/workbench/basehalf/`. Every other file of the tree starts with VS
+Code's, also a file that BaseHalf adds to a folder of VS Code's. Lint checks
+the scripts among them (`header/header`), and the
+[commit hook](verification-and-delivery.md#the-commit-hook) every file that
+has a header.
+
 ## The order of the folders
 
 VS Code's layers say what a module may run on: `common/` holds the models,
@@ -128,6 +136,11 @@ BaseHalf's folders are in an order, from the bottom:
   overrides one of the same stylesheet may rely on coming after it. Before a
   rule moves to another stylesheet, check that no rule it would move past can
   style the same element with the same property at the same specificity.
+- A variable that a stylesheet declares for itself is added to
+  `build/lib/stylelint/basehalf-known-variables.json`; a color or a size that
+  code registers reaches VS Code's list by its release test. The
+  [commit hook](verification-and-delivery.md#the-commit-hook) refuses a
+  `var()` of a name in neither, which is how a misspelt name is found.
 
 ## What may import what
 
@@ -269,8 +282,11 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   files, never into VS Code's. Lint allows VS Code's entry files no other
   import of BaseHalf's, apart from the allowlist of extensions that takes the
   place of VS Code's service (D22).
-- VS Code's other files import only BaseHalf's `common/` modules. Lint reports
-  each such import: it is a place where BaseHalf hooks into VS Code.
+- VS Code's other files import only BaseHalf's `common/` modules: a file of
+  VS Code's reaches BaseHalf through a model, never a view. Lint allows these
+  imports and reports any other (`code-import-patterns`). To list the places
+  where BaseHalf hooks into VS Code, search VS Code's folders for
+  `basehalf/`.
 - Mark each change in a VS Code file with a `// BaseHalf:` comment that says
   why, so that a VS Code update can find it.
 - Record each VS Code file ported from a newer release in
