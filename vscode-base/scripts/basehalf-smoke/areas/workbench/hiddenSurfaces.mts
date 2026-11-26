@@ -140,33 +140,47 @@ async function commandsOfCategory(page, category) {
 	return labels.filter(label => label.startsWith(`${category}: `));
 }
 
-// The gear's menu and the Accounts menu of the title bar hold only what BaseHalf has (D141).
+// The More menu of the title bar and its Accounts hold only what BaseHalf has, in BaseHalf's order (D141, D155).
 export async function assertTitleBarMenusHoldWhatBaseHalfHas(page) {
-	const manage = await titleBarMenu(page, 'Manage');
-	for (const entry of ['Command Palette...', 'Settings', 'Keyboard Shortcuts', 'Themes', 'Layout Density']) {
-		if (!manage.includes(entry)) {
-			throw new Error(`The gear's menu has no ${entry}: ${manage.join(' | ')}`);
-		}
+	const more = await moreMenu(page);
+	// Settings is the first entry. The entries of an update follow these, in a window that looks for updates.
+	const expected = ['Settings', 'Keyboard Shortcuts', 'Themes', 'Layout Density', 'Command Palette...', 'Customize Layout...', 'Accounts'];
+	if (JSON.stringify(more.slice(0, expected.length)) !== JSON.stringify(expected)) {
+		throw new Error(`The More menu does not start with ${expected.join(' | ')}: ${more.join(' | ')}`);
 	}
 	// Snippets is a command of the Command Palette only (D150).
-	const forbidden = manage.filter(entry => /^(Profiles?|Tasks|Snippets)\b/.test(entry));
+	const forbidden = more.filter(entry => /^(Profiles?|Tasks|Snippets)\b/.test(entry));
 	if (forbidden.length) {
-		throw new Error(`The gear's menu holds entries of what BaseHalf does not have: ${forbidden.join(' | ')}`);
+		throw new Error(`The More menu holds entries of what BaseHalf does not have: ${forbidden.join(' | ')}`);
 	}
-	const accounts = await titleBarMenu(page, 'Accounts');
+	const accounts = await moreMenu(page, 'Accounts');
+	for (const entry of ['Manage Accounts...', 'Manage Extension Account Preferences...']) {
+		if (!accounts.includes(entry)) {
+			throw new Error(`Accounts of the More menu has no ${entry}: ${accounts.join(' | ')}`);
+		}
+	}
 	const languageModel = accounts.filter(entry => /Language Model|Copilot|Cloud Changes/.test(entry));
 	if (languageModel.length) {
-		throw new Error(`The Accounts menu holds entries of what BaseHalf does not have: ${languageModel.join(' | ')}`);
+		throw new Error(`Accounts of the More menu holds entries of what BaseHalf does not have: ${languageModel.join(' | ')}`);
 	}
 }
 
-async function titleBarMenu(page, name) {
-	await page.locator(`.titlebar-container [aria-label="${name}"]`).first().click();
-	const menu = page.locator('.monaco-menu .action-item .action-label');
-	await menu.first().waitFor({ state: 'visible', timeout: 10_000 });
-	const entries = await menu.evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(Boolean));
-	await page.keyboard.press('Escape');
-	await menu.first().waitFor({ state: 'hidden', timeout: 10_000 });
+/** The entries of the More menu of the title bar, or of the submenu of the given name in it. Escape closes it. */
+async function moreMenu(page, submenu) {
+	await page.locator('.titlebar-container .action-toolbar-container [aria-label="More"]').first().click();
+	const menus = page.locator('.monaco-menu');
+	await menus.first().locator('.action-item .action-label').first().waitFor({ state: 'visible', timeout: 10_000 });
+	if (submenu) {
+		await menus.first().locator('.action-item', { hasText: submenu }).first().hover();
+		await menus.nth(1).locator('.action-item .action-label').first().waitFor({ state: 'visible', timeout: 10_000 });
+	}
+	const entries = await menus.nth(submenu ? 1 : 0).evaluate(menu => Array.from(menu.querySelectorAll(':scope > .monaco-action-bar > .actions-container > .action-item .action-label'))
+		.map(node => (node.textContent || '').trim()).filter(Boolean));
+	for (let tries = 0; tries < 3 && await menus.count(); tries++) {
+		await page.keyboard.press('Escape');
+		await page.waitForTimeout(200);
+	}
+	await menus.first().waitFor({ state: 'hidden', timeout: 10_000 });
 	return entries;
 }
 

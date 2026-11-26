@@ -141,6 +141,33 @@ export async function assertLayoutControlAtTheLeftEnd(page) {
 	await page.mouse.move(640, await page.evaluate(() => window.innerHeight - 6));
 }
 
+// The right group of the title bar holds More and then the control of the Agent Area, which is the last
+// (docs/specs/layout-controls.md, The right group).
+export async function assertTitleBarRightGroupIsMoreAndAgentArea(page) {
+	const shown = await readLayoutControls(page);
+	// More names what waits after its name, as "More - ..." while an update is ready.
+	if (shown.right.length !== 2 || !(shown.right[0] === 'More' || shown.right[0].startsWith('More - ')) || !shown.right[1].startsWith('Toggle Agent Area')) {
+		throw new Error(`The right group of the title bar does not hold More and then the control of the Agent Area: ${JSON.stringify(shown.right)}`);
+	}
+	if (shown.rightOnTop.length !== 2 || shown.rightOnTop.includes(false)) {
+		throw new Error(`A button of the title bar's right group is covered: ${JSON.stringify(shown.rightOnTop)}`);
+	}
+	const gone = shown.all.filter(label => /^(Accounts|Manage|More Actions)/.test(label));
+	if (gone.length) {
+		throw new Error(`The title bar still holds a button BaseHalf does not have: ${JSON.stringify(gone)}`);
+	}
+	// No button of the group is hidden by itself: a hidden one would go into a second button of three dots.
+	await page.locator('.part.titlebar .titlebar-right .action-toolbar-container .action-label[aria-label^="Toggle Agent Area"]').click({ button: 'right' });
+	const rows = page.locator('.monaco-menu .action-item .action-label');
+	await rows.first().waitFor({ state: 'visible', timeout: 10_000 });
+	const entries = await rows.evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(Boolean));
+	await page.keyboard.press('Escape');
+	await rows.first().waitFor({ state: 'hidden', timeout: 10_000 });
+	if (!entries.includes('Layout Controls') || entries.some(entry => entry.startsWith('Hide'))) {
+		throw new Error(`The context menu of the Agent Area's button must hold Layout Controls and no entry that hides the button: ${entries.join(' | ')}`);
+	}
+}
+
 export async function assertBaseHalfRootTitlebarBreadcrumb(page) {
 	const breadcrumbs = page.locator('.basehalf-command-center-breadcrumbs');
 	await breadcrumbs.waitFor({ state: 'visible', timeout: 15_000 });

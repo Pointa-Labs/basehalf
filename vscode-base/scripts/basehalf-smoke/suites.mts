@@ -116,7 +116,8 @@ import {
 	assertLayoutControlAtTheLeftEnd,
 	assertNewWindowBaseHalfWelcome,
 	assertProductThemeAndCards,
-	assertTitleBarLocationOpensSearch
+	assertTitleBarLocationOpensSearch,
+	assertTitleBarRightGroupIsMoreAndAgentArea
 } from './areas/workbench/startup.mts';
 import { app, workspacePath } from './context.mts';
 import { assertCanvasShowsWhatFilesShows, assertCardComesToAChangeInView, assertCardEditorFollowsSettings, assertCardKeepsItsPlace, assertCardReadsItsFileInItsEncoding, assertCardStandsAtWhatWasRead, assertCodeCardFace, assertCodeCardWheel, assertEditingOnTheCard, assertExpandAndCommit, assertJsonHasItsLanguageService, assertLargeFileKeepsItsHead, assertSourceIsTheEditor, assertViewsOfANoteGoOn, prepareCodeCards } from './areas/workbench/codeCards.mts';
@@ -164,6 +165,7 @@ async function runWorkbenchSuite(page) {
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
 	await step('statusbar-curated', () => assertStatusBarCurated(page));
 	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
+	await step('title-bar-right-group-is-more-and-agent-area', () => assertTitleBarRightGroupIsMoreAndAgentArea(page));
 	await step('title-bar-menus-hold-what-basehalf-has', () => assertTitleBarMenusHoldWhatBaseHalfHas(page));
 	await step('keys-of-hidden-commands-open-nothing', () => assertKeysOfHiddenCommandsOpenNothing(page));
 	await step('output-opens-over-the-canvas', () => assertOutputOpensOverTheCanvas(page));
