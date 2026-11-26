@@ -6,7 +6,7 @@ Decisions: [D64](../../decisions.md#d64--basehalf-generates-images-with-the-same
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the OpenAI module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/openai.ts`): the GPT
+(`src/vs/platform/basehalfProviders/node/openai.ts`): the GPT
 Image models it declares, the requests it sends, and how it reads OpenAI's
 answers. What is the same for every provider (the commands, the checks from
 the declarations, retries, the download, plain messages) is owned by the

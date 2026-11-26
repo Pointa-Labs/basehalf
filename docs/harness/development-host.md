@@ -8,24 +8,23 @@ comes from the source-tree boundary in
 
 ## Prerequisites
 
-Use the Node version pinned by `vscode-base/.nvmrc`. A shell whose default Node
+Use the Node version pinned by `.nvmrc`. A shell whose default Node
 is older will fail the build in confusing ways:
 
 ```bash
-cd vscode-base && nvm use
+nvm use
 ```
 
 Non-interactive shells and coding agents usually cannot source `nvm`. Put the
 pinned toolchain on `PATH` explicitly instead:
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v$(cat vscode-base/.nvmrc)/bin:$PATH"
+export PATH="$HOME/.nvm/versions/node/v$(cat .nvmrc)/bin:$PATH"
 ```
 
 ## Start the watchers
 
 ```bash
-cd vscode-base
 npm run watch
 ```
 
@@ -45,12 +44,11 @@ started them; stop it with `npm run kill-watchd`.
 
 A development launch opens a disposable fixture workspace that lives outside
 the repository, where a user's own workspace would. It must never open the
-repository root or `vscode-base/` as a product workspace. Do not keep the
+repository root as a product workspace. Do not keep the
 fixture inside the repository either, not even in an ignored directory such as
-`vscode-base/.build/`.
+`.build/`.
 
 ```bash
-cd vscode-base
 unset ELECTRON_RUN_AS_NODE
 mkdir -p "$HOME/basehalf-dev-workspace"
 ./scripts/code.sh "$HOME/basehalf-dev-workspace" \
@@ -59,7 +57,7 @@ mkdir -p "$HOME/basehalf-dev-workspace"
   --logsPath="$PWD/.build/basehalf-dev-logs"
 ```
 
-`scripts/code.sh` already supplies `vscode-base/` as the Electron application
+`scripts/code.sh` already supplies the repository's root as the Electron application
 path, so any further path argument is the workspace to open. The fixture
 directory is a normal user workspace without a `.basehalf-no-workspace-setup`
 marker. Opening it writes no agent guides and no `.gitignore` edit, and creates
@@ -98,7 +96,7 @@ error message:
   than at startup.
 
 Host state, meaning the development profile, extensions, and logs, stays under
-`vscode-base/.build/`. That keeps it out of the installed product's profile and
+`.build/`. That keeps it out of the installed product's profile and
 inside an ignored directory. It is tool state, not a workspace. Those
 directories accumulate logs and crash dumps across sessions; clearing entries
 older than the current session is safe.

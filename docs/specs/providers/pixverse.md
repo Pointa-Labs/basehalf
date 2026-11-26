@@ -6,7 +6,7 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the PixVerse module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/pixverse.ts`): the
+(`src/vs/platform/basehalfProviders/node/pixverse.ts`): the
 catalog entry it declares, the uploads and requests it sends, and how it reads
 PixVerse's answers. What is the same for every provider (the commands, checks
 from the declarations, retries, the download, plain messages) is owned by the
@@ -329,6 +329,6 @@ and plan; the console shows it.
 
 ## Verification
 
-`vscode-base/src/vs/platform/basehalfProviders/test/node/pixverse.test.ts` runs the
+`src/vs/platform/basehalfProviders/test/node/pixverse.test.ts` runs the
 module through the provider commands against a local server that answers like
 PixVerse. No test calls PixVerse or uses a real key.

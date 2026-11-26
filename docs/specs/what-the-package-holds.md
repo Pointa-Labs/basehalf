@@ -8,7 +8,7 @@ Related: [app update](app-update.md) (the limit on an archive),
 extensions run and install),
 [dependency policy](../dependency-policy.md),
 [verification and delivery](../harness/verification-and-delivery.md),
-[`BASEHALF_UPSTREAM.md`](../../vscode-base/BASEHALF_UPSTREAM.md) (what a base
+[the upstream record](../vscode-upstream.md) (what a base
 update has to do again)
 
 ## The rule
@@ -79,7 +79,7 @@ Three more things came out of the same measurements:
   made from it.
 - **Runs**: is loaded in a process of BaseHalf in any state a user can reach
   without changing a setting that BaseHalf turns off.
-- **Declared**: reachable from `dependencies` in `vscode-base/package.json`.
+- **Declared**: reachable from `dependencies` in `package.json`.
 
 ## Required behavior
 
@@ -126,9 +126,9 @@ the archive. Neither needs `extensions/node_modules`.
 
 ### What the tree holds
 
-8. `vscode-base/extensions/copilot` is not in the tree. `compile`, `watch`, and the
+8. `extensions/copilot` is not in the tree. `compile`, `watch`, and the
    packaging build nothing of it.
-9. `vscode-base/src/vs/sessions` holds only `common/theme.ts` and `common/sizes.ts`,
+9. `src/vs/sessions` holds only `common/theme.ts` and `common/sizes.ts`,
    which register colors and sizes that the workbench reads
    (`--vscode-agents-fontWeight-semiBold` among them).
 10. **What asks for the Agents window gets an ordinary window.** `--agents`, and the
@@ -219,12 +219,11 @@ the archive. Neither needs `extensions/node_modules`.
 ## Verification
 
 ```bash
-cd vscode-base
 build/basehalf/package-darwin.sh arm64 --notes-file <notes>   # runs the layout check
-npm run basehalf:package:layout-check -- --app ../VSCode-darwin-arm64/BaseHalf.app
-npm run basehalf:package:agent-install -- --app ../VSCode-darwin-arm64/BaseHalf.app
-npm run basehalf:package:agent-install -- --app ../VSCode-darwin-arm64/BaseHalf.app --agent codex
-npm run basehalf:smoke-no-compile -- --packaged-app ../VSCode-darwin-arm64/BaseHalf.app
+npm run basehalf:package:layout-check -- --app VSCode-darwin-arm64/BaseHalf.app
+npm run basehalf:package:agent-install -- --app VSCode-darwin-arm64/BaseHalf.app
+npm run basehalf:package:agent-install -- --app VSCode-darwin-arm64/BaseHalf.app --agent codex
+npm run basehalf:smoke-no-compile -- --packaged-app VSCode-darwin-arm64/BaseHalf.app
 ```
 
 `basehalf:package:agent-install` needs the network, downloads about 150 MiB, and opens a

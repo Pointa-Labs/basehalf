@@ -61,7 +61,8 @@ npx basehalf [folder] [--no-skill]
   anything is read or written.
 
 The command is the package `basehalf` of the npm registry. Its source is
-`packages/install/`. It has no dependencies, and it runs on Node 20.3 and
+`packages/install/`, a project of its own beside the VS Code tree, with its
+own lockfile (D158). It has no dependencies, and it runs on Node 20.3 and
 later; an older Node is told so in one line.
 It asks nothing while it runs: an agent that runs it is never left waiting for
 an answer.
@@ -287,9 +288,11 @@ and the command is run once for real, as [Verification](#verification) says.
 ## Verification
 
 ```bash
-pnpm --filter basehalf typecheck
-pnpm --filter basehalf test
-pnpm --filter basehalf lint
+cd packages/install
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm lint
 ```
 
 The tests read only the files of the package and what they write, and make

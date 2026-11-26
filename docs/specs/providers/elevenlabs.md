@@ -5,7 +5,7 @@ Decisions: [D78](../../decisions.md#d78--basehalf-makes-speech-music-and-sound-e
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the ElevenLabs module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/elevenlabs.ts`): the
+(`src/vs/platform/basehalfProviders/node/elevenlabs.ts`): the
 speech and sound-effect models it declares, the voices it lists, the
 requests it sends, and how it reads ElevenLabs' answers. What is the same for
 every provider is owned by the parent specification and is not repeated

@@ -512,7 +512,7 @@ free-tier project is answered with the paid-tier message.
 
 ### Verification
 
-`vscode-base/src/vs/platform/basehalfProviders/test/node/google.test.ts` runs the image
+`src/vs/platform/basehalfProviders/test/node/google.test.ts` runs the image
 models through the provider commands against a local server that answers
 like the Interactions API. No test calls Google or uses a real key.
 

@@ -7,7 +7,7 @@ Related: [architecture invariants](../harness/architecture-invariants.md),
 roadmap tracks 8 and 9, public decisions D22, D51, D148, and D151,
 [light and dark](light-and-dark.md),
 [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md),
-[upstream record](../../vscode-base/BASEHALF_UPSTREAM.md)
+[upstream record](../vscode-upstream.md)
 
 ## Problem
 
@@ -95,7 +95,7 @@ Not in scope, and unchanged:
    `workbench/contrib/modernUI`. BaseHalf adds no rules of its own for the
    corners, the gaps, or the borders of the workbench parts. Requirement 10
    is the one exception.
-   [The upstream record](../../vscode-base/BASEHALF_UPSTREAM.md#modern-ui-brought-to-1147-on-2026-11-22)
+   [The upstream record](../vscode-upstream.md#modern-ui-brought-to-1147-on-2026-11-22)
    lists the files and what was left out.
 9. The settings stay normal settings. A user who switches
    `workbench.experimental.modernUI` off gets the former layout, where the

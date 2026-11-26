@@ -6,7 +6,7 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Owner: [Providers and the model catalog](../providers.md), which
 this page details for the provider `vidu`
-Module: `vscode-base/src/vs/platform/basehalfProviders/node/vidu.ts`
+Module: `src/vs/platform/basehalfProviders/node/vidu.ts`
 
 This page records what the Vidu module of the provider service declares and sends: its
 regions and credentials, its models with their modes, inputs, parameters, and

@@ -7,19 +7,19 @@ later product decision explicitly replaces this boundary.
 
 ## Ownership
 
-- `vscode-base/extensions/git/` owns repository discovery, status, branch
+- `extensions/git/` owns repository discovery, status, branch
   queries, commit input, publish, sync, fetch, pull, push, Git credentials,
   Source Control resource groups, and the Git API exposed to other extensions.
-- `vscode-base/extensions/github-authentication/` owns the VS Code
+- `extensions/github-authentication/` owns the VS Code
   authentication provider flow. Development builds may inject a BaseHalf-owned
   GitHub OAuth app through `BASEHALF_GITHUB_CLIENT_ID` and
   `BASEHALF_GITHUB_CLIENT_SECRET`; without a configured client secret, the
   expected local behavior is the VS Code OSS no-secret fallback.
-- `vscode-base/extensions/github/` owns GitHub-specific Git integration:
+- `extensions/github/` owns GitHub-specific Git integration:
   credential provider, push-error handler, remote source publisher, branch
   protection provider, canonical URI provider, and Source Control history item
   details for GitHub remotes.
-- `vscode-base/src/vs/workbench/contrib/scm/` owns the visible Source Control
+- `src/vs/workbench/contrib/scm/` owns the visible Source Control
   view container, Changes view, Repositories view, and Graph view.
 
 ## The Changes View

@@ -5,7 +5,7 @@ Decisions: [D78](../../decisions.md#d78--basehalf-makes-speech-music-and-sound-e
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Fish Audio module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/fishaudio.ts`): the
+(`src/vs/platform/basehalfProviders/node/fishaudio.ts`): the
 speech models it declares, the voices it lists, the requests it sends, and
 how it reads Fish Audio's answers. What is the same for every provider is
 owned by the parent specification and is not repeated here.

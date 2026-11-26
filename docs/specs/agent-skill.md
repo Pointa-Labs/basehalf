@@ -470,7 +470,7 @@ application bundles (`BASEHALF_AGENT_SKILL_MARKDOWN`).
   version 18 of the text is plugin version `18.0.0`. An agent takes a new
   copy of a plugin when its version changes, and the version of the text
   changes whenever the text does.
-- `npm run basehalf:publish-agent-skill`, in `vscode-base/`, writes the
+- `npm run basehalf:publish-agent-skill` writes the
   three derived things from the compiled source: `SKILL.md`, the `version`
   of `plugin.json`, and `skills/LICENSE`.
 - A unit test reads the files of the repository and fails when one of them

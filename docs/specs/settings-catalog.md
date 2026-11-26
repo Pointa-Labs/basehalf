@@ -406,8 +406,8 @@ of a terminal that a session of the Agent Area follows:
 ## Verification
 
 - The registry was read from the window of a development build
-  (`vscode-base/.build/rw-set/dump.mts`), and the rules of the catalog were run
-  against it (`vscode-base/.build/rw-set/classes.mjs`): first 12 shown, 48
+  (`.build/rw-set/dump.mts`), and the rules of the catalog were run
+  against it (`.build/rw-set/classes.mjs`): first 12 shown, 48
   locked, 29 pending, 676 unlisted, 709 advanced of 1,474; and, read again
   from the build that holds D138 to D142, 12 shown, 49 locked, 15 pending,
   658 unlisted, 749 advanced of 1,483; and from the build that holds D143

@@ -6,17 +6,16 @@ team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
 > **Status note.** BaseHalf is early and changes quickly. The product is the
-> desktop app in `vscode-base/`, built on the open-source code of VS Code.
+> desktop app in this repository, built on the open-source code of VS Code.
 > Contribution surfaces are narrow today, so **open an issue first** to find
 > one that is ready for outside work.
 
 ## Build it
 
-The product is built in `vscode-base/`, on macOS, with the Node version in
-`vscode-base/.nvmrc`:
+The product is built at the repository's root, on macOS, with the Node version
+in `.nvmrc`:
 
 ```bash
-cd vscode-base
 nvm use
 npm install
 npm run compile
@@ -31,15 +30,15 @@ npm run typecheck-client
 npm run basehalf:smoke   # the product smoke, for changes to what the window shows
 ```
 
-`packages/` holds the earlier BaseHalf core and desktop app. New product work
-does not go there, but CI still builds and tests it (Node 22.12 or later,
-pnpm 9):
+`packages/install/` is the package of the install command (`npx basehalf`), a
+project of its own with pnpm 9 and Node 22.12 or later:
 
 ```bash
+cd packages/install
 pnpm install
-pnpm -r build
-pnpm -r test
-pnpm -r --if-present lint
+pnpm typecheck
+pnpm test
+pnpm lint
 ```
 
 ## Plugins
@@ -62,8 +61,8 @@ the agents' own skills and tool connections.
    [code organization](docs/harness/code-organization.md) says. The reasons
    are in [docs/decisions.md](docs/decisions.md).
 4. **Never open this repository as a BaseHalf workspace.** The repository root
-   and `vscode-base/` are source trees. Try your build on a disposable folder
-   outside the repository.
+   is a source tree. Try your build on a disposable folder outside the
+   repository.
 5. **Verify.** The checks each kind of change needs are in
    [verification and delivery](docs/harness/verification-and-delivery.md).
 
@@ -122,8 +121,8 @@ carry their own name. See [docs/trademark-policy.md](docs/trademark-policy.md).
 ## Style
 
 - Small, readable, dependency-light. Match the surrounding code.
-- In `vscode-base/`, the style is that of VS Code, and its ESLint
+- In the VS Code tree, the style is that of VS Code, and its ESLint
   configuration checks it (`npm run eslint`).
-- In `packages/`, TypeScript uses NodeNext module resolution: relative imports
-  use `.js` extensions even when the source is `.ts`. Biome enforces this; run
-  `pnpm format` (writes) or `pnpm check` (verifies).
+- In `packages/install/`, the code is JavaScript checked by TypeScript, with
+  NodeNext module resolution: relative imports use `.js` extensions. Biome
+  enforces the style (`pnpm lint`).

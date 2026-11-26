@@ -285,7 +285,7 @@ Not in scope, and unchanged:
   the menu and what Accounts holds.
 - Run in an isolated development window on 2026-11-26, 1440 px
   wide, by a script that reads the buttons and every row
-  (`vscode-base/.build/rw-more/`, tool state of the checkout). Before: the
+  (`.build/rw-more/`, tool state of the checkout). Before: the
   right group held Toggle Agent Area at 1328 px, Accounts, Manage, and More
   Actions at 1406 px; Manage held 6 entries, Accounts 1, More Actions 1.
   After: More at 1380 px and Toggle Agent Area at 1406 to 1428 px, each

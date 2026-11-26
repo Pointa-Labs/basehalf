@@ -7,7 +7,7 @@ Related: [generation cards](../generation-cards.md#several-images-from-one-gener
 (several songs from one generation)
 
 This specification owns the Mureka module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/mureka.ts`): the music
+(`src/vs/platform/basehalfProviders/node/mureka.ts`): the music
 models it declares, the requests it sends, and how it reads Mureka's
 answers. What is the same for every provider is owned by the parent
 specification and is not repeated here.

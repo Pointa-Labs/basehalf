@@ -92,7 +92,7 @@ Done means:
   empty editor branding.
 
 Current status: product identity is renamed to BaseHalf in
-`vscode-base/product.json` and the VS Code-base dev package is renamed to
+`product.json` and the VS Code-base dev package is renamed to
 `basehalf-vscode-dev`; dev Electron prelaunch verifies the product-specific
 executable/app bundle, and the BaseHalf smoke runner fails fast if the runtime
 or development identity drifts back to Code OSS.
@@ -289,7 +289,7 @@ Goal: Developers can run and verify the VS Code-base product reliably.
 
 Done means:
 
-- `vscode-base/` can run in development Electron mode.
+- The VS Code tree can run in development Electron mode.
 - A repeatable smoke command verifies startup and key BaseHalf workbench routes.
 - Failure artifacts are written for UI smoke failures.
 - The branch has clear commands for compile, precommit, and BaseHalf smoke.
@@ -297,7 +297,7 @@ Done means:
   the old Electron shell.
 
 Current status: `npm run basehalf:smoke` and
-`npm run basehalf:smoke-no-compile` exist in `vscode-base/` and cover product
+`npm run basehalf:smoke-no-compile` exist and cover product
 identity, canvas startup, hidden Open Editors, Source Control's VS Code Git
 provider, Quick Open, Quick Text Search, and folder routing.
 

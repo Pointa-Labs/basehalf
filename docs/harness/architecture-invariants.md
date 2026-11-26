@@ -119,7 +119,7 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   a webview such as the PDF reader of Card Detail. The workbench does not
   hear the pointer go into a webview, so a webview reports the pointer's
   moves to the workbench, as VS Code's own do (ported from VS Code, see
-  `vscode-base/BASEHALF_UPSTREAM.md`), and a sash then lets go of its line.
+  `docs/vscode-upstream.md`), and a sash then lets go of its line.
   The line of the sash between Card Detail and the Agent Area stayed lit
   for the rest of a question asked about a PDF (reported on 2026-11-13, in
   the launch film).
@@ -154,7 +154,7 @@ See [code organization](code-organization.md) and public decisions D60, D124, an
   carries both parts of the first rule for every hover: the release 1.144.0
   cancels a waiting hover when its element is clicked or `hideHover` is
   called, and BaseHalf's own change keeps a hover from showing once the
-  pointer left its element ([`BASEHALF_UPSTREAM.md`](../../vscode-base/BASEHALF_UPSTREAM.md)).
+  pointer left its element ([the upstream record](../vscode-upstream.md)).
 - A scroll bar in BaseHalf is the same with every setting of the system
   and with or without a mouse (D127). Where a box shows the system's bar,
   the bar lies over what the box scrolls, shows while it scrolls, and takes

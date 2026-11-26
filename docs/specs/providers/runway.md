@@ -7,7 +7,7 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Runway module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/runway.ts`): the
+(`src/vs/platform/basehalfProviders/node/runway.ts`): the
 catalog entry it declares, the requests it sends, and how it reads Runway's
 answers. What is the same for every provider (the commands, checks from the
 declarations, retries, the download, plain messages) is owned by the parent
@@ -326,7 +326,7 @@ of a rolling 24 hours answers 429. Requests per minute are not limited.
 
 ## Verification
 
-`vscode-base/src/vs/platform/basehalfProviders/test/node/runway.test.ts` runs the
+`src/vs/platform/basehalfProviders/test/node/runway.test.ts` runs the
 module through the provider commands against local servers that answer like
 Runway's API, its storage, and its CDN; `test/providerHttp.test.ts` covers
 `ProviderHttp.retry`. No test calls Runway or uses a real key.

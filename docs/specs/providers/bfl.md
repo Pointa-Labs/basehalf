@@ -7,7 +7,7 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Black Forest Labs module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/bfl.ts`): the
+(`src/vs/platform/basehalfProviders/node/bfl.ts`): the
 catalog entry it declares for FLUX 3 and its image models, the requests it
 sends, and how it reads the answers. What is the same for every provider (the
 commands, checks from the declarations, retries, the download, plain
@@ -346,7 +346,7 @@ tasks"), a sign to wait for a running task.
 
 ## Verification
 
-`vscode-base/src/vs/platform/basehalfProviders/test/node/bfl.test.ts` runs the module
+`src/vs/platform/basehalfProviders/test/node/bfl.test.ts` runs the module
 through the provider commands against local servers that answer like BFL's
 API and its delivery host. No test calls Black Forest Labs or uses a real
 key.

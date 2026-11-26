@@ -12,7 +12,7 @@ This specification owns the MiniMax provider of the catalog: its regions,
 the models it declares with each one's modes, inputs, limits, and
 parameters, and how its requests are made and its tasks read.
 It is implemented in
-`vscode-base/src/vs/platform/basehalfProviders/node/minimax.ts`; the
+`src/vs/platform/basehalfProviders/node/minimax.ts`; the
 contract every provider follows is in
 [providers and the model catalog](../providers.md).
 

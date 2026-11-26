@@ -1,7 +1,7 @@
 # Code organization
 
-This harness document defines where BaseHalf's own source code goes in
-`vscode-base/`, which of its parts may import which, and how BaseHalf changes
+This harness document defines where BaseHalf's own source code goes in the
+VS Code tree at the repository's root, which of its parts may import which, and how BaseHalf changes
 VS Code's own files. It follows how VS Code organizes its workbench: a folder
 per feature under `workbench/contrib/`, each with its layer folders and its
 own tests, code that every feature uses kept below the features as VS Code
@@ -118,7 +118,7 @@ BaseHalf's folders are in an order, from the bottom:
   lower folder may import, with the implementation registered above. A
   folder moves in an order only when that makes no cycle.
 - Lint reports a module that breaks the order as an error
-  (`local/code-basehalf-folder-order` in `vscode-base/eslint.config.js`,
+  (`local/code-basehalf-folder-order` in `eslint.config.js`,
   whose orders are the ones above), and a folder that is in no order.
 
 ## Stylesheets
@@ -147,7 +147,7 @@ BaseHalf's folders are in an order, from the bottom:
 - VS Code's layer rules apply in every feature folder: `common/` imports only
   `common/`, `browser/` imports `common/` and `browser/`, and
   `electron-browser/` imports all three. Lint reports a violation
-  (`code-import-patterns` and `code-layering` in `vscode-base/eslint.config.js`),
+  (`code-import-patterns` and `code-layering` in `eslint.config.js`),
   and `npm run valid-layers-check` checks the types each layer uses.
 - Between BaseHalf's folders, the [order of the folders](#the-order-of-the-folders)
   applies. Prefer another feature's services and types in its `common/`
@@ -290,7 +290,7 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 - Mark each change in a VS Code file with a `// BaseHalf:` comment that says
   why, so that a VS Code update can find it.
 - Record each VS Code file ported from a newer release in
-  `vscode-base/BASEHALF_UPSTREAM.md`.
+  `docs/vscode-upstream.md`.
 
 ## Status
 

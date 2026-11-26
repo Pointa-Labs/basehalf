@@ -247,11 +247,10 @@ If you build something with BaseHalf, we would love to see it.
 
 BaseHalf is built on the open-source code of VS Code. Files, Git, Search, and
 the terminals are VS Code's; the canvas, the cards, and the agent sessions
-beside them are BaseHalf's. The product's source is in `vscode-base/`, and it
-needs macOS and the Node version in `vscode-base/.nvmrc`.
+beside them are BaseHalf's. The repository is VS Code's tree with BaseHalf's
+code in it, and it needs macOS and the Node version in `.nvmrc`.
 
 ```bash
-cd vscode-base
 nvm use
 npm install
 npm run compile
@@ -286,8 +285,8 @@ part you agree to our [Code of Conduct][code-of-conduct].
 
 ## License
 
-BaseHalf is [Apache-2.0][license]. The parts in `vscode-base/` that come from
-VS Code keep their MIT license and third-party notices.
+BaseHalf is [Apache-2.0][license]. The parts that come from VS Code keep their
+MIT license (`LICENSE-VS-Code.txt`) and third-party notices.
 
 Contributions require a signed [CLA][cla]. The "BaseHalf" name and logo are
 trademarks of Pointa Labs, Inc. See the [trademark policy][trademark-policy].

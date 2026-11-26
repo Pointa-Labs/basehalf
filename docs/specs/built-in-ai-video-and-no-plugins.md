@@ -247,7 +247,7 @@ What is left is done by the owner:
 
 ## Where this lands
 
-Paths are under `vscode-base/` unless they start with a dot.
+Paths are from the repository's root.
 
 - AI Video's own code since D75: the provider service under
   `src/vs/platform/basehalfProviders/`, and the Video Sequence and starter
@@ -293,4 +293,4 @@ Paths are under `vscode-base/` unless they start with a dot.
 3. VS Code's check that an extension uses only the API proposals it declares
    (`isProposedApiEnabled`) stays as VS Code has it from 1.141.0 on. The
    import commit returned `true` there, so this one line is not the import
-   commit's code (`vscode-base/BASEHALF_UPSTREAM.md`).
+   commit's code (`docs/vscode-upstream.md`).

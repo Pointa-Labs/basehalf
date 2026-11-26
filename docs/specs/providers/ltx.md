@@ -6,7 +6,7 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the LTX module of the provider service
-(`vscode-base/src/vs/platform/basehalfProviders/node/ltx.ts`): the
+(`src/vs/platform/basehalfProviders/node/ltx.ts`): the
 catalog entry it declares for Lightricks' LTX video models, the requests it
 sends, and how it reads LTX's answers. What is the same for every provider
 (the commands, the checks from the declarations, retries, the download, plain
@@ -379,7 +379,7 @@ A 429 that asks to wait (`Retry-After`) says the wait, as the contract has it.
 
 ## Verification
 
-`vscode-base/src/vs/platform/basehalfProviders/test/node/ltx.test.ts` runs the module
+`src/vs/platform/basehalfProviders/test/node/ltx.test.ts` runs the module
 through the provider commands against local servers that answer like LTX's
 API, its upload storage, and the address of a video. No test calls LTX or
 uses a real key.

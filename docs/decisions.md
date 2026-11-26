@@ -1578,7 +1578,7 @@ agreed.
 - The colors of the workbench parts change from the startup colors to the
   theme's: backgrounds, borders, buttons, selection, and focus.
 - About seventy files of the base are now at their 1.141 state while the
-  rest is at 1.128. `vscode-base/BASEHALF_UPSTREAM.md` lists them. An update of
+  rest is at 1.128. `BASEHALF_UPSTREAM.md` (now `docs/vscode-upstream.md`) lists them. An update of
   the whole base takes upstream's version of each.
 - `reference/vscode` holds the source of VS Code 1.141.0. It was a link to
   `vscode-base` before.
@@ -1763,7 +1763,7 @@ base's own: a toolbar at the left end that draws the entries of a menu.
 - The title bar of the VS Code base has a toolbar at its left end,
   `MenuId.TitleBarLeft`. Upstream's title bar has none. An update of the
   whole base has to carry it over
-  (`vscode-base/BASEHALF_UPSTREAM.md`).
+  (`BASEHALF_UPSTREAM.md`, now `docs/vscode-upstream.md`).
 - A user who moves the sidebar to the right finds the control of the Agent
   Area at the left end and the control of the sidebar in the right group.
 - "Focus on document", the name the Card Detail button had, is gone. Hiding
@@ -6067,7 +6067,7 @@ text. All were strengthened and fail now.
 - [Canvas wheel gestures](specs/canvas-wheel-gestures.md) and [the changes of a file](specs/changes-of-a-file.md)
   follow.
 - Two of VS Code's files, the editor service and the status bar, read Card Detail's text editor
-  when no editor pane has one ([`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md)).
+  when no editor pane has one ([the upstream record](vscode-upstream.md)).
 - The card's editor is the canvas's active editor to navigation, as a note's is, so what leaves the
   canvas waits for it to write its text and leave its place.
 - Several cursors take Escape before Card Detail goes. A selection still does not (D119).
@@ -6139,7 +6139,7 @@ left with their packages, and the delay of updates that naming the publishers as
 **Consequences.**
 - The list of built-in extensions moves to `basehalfBuiltInExtensions.ts`, which imports nothing, so that the build
   and the layout check read the same list as the allowlist. Admitting an extension ships it.
-- [`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md) says what a base update does again.
+- [the upstream record](vscode-upstream.md) says what a base update does again.
 - The packaging script runs the layout check before it makes the archive, and keeps the source maps beside it.
 - `npm run watch` runs three watchers. One that was started before this has to be restarted.
 - Revises D76's rule on installing in two points: an agent extension is installed without a signature check, and
@@ -6427,7 +6427,7 @@ Newsreader italic, weight 500, letter-spacing -0.015em. Beside the logo the two 
 tall, half an em before the name, the name's capitals centred on the logo. The words around the name keep their own face.
 In this repository that is the README's wordmark (`docs/assets/readme/wordmark-{light,dark}.png`), the social image
 (`docs/assets/basehalf-social-preview.png`) and the installer's background
-(`vscode-base/build/basehalf/assets/dmg-background{,@2x}.png`, where "Install" stays as it was and the name stands on its
+(`build/basehalf/assets/dmg-background{,@2x}.png`, where "Install" stays as it was and the name stands on its
 baseline, its capitals 1.12 times as tall). The product's own window shows the logo and no name, and does not change.
 
 **Why.** On 2026-11-13 the owner saw the launch film, whose story lines are set in Newsreader italic, and asked that its face
@@ -6801,7 +6801,7 @@ the shown place.
   and forward, Files and Source Control, and the title of the window. No setting changes its class.
 - A page reports the back and forward buttons of a mouse to the window, as it reports its keys: VS Code's page for
   webviews and its element carry the change, with the hash of the page's script
-  ([`BASEHALF_UPSTREAM.md`](../vscode-base/BASEHALF_UPSTREAM.md)).
+  ([the upstream record](vscode-upstream.md)).
 - With the title as it comes, the canvas of a folder inside the workspace is named by the workspace alone. Naming the
   folder there takes `${activeFolderShort}` in the default of `window.title`, which is the product profile's to set.
 - The hover of the title bar's search, which says the search's name and the title of the window as in the base, now names

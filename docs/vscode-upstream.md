@@ -1,7 +1,11 @@
 # BaseHalf VS Code Base
 
-This directory was converted from a submodule into ordinary tracked source on
-2026-06-30 so BaseHalf can develop directly on a VS Code base in this branch.
+The VS Code tree that BaseHalf is built on became ordinary tracked source on
+2026-06-30, converted from a submodule, in the folder `vscode-base/`. On
+2026-11-26 it moved to the root of the repository (D158). Every path below is
+from the root, as it is in VS Code's own repository, so a file of this tree and
+the same file of `reference/vscode` (a local checkout of upstream) share one
+path.
 
 Upstream source:
 
@@ -12,6 +16,25 @@ Upstream source:
 BaseHalf-specific work should happen in this tree as normal product source.
 When updating from upstream VS Code later, use the commit above as the import
 baseline.
+
+## Moved to the repository's root on 2026-11-26
+
+What the move left out or changed, which a base update does not take back:
+
+- Upstream's `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, and
+  `.git-blame-ignore-revs`: BaseHalf's are at the root.
+- Upstream's `.github/` (its workflows, and the instructions, prompts, skills,
+  and agents of its team) and `.agents/`. BaseHalf's `.github/` is at the root.
+- Upstream's `.gitignore`, merged into the root's with BaseHalf's local folders.
+- `LICENSE.txt` is `LICENSE-VS-Code.txt`, which `product.json` names as
+  `licenseFileName`.
+- `build/npm/postinstall.ts` links nothing into `.claude/`.
+- `build/gulpfile.vscode.ts` writes the packaged application inside the
+  repository (`buildRoot`), as it did while the tree was a folder of it.
+- `build/hygiene.ts` lists no JavaScript of `packages/`, and `.eslint-ignore`
+  and the copyright filter leave alone what sits beside the tree.
+- The scripts under `extensions/*/build/` that update grammars and icons were
+  never tracked: a rule of the old root ignored every `build/` folder.
 
 ## Modern UI brought to 1.147 on 2026-11-22
 
