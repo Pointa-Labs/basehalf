@@ -96,7 +96,7 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 
 		// BaseHalf: its gallery is Open VSX, so the file has one. What must not be in it is Microsoft's
 		// Marketplace, which only Microsoft's products may use.
-		if (/marketplace\.visualstudio\.com|vsassets\.io/.test(JSON.stringify(product.extensionsGallery ?? {}))) {
+		if (/marketplace\.visualstudio\.com|vsassets\.io|vscode-unpkg\.net|vscode-cdn\.net/.test(JSON.stringify(product.extensionsGallery ?? {}))) {
 			console.error(`product.json: 'extensionsGallery' names Microsoft's Marketplace`);
 			errorCount++;
 		}

@@ -1,6 +1,6 @@
 * text=auto
 
-LICENSE.txt eol=crlf
+LICENSE-VS-Code.txt eol=crlf
 ThirdPartyNotices.txt eol=crlf
 
 *.bat eol=crlf

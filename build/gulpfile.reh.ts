@@ -39,7 +39,7 @@ const rcedit = promisify(rceditCallback);
 
 const REPO_ROOT = path.dirname(import.meta.dirname);
 const commit = getVersion(REPO_ROOT);
-const BUILD_ROOT = path.dirname(REPO_ROOT);
+const BUILD_ROOT = REPO_ROOT; // BaseHalf: inside the repository (D158)
 const REMOTE_FOLDER = path.join(REPO_ROOT, 'remote');
 
 // Targets

@@ -58,4 +58,7 @@ reference/**
 skills/**
 tmp/**
 basehalf-dist/**
-VSCode-darwin-*/**
+VSCode-*/**
+vscode-reh*/**
+vscode-web/**
+scanbin/**

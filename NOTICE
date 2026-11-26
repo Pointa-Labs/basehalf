@@ -7,3 +7,10 @@ Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 "BaseHalf" and the BaseHalf logo are trademarks of Pointa Labs, Inc. The
 Apache-2.0 license does not grant trademark rights; see docs/trademark-policy.md.
+
+This product is built on Visual Studio Code - Open Source, Copyright (c)
+Microsoft Corporation, which is licensed under the MIT License (see
+LICENSE-VS-Code.txt). A file that carries Microsoft's copyright header is
+under that license; where the header names "License.txt in the project
+root", the file meant is LICENSE-VS-Code.txt. Other material that the source
+incorporates is listed in ThirdPartyNotices.txt.

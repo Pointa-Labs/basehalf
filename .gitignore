@@ -52,9 +52,15 @@ dist
 
 # BaseHalf (D158): what the repository keeps beside the VS Code tree, and local state
 basehalf-dist/
-VSCode-darwin-*/
+# what the build writes, for any system it packages, inside the repository
+/VSCode-*/
+/vscode-reh*/
+/vscode-web/
+/scanbin/
 tmp/
 *.log
+# a fixture of VS Code's colorizing tests, which the rule above would hide
+!/extensions/vscode-colorize-tests/test/colorize-fixtures/test.log
 .env
 .env.*
 # internal docs, a repository of their own, kept locally only
