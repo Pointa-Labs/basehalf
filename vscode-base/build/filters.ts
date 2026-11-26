@@ -225,6 +225,10 @@ export const copyrightFilter = Object.freeze<string[]>([
 
 	// extensions/copilot has its own code style
 	'!extensions/copilot/**',
+
+	// BaseHalf: BaseHalf's license and notice at the repository's root, beside the tree (D158)
+	'!LICENSE',
+	'!NOTICE',
 ]);
 
 export const tsFormattingFilter = Object.freeze<string[]>([

@@ -46,3 +46,16 @@
 src/vs/base/common/lit-html/**
 src/vs/base/common/signals-core/**
 src/vs/workbench/basehalf/markdown/common/vendor/**
+
+# BaseHalf: what sits beside the VS Code tree at the repository's root (D158). The
+# install package has its own linter, and the rest is not code of the tree or not
+# tracked at all (agent worktrees, local reference checkouts, build output).
+.claude/**
+docs/**
+packages/**
+private-docs/**
+reference/**
+skills/**
+tmp/**
+basehalf-dist/**
+VSCode-darwin-*/**

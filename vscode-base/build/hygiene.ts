@@ -52,7 +52,9 @@ export function checkNoNewJavaScriptFiles(repoRoot: string): string | undefined 
 	const env = { ...process.env };
 	delete env.GIT_DIR;
 	delete env.GIT_WORK_TREE;
-	const out = cp.execSync('git ls-files "*.js" "*.cjs" "*.mjs"', {
+	// BaseHalf: `packages/` beside the VS Code tree holds npm packages of the repository's own,
+	// written in JavaScript on purpose (the install command, D156, D158). The rule is the tree's.
+	const out = cp.execSync('git ls-files -- "*.js" "*.cjs" "*.mjs" ":!packages/"', {
 		cwd: repoRoot,
 		env,
 		encoding: 'utf8',
