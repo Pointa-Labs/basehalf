@@ -156,7 +156,7 @@ suite('Suggestion menu corners', () => {
 		});
 
 		// BaseHalf: skipped. The outline of a focused row is the list widget's of 1.147,
-		// which this tree does not have (see BASEHALF_UPSTREAM.md).
+		// which this tree does not have (see docs/vscode-upstream.md).
 		test.skip(`${workbenchClass} ${kind} preserves boundary focus indicators in every theme`, () => {
 			for (const theme of ['vs', 'vs-dark', 'hc-black', 'hc-light']) {
 				const { list, rows } = createList(1, false, theme);

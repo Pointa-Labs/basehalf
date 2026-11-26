@@ -79,7 +79,7 @@ that install that bar do.
 ## Rules
 
 - New behavior on the canvas is a canvas feature in `../../../canvasContrib/`
-  ([code organization](../../../../../../../../docs/harness/code-organization.md)).
+  ([code organization](../../../../../../../docs/harness/code-organization.md)).
   This folder is for what the scene itself draws and does.
 - A component is made by its factory, once per mount. React keeps a
   component's state only while its function stays the same, so a component is

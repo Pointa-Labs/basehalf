@@ -20,7 +20,7 @@ import {
 } from '../../common/basehalfAgentSkill.js';
 
 /** What writes the published copy again after a change of the skill's text. */
-const PUBLISH = 'Run `npm run basehalf:publish-agent-skill` in vscode-base/ and commit what it writes.';
+const PUBLISH = 'Run `npm run basehalf:publish-agent-skill` and commit what it writes.';
 
 /**
  * The copy of the skill that the repository publishes for installers and
@@ -31,8 +31,8 @@ const PUBLISH = 'Run `npm run basehalf:publish-agent-skill` in vscode-base/ and 
 suite('BaseHalf: the repository publishes the agent skill as the application ships it', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	// `out/` is in vscode-base/, which is in the repository.
-	const repository = join(FileAccess.asFileUri('').fsPath, '..', '..');
+	// `out/` is at the repository's root (D158).
+	const repository = join(FileAccess.asFileUri('').fsPath, '..');
 	const inRepository = (...segments: string[]) => join(repository, ...segments);
 	const plugin = (...segments: string[]) => inRepository('skills', ...segments);
 	const json = (file: string) => JSON.parse(readFileSync(file, 'utf8'));

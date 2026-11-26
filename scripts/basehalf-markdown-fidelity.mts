@@ -15,7 +15,7 @@
  * `edited/<file>`: that letter, and the stored form of the blocks typed into
  * alone (note formats, criterion 2).
  *
- * Run from `vscode-base/` after a compile (same prerequisites as
+ * Run from the repository root after a compile (same prerequisites as
  * `npm run basehalf:smoke-no-compile`):
  *
  *     npm run basehalf:fidelity

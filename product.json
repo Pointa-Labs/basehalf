@@ -36,7 +36,7 @@
 	"darwinProfileUUID": "FDFF7C59-68FF-4FC1-AD7A-F2F76E641BFB",
 	"darwinProfilePayloadUUID": "4CE2A904-804D-43EC-A477-5D384FAF66B9",
 	"linuxIconName": "basehalf",
-	"licenseFileName": "LICENSE.txt",
+	"licenseFileName": "LICENSE-VS-Code.txt",
 	"reportIssueUrl": "https://github.com/Pointa-Labs/basehalf/issues/new",
 	"nodejsArtifactFeed": "",
 	"electronArtifactFeed": "",

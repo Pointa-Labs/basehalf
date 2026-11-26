@@ -9,7 +9,7 @@ import { InstallError, Interrupted } from './errors.js';
  * accepts as an update (the install command, "Installing"): the same shape
  * of the manifest, the same message under its signature, the same key, and
  * the same limit on the archive. The application's half is
- * `vscode-base/src/vs/platform/update/node/basehalfUpdateProtocol.ts`.
+ * `src/vs/platform/update/node/basehalfUpdateProtocol.ts`.
  */
 
 /** The address the application's own update reads. */

@@ -256,7 +256,7 @@ function baseHalfBundleVersion(platform: string) {
 }
 
 function packageTask(platform: string, arch: string, sourceFolderName: string, destinationFolderName: string, _opts?: { stats?: boolean }) {
-	const destination = path.join(path.dirname(root), destinationFolderName);
+	const destination = path.join(buildRoot, destinationFolderName); // BaseHalf: inside the repository (D158)
 	platform = platform || process.platform;
 
 	const task = () => {
@@ -585,7 +585,7 @@ async function stripAuthenticodeSignature(filePath: string): Promise<void> {
 }
 
 function patchWin32DependenciesTask(destinationFolderName: string) {
-	const cwd = path.join(path.dirname(root), destinationFolderName);
+	const cwd = path.join(buildRoot, destinationFolderName); // BaseHalf: inside the repository (D158)
 
 	return async () => {
 		const versionedResourcesFolder = util.getVersionedResourcesFolder('win32', commit!);
@@ -623,7 +623,9 @@ function patchWin32DependenciesTask(destinationFolderName: string) {
 	};
 }
 
-const buildRoot = path.dirname(root);
+// BaseHalf: the packaged application is written inside the repository, as it was while the tree
+// was its folder vscode-base/, so that each worktree writes its own (D158).
+const buildRoot = root;
 
 const BUILD_TARGETS = [
 	{ platform: 'win32', arch: 'x64' },

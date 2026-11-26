@@ -14,9 +14,8 @@ import { pathToFileURL } from 'url';
 // files differ from what this writes (`basehalfPublishedAgentSkill.test.ts`).
 //
 // It reads the compiled source, so `npm run basehalf:publish-agent-skill` transpiles first.
-const vscodeBase = path.dirname(import.meta.dirname);
-const repository = path.dirname(vscodeBase);
-const compiled = path.join(vscodeBase, 'out', 'vs', 'workbench', 'basehalf', 'agentArea', 'common', 'basehalfAgentSkill.js');
+const repository = path.dirname(import.meta.dirname);
+const compiled = path.join(repository, 'out', 'vs', 'workbench', 'basehalf', 'agentArea', 'common', 'basehalfAgentSkill.js');
 if (!fs.existsSync(compiled)) {
 	throw new Error(`The compiled source is missing: ${compiled}. Run npm run basehalf:publish-agent-skill, which transpiles first.`);
 }

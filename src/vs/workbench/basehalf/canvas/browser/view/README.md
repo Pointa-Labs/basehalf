@@ -50,7 +50,7 @@ The view and each part that draws elements import their stylesheets from
 - New behavior on the canvas is a canvas feature in `../../../canvasContrib/`,
   which sees only `IBaseHalfCanvasView` (`../basehalfCanvasExtensions.ts`). A
   part is for what the view itself does
-  ([code organization](../../../../../../../../docs/harness/code-organization.md)).
+  ([code organization](../../../../../../../docs/harness/code-organization.md)).
 - A change to one concern goes into its part. When a part needs state that
   only it uses, the state moves into the part.
 - Members of the view and of a part that other files of the view use are

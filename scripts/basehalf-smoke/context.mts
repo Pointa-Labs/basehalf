@@ -12,7 +12,7 @@ import process from 'process';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// vscode-base/, two folders above this module.
+// The repository's root, two folders above this module.
 export const root = path.resolve(__dirname, '..', '..');
 export const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 export const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8'));
@@ -100,7 +100,7 @@ ${[
 		'  --output <path>     Store smoke logs/user-data/crashes in this directory.',
 		'  --packaged-app <path>',
 		'                      Run against a packaged application bundle or folder instead of',
-		'                      the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.',
+		'                      the development build, for example VSCode-darwin-arm64/BaseHalf.app.',
 		'  --keep              Keep the generated temporary directory after the run.',
 		'  --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.'
 	].join('\n')}

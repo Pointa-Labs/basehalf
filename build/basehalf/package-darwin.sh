@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Package + sign a BaseHalf macOS release from the vscode-base tree.
+# Package + sign a BaseHalf macOS release from the repository.
 #
 #   build/basehalf/package-darwin.sh [arm64|x64] [--no-build] [--notes-file path]
 #
 # Steps:
-#   1. gulp vscode-darwin-<arch>-min  →  ../VSCode-darwin-<arch>/BaseHalf.app
+#   1. gulp vscode-darwin-<arch>-min  →  VSCode-darwin-<arch>/BaseHalf.app
 #      (unsigned on purpose: no platform signing identity; release integrity
 #      comes from the Ed25519 chain in sign-update.mjs / the in-app verifier)
 #   2. the layout check               →  stops here if the package holds more than BaseHalf runs
-#   3. ditto-zip the bundle           →  ../basehalf-dist/BaseHalf-<version>-darwin-<arch>.zip
-#   4. sign-update.mjs                →  ../basehalf-dist/update-manifest-darwin-<arch>.json
-#   5. zip the source maps            →  ../basehalf-dist/BaseHalf-<version>-darwin-<arch>-sourcemaps.zip
+#   3. ditto-zip the bundle           →  basehalf-dist/BaseHalf-<version>-darwin-<arch>.zip
+#   4. sign-update.mjs                →  basehalf-dist/update-manifest-darwin-<arch>.json
+#   5. zip the source maps            →  basehalf-dist/BaseHalf-<version>-darwin-<arch>-sourcemaps.zip
 #      (kept to read a stack from a report; not a release asset)
 #
 # Upload the zip + manifest as release assets on the tag v<version>; the
@@ -34,13 +34,13 @@ cd "$ROOT"
 
 VERSION="$(node -p "require('./product.json').basehalfVersion")"
 
-# vscode-base has no .git of its own (it lives inside the basehalf repo), so
-# the build can't derive a commit — but the packaged product.json needs one
-# (the update service is disabled without it). Feed it explicitly.
+# The packaged product.json needs the commit (the update service is disabled
+# without it), and the build's own reading of .git fails in a linked worktree,
+# where .git is a file. Feed it explicitly.
 export BUILD_SOURCEVERSION="${BUILD_SOURCEVERSION:-$(git -C "$ROOT" rev-parse HEAD)}"
-APP_DIR="$(dirname "$ROOT")/VSCode-darwin-${ARCH}"
+APP_DIR="${ROOT}/VSCode-darwin-${ARCH}"
 APP="${APP_DIR}/BaseHalf.app"
-DIST="$(dirname "$ROOT")/basehalf-dist"
+DIST="${ROOT}/basehalf-dist"
 ZIP="${DIST}/BaseHalf-${VERSION}-darwin-${ARCH}.zip"
 
 if [[ "$BUILD" == 1 ]]; then

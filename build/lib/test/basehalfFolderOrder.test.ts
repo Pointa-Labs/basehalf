@@ -18,10 +18,10 @@ const OPTIONS = {
 		'electron-browser': ['workspace', 'canvas', 'cardDetail', 'canvasContrib/*']
 	}
 };
-const ROOT = '/repo/vscode-base/src/vs/workbench/basehalf';
+const ROOT = '/repo/src/vs/workbench/basehalf';
 
 function lint(file: string, specifier: string): string[] {
-	const linter = new Linter({ configType: 'flat', cwd: '/repo/vscode-base' });
+	const linter = new Linter({ configType: 'flat', cwd: '/repo' });
 	const config: Linter.Config[] = [{
 		files: ['**/*.ts'],
 		plugins: { local: { rules: { 'code-basehalf-folder-order': rule } } },
@@ -77,7 +77,7 @@ suite('code-basehalf-folder-order', () => {
 	});
 
 	test('files outside BaseHalf and packages are not checked', () => {
-		assert.deepStrictEqual(lint('/repo/vscode-base/src/vs/workbench/contrib/files/browser/a.ts', '../../../basehalf/canvas/browser/b.js'), []);
+		assert.deepStrictEqual(lint('/repo/src/vs/workbench/contrib/files/browser/a.ts', '../../../basehalf/canvas/browser/b.js'), []);
 		assert.deepStrictEqual(lint('workspace/common/a.ts', 'vs/base/common/uri.js'), []);
 	});
 });

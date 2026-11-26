@@ -11,7 +11,7 @@ Why it exists:
 - `yjs/dist/yjs.mjs` itself imports many bare `lib0/*` modules, so a direct
   relative import to the npm package still fails at Electron runtime.
 
-Regenerate after dependency upgrades from `vscode-base/`:
+Regenerate after dependency upgrades from the repository root:
 
 ```sh
 ./extensions/node_modules/.bin/esbuild node_modules/yjs/dist/yjs.mjs \

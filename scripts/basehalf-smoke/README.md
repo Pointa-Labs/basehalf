@@ -7,14 +7,13 @@ BaseHalf of its own with a fresh fixture workspace. No suite depends on what
 another one did, so a suite can run alone.
 
 ```bash
-cd vscode-base
 npm run basehalf:smoke                                          # compile, then every suite
 npm run basehalf:smoke-no-compile                               # every suite, on the current out/
 npm run basehalf:smoke-no-compile -- --suite canvas,cardDetail  # some suites
 ```
 
 Run the suites of the areas a change touches while working, and the whole
-smoke before delivery ([verification and delivery](../../../docs/harness/verification-and-delivery.md)).
+smoke before delivery ([verification and delivery](../../docs/harness/verification-and-delivery.md)).
 `--keep` keeps each suite's folder, `--output <path>` puts each in
 `<path>/<suite>`, `--packaged-app <path>` runs a packaged application, and
 `--verbose` echoes the window's console. A suite that fails keeps its folder,
@@ -37,7 +36,7 @@ Every suite starts BaseHalf as on a system that shows scroll bars always, as
 the system does by itself while a mouse is attached (`lib/scrollBars.mts`).
 There a scrolling box gives its bar 15 pixels, unless BaseHalf sets its own
 default before it creates a window
-([architecture invariants](../../../docs/harness/architecture-invariants.md#product-shell),
+([architecture invariants](../../docs/harness/architecture-invariants.md#product-shell),
 D127), so a run finds the same with and without a mouse on the machine.
 Before the launch the run sets the key `AppleShowScrollBars` to `Always` in
 the preferences of BaseHalf's application, the one place that outranks the

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workflowDirectory = path.join(repositoryRoot, '.github', 'workflows');
 const workflowFiles = fs.readdirSync(workflowDirectory)
 	.filter(file => /\.ya?ml$/i.test(file))

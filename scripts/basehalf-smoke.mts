@@ -72,7 +72,7 @@ ${[
 		'  --output <path>     Store each suite\'s logs, user data, and crashes in <path>/<suite>.',
 		'  --packaged-app <path>',
 		'                      Run against a packaged application bundle or folder instead of',
-		'                      the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.',
+		'                      the development build, for example VSCode-darwin-arm64/BaseHalf.app.',
 		'  --keep              Keep each suite\'s temporary folder after the run.',
 		'  --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.'
 	].join('\n')}
