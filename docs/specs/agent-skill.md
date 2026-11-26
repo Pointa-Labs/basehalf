@@ -19,8 +19,12 @@ comments, and a comment in the record of what the user selected; version 15,
 2026-11-17, D135: highlights and comments are entries apart, and a comment
 has no color, both in development builds only; version 16, 2026-11-21,
 D147: what a missing record of the selection means, in release 0.7.1;
-version 17, 2026-11-22: the two together)
-Decisions: [D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16),
+version 17, 2026-11-22: the two together; version 18, 2026-11-26, D157:
+what the skill is where BaseHalf is not installed and where BaseHalf is, and
+the repository publishes the same text for installers and directories of
+skills)
+Decisions: [D157](../decisions.md#d157--the-repository-publishes-the-agent-skill-as-the-application-ships-it-new-2026-11-26),
+[D135](../decisions.md#d135--comments-mark-passages-of-pdfs-books-and-notes-and-the-reader-of-a-pdf-is-basehalfs-own-new-2026-11-16),
 [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
@@ -68,6 +72,10 @@ skill, which the user installs and the agent loads when a task calls for it.
   changes the agents' folders again unless the user asks.
 - It works for an agent started anywhere, not only in Agent Area.
 - Where BaseHalf stores a badge does not change.
+- A person who finds the skill outside BaseHalf, in a directory of skills or
+  of plugins, can install it from the repository, gets the text the
+  application ships, and reads in it what it is for and where BaseHalf is
+  ([the published copy](#the-published-copy)).
 
 ## Non-goals
 
@@ -76,14 +84,19 @@ skill, which the user installs and the agent loads when a task calls for it.
 - Telling a running agent session that a badge changed. The skill says to read
   the badge from disk again; nothing is pushed.
 - Writing anything into the workspace.
-- Agents that keep skills in a location other than the two below.
+- Agents that keep skills in a location other than the two below. An
+  installer of skills that a person runs themselves may write elsewhere; the
+  application does not.
+- Sending the skill to a directory, or listing it in one. The repository
+  holds the files; every submission is the owner's own act.
 
 ## The skill
 
 The skill is one folder named `basehalf` that holds one file, `SKILL.md`. Its
 text is part of the application bundle. BaseHalf writes it into a folder of
 its own, which the agents' folders link to
-([where it is installed](#where-it-is-installed)).
+([where it is installed](#where-it-is-installed)). The repository holds the
+same folder with the same bytes ([the published copy](#the-published-copy)).
 
 **Front matter.** The opening `---` is the first line of the file.
 
@@ -115,6 +128,13 @@ its own, which the agents' folders link to
    Without it, only what the skill says about a note's `upstream` list
    applies. Then what a workspace is: the user arranges files and folders as
    cards on a canvas and connects them, and ordinary files are the content.
+   Last, for the agent of a person who installed the skill and not BaseHalf:
+   that only BaseHalf makes `.bh/`, when it shows a folder as a canvas; that
+   having the skill makes no folder a workspace; and what BaseHalf is and
+   where it is, `https://basehalf.com`, with its source at
+   `https://github.com/Pointa-Labs/basehalf`. These are statements. The text
+   does not tell an agent to recommend BaseHalf, to make `.bh/`, or to say
+   anything of BaseHalf in a folder that has none.
 2. **A card's badge.**
    - *Description*: one line on what the item is for, under `description` in
      `.bh/mirror/<path>/badge.yaml`, where `<path>` is the item's path
@@ -386,6 +406,98 @@ format, and no hidden folder.
   the other folders that BaseHalf keeps on the machine. Remove Agent Skill
   takes them away.
 
+## The published copy
+
+The repository holds the skill where installers and directories of skills
+look for one, so that a person can find it and install it without BaseHalf
+(D157). How the application installs the skill does not change: the
+application reads nothing of this from the repository, and it installs
+through no installer, directory, or marketplace.
+
+**What the repository holds.**
+
+| Path | What it is |
+| --- | --- |
+| `skills/basehalf/SKILL.md` | The skill. The only file of its folder. |
+| `skills/.claude-plugin/plugin.json` | Makes the folder `skills/` a Claude Code plugin named `basehalf`, whose one skill is `./basehalf`. |
+| `skills/README.md` | What the skill is for, that it does nothing without a BaseHalf workspace, where BaseHalf is, and the commands that install it. At least 40 words. |
+| `skills/LICENSE` | The repository's license, the same bytes. |
+| `.claude-plugin/marketplace.json` | A marketplace named `basehalf` with one plugin, `basehalf`, whose source is `./skills`. |
+
+- `skills/` is the plugin folder and not the repository's root, because an
+  agent copies the whole plugin folder when it installs a plugin: the folder
+  holds these files and nothing else, no link and no file of the system's.
+- The folder `skills/basehalf/` holds `SKILL.md` and nothing else. An
+  installer copies the folder whole, and the application takes over a copy
+  only when it holds nothing but BaseHalf's `SKILL.md`
+  ([installing and removing](#installing-and-removing)).
+- The front matter's `name` is the folder's name, `basehalf`, which the
+  installers require.
+- The repository's root gains no `CLAUDE.md` or `AGENTS.md` text for this,
+  and `skills/` is not a workspace: it has no `.bh/`.
+
+**One text.** The text of the skill is written once, in the source that the
+application bundles (`BASEHALF_AGENT_SKILL_MARKDOWN`).
+
+- `skills/basehalf/SKILL.md` holds exactly those bytes.
+- The plugin's `version` is the skill's version followed by `.0.0`, so
+  version 18 of the text is plugin version `18.0.0`. An agent takes a new
+  copy of a plugin when its version changes, and the version of the text
+  changes whenever the text does.
+- `npm run basehalf:publish-agent-skill`, in `vscode-base/`, writes the
+  three derived things from the compiled source: `SKILL.md`, the `version`
+  of `plugin.json`, and `skills/LICENSE`.
+- A unit test reads the files of the repository and fails when one of them
+  differs from what that command writes, and names the command.
+- The published copy is therefore the text of the source at that commit. It
+  can be ahead of the last release, as a development build's text is.
+
+**What a person gets who installs it without BaseHalf.**
+
+- The files of the skill in their agent's folders, and nothing else:
+  no application, no `.bh/`, no change to any folder of theirs. An installer
+  of skills copies `skills/basehalf/`; Claude Code, installing the plugin,
+  keeps a copy of `skills/` among its own plugins.
+- In a folder without `.bh/` the skill does nothing, and its text says so:
+  only BaseHalf makes `.bh/`, having the skill makes no folder a workspace,
+  and BaseHalf is at `https://basehalf.com` (section 1 of
+  [the body](#the-skill)). The plugin's `README.md` says the same to the
+  person.
+- In a folder with `.bh/`, such as a repository that someone who uses
+  BaseHalf shares, the skill works in full without the application, as it
+  does while BaseHalf is closed. The record of what the user selected is
+  missing then, which the text covers.
+- Their copy follows the repository when they update it with the tool they
+  installed it with, not a release of BaseHalf.
+
+**When that person installs BaseHalf.** The rules above already cover a copy
+that BaseHalf did not link, and nothing is added for it:
+
+- A copy in an agent's own folder is a folder (**copy**), or a link to
+  another place (**other**). The skill is not installed for BaseHalf until an
+  entry is linked, so BaseHalf writes no record of the selection, the status
+  bar entry says that agents cannot see the selection, and BaseHalf
+  [offers](#offer) the skill: Update when no entry is missing, and Install
+  otherwise.
+- Install or Update replaces a link to another place by the link to
+  BaseHalf's own copy, and a folder that holds nothing but BaseHalf's
+  `SKILL.md` too. From then on the skill follows each release.
+- The plugin is among Claude Code's own plugins, where BaseHalf never looks.
+  A person who has both has the skill twice in Claude Code, as `basehalf`
+  and as `basehalf:basehalf`, with the same text or a release apart; removing
+  the plugin is theirs to do.
+
+**The commands**, as the repository's README and the plugin's README give
+them:
+
+- `npx skills add Pointa-Labs/basehalf`, for the open installer of skills,
+  which finds `skills/basehalf/SKILL.md`.
+- `claude plugin install basehalf --marketplace Pointa-Labs/basehalf`, for
+  Claude Code. Claude Code clones the repository to read the marketplace
+  file; `claude plugin marketplace add Pointa-Labs/basehalf --sparse
+  .claude-plugin skills`, which the plugin's README gives beside it, fetches
+  the two folders only.
+
 ## Agent Area sessions
 
 A Claude Code session that Agent Area starts still receives launch context.
@@ -416,8 +528,10 @@ the user's home folder.
    contains every line of the launch instruction's shared sections, and has
    fewer than 500 lines. It names no `.bhnode` and no `--run-node`. It gives
    the forms of section 6, each spelled as the writer of formats of a note
-   writes it, and section 8 on comments, last. Its version is `17`. Unit
-   test.
+   writes it, and section 8 on comments, last. Its first section says that
+   only BaseHalf makes `.bh/`, that having the skill makes no folder a
+   workspace, and where BaseHalf is, and tells the agent to recommend
+   nothing. Its version is `18`. Unit test.
 2. Installing writes BaseHalf's own copy with exactly the bundled bytes and
    links both entries to its folder, creating missing folders. The states
    are missing before and linked after. An earlier copy of BaseHalf's text
@@ -469,6 +583,25 @@ the user's home folder.
 10. Checked in the real window, not automated, because the smoke's driver
     shows no notification over the window: the offer is still there 30
     seconds after it appeared, with the window in front.
+11. The published copy. `skills/basehalf/SKILL.md` of the repository holds
+    exactly the bundled bytes and is the only entry of its folder.
+    `skills/.claude-plugin/plugin.json` names the plugin `basehalf`, gives
+    the version of the text followed by `.0.0`, and lists `./basehalf` as
+    its skill. `.claude-plugin/marketplace.json` has a `name`, an `owner`,
+    and one plugin, `basehalf`, with the source `./skills`. `skills/LICENSE`
+    holds the bytes of the repository's license, and `skills/README.md` at
+    least 40 words, among them `.bh/`, `https://basehalf.com/download`, and
+    both commands, which the repository's README gives too. `skills/` holds
+    these entries and no other, none of them a link. A failure names `npm run basehalf:publish-agent-skill`. Unit test
+    on the files of the repository.
+12. Recorded once per change of the published layout, not automated
+    ([recorded trials](#recorded-trials)): Claude Code's own check of a
+    plugin and of a marketplace passes on `skills/` and on the repository's
+    root, and the open installer of skills lists `basehalf` for the
+    repository.
+13. Not checked until the files are on GitHub's default branch: an install
+    by either command from `Pointa-Labs/basehalf`, and a listing in any
+    directory.
 
 ## Recorded trials
 
@@ -487,6 +620,26 @@ Claude Code's documentation says that a personal entry follows a link as a
 project entry does; the trial used the project's folder, so that nothing was
 written into the machine's own skill folders. One run of each is a small
 sample.
+
+**The published layout, 2026-11-26 (criterion 12).** On the files of the
+working tree, before they were on GitHub. Nothing was installed and nothing
+was sent to a directory.
+
+| Check | Result |
+| --- | --- |
+| Claude Code 2.1.332, `claude plugin validate ./skills --strict` | Passed. The plugin provides one skill, `basehalf:basehalf`. |
+| The same with `--profile directory`, the checks of the catalog that plugins are submitted to | Passed with one warning: the plugin has no icon. |
+| `claude plugin validate . --strict`, the marketplace file at the root | Passed. |
+| The open installer of skills 1.9.0, `skills add <the working tree> --list`, with its telemetry turned off | Found 1 skill, `basehalf`, with the bundled description. |
+
+- The catalog takes a plugin's icon once, at the first submission, and a
+  later change does not reach the listing. The plugin holds no icon: which
+  picture stands for BaseHalf there is the owner's choice, made before the
+  first submission (a square PNG of 512 to 2048 pixels at
+  `skills/.claude-plugin/icon.png`, which criterion 11 then lists).
+- The catalog runs a safety scan and a review that the command does not.
+- An install itself was not run, by either tool: it writes into the agents'
+  folders of the machine.
 
 The trials below are of version 1 of the skill text, which told agents to
 move files through `basehalf.workspace.move`. Version 2 says that ordinary
