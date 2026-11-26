@@ -206,6 +206,15 @@ Codex command-line tools. When you open a folder, BaseHalf offers to install a
 small skill that tells them how to read a canvas. It is added to the agents'
 own settings, not to your folder.
 
+The same skill is in this repository, under [`skills/`](skills/), for an agent
+on a computer without BaseHalf. It does nothing outside a folder that BaseHalf
+has shown:
+
+```bash
+npx skills add Pointa-Labs/basehalf                                # any agent that reads skills
+claude plugin install basehalf --marketplace Pointa-Labs/basehalf  # Claude Code, as a plugin
+```
+
 BaseHalf updates itself. It is early and changes quickly; every release is
 described on the [releases page][releases].
 

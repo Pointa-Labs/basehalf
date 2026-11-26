@@ -1,0 +1,17 @@
+{
+  "name": "basehalf",
+  "description": "The agent skill of BaseHalf, a desktop app that opens a folder as a canvas beside your agents.",
+  "owner": {
+    "name": "Pointa Labs",
+    "url": "https://basehalf.com"
+  },
+  "plugins": [
+    {
+      "name": "basehalf",
+      "source": "./skills",
+      "description": "Work in a BaseHalf workspace: what a file is for, what it builds on, and what the user selected. Does nothing in a folder without .bh/.",
+      "homepage": "https://basehalf.com",
+      "license": "Apache-2.0"
+    }
+  ]
+}
