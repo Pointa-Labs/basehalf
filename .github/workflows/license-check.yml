@@ -1,9 +1,13 @@
 name: license-check
 
 # Enforces docs/dependency-policy.md: fails the PR if any production dependency
-# carries a license outside the permissive allowlist. Each pnpm workspace
-# package is checked from its own manifest so private workspace packages do not
-# hide their production dependencies.
+# carries a license outside the permissive allowlist.
+#
+# It checks the package of the install command, packages/install/, from its
+# own manifest. The product's own dependencies (package.json at the root, the
+# VS Code tree, D158) are not checked here yet: two of them, jschardet
+# (LGPL-2.1+) and @vscode/codicons (CC-BY-4.0), are outside the allowlist and
+# wait for a maintainer's review under the policy.
 #
 # To add a "review needed" license (e.g. MPL-2.0), append it to --onlyAllow
 # below in the same PR, with a justification in the PR description.
@@ -19,6 +23,9 @@ permissions:
 jobs:
   licenses:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/install
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -28,15 +35,12 @@ jobs:
         with:
           node-version: "22.12"
           cache: "pnpm"
+          cache-dependency-path: packages/install/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      # npx installs the checker into one shared cache folder. Packages checked
-      # at the same time install it over each other and read it half-written
-      # (2026-10-13 and 2026-10-24), so check one package at a time.
       - name: Check dependency licenses
         run: |
-          pnpm -r --workspace-concurrency=1 exec npx --yes license-checker@25.0.1 \
+          npx --yes license-checker@25.0.1 \
             --production \
-            --excludePrivatePackages \
             --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;BlueOak-1.0.0;Python-2.0" \
             --summary

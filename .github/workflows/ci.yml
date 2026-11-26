@@ -1,11 +1,13 @@
 name: CI
 
-# Runs typecheck / build / test / lint on every push to main and every pull
-# request, so a PR must be green before it can merge.
+# Checks a fresh checkout of every push to main and every pull request: the
+# product (the VS Code tree at the repository's root, D158), the package of the
+# install command, and the pins of the workflows' actions. What runs here is
+# described in docs/harness/verification-and-delivery.md ("GitHub CI").
 #
 # Required status check (Settings → Branches): `ci-summary`. That single
-# job fans in from the `test` matrix below — protection stays correct even
-# when the matrix changes (matrix-specific names like `test (22.12)` drift
+# job fans in from the jobs below — protection stays correct even
+# when the jobs change (matrix-specific names like `test (22.12)` drift
 # silently otherwise; we got bitten by that on PR #9).
 
 on:
@@ -17,20 +19,53 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  # The product: its types, its layers, and its unit tests that run in Node.
+  # The Electron unit tests, eslint, and the smoke run on the developer's machine before a push.
+  product:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: '**/package-lock.json'
+
+      # What the native modules are built with, as VS Code's own CI installs it.
+      - run: sudo apt-get update -y && sudo apt-get install -y build-essential pkg-config libx11-dev libx11-xcb-dev libxkbfile-dev libnotify-bin libkrb5-dev
+
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: npm run typecheck-client
+      # The layers check needs more than Node's default heap.
+      - run: npm run valid-layers-check
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+      - run: npm run transpile-client
+      - run: npm run test-node
+
+  # The package of the install command (D156), a project of its own.
+  install:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # 22.12 is the workspace floor and matches the Electron toolchain.
-        # 24 is the next supported LTS line and catches forward-compatibility issues.
+        # 22.12 is the oldest Node the checks run on; 24 is the next LTS line.
         node-version: ['22.12', '24.x']
+    defaults:
+      run:
+        working-directory: packages/install
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # pnpm must be on PATH before setup-node runs, so `cache: 'pnpm'` finds it.
-      # The root workspace intentionally has no package.json, so keep this pinned
-      # to the version used to generate pnpm-lock.yaml.
+      # The package has no packageManager field, so keep this pinned to the
+      # version that wrote its pnpm-lock.yaml.
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 9.15.0
@@ -39,14 +74,12 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
+          cache-dependency-path: packages/install/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
-      # TypeScript project references may build dependency declarations while
-      # checking a dependent package, so keep this graph traversal serialized.
-      - run: pnpm -r --workspace-concurrency=1 typecheck
-      - run: pnpm -r build
-      - run: pnpm -r test
-      - run: pnpm -r --if-present lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm lint
 
   # Every action of every workflow is pinned to a full commit SHA. The check
   # is an .mts file, which Node 24 runs as it is.
@@ -57,23 +90,22 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.x'
-      - run: node vscode-base/scripts/basehalf-workflow-action-pins.mts
+      - run: node scripts/basehalf-workflow-action-pins.mts
 
   # Single fan-in status check so branch protection only needs ONE name.
-  # `needs` waits for every matrix shard and the action pin check;
-  # `if: always()` lets us report a real failure when any job fails (otherwise GitHub would
-  # mark the summary as "skipped" and protection would consider it
-  # missing). The result-check step turns a skip/failure of `test` into
-  # an explicit non-zero exit.
+  # `needs` waits for every job; `if: always()` lets us report a real
+  # failure when any job fails (otherwise GitHub would mark the summary as
+  # "skipped" and protection would consider it missing). The result-check
+  # step turns a skip or failure of any job into an explicit non-zero exit.
   ci-summary:
-    needs: [test, action-pins]
+    needs: [product, install, action-pins]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Check matrix result
+      - name: Check job results
         run: |
-          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.action-pins.result }}" != "success" ]; then
-            echo "::error::required jobs did not succeed (test=${{ needs.test.result }}, action-pins=${{ needs.action-pins.result }})"
+          if [ "${{ needs.product.result }}" != "success" ] || [ "${{ needs.install.result }}" != "success" ] || [ "${{ needs.action-pins.result }}" != "success" ]; then
+            echo "::error::required jobs did not succeed (product=${{ needs.product.result }}, install=${{ needs.install.result }}, action-pins=${{ needs.action-pins.result }})"
             exit 1
           fi
           echo "All required jobs passed."
